@@ -1,0 +1,107 @@
+# Builds Paramix Studio on GitHub.
+#
+# The repository holds the project unpacked (build.js in the root). For older
+# setups a single .zip of the project in the root works too: it is unpacked
+# first.
+#
+# Result:
+#   1. A GitHub release "vX.Y.Z" (from the file VERSION) with
+#      ParamixStudio-vX.Y.Z.html to download. Building the same version again
+#      replaces the file in that release. Releases do not count against the
+#      Actions storage.
+#   2. Optional: the page on GitHub Pages. Enable it once under
+#      Settings > Pages > Source: "GitHub Actions". Without that the step is
+#      skipped and the release is made anyway.
+#
+# No ROMs are needed and none are uploaded.
+name: Paramix Studio
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: paramix-studio
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the source
+        uses: actions/checkout@v4
+
+      - name: Find the project
+        run: |
+          set -e
+          if [ -f build.js ]; then
+            echo "PROJECT=." >> "$GITHUB_ENV"
+          else
+            echo "PROJECT=project" >> "$GITHUB_ENV"
+            ZIP=$(ls -1 *.zip 2>/dev/null | head -n1 || true)
+            if [ -z "$ZIP" ]; then echo "Neither build.js nor a .zip in the root."; exit 1; fi
+            echo "Unpacking $ZIP"
+            mkdir -p project
+            unzip -o -q "$ZIP" -d project
+            if [ ! -f project/build.js ]; then
+              DIR=$(find project -maxdepth 3 -name build.js -printf '%h\n' | head -n1)
+              if [ -z "$DIR" ]; then echo "build.js not found in the zip"; exit 1; fi
+              cp -a "$DIR"/. project/
+            fi
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Self test (no ROM needed)
+        working-directory: ${{ env.PROJECT }}
+        run: node test/unit_test.js
+
+      - name: Build
+        working-directory: ${{ env.PROJECT }}
+        run: node build.js
+
+      - name: Read the version
+        id: ver
+        run: echo "version=$(tr -d '[:space:]' < "$PROJECT/VERSION")" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          TAG="v${{ steps.ver.outputs.version }}"
+          cp "$PROJECT/dist/ParamixStudio.html" "ParamixStudio-$TAG.html"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists, replacing the file."
+            gh release upload "$TAG" "ParamixStudio-$TAG.html" --clobber
+          else
+            gh release create "$TAG" "ParamixStudio-$TAG.html" \
+              --title "Paramix Studio $TAG" \
+              --notes "Download and open in Chrome or Edge. Runs locally, your ROM is never uploaded. Changes: see CHANGELOG.md."
+          fi
+
+      - name: Prepare the page for GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ env.PROJECT }}/dist
+          retention-days: 1
+
+  pages:
+    needs: build
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Publish on GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

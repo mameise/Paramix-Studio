@@ -1,0 +1,29 @@
+# Your own files never go into the repository: dumps, firmware, WADs, download content.
+# Only the binaries built from the sources here are allowed.
+*.bin
+*.BIN
+!emu/emu.bin
+!emu/stub_tpl.bin
+!doom/doom_app.bin
+!doom/doom_xip.bin
+!feld/feld.bin
+!feld/stub_feld_tpl.bin
+!flash/flashapp.bin
+*.wad
+*.WAD
+*.jpg
+*.JPG
+*.wasm
+!doom/mcuwad.wasm
+# build output
+dist/
+*.o
+*.elf
+*.map
+feld/src/feld/menu_host
+doom/src/pdoom/dev/obj/
+# tools
+node_modules/
+__pycache__/
+.DS_Store
+Thumbs.db

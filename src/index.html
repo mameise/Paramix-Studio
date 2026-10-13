@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paramix Studio</title>
+<meta name="description" content="Sprites of Paradise ROM dumps: export, edit, import, save. Runs locally in the browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%233bb3e0'/%3E%3Cpath d='M3 6h4v3H3z' fill='%238ee07a'/%3E%3Ccircle cx='5' cy='9' r='1.6' fill='%23ff5fa2'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #e7f0f8; --panel: #ffffff; --ink: #1d2a44; --soft: #5b6b86; --line: #c9d7e6;
+  --pink: #ff5fa2; --pink-ink: #ffffff; --sky: #3bb3e0; --grass: #7fd86b; --warn: #d9480f;
+  --check-a: #f3f8fc; --check-b: #dde9f4; --radius: 14px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111a2c; --panel: #1a2540; --ink: #e8eef8; --soft: #9fb0cc; --line: #2c3a5c;
+    --check-a: #1f2b48; --check-b: #18223a; --grass: #5bbf4a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111a2c; --panel: #1a2540; --ink: #e8eef8; --soft: #9fb0cc; --line: #2c3a5c;
+  --check-a: #1f2b48; --check-b: #18223a; --grass: #5bbf4a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 15px/1.5 "M PLUS Rounded 1c", "Segoe UI", system-ui, sans-serif;
+}
+button, select, input { font: inherit; color: inherit; }
+img, canvas { image-rendering: pixelated; }
+:focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
+
+/* top bar */
+.bar {
+  position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+  padding: 10px 20px; background: var(--panel); border-bottom: 2px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 20px; letter-spacing: -0.01em; }
+.planet { width: 28px; height: 28px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #8fe0ff, var(--sky) 55%, #1d7fb0); position: relative; flex: none; }
+.planet::after { content: ""; position: absolute; left: -3px; top: 13px; width: 9px; height: 7px; border-radius: 50%; background: var(--pink); }
+.romname { color: var(--soft); font-size: 13px; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spacer { flex: 1; }
+.btn {
+  border: 2px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 14px; cursor: pointer; font-weight: 700;
+}
+.btn:hover { border-color: var(--sky); }
+.btn.primary { background: var(--pink); border-color: var(--pink); color: var(--pink-ink); }
+.btn.primary:hover { filter: brightness(1.05); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.small { padding: 3px 10px; font-size: 13px; }
+.lang { display: flex; border: 2px solid var(--line); border-radius: 999px; overflow: hidden; }
+.lang button { border: 0; background: none; padding: 4px 10px; cursor: pointer; font-weight: 700; color: var(--soft); }
+.lang button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+
+/* start screen */
+.start { max-width: 760px; margin: 48px auto; padding: 0 16px; }
+.start h1 { font-size: 34px; line-height: 1.15; margin: 0 0 10px; font-weight: 800; letter-spacing: -0.02em; }
+.start p { color: var(--soft); margin: 0 0 12px; max-width: 64ch; }
+.drop {
+  margin-top: 26px; border: 3px dashed var(--line); border-radius: 24px; padding: 40px 20px 0; text-align: center; cursor: pointer;
+  background: var(--panel); overflow: hidden;
+}
+.drop.over { border-color: var(--pink); }
+.drop strong { display: block; font-size: 20px; }
+.drop span { color: var(--soft); font-size: 14px; }
+.drop .ground { height: 46px; margin: 26px -20px 0; position: relative;
+  background: conic-gradient(var(--check-a) 25%, var(--check-b) 0 50%, var(--check-a) 0 75%, var(--check-b) 0) 0 0 / 16px 16px;
+  border-bottom: 10px solid var(--grass); }
+.drop .ground::after { content: ""; position: absolute; left: calc(50% - 14px); bottom: 0; width: 28px; height: 24px; border-radius: 50% 50% 40% 40%;
+  background: #ffe98a; box-shadow: inset 0 0 0 2px var(--ink); }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-top: 26px; }
+.fact { background: var(--panel); border-radius: var(--radius); padding: 14px 16px; border: 2px solid var(--line); font-size: 14px; color: var(--soft); }
+.fact b { display: block; color: var(--ink); font-size: 15px; margin-bottom: 2px; }
+
+.emustat { margin: 6px 4px; font-weight: 700; white-space: pre-line; }
+.dlcgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin: 8px 4px; }
+.dlcbox { border: 2px solid var(--line); border-radius: 10px; padding: 6px 8px; font-size: 13px; }
+.dlcbox h4 { margin: 0 0 4px; font-size: 14px; }
+.dlcrow { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 1px 0; }
+.dlcrow.free { color: var(--soft); }
+.dlcrow button { font-size: 11px; padding: 0 6px; }
+/* workspace */
+.work { display: none; }
+.work.on { display: block; }
+.info { display: flex; flex-wrap: wrap; gap: 6px 22px; padding: 12px 20px 0; font-size: 14px; color: var(--soft); }
+.info b { color: var(--ink); }
+.meter { width: 160px; height: 8px; border-radius: 4px; background: var(--line); display: inline-block; vertical-align: middle; overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--sky); }
+.meter.full i { background: var(--warn); }
+.tabs { display: flex; gap: 6px; padding: 14px 20px 0; flex-wrap: wrap; }
+.tab { border: 0; background: none; padding: 8px 14px; border-radius: 12px 12px 0 0; cursor: pointer; font-weight: 700; color: var(--soft); }
+.tab[aria-selected="true"] { background: var(--panel); color: var(--ink); }
+.pane { background: var(--panel); margin: 0 20px 24px; border-radius: 0 var(--radius) var(--radius) var(--radius); padding: 16px; min-height: 60vh; }
+.tools { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin-bottom: 14px; }
+.tools .hint { color: var(--soft); font-size: 13px; }
+.check { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; }
+
+/* overview of the new ROM */
+.plan { margin: 12px 20px 0; padding: 12px 14px; background: var(--panel); border-radius: var(--radius); border: 2px solid var(--line); }
+.plan-h { font-weight: 800; margin-bottom: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-bottom: 10px; }
+.chip { border-radius: 999px; padding: 2px 10px; font-size: 13px; border: 2px solid var(--line); color: var(--soft); }
+.chip b { color: var(--ink); }
+.chip.new { border-color: var(--pink); }
+.chip.keep { border-color: var(--sky); }
+.chip.del { border-color: var(--warn); text-decoration: line-through; }
+.flash { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--line); }
+.seg { display: block; height: 100%; }
+.seg.fw, .dot.fw { background: #8a9bb8; } .seg.doom, .dot.doom { background: #d9480f; } .seg.emu, .dot.emu { background: var(--sky); }
+.seg.slots, .dot.slots { background: var(--grass); } .seg.save, .dot.save { background: #b38be0; } .seg.free, .dot.free { background: transparent; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line); }
+.device { margin-bottom: 12px; }
+.device .tools { margin: 8px 0; }
+.devinfo { font-weight: 700; }
+.legend { display: flex; flex-wrap: wrap; gap: 2px 16px; font-size: 12px; color: var(--soft); margin-top: 6px; }
+.rule { font-size: 13px; color: var(--soft); margin-top: 6px; }
+.keys h3 { margin: 14px 0 8px; font-size: 15px; }
+.keygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px 14px; margin-bottom: 10px; }
+.keygrid label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--soft); }
+.hint.bad { color: var(--warn); font-weight: 700; }
+@media (max-width: 640px) { .plan { margin: 10px 8px 0; } }
+/* tiles: each sprite stands on a strip of grass */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px; }
+.tile {
+  border: 2px solid transparent; border-radius: 12px; padding: 0; cursor: pointer; text-align: center; background: none; position: relative;
+}
+.tile:hover, .tile.sel { border-color: var(--sky); }
+.tile .stage {
+  height: 104px; display: flex; align-items: flex-end; justify-content: center; border-radius: 10px 10px 0 0;
+  background: conic-gradient(var(--check-a) 25%, var(--check-b) 0 50%, var(--check-a) 0 75%, var(--check-b) 0) 0 0 / 16px 16px;
+  border-bottom: 5px solid var(--grass); overflow: hidden;
+}
+.tile canvas { max-width: 100%; max-height: 100%; }
+.tile .cap { font-size: 12px; color: var(--soft); padding: 3px 0 4px; }
+.tile .cap b { color: var(--ink); }
+.tile.changed::after { content: ""; position: absolute; top: 6px; right: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--pink); }
+
+/* detail drawer */
+.drawer {
+  position: fixed; inset: 0 0 0 auto; width: min(760px, 100vw); background: var(--panel); border-left: 2px solid var(--line);
+  z-index: 10; transform: translateX(100%); transition: transform .18s ease-out; display: flex; flex-direction: column;
+}
+.drawer.open { transform: none; }
+@media (prefers-reduced-motion: reduce) { .drawer { transition: none; } }
+.drawer header { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 2px solid var(--line); }
+.drawer header h2 { margin: 0; font-size: 18px; flex: 1; }
+.drawer .body { padding: 16px 18px; overflow: auto; flex: 1; }
+.drawer .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.sheetwrap {
+  overflow: auto; border-radius: 10px; border: 2px solid var(--line); max-height: 60vh;
+  background: conic-gradient(var(--check-a) 25%, var(--check-b) 0 50%, var(--check-a) 0 75%, var(--check-b) 0) 0 0 / 16px 16px;
+}
+.zoom { display: inline-flex; gap: 4px; }
+.meta { font-size: 13px; color: var(--soft); margin: 10px 0 0; }
+.meta li { margin: 2px 0; }
+.scrim { position: fixed; inset: 0; background: rgba(10, 20, 40, .35); z-index: 9; display: none; }
+.scrim.on { display: block; }
+
+/* card */
+.dimgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px; }
+.assign { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 14px 0; padding: 12px; border-radius: 12px; background: var(--bg); }
+.eyeed { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; margin: 0 0 16px; }
+.eyecv { cursor: crosshair; border-radius: 10px; border: 2px solid var(--line);
+  background: conic-gradient(var(--check-a) 25%, var(--check-b) 0 50%, var(--check-a) 0 75%, var(--check-b) 0) 0 0 / 16px 16px; max-width: 100%; }
+.eyeed > div { flex: 1; min-width: 220px; }
+select { border: 2px solid var(--line); border-radius: 10px; padding: 5px 8px; background: var(--panel); }
+
+/* messages */
+.toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); background: var(--ink); color: var(--panel); padding: 10px 18px; border-radius: 12px; z-index: 20; max-width: min(640px, 92vw); font-size: 14px; display: none; white-space: pre-line; }
+.toast.on { display: block; }
+.toast.err { background: var(--warn); color: #fff; }
+.busy { position: fixed; inset: 0; z-index: 30; display: none; place-items: center; background: rgba(10, 20, 40, .25); }
+.busy.on { display: grid; }
+.busy div { background: var(--panel); padding: 16px 22px; border-radius: 14px; font-weight: 700; }
+footer { color: var(--soft); font-size: 12px; text-align: center; padding: 10px 16px 24px; }
+footer .legal { max-width: 760px; margin: 6px auto 0; }
+.devwarn { color: var(--warn); font-weight: 700; margin: 4px 0; }
+@media (max-width: 640px) {
+  .bar { padding: 10px 16px; }
+  .pane { margin: 0 8px 16px; padding: 12px; }
+  .tabs, .info { padding-left: 16px; padding-right: 16px; }
+  .grid, .dimgrid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
+}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="brand"><span class="planet" aria-hidden="true"></span>Paramix Studio</div>
+  <span class="romname" id="romname"></span>
+  <span class="spacer"></span>
+  <button class="btn" id="btnDevice" data-t="device"></button>
+  <button class="btn" id="btnOpen" data-t="open"></button>
+  <button class="btn primary" id="btnSave" data-t="save" disabled></button>
+  <div class="lang" role="group" aria-label="Language">
+    <button data-lang="de" aria-pressed="false">DE</button><button data-lang="en" aria-pressed="false">EN</button>
+  </div>
+</div>
+<input type="file" id="fileRom" hidden accept=".bin,.BIN">
+<input type="file" id="fileSheets" hidden multiple accept=".png,.zip">
+<input type="file" id="fileOne" hidden accept=".png">
+<input type="file" id="fileDim" hidden accept=".bin,.BIN">
+<input type="file" id="fileEmu" hidden accept=".bin,.BIN">
+<input type="file" id="fileDlc" hidden multiple accept=".jpg,.JPG,.jpeg,.bin">
+<input type="file" id="fileWad" hidden accept=".wad,.WAD">
+
+<main>
+  <section class="plan device" id="device" hidden>
+    <div class="plan-h" data-t="devTitle"></div>
+    <p class="hint" data-t="devHint"></p>
+    <p class="devwarn" data-t="devWarn"></p>
+    <div class="tools">
+      <button class="btn small" id="btnConn" data-t="devConnect"></button>
+      <span class="devinfo" id="devInfo"></span>
+    </div>
+    <div class="tools">
+      <button class="btn small" id="btnDump" data-t="devDump" disabled></button>
+      <button class="btn small primary" id="btnWrite" data-t="devWrite" disabled></button>
+      <label class="check"><input type="checkbox" id="devOnly" checked> <span data-t="devOnly"></span></label>
+      <label class="check"><input type="checkbox" id="devKeep" checked> <span data-t="devKeep"></span></label>
+      <button class="btn small" id="btnDevStop" data-t="devStop" hidden></button>
+    </div>
+    <div class="flash"><span class="seg emu" id="devBar" style="width:0"></span></div>
+    <p class="emustat" id="devStat"></p>
+  </section>
+
+  <section class="start" id="start">
+    <h1 data-t="startTitle"></h1>
+    <p data-t="startText"></p>
+    <div class="drop" id="drop" tabindex="0" role="button">
+      <strong data-t="dropTitle"></strong>
+      <span data-t="dropText"></span>
+      <div class="ground"></div>
+    </div>
+    <div class="facts">
+      <div class="fact"><b data-t="f1t"></b><span data-t="f1"></span></div>
+      <div class="fact"><b data-t="f2t"></b><span data-t="f2"></span></div>
+      <div class="fact"><b data-t="f3t"></b><span data-t="f3"></span></div>
+    </div>
+  </section>
+
+  <section class="work" id="work">
+    <div class="info" id="info"></div>
+    <div class="plan" id="plan"></div>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="figs" aria-selected="true" data-t="tabFigs"></button>
+      <button class="tab" role="tab" data-tab="all" aria-selected="false" data-t="tabAll"></button>
+      <button class="tab" role="tab" data-tab="dim" aria-selected="false" data-t="tabDim"></button>
+      <button class="tab" role="tab" data-tab="emu" aria-selected="false" data-t="tabEmu"></button>
+      <button class="tab" role="tab" data-tab="doom" aria-selected="false" data-t="tabDoom"></button>
+      <button class="tab" role="tab" data-tab="feld" aria-selected="false" data-t="tabFeld"></button>
+    </div>
+    <div class="pane" id="pane-figs">
+      <div class="tools">
+        <button class="btn small" id="btnZipFigs" data-t="zipFigs"></button>
+        <button class="btn small" id="btnUpload" data-t="upload"></button>
+        <button class="btn small" id="btnNumbers" data-t="numbers"></button>
+        <span class="hint" data-t="figHint"></span>
+      </div>
+      <div class="grid" id="gridFigs"></div>
+    </div>
+    <div class="pane" id="pane-all" hidden>
+      <div class="tools">
+        <button class="btn small" id="btnZipAll" data-t="zipAll"></button>
+        <button class="btn small" id="btnUpload2" data-t="upload"></button>
+        <label class="check"><input type="checkbox" id="optColors"> <span data-t="moreColors"></span></label>
+        <span class="hint" data-t="allHint"></span>
+      </div>
+      <div class="grid" id="gridAll"></div>
+    </div>
+    <div class="pane" id="pane-dim" hidden>
+      <div class="tools">
+        <button class="btn small" id="btnDim" data-t="dimLoad"></button>
+        <span class="hint" data-t="dimHint"></span>
+      </div>
+      <div id="dimArea"></div>
+    </div>
+    <div class="pane" id="pane-emu" hidden>
+      <div class="tools">
+        <button class="btn small" id="btnEmu" data-t="emuPick"></button>
+        <button class="btn small" id="btnEmuOff" data-t="emuOff" hidden></button>
+        <span class="hint" data-t="emuHint"></span>
+      </div>
+      <p class="emustat" id="emuStat"></p>
+      <div id="emuDlc" hidden>
+        <div class="tools">
+          <button class="btn small" id="btnDlc" data-t="dlcPick"></button>
+          <span class="hint" data-t="dlcHint"></span>
+        </div>
+        <div class="dlcgrid" id="dlcList"></div>
+      </div>
+    </div>
+    <div class="pane" id="pane-doom" hidden>
+      <div class="tools">
+        <button class="btn small" id="btnWad" data-t="doomPick"></button>
+        <label class="check"><span data-t="doomEp"></span> <select id="doomEp"></select></label>
+        <label class="check"><input type="checkbox" id="doomMusic" checked> <span data-t="doomMusic"></span></label>
+        <button class="btn small" id="btnDoomOff" data-t="doomOff" hidden></button>
+        <span class="hint" data-t="doomHint"></span>
+      </div>
+      <p class="emustat" id="doomStat"></p>
+      <div class="keys" id="doomKeys" hidden>
+        <h3 data-t="keysTitle"></h3>
+        <div class="keygrid">
+          <label><span data-t="kFire"></span><select id="kFire"></select></label>
+          <label><span data-t="kFwd"></span><select id="kFwd"></select></label>
+          <label><span data-t="kBack"></span><select id="kBack"></select></label>
+          <label><span data-t="kUse"></span><select id="kUse"></select></label>
+          <label><span data-t="kMod"></span><select id="kMod"></select></label>
+        </div>
+        <div class="tools">
+          <label class="check"><input type="checkbox" id="kRun"> <span data-t="kRun"></span></label>
+          <label class="check"><input type="checkbox" id="kInv"> <span data-t="kInv"></span></label>
+        </div>
+        <p class="hint" id="keysStat"></p>
+      </div>
+    </div>
+    <div class="pane" id="pane-feld" hidden>
+      <div class="tools">
+        <label class="check"><input type="checkbox" id="feldOn"> <span data-t="feldOn"></span></label>
+        <label class="check"><input type="checkbox" id="bagOn"> <span data-t="bagOn"></span></label>
+        <span class="hint" data-t="feldHint"></span>
+      </div>
+      <p class="emustat" id="feldStat"></p>
+    </div>
+  </section>
+</main>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <header><h2 id="dTitle"></h2><button class="btn small" id="dClose" data-t="close"></button></header>
+  <div class="body">
+    <div class="actions">
+      <button class="btn small" id="dDown" data-t="download"></button>
+      <button class="btn small" id="dUp" data-t="uploadOne"></button>
+      <button class="btn small" id="dReset" data-t="reset"></button>
+      <span class="zoom"><button class="btn small" data-z="1">1×</button><button class="btn small" data-z="2">2×</button><button class="btn small" data-z="3">3×</button></span>
+    </div>
+    <div class="sheetwrap"><canvas id="dCanvas"></canvas></div>
+    <ul class="meta" id="dMeta"></ul>
+  </div>
+</aside>
+<div class="toast" id="toast" role="status"></div>
+<div class="busy" id="busy"><div data-t="working"></div></div>
+<footer>Paramix Studio __VERSION__. <span data-t="footer"></span><p class="legal" data-t="disclaimer"></p><p class="legal" data-t="trademarks"></p></footer>
+
+<script>
+__CORE__
+</script>
+<script>
+__EMU__
+</script>
+<script>
+__DOOM__
+</script>
+<script>
+__FELD__
+</script>
+<script>
+__FLASH__
+</script>
+<script>
+__APP__
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+*r_fast_stuff.o(.text* .rodata*)
+*libgcc.a:*(.text*)
+*libc_a-memcpy*.o(.text*)
+*libc_a-memset*.o(.text*)
+*i_main.o(.text*)
+*m_fixed.o(.text*)
