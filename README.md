@@ -162,3 +162,4 @@ or later, see [LICENSE](LICENSE). It builds on the work of others, see
   and the S1C33 SLEIGH definition by GMMan.
 
 Made by mameise.
+! Supported by AI !
