@@ -4,14 +4,17 @@ A tool for the Tamagotchi Paradise that runs in your browser. Open a dump of the
 device (the 16 MB flash image), change it, save a new ROM and write it back to
 the device over a UART dongle.
 
-- **Characters:** export every character as an image sheet, edit it in any paint
-  program, upload it again.
 - **TamaEmu:** build an emulator for colour Tamagotchis into the ROM. You bring
   your own firmware (4 MB or 8 MB). Download content (food, clothes, games ...)
-  can be added for the 8 MB firmware.
+  can be added for the 8 MB firmware. Optionally starts when the Paradise is
+  switched on.
 - **DOOM:** build DOOM into the ROM from your own DOOM.WAD.
+- **More fields:** Land, Water and Sky on Tropical and Glacier, Sky on Jade
+  Forest, with pictures, special characters and the matching planet.
 - **Menu:** an on-device menu to switch fields, put items in the bag and set
   Tamapoints.
+- **Characters:** export every character as an image sheet, edit it in any paint
+  program, upload it again. Digimon from DIM cards too.
 - **Device:** read the ROM from the device and write a new one, only the parts
   that changed, keeping the saves on the device.
 
@@ -78,6 +81,12 @@ screen to start, hold the wheel to go back (the state is saved and continues
 next time). To start over from the Tamagotchi's own save instead, release A
 and C and press the wheel within the first 3 seconds: the saved session is
 dropped and you are back on the Paradise; the next start begins fresh.
+
+Start when switched on (tick in the Emulator tab): after power-on the
+Paradise starts the emulator right away. Holding the wheel goes back to the
+Paradise, which stays there, also when its screen goes dark. A and C, the
+reset button or a battery change bring the emulator back. Hold B while the
+Paradise starts to skip the emulator once.
 
 Updating the emulator: open your ROM with the emulator in a newer Studio and
 save it (do not choose the firmware again). Only the emulator program is

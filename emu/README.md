@@ -43,6 +43,16 @@ Leaving with a long press does not save the session if the core stopped or
 guest writes were lost. Pressing the wheel within the first 3 seconds after a
 resumed start drops the saved session.
 
+## Autostart
+
+With "Start when switched on" the stub decides once per boot, at the first
+home screen call. Mailbox word 0x20000FFC survives a restart and the reset
+button but not the Paradise's deep sleep: "PMXL" (written by the emulator when
+going back) keeps the Paradise, "PMXR" (written by the stub) means a restart
+while running, so the emulator starts. Without either, the seconds counter
+0x45000304 tells power-on (counter new) from waking up (counter ran). The
+"decided" flag is the UsageFault priority byte, which every reset clears.
+
 ## Clock
 
 Each millisecond of the Paradise runs the guest for one millisecond of its

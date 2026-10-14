@@ -244,6 +244,7 @@ static void push_dirty(Emu *e){
 static void leave_go(int save){
   hw_tone(0);
   REG(0x20000FF8u)=0;                    /* start counter of the home hooks */
+  REG(0x20000FFCu)=0x4C584D50u;          /* "PMXL": back on purpose, the autostart of the stub stays off (v0.9.4) */
   if(save)
 #ifdef DBGLEAVE
   g_st[15]=0x1EA0;
@@ -672,6 +673,13 @@ void Reset_Handler(void){
     { static int lock=1;                    /* wait for the start buttons (A+C) to be released */
       g_st[14]=b | ((u32)lock<<8);
       if(lock){ if(b) b=0; else lock=0; } }
+    /* v0.9.5: guest screen dark right after the start (its own screen saver ran out while the clock
+     * caught up, often after the autostart): one short press of C wakes it, like the user would.
+     * Only once, only after resuming a session, in the first 8 s, while dark and nothing is pressed. */
+    { static u32 t0, wk_ms; static int wk;
+      if(!t0) t0=now?now:1;
+      if(wk==0){ if(g_restored && !g_bl && !b && now-t0>1000u) { wk=1; wk_ms=now; } else if(now-t0>8000u) wk=2; }
+      if(wk==1){ if(now-wk_ms<150u) b|=BTN_C; else wk=2; } }
     periph_buttons(e,(uint8_t)(b&7));
     /* v0.9.2: wheel within the first 3 s after resuming a saved session: throw the session away
      * and go back to the Paradise. The next start begins fresh from the Tamagotchi's own save. */

@@ -2,6 +2,25 @@
 
 Versions are listed newest first.
 
+## 1.2.10 (2026-10-14)
+
+- Start page: describes everything the Studio does (TamaEmu, DOOM, more fields, menu, device, characters) instead of only the character sheets.
+
+## 1.2.9 (2026-10-14)
+
+- TamaEmu: if the screen of the Tamagotchi is dark right after resuming (its own screen saver ran out while the clock caught up, often after the autostart), the emulator presses C once to wake it. Only in the first seconds after the start and only while the screen is dark.
+- Emulator program v0.9.5.
+
+## 1.2.8 (2026-10-14)
+
+- TamaEmu autostart: going back with a long press now keeps the Paradise, also after its screen went dark (deep sleep). The emulator comes back with A and C, the reset button, or after the battery was out. Holding B while the Paradise starts skips the emulator.
+- Emulator program v0.9.4 (tells the stub that you went back on purpose).
+
+## 1.2.7 (2026-10-14)
+
+- TamaEmu: new switch "Start when switched on". After power-on the Paradise goes straight into the emulator. Holding the wheel goes back to the Paradise as before and it stays there until the next power-on (A and C start the emulator again). Holding B while switching on skips the emulator once.
+- Stub: the original home screen handlers now sit at a fixed place in both stub variants. Menus of older versions are still recognised.
+
 ## 1.2.6 (2026-10-14)
 
 - TamaEmu: updating keeps the save. A ROM that already has the emulator gets the new emulator program when it is saved, without choosing the firmware again. Written with "Keep saves", the Tamagotchi's save, its items and the saved session stay on the device.

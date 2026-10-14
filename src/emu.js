@@ -23,7 +23,7 @@ const GUEST_OFF = 0x940000, GUEST_END = 0xD40000;
 const APP_MAX = 0x10000;
 const PMXC = 0x43584D50;
 // Placeholders in the prebuilt stub (stub_tpl.bin)
-const PH_APP = 0x1234ABCD, PH_ORIG = [0x22222221, 0x33333331, 0x44444441, 0x55555551];
+const PH_APP = 0x1234ABCD, PH_AUTO = 0x66666661, PH_ORIG = [0x22222221, 0x33333331, 0x44444441, 0x55555551];
 const HOOK_OFF = [0x40, 0x46, 0x4C, 0x52];
 const DEVICES = {
   pc:  { kind: 0, size: 0x400000, label: '4 MB', par: 0x3F },
@@ -113,6 +113,7 @@ function installStub(out, tab, prev, stubTpl) {
   const put = (ph, v) => { let n = 0; for (let i = 0; i + 4 <= st.length; i += 2) if (u32(st, i) === ph) { w32(st, i, v); n++; } if (n !== 1) throw new Error('launcher template does not fit'); };
   put(PH_APP, xip(APP_OFF));
   PH_ORIG.forEach((ph, k) => put(ph, origs[k]));
+  for (let i = 0; i + 4 <= st.length; i += 2) if (u32(st, i) === PH_AUTO) w32(st, i, 0);   // autostart off, see autoSet
   out.fill(0xFF, STUB_OFF, STUB_OFF + 0x1000);
   out.set(st, STUB_OFF);
   HOOK_OFF.forEach((h, k) => w32(out, tab.PSID_HOME + 12 + 4 * k, (xip(STUB_OFF) + h) | 1));
@@ -195,6 +196,42 @@ function emuUpgrade(rom, app) {
   out.fill(0x00, APP_OFF, APP_OFF + APP_MAX);
   out.set(a, APP_OFF);
   return out;
+}
+
+/*
+ * Autostart (v1.2.7): the stub holds a word (0/1, placeholder PH_AUTO in the template).
+ * stubs = [[offset in the ROM, template], ...]. The ROM's stub must match the template
+ * everywhere except the placeholder words.
+ */
+const PH_ALL = [PH_APP, 0x6789EF01, PH_AUTO, ...PH_ORIG];
+function autoAt(rom, stubs) {
+  for (const [off, tpl] of stubs) {
+    if (off < 0 || off + tpl.length > rom.length) continue;
+    let at = -1, ok = true;
+    const skip = new Set();
+    for (let i = 0; i + 4 <= tpl.length; i += 2) { const w = u32(tpl, i); if (PH_ALL.includes(w)) { for (let k = 0; k < 4; k++) skip.add(i + k); if (w === PH_AUTO) at = i; } }
+    if (at < 0) continue;
+    for (let i = 0; i < tpl.length && ok; i++) if (!skip.has(i) && rom[off + i] !== tpl[i]) ok = false;
+    if (ok && u32(rom, off + at) <= 1) return off + at;
+  }
+  return -1;
+}
+// Stubs of 1.2.7 (autostart once per power-on): only read, the Studio puts in the current one
+const STUB_127 = ['crYA8IW4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAN/4UMAu4N/4UMAr4N/4TMAo4N/4TMAl4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACEiIiIxMzMzQURERFFVVVUt6Q9QFEgBaBRKUrEUShNoFEiDQgXQEGAR9ABvAdD/952/DUgQShNoEfTAbw/RGAxO8qFxiEID0EDyAAPO8qFzATMTYJiyWii/9IivAeAAIxNgvegPUGBHAIABQGFmZmb8DwAgQVJQQfgPACBytk/wikNI8kECGmAEItpgT/SAAdpoRCoB0AE5+tENSAAhT/SAMlD4BDtB+AQ7BDr50b/zT4+/82+PB0gAIQFgBkgBaAH04GEFShFDAWC/80+P/ufNqzQSCO0A4AztAOAEAPoF', 'crYBTADwirjNqzQSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAN/4UMAu4N/4UMAr4N/4TMAo4N/4TMAl4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACEiIiIxMzMzQURERFFVVVUt6Q9QFkgBaBZKUrEWShNoFkiDQgXQEGAR9ABvAdD/952/D0gSShNoEfTAbxPRGAxO8qFxiEID0EDyAAPO8qFzATMTYJiyWigH0wpMACw/9IWvcrYQ4AAjE2C96A9QYEcAgAFAYWZmZvwPACBBUlBB+A8AIAHviWdytk/wikNI8kECGmAEItpgT/SAAdpoRCoB0AE5+tEgRgAhT/SAMlD4BDtB+AQ7BDr50b/zT4+/82+PBkgAIQFgBUgBaAH04GEEShFDAWC/80+P/ucI7QDgDO0A4AQA+gU='];
+function legacyStubs(stubs) {
+  const out = [];
+  for (const [off] of stubs) for (const t of STUB_127) out.push([off, b64(t)]);
+  return out;
+}
+/** Autostart setting of the ROM: true, false, or null (stub without the switch). */
+function autoGet(rom, stubs) { const a = autoAt(rom, stubs); return a < 0 ? null : u32(rom, a) === 1; }
+/** Was the autostart on in a stub of 1.2.7? */
+function autoGetOld(rom, stubs) { const a = autoAt(rom, legacyStubs(stubs)); return a >= 0 && u32(rom, a) === 1; }
+/** Set the autostart word. Returns a new image, or null if the stub has no such word. */
+function autoSet(rom, stubs, on) {
+  const a = autoAt(rom, stubs);
+  if (a < 0) return null;
+  const out = new Uint8Array(rom); w32(out, a, on ? 1 : 0); return out;
 }
 
 /** Remove the emulator again (home screen back to the original handlers). */
@@ -324,6 +361,6 @@ function embedded() {
   return { app: b64(EMU_APP_B64), stub: b64(EMU_STUB_B64) };
 }
 
-root.ParamixEmu = { installApp, dlcStores, dlcRoute, dlcAdd, dlcFree, dlcSlots, dlcRecord, dlcPut, dlcName, emuDetect, sceneTable, packGuest, emuPatch, emuUpgrade, emuRemove, installedOrigs, embedded, DEVICES, GUEST_OFF };
+root.ParamixEmu = { installApp, dlcStores, dlcRoute, dlcAdd, dlcFree, dlcSlots, dlcRecord, dlcPut, dlcName, emuDetect, sceneTable, packGuest, emuPatch, emuUpgrade, emuRemove, autoGet, autoGetOld, autoSet, STUB_OFF, installedOrigs, embedded, DEVICES, GUEST_OFF };
 if (typeof module !== 'undefined') module.exports = root.ParamixEmu;
 })(typeof window !== 'undefined' ? window : globalThis);

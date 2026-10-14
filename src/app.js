@@ -13,13 +13,20 @@ const $ = (id) => document.getElementById(id);
 const T = {
   de: {
     open: 'ROM öffnen', save: 'Neues ROM speichern',
-    startTitle: 'Eigene Figuren für dein Paradise',
-    startText: 'Lade ein Paradise-Abbild (16 MB Flash-Dump). Du bekommst jede Figur als Bild-Sheet, bearbeitest sie in deinem Malprogramm und lädst sie wieder hoch. Am Ende speicherst du ein neues ROM.',
+    startTitle: 'Mehr aus deinem Tamagotchi Paradise',
+    startText: 'Paramix Studio baut dein eigenes Paradise-ROM um. Lade dein Paradise-Abbild (16 MB Flash-Dump) oder lies es direkt vom Gerät aus, wähl aus, was dazukommen soll, und schreib das neue ROM zurück.',
+    featHead: 'Was du damit machen kannst',
+    g1t: 'TamaEmu: Farb-Tamas auf dem Paradise', g1: 'Tamagotchi iD L oder Plus Color laufen auf dem Paradise, mit Spielstand und Uhr, auf Wunsch gleich beim Einschalten. Die Firmware bringst du selbst mit.',
+    g2t: 'DOOM', g2: 'DOOM spielen auf dem Paradise, mit Musik und eigener Tastenbelegung. Die WAD bringst du selbst mit.',
+    g3t: 'Mehr Felder', g3: 'Tropical und Glacier bekommen Land, Water und Sky dazu, Jade Forest bekommt Sky. Mit Bildern, Spezialfiguren und passendem Planeten.',
+    g4t: 'Menü auf dem Gerät', g4: 'Felder wechseln, Items in die Tasche legen und Tamapoints setzen, direkt am Paradise mit A und C.',
+    g5t: 'Gerät auslesen und beschreiben', g5: 'Mit einem USB-UART-Dongle das ROM sichern und das neue zurückschreiben. Spielstände bleiben, nur Geändertes wird geschrieben.',
+    g6t: 'Eigene Figuren', g6: 'Jede Figur als Bild-Sheet zum Bearbeiten, auch Digimon von DIM-Karten. Farben und Augen werden automatisch angepasst.',
     dropTitle: 'ROM hierher ziehen oder klicken',
     dropText: 'Land, Water, Sky, Jade Forest, Tropical und Glacier werden erkannt.',
     f1t: 'Bleibt bei dir', f1: 'Das ROM wird nirgends hochgeladen. Alles läuft in diesem Browserfenster, auch ohne Internet.',
-    f2t: 'Sheets mit festem Raster', f2: 'Jede Zelle hat ihre feste Stelle. Durchsichtig bleibt durchsichtig, Farben werden automatisch auf die Palette gebracht.',
-    f3t: 'Prüfung beim Speichern', f3: 'Prüfsummen werden neu gerechnet und jedes geänderte Bild wird vor dem Speichern noch einmal gelesen.',
+    f2t: 'Nichts Fremdes dabei', f2: 'Paramix Studio enthält kein ROM, keine Firmware und keine WAD. Alles kommt von deinen eigenen Geräten und Dateien.',
+    f3t: 'Geprüft', f3: 'Prüfsummen werden neu gerechnet, geänderte Bilder vor dem Speichern noch einmal gelesen und jeder geschriebene Sektor auf dem Gerät gegengelesen.',
     planTitle: 'Dein neues ROM', planFig: 'Figuren', planEmu: 'Emulator', planDoom: 'DOOM', planMenu: 'Menü',
     stNone: 'nicht dabei', stKeep: 'bleibt', stNew: 'neu', stDel: 'wird entfernt', stChanged: '{n} geändert', stSame: 'unverändert',
     segFw: 'Firmware und Figuren', segEmu: 'Emulator', segDoom: 'DOOM', segSlots: 'Spielstände der Felder', segSave: 'Spielstand', segFree: 'frei',
@@ -70,7 +77,7 @@ const T = {
     emuPick: 'Firmware wählen', emuOff: 'Emulator entfernen',
     emuHint: 'Baut einen Emulator für Farb-Tamas ins ROM. Die Firmware (4 MB oder 8 MB) bringst du selbst mit.',
     emuUse: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Zurück: Rad lange drücken (speichert). Neu beginnen: A und C loslassen und in den ersten 3 Sekunden das Rad drücken.',
-    emuNone: 'Kein Emulator gewählt.', emuHas: 'In diesem ROM ist ein Emulator eingebaut.', emuUp: 'Beim Speichern kommt die neue Emulator-Version hinein. Mit "Spielstände behalten" bleibt der Spielstand.',
+    emuNone: 'Kein Emulator gewählt.', emuAuto: 'Beim Einschalten starten', emuAutoHint: 'Rad lange drücken: zurück ins Paradise, es bleibt dort. Wieder in den Emulator: A und C oder Reset-Knopf.', emuHas: 'In diesem ROM ist ein Emulator eingebaut.', emuUp: 'Beim Speichern kommt die neue Emulator-Version hinein. Mit "Spielstände behalten" bleibt der Spielstand.',
     emuOk: 'Firmware erkannt ({size}). Sie wird beim Speichern eingebaut.', emuBad: 'Firmware nicht erkannt: {e}',
     emuGone: 'Emulator wird beim Speichern entfernt.', emuMissing: 'In dieser Ausgabe fehlt das Emulator-Programm.',
     emuFail: 'Emulator nicht eingebaut: {e}', savedEmu: 'Gespeichert: {name}',
@@ -114,13 +121,20 @@ const T = {
   },
   en: {
     open: 'Open ROM', save: 'Save new ROM',
-    startTitle: 'Your own characters for Paradise',
-    startText: 'Load a Paradise dump (16 MB flash image). Every character comes out as an image sheet, you edit it in any paint program and upload it again. Then save a new ROM.',
+    startTitle: 'Get more out of your Tamagotchi Paradise',
+    startText: 'Paramix Studio rebuilds your own Paradise ROM. Load your Paradise dump (16 MB flash image) or read it straight from the device, pick what to add, and write the new ROM back.',
+    featHead: 'What you can do',
+    g1t: 'TamaEmu: colour tamas on the Paradise', g1: 'Tamagotchi iD L or Plus Color run on the Paradise, with their save and clock, and if you like right when it is switched on. Bring your own firmware.',
+    g2t: 'DOOM', g2: 'Play DOOM on the Paradise, with music and your own key layout. Bring your own WAD.',
+    g3t: 'More fields', g3: 'Tropical and Glacier get Land, Water and Sky, Jade Forest gets Sky. With pictures, special characters and the matching planet.',
+    g4t: 'Menu on the device', g4: 'Switch fields, put items in the bag and set Tamapoints, right on the Paradise with A and C.',
+    g5t: 'Read and write the device', g5: 'Back up the ROM and write the new one with a USB UART dongle. Saves are kept, only changes are written.',
+    g6t: 'Your own characters', g6: 'Every character as an image sheet to edit, Digimon from DIM cards too. Colours and eyes are fitted automatically.',
     dropTitle: 'Drop a ROM here or click',
     dropText: 'Land, Water, Sky, Jade Forest, Tropical and Glacier are recognised.',
     f1t: 'Stays on your computer', f1: 'The ROM is never uploaded. Everything runs in this browser tab, even offline.',
-    f2t: 'Sheets with a fixed grid', f2: 'Every cell has a fixed place. Transparent stays transparent, colours are fitted to the palette automatically.',
-    f3t: 'Checked on save', f3: 'Checksums are recalculated and every changed image is read back before saving.',
+    f2t: 'Nothing borrowed inside', f2: 'Paramix Studio contains no ROM, no firmware and no WAD. Everything comes from your own devices and files.',
+    f3t: 'Checked', f3: 'Checksums are recalculated, changed images are read back before saving and every sector written to the device is verified.',
     planTitle: 'Your new ROM', planFig: 'Characters', planEmu: 'Emulator', planDoom: 'DOOM', planMenu: 'Menu',
     stNone: 'not included', stKeep: 'stays', stNew: 'new', stDel: 'will be removed', stChanged: '{n} changed', stSame: 'unchanged',
     segFw: 'Firmware and characters', segEmu: 'Emulator', segDoom: 'DOOM', segSlots: 'Field saves', segSave: 'Save', segFree: 'free',
@@ -161,7 +175,7 @@ const T = {
     emuPick: 'Choose firmware', emuOff: 'Remove emulator',
     emuHint: 'Builds an emulator for colour tamas into the ROM. Bring your own firmware (4 MB or 8 MB).',
     emuUse: 'Start: hold A and C together on the home screen. Back: hold the wheel (saves). Start over: release A and C and press the wheel within the first 3 seconds.',
-    emuNone: 'No emulator chosen.', emuHas: 'This ROM contains an emulator.', emuUp: 'Saving puts in the new emulator version. With "Keep saves" the save stays.',
+    emuNone: 'No emulator chosen.', emuAuto: 'Start when switched on', emuAutoHint: 'Hold the wheel: back to the Paradise, it stays there. Back into the emulator: A and C, or the reset button.', emuHas: 'This ROM contains an emulator.', emuUp: 'Saving puts in the new emulator version. With "Keep saves" the save stays.',
     emuOk: 'Firmware recognised ({size}). It is built in on save.', emuBad: 'Firmware not recognised: {e}',
     emuGone: 'The emulator is removed on save.', emuMissing: 'This build does not contain the emulator program.',
     emuFail: 'Emulator not built in: {e}', savedEmu: 'Saved: {name}',
@@ -344,6 +358,7 @@ async function loadRom(file) {
   $('romname').textContent = file.name;
   state.emu = null; state.emuRemove = false; state.doom = null; state.doomKeys = null; state.six = null; state.sixName = ''; state.sixWant = false;
   { const si = S6.sixInfo(buf); state.sixPlanet = si && si.version >= 5 ? si.planet : true; }
+  { const l = stubList(buf); const g = E.autoGet(buf, l); state.emuAuto = g === null ? E.autoGetOld(buf, l) : g; }
   { const fe = F.embedded(), f = fe && F.feldFind(buf, fe.stub);
     state.feld = !!(f && (f.flags & F.F_FIELDS)); state.bag = !!(f && (f.flags & F.F_BAG));
     state.feldInit = state.feld; state.bagInit = state.bag;
@@ -726,7 +741,7 @@ function renderPlan() {
   const st = (on, isNew, old, extra) => on ? (isNew ? t('stNew') : t('stKeep')) + (extra ? ', ' + extra : '') : (old ? t('stDel') : t('stNone'));
   const chips = [
     [t('planFig'), state.changed.size ? t('stChanged', { n: state.changed.size }) : t('stSame'), state.changed.size ? 'new' : 'keep'],
-    [t('planEmu'), emuUpPending() ? t('stUpd') : st(emuOn, !!state.emu, kind === 2, state.emu ? E.DEVICES[state.emu.dev].label : ''), state.emu || emuUpPending() ? 'new' : emuOn ? 'keep' : kind === 2 ? 'del' : 'off'],
+    [t('planEmu'), (emuUpPending() || emuAutoDirty()) ? t('stUpd') : st(emuOn, !!state.emu, kind === 2, state.emu ? E.DEVICES[state.emu.dev].label : ''), state.emu || emuUpPending() || emuAutoDirty() ? 'new' : emuOn ? 'keep' : kind === 2 ? 'del' : 'off'],
     [t('planDoom'), st(doomOn, !!state.doom, kind === 1, state.doom ? 'E' + $('doomEp').value + ($('doomMusic').checked ? ' + ' + t('doomMusic') : '') : ''), state.doom ? 'new' : doomOn ? 'keep' : kind === 1 ? 'del' : 'off'],
   ];
   const menuOn = state.feld || state.bag, parts = [state.feld ? t('feldOn') : '', state.bag ? t('bagOn') : ''].filter(Boolean).join(', ');
@@ -768,6 +783,14 @@ function appInstalled() {
 }
 function emuInstalled() { return appInstalled() === 2; }
 function doomInstalled() { return appInstalled() === 1; }
+/* Where the stub can sit: the emulator's own at 0x0B0000, or the menu's (also elsewhere) */
+function stubList(rom) {
+  const ee = E.embedded(), fe = F.embedded(), l = [];
+  if (ee) l.push([E.STUB_OFF, ee.stub]);
+  if (fe) { l.push([E.STUB_OFF, fe.stub]); const f = F.feldFind(rom, fe.stub); if (f && f.stubOff !== E.STUB_OFF) l.push([f.stubOff, fe.stub]); }
+  return l;
+}
+function emuAutoDirty() { return emuInstalled() && !state.emu && !state.emuRemove && !state.doom && !!E.autoGet(state.ctx.rom, stubList(state.ctx.rom)) !== !!state.emuAuto; }
 function emuUpPending() {
   const emb = E.embedded();
   if (state.emu || state.emuRemove || state.doom || !emb || !emuInstalled()) return false;
@@ -790,6 +813,8 @@ function renderEmu() {
   if (!room) s = t('noRoomApp');
   else if (!state.emu && (state.doom || (doomInstalled() && !state.emuRemove))) s += '\n' + t('emuVsDoom');
   $('emuStat').textContent = s;
+  $('emuAutoRow').hidden = !(state.emu || (has && !state.emuRemove)) || !!state.doom;
+  $('emuAuto').checked = !!state.emuAuto;
   renderPlan();
   const big = state.emu && state.emu.dev === 'idl';
   $('emuDlc').hidden = !big;
@@ -835,6 +860,7 @@ $('fileEmu').onchange = async (e) => {
   catch (err) { toast(t('emuBad', { e: em(err) }), true); }
   renderEmu();
 };
+$('emuAuto').onchange = (e) => { state.emuAuto = e.target.checked; renderEmu(); };
 $('btnEmuOff').onclick = () => { state.emu = null; state.emuRemove = true; renderEmu(); };
 
 // ---------------------------------------------------------------- DOOM
@@ -1006,7 +1032,7 @@ async function composeRom() {
   const keysDirty = !state.doom && doomInstalled() && state.doomKeys && D.doomKeysGet(state.ctx.rom) && JSON.stringify(state.doomKeys) !== JSON.stringify(D.doomKeysGet(state.ctx.rom));
   const si0 = S6.sixInfo(state.ctx.rom), sixUp = !!si0 && (si0.version < S6.VERSION || si0.planet !== state.sixPlanet) && !S6.sixNeedsSource(state.ctx.rom);
   const emuUp = emuUpPending();
-  if (!state.changed.size && !state.emu && !state.emuRemove && !state.doom && !keysDirty && !emuUp && !state.six && !sixUp && !(state.sixWant && !S6.sixInfo(state.ctx.rom)) && state.feld === state.feldInit && state.bag === state.bagInit && !state.feldStale) return { rom: state.ctx.rom, name: state.name, res: null, same: true };
+  if (!state.changed.size && !state.emu && !state.emuRemove && !state.doom && !keysDirty && !emuUp && !emuAutoDirty() && !state.six && !sixUp && !(state.sixWant && !S6.sixInfo(state.ctx.rom)) && state.feld === state.feldInit && state.bag === state.bagInit && !state.feldStale) return { rom: state.ctx.rom, name: state.name, res: null, same: true };
   const fe = F.embedded(), feldSaved = fe ? F.feldSlots(state.ctx.rom, fe.stub) : [];
   if (state.emu && state.doom) { toast(t('doomBoth'), true); return null; }
   if (state.doom && state.doomKeys && D.doomKeysCheck(state.doomKeys)) { toast(em(D.doomKeysCheck(state.doomKeys)), true); return null; }
@@ -1054,6 +1080,16 @@ async function composeRom() {
   if (fe && (state.feld || state.bag)) {
     try { rom = F.feldApply(rom, { fields: state.feld, bag: state.bag }, feldSaved, { feld: fe.feld, stub: fe.stub }, E); }
     catch (e) { toast(t('feldFail', { e: em(e) }), true); return null; }
+  }
+  // autostart of the emulator (the stubs above were written with it off)
+  if (F.appKind(rom) === 2) {
+    let a = E.autoSet(rom, stubList(rom), !!state.emuAuto);
+    const fe2 = F.embedded();
+    // stub of an older Studio (no switch): put in the current one
+    if (!a && state.emuAuto && E.embedded() && !(fe2 && F.feldFind(rom, fe2.stub))) {
+      try { rom = E.installApp(rom, rom.slice(0xA0000, 0xB0000), E.embedded().stub); a = E.autoSet(rom, stubList(rom), true); } catch (e) { a = null; }
+    }
+    if (a) rom = a;
   }
   const name = baseName() + (state.changed.size ? '_paramix' : '') + (state.emu ? '_emu' : '') + (state.doom ? '_doom_E' + $('doomEp').value : '') + (S6.sixInfo(rom) ? (S6.kindOf(rom) === 'jade' ? '_4fields' : '_6fields') : state.feld ? '_fields' : '') + (state.bag ? '_items' : '') + '.bin';
   return { rom, name, res };

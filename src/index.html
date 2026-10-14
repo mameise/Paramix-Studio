@@ -74,6 +74,10 @@ img, canvas { image-rendering: pixelated; }
   border-bottom: 10px solid var(--grass); }
 .drop .ground::after { content: ""; position: absolute; left: calc(50% - 14px); bottom: 0; width: 28px; height: 24px; border-radius: 50% 50% 40% 40%;
   background: #ffe98a; box-shadow: inset 0 0 0 2px var(--ink); }
+.feathead { font-size: 20px; margin: 30px 0 0; }
+.feats { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 12px; }
+.feat { background: var(--panel); border-radius: var(--radius); padding: 14px 16px; border: 2px solid var(--line); border-left: 6px solid var(--grass); font-size: 14px; color: var(--soft); }
+.feat b { display: block; color: var(--ink); font-size: 16px; margin-bottom: 4px; }
 .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-top: 26px; }
 .fact { background: var(--panel); border-radius: var(--radius); padding: 14px 16px; border: 2px solid var(--line); font-size: 14px; color: var(--soft); }
 .fact b { display: block; color: var(--ink); font-size: 15px; margin-bottom: 2px; }
@@ -238,6 +242,15 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <span data-t="dropText"></span>
       <div class="ground"></div>
     </div>
+    <h2 class="feathead" data-t="featHead"></h2>
+    <div class="feats">
+      <div class="feat"><b data-t="g1t"></b><span data-t="g1"></span></div>
+      <div class="feat"><b data-t="g2t"></b><span data-t="g2"></span></div>
+      <div class="feat"><b data-t="g3t"></b><span data-t="g3"></span></div>
+      <div class="feat"><b data-t="g4t"></b><span data-t="g4"></span></div>
+      <div class="feat"><b data-t="g5t"></b><span data-t="g5"></span></div>
+      <div class="feat"><b data-t="g6t"></b><span data-t="g6"></span></div>
+    </div>
     <div class="facts">
       <div class="fact"><b data-t="f1t"></b><span data-t="f1"></span></div>
       <div class="fact"><b data-t="f2t"></b><span data-t="f2"></span></div>
@@ -291,6 +304,7 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
         <span class="hint" data-t="emuHint"></span>
       </div>
       <p class="emustat" id="emuStat"></p>
+      <div class="tools" id="emuAutoRow" hidden><label class="check"><input type="checkbox" id="emuAuto"> <span data-t="emuAuto"></span></label> <span class="hint" data-t="emuAutoHint"></span></div>
       <div id="emuDlc" hidden>
         <div class="tools">
           <button class="btn small" id="btnDlc" data-t="dlcPick"></button>

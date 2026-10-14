@@ -23,7 +23,7 @@ const APP_OFF = 0xA0000, STUB_OFF = 0xB0000, FELD_OFF = 0xB1000, FELD_END = 0xC0
 const DOOM_CODE = 0xB1000, DOOM_SAVE = 0x10E000;
 const SLOT_BASE = 0x830000, SLOT_SIZE = 0x58000, GUEST_OFF = 0x940000;
 const FELD_MAGIC = 0x444C4546, SLOT_MAGIC = 0x544C5346, CAT_MAGIC = 0x54414350, PMXC = 0x43584D50, PDMC = 0x434D4450;
-const PH_APP = 0x1234ABCD, PH_FELD = 0x6789EF01, PH_ORIG = [0x22222221, 0x33333331, 0x44444441, 0x55555551];
+const PH_APP = 0x1234ABCD, PH_FELD = 0x6789EF01, PH_AUTO = 0x66666661, PH_ORIG = [0x22222221, 0x33333331, 0x44444441, 0x55555551];
 const HOOK_OFF = [0x40, 0x46, 0x4C, 0x52];
 const F_FIELDS = 1, F_BAG = 2;
 // Six fields (six.js): helper page at 0x10F000, set byte in the settings block
@@ -140,11 +140,14 @@ function feldAt(rom, stubOff, ph) {
 function slotAddr(f, i) { return f.slotOff2 && f.slotN1 && i >= f.slotN1 ? f.slotOff2 + (i - f.slotN1) * f.slotSize : f.slotOff + i * f.slotSize; }
 /** Is the menu installed? Returns { off, stubOff, version, slotOff, slotSize, nslots, flags, catOff, catN } or null. */
 function feldFind(rom, tpl) {
-  const ph = findWord(tpl, PH_FELD);
-  if (ph < 0) return null;
-  const f = feldAt(rom, STUB_OFF, ph);
-  if (f) return f;
-  for (let p = 0x90000; p < 0x110000; p += 0x1000) { const g = p !== STUB_OFF && feldAt(rom, p, ph); if (g) return g; }
+  const ph0 = findWord(tpl, PH_FELD);
+  if (ph0 < 0) return null;
+  // older stubs: menu address at 0xF0 (up to 1.2.6) and 0x118 (1.2.7)
+  for (const ph of [...new Set([ph0, 0xF0, 0x118])]) {
+    const f = feldAt(rom, STUB_OFF, ph);
+    if (f) return f;
+    for (let p = 0x90000; p < 0x110000; p += 0x1000) { const g = p !== STUB_OFF && feldAt(rom, p, ph); if (g) return g; }
+  }
   return null;
 }
 
@@ -456,6 +459,7 @@ function feldApply(rom, opts, saved, emb, E) {
   put(PH_APP, kind ? xip(APP_OFF) : 0);
   put(PH_FELD, xip(prog));
   PH_ORIG.forEach((ph, k) => put(ph, origs[k]));
+  { const ia = findWord(st, PH_AUTO); if (ia >= 0) w32(st, ia, 0); }   // autostart off, the Studio sets it at the end
   out.fill(0xFF, stubOff, stubOff + 0x1000);
   out.set(st, stubOff);
   HOOK_OFF.forEach((h, k) => w32(out, tab.PSID_HOME + 12 + 4 * k, (xip(stubOff) + h) | 1));

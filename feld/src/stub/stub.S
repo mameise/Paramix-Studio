@@ -5,6 +5,56 @@
 @ otherwise call the original handler.
   .syntax unified
   .thumb
+
+@ Autostart (v1.2.8): with AUTO set, the stub decides once per boot (first home screen call)
+@ whether to start the emulator right away. Mailbox word 0x20000FFC (kept over a restart and
+@ the reset button, lost in the Paradise's deep sleep):
+@   "PMXL"  written by the emulator when going back: stay in the Paradise
+@   "PMXR"  written here: any later restart with it (reset button) starts the emulator
+@   other   power-on or waking from deep sleep: the Paradise's seconds counter tells them
+@           apart (it starts at 0 after power-on and when the clock is set)
+@ Holding B skips the emulator. "Decided this boot" is kept in the UsageFault priority
+@ (SHPR1 byte 2): it is cleared by every reset and the firmware does not use it.
+@ AUTO is a placeholder the Studio sets to 0 or 1.
+#ifndef AUTO
+#define AUTO 0
+#endif
+  .macro AUTOSTART
+#if defined(HOOKS)
+  ldr r2, =AUTO
+  cbz r2, 7f
+  ldr r2, =0xE000ED18
+  ldrb r3, [r2, #2]
+  cbnz r3, 7f              @ already decided in this boot
+  movs r3, #0xFF
+  strb r3, [r2, #2]
+  ldrb r3, [r2, #2]
+  cbz r3, 7f               @ cannot keep the flag: never autostart
+  ldr r2, =0x20000FFC
+  ldr r3, [r2]
+  ldr r0, =0x4C584D50      @ "PMXL": back from the emulator
+  cmp r3, r0
+  beq 8f
+  ldr r0, =0x52584D50      @ "PMXR": restart while running
+  cmp r3, r0
+  beq 9f
+  ldr r0, =0x45000304      @ mailbox lost: deep sleep (clock ran) or power-on (clock new)
+  ldr r0, [r0]
+  cmp r0, #30
+  bhs 8f
+9:
+  ldr r0, =0x52584D50
+  str r0, [r2]
+  tst r1, #0x800           @ B (P0.11) held: stay in the Paradise
+  beq 7f
+  b start
+8:
+  ldr r0, =0x52584D50
+  str r0, [r2]
+7:
+  ldr r0, =0x40018000
+#endif
+  .endm
   .global start
   .thumb_func
 start:
@@ -20,25 +70,31 @@ app_src:  .word APP_SRC
 #endif
 
 #if defined(HOOKS) && !defined(FELD)
-  .org 0x40                @ hooks fixed at 0x40 (Studio: HOOK_OFF, targets at 0x94)
+  .org 0x40                @ hooks fixed at 0x40 (Studio: HOOK_OFF), original handlers at 0x94
   .global hook0, hook1, hook2, hook3
   .thumb_func
-hook0: ldr r12, =ORIG0
+hook0: ldr.w r12, orig0
   b check
   .thumb_func
-hook1: ldr r12, =ORIG1
+hook1: ldr.w r12, orig1
   b check
   .thumb_func
-hook2: ldr r12, =ORIG2
+hook2: ldr.w r12, orig2
   b check
   .thumb_func
-hook3: ldr r12, =ORIG3
+hook3: ldr.w r12, orig3
   b check
+  .org 0x94
+orig0: .word ORIG0
+orig1: .word ORIG1
+orig2: .word ORIG2
+orig3: .word ORIG3
   .thumb_func
 check:
   push {r0-r3, r12, lr}
   ldr r0, =0x40018000      @ GPIO0: A = P0.9, C = P0.10, pressed = 0
   ldr r1, [r0]
+  AUTOSTART
   ldr r2, =0x20000FF8      @ counter at the end of the mailbox
   ldr r3, [r2]
   tst r1, #0x600
@@ -91,6 +147,7 @@ check:
   push {r0-r3, r12, lr}
   ldr r0, =0x40018000      @ GPIO0: A = P0.9, C = P0.10, pressed = 0
   ldr r1, [r0]
+  AUTOSTART
   ldr r2, =0x20000FF8      @ counter at the end of the mailbox
   ldr r3, [r2]
 #ifndef HOOK_TEST
