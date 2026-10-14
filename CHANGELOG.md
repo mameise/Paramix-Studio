@@ -2,6 +2,18 @@
 
 Versions are listed newest first.
 
+## 1.2.12 (2026-10-14)
+
+- Menu: the saved fields share one room instead of a fixed slot each. With all 6 fields on Tropical or Glacier a slot was only 72 KB, so a much played save stopped the switch with error code 11. Now one field can use up to about 430 KB there (the room the other fields do not need). Saves of older versions are still read; they move to the new form at the next switch.
+- Menu on Tropical and Glacier: since 1.2.2 the menu wrote the device ID to the wrong page (0xD49000, inside the save area) and left the real ID page alone. Fixed: the ID page is set again on every switch.
+- Menu program rebuilt.
+
+## 1.2.11 (2026-10-14)
+
+- Menu: field saves get all the free room. Without emulator or DOOM each field slot is now up to about 1.7 MB instead of 352 KB. A large save (much played, many items) no longer stops the field switch with error code 11. Saved fields on the device are moved to the new slots when writing with "Keep saves".
+- Menu: error codes 10 and 11 now say "SAVE TOO BIG" on the device. The active field stays as it is.
+- Menu program rebuilt.
+
 ## 1.2.10 (2026-10-14)
 
 - Start page: describes everything the Studio does (TamaEmu, DOOM, more fields, menu, device, characters) instead of only the character sheets.

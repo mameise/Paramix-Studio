@@ -114,8 +114,9 @@ hold A and C on the home screen: wheel selects, B confirms, C goes back.
 
 - Field switch: every edition has three fields (Land/Water/Sky, Jade Forest:
   Land/Water/Forest, Tropical and Glacier: Tropical/Glacier/Forest). Switching
-  packs the save of the current field into its own slot and brings back the save
-  of the chosen one. A field that never ran starts like a new device.
+  packs the save of the current field and brings back the save of the chosen
+  one. A field that never ran starts like a new device. All fields share the
+  room for the saves, so one big save can use what the others do not need.
 - All 6 fields (Tropical and Glacier): tick "All 6 fields" and choose your
   own Land, Water or Sky ROM. The menu then offers Tropical, Glacier, Forest,
   Land, Water and Sky. The pictures of Land, Water and Sky are taken from that

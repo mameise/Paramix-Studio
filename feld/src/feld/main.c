@@ -84,10 +84,18 @@ _Static_assert(offsetof(Cfg,flags)==36 && offsetof(Cfg,id_c)==40 && offsetof(Cfg
   && offsetof(Cfg,field_col2)==324 && offsetof(Cfg,fac_field2)==332 && offsetof(Cfg,slot_off2)==364 && offsetof(Cfg,six_map)==372 && sizeof(Cfg)==380, "settings block layout");
 #define NF_MAX 6u
 
+/* Saved field (header page at the start of its slot). res[0] = POOL_MAGIC (1.2.12): the
+ * packed data lies in the pages dpg[0..res[1]-1] of the shared pool (all slot pages except
+ * the header pages), so one field can use the room the other fields do not need. Without
+ * it (older menus) the data follows the header in the field's own slot. */
+#define POOL_MAGIC 0x4C4F4F50u      /* "POOL" */
+#define DPG_MAX 1024u
 typedef struct {
   u32 magic, field, npages, bytes, sum, res[3];
   struct { u16 page, clen; } e[NPAGE_MAX];
+  u16 dpg[DPG_MAX];
 } SlotHdr;
+_Static_assert(sizeof(SlotHdr)<=4096u, "slot header fits one page");
 
 #define GPIO2 0x4001A000u
 
@@ -290,11 +298,50 @@ static int field_now(void){
 static u32 slot_base(u32 i){
   if(g_cfg.slot_off2 && g_cfg.slot_n1 && i>=g_cfg.slot_n1) return g_cfg.slot_off2 + (i-g_cfg.slot_n1)*g_cfg.slot_size;
   return g_cfg.slot_off + i*g_cfg.slot_size; }
+static u32 spp(void){ return g_cfg.slot_size/PAGE - 1u; }            /* pool pages per slot */
+static u32 pool_n(void){ return g_cfg.nslots*spp(); }
+static u32 pool_addr(u32 k){ return slot_base(k/spp()) + (k%spp()+1u)*PAGE; }
+static int slot_pool(u32 b){ return rd32(b+20)==POOL_MAGIC; }
 static int slot_valid(u32 i){
   u32 b=slot_base(i);
   if(rd32(b)!=SLOT_MAGIC || rd32(b+4)!=i+1u) return 0;   /* slot ID = field number + 1 */
   u32 np=rd32(b+8), by=rd32(b+12);
-  return np<=NPAGE_MAX && by<=g_cfg.slot_size-PAGE;
+  if(np>NPAGE_MAX) return 0;
+  if(!slot_pool(b)) return by<=g_cfg.slot_size-PAGE;
+  u32 nd=rd32(b+24);
+  if(nd>DPG_MAX || by>nd*PAGE) return 0;
+  for(u32 k=0;k<nd;k++) if(rd16(b+offsetof(SlotHdr,dpg)+2u*k)>=pool_n()) return 0;
+  return 1;
+}
+/* Read n bytes of the packed data of slot i from position pos. */
+static void slot_get(u32 i, u32 pos, u32 n, u8 *dst){
+  u32 b=slot_base(i); int pool=slot_pool(b);
+  while(n){
+    u32 pg=pos/PAGE, o=pos%PAGE, c=PAGE-o; if(c>n) c=n;
+    u32 a = pool ? pool_addr(rd16(b+offsetof(SlotHdr,dpg)+2u*pg)) : b+PAGE+pg*PAGE;
+    for(u32 k=0;k<c;k++) dst[k]=fl(a+o)[k];
+    dst+=c; pos+=c; n-=c;
+  }
+}
+/* Pool pages taken by the saved fields other than skip. */
+static u8 g_used[512];
+static void pool_mark(u32 skip){
+  for(u32 k=0;k<sizeof g_used;k++) g_used[k]=0;
+  for(u32 j=0;j<g_cfg.nslots;j++){
+    if(j==skip || !slot_valid(j)) continue;
+    u32 b=slot_base(j);
+    if(slot_pool(b)){ u32 nd=rd32(b+24); for(u32 k=0;k<nd;k++){ u32 x=rd16(b+offsetof(SlotHdr,dpg)+2u*k); g_used[x>>3]|=(u8)(1u<<(x&7u)); } }
+    else { u32 nd=(rd32(b+12)+PAGE-1u)/PAGE; for(u32 k=0;k<nd;k++){ u32 x=j*spp()+k; g_used[x>>3]|=(u8)(1u<<(x&7u)); } }
+  }
+}
+/* Next free pool page for slot fi (its own pages first), marks it. 0xFFFF = full. */
+static u32 pool_take(u32 fi){
+  u32 n=pool_n(); if(n>sizeof(g_used)*8u) n=sizeof(g_used)*8u;
+  for(u32 r=0;r<n;r++){
+    u32 x=(fi*spp()+r)%n;
+    if(!(g_used[x>>3]&(1u<<(x&7u)))){ g_used[x>>3]|=(u8)(1u<<(x&7u)); return x; }
+  }
+  return 0xFFFFu;
 }
 static void write_id(u32 id){
   u32 *w=(u32*)g_out;
@@ -319,29 +366,34 @@ static int stash(u32 fi){
   if(tot>NPAGE_MAX) return 10;
   erase_page(b);                            /* invalidate the header first */
   for(u32 i=0;i<sizeof(g_hdr)/4;i++) ((u32*)&g_hdr)[i]=0xFFFFFFFFu;
-  u32 np=0, by=0, sum=0, on=0, wa=b+PAGE, done=0;
+  pool_mark(fi);
+  u32 np=0, by=0, sum=0, on=0, nd=0, done=0;
+  (void)cap;
   for(u32 a=g_cfg.user_start;a<g_cfg.user_end;a+=PAGE){
     if(page_ff(a)) continue;
     flash_read(a, g_page, PAGE);
     u32 n=lz_pack(g_page, g_cmp);
-    if(by+n>cap) return 11;
     g_hdr.e[np].page=(u16)(a>>12); g_hdr.e[np].clen=(u16)n; np++;
     for(u32 k=0;k<n;k++){ g_out[on++]=g_cmp[k]; sum+=g_cmp[k];
-      if(on==PAGE){ flash_prog4k(wa,g_out); wa+=PAGE; on=0; } }
+      if(on==PAGE){ u32 x=pool_take(fi); if(x==0xFFFFu || nd>=DPG_MAX) return 11;
+        flash_prog4k(pool_addr(x),g_out); g_hdr.dpg[nd++]=(u16)x; on=0; } }
     by+=n;
     progress("SAVING", ++done, tot*2u);
   }
-  if(on){ for(u32 k=on;k<PAGE;k++) g_out[k]=0xFF; flash_prog4k(wa,g_out); }
-  u32 off=b+PAGE;
+  if(on){ u32 x=pool_take(fi); if(x==0xFFFFu || nd>=DPG_MAX) return 11;
+    for(u32 k=on;k<PAGE;k++) g_out[k]=0xFF; flash_prog4k(pool_addr(x),g_out); g_hdr.dpg[nd++]=(u16)x; }
+  /* check against the pages just written (the header is not there yet) */
+  u32 off=0;
   for(u32 i=0;i<np;i++){
     u32 a=(u32)g_hdr.e[i].page<<12, n=g_hdr.e[i].clen;
-    if(lz_unpack(fl(off), n, g_page)) return 12;
+    for(u32 k=0;k<n;k++){ u32 p=off+k; g_cmp[k]=fl(pool_addr(g_hdr.dpg[p/PAGE])+p%PAGE)[0]; }
+    if(lz_unpack(g_cmp, n, g_page)) return 12;
     if(!flash_same(a, g_page, PAGE)) return 13;
     off+=n;
     progress("CHECKING", tot+i+1u, tot*2u);
   }
   g_hdr.magic=SLOT_MAGIC; g_hdr.field=fi+1u; g_hdr.npages=np; g_hdr.bytes=by; g_hdr.sum=sum;
-  g_hdr.res[0]=g_hdr.res[1]=g_hdr.res[2]=0;
+  g_hdr.res[0]=POOL_MAGIC; g_hdr.res[1]=nd; g_hdr.res[2]=0;
   { const u8 *h=(const u8*)&g_hdr; for(u32 k=0;k<PAGE;k++) g_out[k]= k<sizeof(g_hdr) ? h[k] : 0xFF; }
   flash_prog4k(b, g_out);
   if(!slot_valid(fi)) return 14;
@@ -349,11 +401,11 @@ static int stash(u32 fi){
 }
 
 static int restore(u32 fi, int fresh){
-  u32 b=slot_base(fi), np=0, off=b+PAGE, ix=0;
+  u32 b=slot_base(fi), np=0, off=0, ix=0;
   if(!fresh){
     np=rd32(b+8);
     u32 sum=0, by=rd32(b+12);
-    for(u32 k=0;k<by;k++) sum+=fl(b+PAGE)[k];
+    for(u32 p=0;p<by;p+=PAGE){ u32 c=by-p<PAGE?by-p:PAGE; slot_get(fi,p,c,g_page); for(u32 k=0;k<c;k++) sum+=g_page[k]; }
     if(sum!=rd32(b+16)) return 20;
   }
   u32 tot=(g_cfg.user_end-g_cfg.user_start)/PAGE, done=0;
@@ -368,7 +420,7 @@ static int restore(u32 fi, int fresh){
         if(set){ if(pass) { factory_page(fi,g_page); want=1; } else continue; }
       } else if(ix2<np && rd16(b+32+ix2*4)==(a>>12)){
         u32 n=rd16(b+34+ix2*4);
-        if(set==(int)pass){ if(lz_unpack(fl(o2), n, g_page)) return 21; want=1; }
+        if(set==(int)pass){ slot_get(fi,o2,n,g_cmp); if(lz_unpack(g_cmp, n, g_page)) return 21; want=1; }
         o2+=n; ix2++;
         if(!want) continue;
       } else if(set!=(int)pass) continue;
@@ -392,6 +444,7 @@ static void error_screen(int code){
   ctext(30,"ERROR",RED,2);
   char s[12]="CODE 00"; s[5]=(char)('0'+code/10); s[6]=(char)('0'+code%10);
   ctext(56,s,WHITE,1);
+  if(code==10||code==11) ctext(68,"SAVE TOO BIG",WHITE,1);   /* the field stays as it is */
   ctext(84,"B OR C: BACK",GREY,1);
   show(); wait_release();
   for(;;){ int k=input(); if(k==K_OK||k==K_BACK) leave(); }

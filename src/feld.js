@@ -152,17 +152,72 @@ function feldFind(rom, tpl) {
 }
 
 /** Saved slots (raw bytes) of a ROM with the menu, for moving them over. */
+/*
+ * Saved fields and the shared pool (1.2.12). The header page of field i sits at the start
+ * of its slot. Older menus put the packed data right after it; from 1.2.12 the header says
+ * "POOL" (word 5) and lists the pool pages (word 6 = count, u16 list at 2032). The pool is
+ * every slot page except the header pages, numbered slot by slot.
+ */
+const POOL_MAGIC = 0x4C4F4F50, DPG_OFF = 2032, DPG_MAX = 1024;
+function poolPages(f) { return f.slotSize / 0x1000 - 1; }
+function poolAddr(f, k) { const n = poolPages(f); return slotAddr(f, Math.floor(k / n)) + (k % n + 1) * 0x1000; }
+/** Read slot i with read(addr, len) (sync, or async with slotReadAsync). { head, field, bytes, stream } or null. */
+function slotParse(f, i, head) {
+  if (u32(head, 0) !== SLOT_MAGIC) return null;
+  const field = u32(head, 4), bytes = u32(head, 12);
+  if (field < 1 || field > 6 || u32(head, 8) > 500) return null;
+  const pool = u32(head, 20) === POOL_MAGIC, nd = pool ? u32(head, 24) : 0, np = f.nslots * poolPages(f), list = [];
+  if (pool) {
+    if (nd > DPG_MAX || bytes > nd * 0x1000) return null;
+    for (let k = 0; k < nd; k++) { const x = head[DPG_OFF + 2 * k] | (head[DPG_OFF + 2 * k + 1] << 8); if (x >= np) return null; list.push(poolAddr(f, x)); }
+  } else if (bytes > f.slotSize - 0x1000) return null;
+  return { head, field, bytes, pool, list, b: slotAddr(f, i) };
+}
+function slotFill(p, chunk, k) { p.stream.set(chunk.subarray(0, Math.min(chunk.length, p.bytes - k * 0x1000)), k * 0x1000); }
+function slotRead(rom, f, i) {
+  const p = slotParse(f, i, rom.subarray(slotAddr(f, i), slotAddr(f, i) + 0x1000));
+  if (!p) return null;
+  p.stream = new Uint8Array(p.bytes);
+  if (p.pool) p.list.forEach((a, k) => slotFill(p, rom.subarray(a, a + 0x1000), k));
+  else p.stream.set(rom.subarray(p.b + 0x1000, p.b + 0x1000 + p.bytes));
+  return p;
+}
+async function slotReadAsync(read, f, i) {
+  const p = slotParse(f, i, new Uint8Array(await read(slotAddr(f, i), 0x1000)));
+  if (!p) return null;
+  p.stream = new Uint8Array(p.bytes);
+  if (p.pool) for (let k = 0; k < p.list.length; k++) slotFill(p, await read(p.list[k], 0x1000), k);
+  else p.stream.set((await read(p.b + 0x1000, (p.bytes + 0xFFF) & ~0xFFF)).subarray(0, p.bytes));
+  return p;
+}
+/**
+ * Write a saved field into slot i of image out (pool format). used: Set of pool pages taken
+ * by fields already placed. Returns the written addresses; throws if the pool is full.
+ */
+function slotPlace(out, f, i, s, used) {
+  const n = f.nslots * poolPages(f), nd = Math.ceil(s.bytes / 0x1000), pages = [], own = i * poolPages(f);
+  for (let r = 0; r < n && pages.length < nd; r++) { const x = (own + r) % n; if (!used.has(x)) { used.add(x); pages.push(x); } }
+  if (pages.length < nd || nd > DPG_MAX) throw new Error('the stored saves do not fit into the room for the fields');
+  const h = new Uint8Array(0x1000).fill(0xFF);
+  h.set(s.head.subarray(0, DPG_OFF));
+  w32(h, 4, i + 1); w32(h, 20, POOL_MAGIC); w32(h, 24, nd); w32(h, 28, 0);
+  pages.forEach((x, k) => { h[DPG_OFF + 2 * k] = x & 255; h[DPG_OFF + 2 * k + 1] = x >> 8; });
+  const b = slotAddr(f, i), written = [b];
+  out.set(h, b);
+  pages.forEach((x, k) => { const a = poolAddr(f, x), pg = new Uint8Array(0x1000).fill(0xFF);
+    pg.set(s.stream.subarray(k * 0x1000, Math.min(s.bytes, (k + 1) * 0x1000))); out.set(pg, a); written.push(a); });
+  return written;
+}
+
 function feldSlots(rom, tpl) {
   const f = feldFind(rom, tpl);
   if (!f || !(f.flags & F_FIELDS)) return [];
   const out = [];
   for (let i = 0; i < f.nslots; i++) {
-    const b = slotAddr(f, i);
-    if (u32(rom, b) !== SLOT_MAGIC) continue;
-    const field = u32(rom, b + 4), bytes = u32(rom, b + 12);
-    if (field < 1 || field > 6 || bytes > f.slotSize - 0x1000) continue;
+    const s = slotRead(rom, f, i);
+    if (!s) continue;
     // Slot ID: from menu version 3 the field number + 1, before that (v0.9.4/v0.9.5) the edition ID
-    out.push({ index: f.version >= 3 ? field - 1 : i, field, data: rom.slice(b, b + 0x1000 + bytes) });
+    out.push(Object.assign(s, { index: f.version >= 3 ? s.field - 1 : i }));
   }
   return out;
 }
@@ -400,7 +455,8 @@ function feldApply(rom, opts, saved, emb, E) {
     } else if (fields) {
       slotOff = Math.max(SLOT_BASE, page(assetEnd(out)));
       const limit = kind === 2 ? GUEST_OFF : P.idPage - 0x1000;
-      slotSize = Math.min(SLOT_SIZE, Math.floor((limit - slotOff) / nslots / 0x1000) * 0x1000);
+      // all the room up to the emulator or the device's save area (1.2.11; before at most 0x58000 each)
+      slotSize = Math.floor((limit - slotOff) / nslots / 0x1000) * 0x1000;
       if (slotSize < 0x10000) throw new Error('no room for the saves');
     }
   }
@@ -411,7 +467,8 @@ function feldApply(rom, opts, saved, emb, E) {
   const ci = findWord(f, FELD_MAGIC);
   if (ci < 0 || u32(f, ci + 4) < 3) throw new Error('settings block of the menu missing');
   w32(f, ci + 8, slotOff); w32(f, ci + 12, slotSize); w32(f, ci + 16, nslots);
-  w32(f, ci + 20, P.idPage + 0x1000); w32(f, ci + 24, P.six ? 0xF00000 : 0x1000000);   // six fields: rain pictures from 0xF00000 w32(f, ci + 28, P.idPage);
+  w32(f, ci + 20, P.idPage + 0x1000); w32(f, ci + 24, P.six ? 0xF00000 : 0x1000000);   // six fields: rain pictures from 0xF00000
+  w32(f, ci + 28, P.idPage);   // ID page (1.2.2 to 1.2.11 lost this line: Tropical/Glacier wrote the ID to 0xD49000)
   w32(f, ci + 32, stubOff); w32(f, ci + 36, (fields ? F_FIELDS : 0) | (bag ? F_BAG : 0));
   w32(f, ci + 40, P.c); w16(f, ci + 44, P.h[0]); w16(f, ci + 46, P.h[1]);
   w32(f, ci + 48, P.ids.length);
@@ -445,13 +502,12 @@ function feldApply(rom, opts, saved, emb, E) {
   out.set(f, prog);
   if (cat.length) out.set(cat, catOff);
   // carry over saved slots (the active field lives in the save itself)
-  if (fields) for (const s of saved || []) {
-    const i = s.index;
-    if (i < 0 || i >= nslots) continue;
-    if (s.data.length > slotSize) throw new Error('the stored save of ' + cap(P.names[i]) + ' does not fit here');
-    const d = new Uint8Array(s.data); w32(d, 4, i + 1);          // new slot ID: field number + 1
-    out.set(d, slotAddr(fs, i));
-  }
+  if (fields) { const used = new Set(), g = Object.assign({ nslots }, fs);
+    for (const s of saved || []) {
+      const i = s.index;
+      if (i < 0 || i >= nslots) continue;
+      try { slotPlace(out, g, i, s, used); } catch (e) { throw new Error('the stored save of ' + cap(P.names[i]) + ' does not fit here'); }
+    } }
   // Stub
   const origs = prev || [0, 1, 2, 3].map((k) => u32(out, tab.PSID_HOME + 12 + 4 * k));
   const st = new Uint8Array(emb.stub);
@@ -472,6 +528,6 @@ function embedded() {
   return { feld: b64(FELD_B64), stub: b64(FELD_STUB_B64) };
 }
 
-root.ParamixFeld = { isSix, slotAddr, textTabelle, zeichenkette, edition, feldId, canFields, fieldNames, fieldNow, feldFind, feldSlots, feldStrip, feldApply, appKind, itemCatalog, embedded, NAMES, F_FIELDS, F_BAG };
+root.ParamixFeld = { isSix, slotAddr, slotReadAsync, slotPlace, poolAddr, textTabelle, zeichenkette, edition, feldId, canFields, fieldNames, fieldNow, feldFind, feldSlots, feldStrip, feldApply, appKind, itemCatalog, embedded, NAMES, F_FIELDS, F_BAG };
 if (typeof module !== 'undefined') module.exports = root.ParamixFeld;
 })(typeof window !== 'undefined' ? window : globalThis);

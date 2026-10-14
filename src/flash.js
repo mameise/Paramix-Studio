@@ -377,19 +377,24 @@ function keepPlan(F, E, menu, opts = {}) {
       if (fi && (fi.flags & 1) && fi.slotOff === fd.slotOff && fi.slotSize === fd.slotSize && fi.nslots === fd.nslots && (fi.slotOff2 || 0) === (fd.slotOff2 || 0) && (fi.slotN1 || 0) === (fd.slotN1 || 0)) {
         for (let i = 0; i < fd.nslots; i++) ranges.push([at(fd, i), at(fd, i) + fd.slotSize]);
       }
-      else if (fi && (fi.flags & 1)) {
-        // other layout: copy every stored field into the matching new slot
+      else if (fi && (fi.flags & 1) && F.slotReadAsync) {
+        // other layout: copy every stored field into the new slots (shared pool, 1.2.12)
+        const slots = [];
         for (let i = 0; i < fd.nslots; i++) {
-          const b = at(fd, i), head = await dev.read(b, SECTOR);
-          if (u32(head, 0) !== 0x544C5346) continue;
-          const field = u32(head, 4), bytes = u32(head, 12), idx = fd.version >= 3 ? field - 1 : i;
-          if (idx < 0 || idx >= fi.nslots || 0x1000 + bytes > fi.slotSize) { notes.push(note('noteNoFit', { f: field })); continue; }
-          const data = await dev.read(b, (0x1000 + bytes + 0xFFF) & ~0xFFF);
-          const d = at(fi, idx);
-          image.fill(0xFF, d, d + fi.slotSize); image.set(data.subarray(0, 0x1000 + bytes), d);
-          for (let s = d; s < d + fi.slotSize; s += SECTOR) if (crc32(image, s, SECTOR) !== crc32(img, s, SECTOR)) changed.add(s);
-          notes.push(note('noteMoved', { f: field }));
+          const s = await F.slotReadAsync((a, n) => dev.read(a, n), fd, i);
+          if (!s) continue;
+          const idx = fd.version >= 3 ? s.field - 1 : i;
+          if (idx < 0 || idx >= fi.nslots) { notes.push(note('noteNoFit', { f: s.field })); continue; }
+          slots.push([idx, s]);
         }
+        // the device's saves replace whatever the new image carries in the slots
+        for (let i = 0; i < fi.nslots; i++) image.fill(0xFF, at(fi, i), at(fi, i) + fi.slotSize);
+        const used = new Set();
+        for (const [idx, s] of slots) {
+          try { F.slotPlace(image, fi, idx, s, used); notes.push(note('noteMoved', { f: s.field })); }
+          catch (e) { notes.push(note('noteNoFit', { f: s.field })); }
+        }
+        for (let i = 0; i < fi.nslots; i++) for (let a = at(fi, i); a < at(fi, i) + fi.slotSize; a += SECTOR) if (crc32(image, a, SECTOR) !== crc32(img, a, SECTOR)) changed.add(a);
       } else notes.push(note('noteDropped'));
     }
     // TamaEmu: settings block at 0x0A0140 (guest size and block map decide the layout)
