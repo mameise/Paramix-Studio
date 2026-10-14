@@ -2,6 +2,18 @@
 
 Versions are listed newest first.
 
+## 1.2.6 (2026-10-14)
+
+- TamaEmu: updating keeps the save. A ROM that already has the emulator gets the new emulator program when it is saved, without choosing the firmware again. Written with "Keep saves", the Tamagotchi's save, its items and the saved session stay on the device.
+- Keep saves: the spare pages of TamaEmu (item stores, since 1.2.3) are kept too. Before they were overwritten even with "Keep saves".
+
+## 1.2.5 (2026-10-14)
+
+- Six fields: the planet now follows the field. On Land, Water and Sky the planet view and the travel scenes show the Land, Water and Sky planet instead of the Tropical or Glacier one, like on the original devices. New switch "Planet to match the field" (on by default). Jade Forest: the Sky planet on Sky.
+- Helper page version 5 (planet tables per field). ROMs with more fields from 1.2.0 to 1.2.4 are updated when saved: Jade Forest on its own, Tropical/Glacier with your Land, Water or Sky ROM chosen.
+- TamaEmu: the clock no longer runs slow. The emulator dropped part of each millisecond while the Tamagotchi runs on its slow clock (about 2.3 percent, up to half an hour a day). It also follows the seconds counter of the Paradise now, so time lost in busy scenes (shopping, saving) is added back.
+- Emulator program v0.9.3.
+
 ## 1.2.4 (2026-10-14)
 
 - Six fields: the special character of each field. On Land, Water and Sky the firmware now picks Chodracotchi, Mermarintchi and Yayacorntchi instead of the Tropical, Glacier and Forest special characters (Manapatchi, Hobohorntchi, Tatsutchi). Jade Forest: Yayacorntchi on Sky.

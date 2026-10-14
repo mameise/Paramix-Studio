@@ -43,6 +43,17 @@ Leaving with a long press does not save the session if the core stopped or
 guest writes were lost. Pressing the wheel within the first 3 seconds after a
 resumed start drops the saved session.
 
+## Clock
+
+Each millisecond of the Paradise runs the guest for one millisecond of its
+current clock. Since v0.9.3 the remainder of that division is carried over
+(at 32768 Hz the guest used to get 32 instead of 32.768 cycles per ms, its
+clock lost 2.3 percent). About once a second the emulator also compares the
+guest time with the seconds counter of the Paradise (0x45000304) and adds
+whole seconds to the guest clock when it fell behind, for example when busy
+scenes (shopping, flash writes) made the emulator drop time. Implausible jumps
+of the counter are ignored.
+
 ## Download content (8 MB firmware)
 
 Stores and routing follow tamaemu `tools/dlc.c`: a record is a TAMAGO block,

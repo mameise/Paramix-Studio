@@ -79,6 +79,11 @@ next time). To start over from the Tamagotchi's own save instead, release A
 and C and press the wheel within the first 3 seconds: the saved session is
 dropped and you are back on the Paradise; the next start begins fresh.
 
+Updating the emulator: open your ROM with the emulator in a newer Studio and
+save it (do not choose the firmware again). Only the emulator program is
+replaced. Written with "Keep saves", the Tamagotchi keeps its save and the
+saved session. Choosing the firmware again starts the emulator fresh.
+
 The guest may write anywhere in its flash (item stores, shop purchases, its
 own reset). Written parts of blocks that are empty in the firmware go into
 spare pages behind the packed firmware (up to 0xD40000).
@@ -108,6 +113,9 @@ hold A and C on the home screen: wheel selects, B confirms, C goes back.
   ROM; characters of all six fields are already in Tropical/Glacier.
 - Sky as 4th field (Jade Forest): tick "Sky as 4th field". Jade Forest
   already has everything of Sky, no second ROM is needed.
+- Planet to match the field: on by default. Land, Water and Sky then show
+  their own planet like the original devices. Untick it to keep the planet of
+  the edition. Changing it on Tropical/Glacier needs the Land, Water or Sky ROM.
 - Neither works together with DOOM or the emulator (these editions have no
   room for them).
 - Items: put items into the bag and set their amount, with picture. The list

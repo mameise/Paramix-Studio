@@ -71,7 +71,7 @@ const MSG = {
   noteNoFit: 'field {f} does not fit into the new slot and is not kept',
   noteMoved: 'field {f} moved to the new slot',
   noteDropped: 'the new ROM has no field menu, stored fields on the device are dropped',
-  noteEmu: 'TamaEmu changed, the emulator starts fresh',
+  noteEmu: 'TamaEmu firmware chosen again, the emulator starts fresh. For an update just open the ROM and save it',
 };
 function fill(m, p) { if (p) for (const k of Object.keys(p)) m = m.split('{' + k + '}').join(p[k]); return m; }
 function fe(code, p) { const e = new Error(fill(MSG[code], p)); e.code = code; e.p = p; return e; }
@@ -395,10 +395,13 @@ function keepPlan(F, E, menu, opts = {}) {
     // TamaEmu: settings block at 0x0A0140 (guest size and block map decide the layout)
     const kind = F.appKind(img), dkind = F.appKind(view);
     if (kind === 2 && dkind === 2) {
-      const same = view.subarray(0xA0140, 0xA0140 + 24 + 128).every((v, i) => v === img[0xA0140 + i]);
+      // same firmware layout (offset, size, save area, device, block map); the program version may differ
+      const same = view.subarray(0xA0148, 0xA0140 + 24 + 128).every((v, i) => v === img[0xA0148 + i]);
       if (same && !opts.emuChanged) {
         const gOff = u32(img, 0xA0148), gLen = u32(img, 0xA014C);
-        ranges.push([0xC0000, 0x110000], [gOff, (gOff + gLen + 0xFFF) & ~0xFFF]);
+        // with the packed firmware also the spare pages behind it (item stores, since v0.9.2)
+        const end = u32(img, 0xA0144) >= 3 ? Math.min(u32(img, 0xA0140 + 152), 0xD40000) : gOff + gLen;
+        ranges.push([0xC0000, 0x110000], [gOff, Math.max((gOff + gLen + 0xFFF) & ~0xFFF, end)]);
       } else notes.push(note('noteEmu'));
     }
     if (kind === 1 && dkind === 1) ranges.push([0x10E000, 0x110000]);

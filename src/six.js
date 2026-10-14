@@ -23,10 +23,10 @@ const C = root.ParamixCore || (typeof require !== 'undefined' ? require('./core.
 const SIX_OFF = 0x10F000, SIX_XIP = 0x100FE000, SIX_MAGIC = 0x31584953;
 const FLAG_OFF = 0xF04;                    // set byte in the settings block
 const XIP = (off) => 0x10000000 + off - 0x11000;
-const SIX_VERSION = 4;
+const SIX_VERSION = 5;
 // page layout (six/src/six.s)
-const P_BG = 0x1C0, P_CHILD = 0x1CC, P_FN = 0x1E0, T_BG = 0x200, T_CHILD = 0x340, T_CHILD_O = 0x348, T_SITES = 0x380, T_MORE = 0x500;
-const FN_TAB = [0, 1], FN_BG = 2, FN_CHILD = 3;
+const P_PMAP = 0x1B0, P_BG = 0x1C0, P_CHILD = 0x1CC, P_FN = 0x1E0, T_BG = 0x200, T_CHILD = 0x340, T_CHILD_O = 0x348, T_SITES = 0x380, T_MORE = 0x500;
+const FN_TAB = [0, 1, 5], FN_BG = 2, FN_CHILD = 3, FN_PMAP = 4;
 // Region B (0xF00000, unused by the firmware): cells of the rain pictures (Tropical/Glacier). Header
 // "SIXB", count, per picture: sprite id and 64 offsets into the data (0xFFFFFFFF = cell in the archive).
 const B_OFF = 0xF00000, B_END = 0x1000000, B_MAGIC = 0x42584953;
@@ -52,7 +52,12 @@ const KINDS = {
       [0x7FEA4, 0, 0x1009472C, 'scene'], [0x7FED2, 0, 0x1009472C, 'scene'],
       // special adult per field: two halfwords per movw/movt (Tropical/Glacier: 4112, 4134, 4090)
       [0x10060, 0, 0x0FFA0FFA, 'spec2'], [0x1006A, 0, 0x10261010, 'spec1'],
-    ] },
+    ],
+    // planet: calls of the edition-to-row function, the field byte, row per field slot, and the
+    // two planet stage tables (3 rows of 11 stages, and the same rows loaded one by one)
+    planet: { calls: [0x7C7A, 0x7C98, 0x7CB4, 0x575FA], fn: 0x1002B314, field: 0x18000BE8 + 0x1EF, rows: [0, 1, 2],
+      sites: [[0x7CC4, 2, 0x100A1020, 'plTab'], [0x57636, 1, 0x10094786, 'pl0'], [0x5768E, 1, 0x100947B2, 'pl1'],
+        [0x576E6, 1, 0x1009479C, 'pl2'], [0x5773E, 1, 0x10094786, 'pl0']] } },
   jade: { id: 1, idPage: 0xD49000, ids: [4], flag: 0x18000BA0 + 0xF00, slots: [1],
     bg: { at: 0x966C, orig: '81b08df8', table: 0x1007F98C, mode: 1 },
     child: { at: 0xE1DA, orig: '40f61500adf8', back: 0xE1F4, sp: 0xBC, list: [2002, 2003, 2069] },
@@ -63,12 +68,17 @@ const KINDS = {
       [0x4F1FE, 1, 0x10081198, 'scene'], [0x4F45E, 1, 0x10081198, 'scene'], [0x4F76C, 1, 0x10081198, 'scene'],
       [0x7164C, 0, 0x10081198, 'scene'], [0x7167A, 0, 0x10081198, 'scene'],
       [0xE5E2, 0, 0x0FE30FE2, 'spec1'],
-    ] },
+    ],
+    planet: { calls: [0x670A, 0x6728, 0x6744, 0x50742], fn: 0x10026E10, field: 0x18000BA0 + 0x1B7, rows: [0xFF, 1, 0xFF],
+      sites: [[0x6754, 2, 0x1008CBD0, 'plTab'], [0x5077E, 1, 0x100811DA, 'pl0'], [0x507D6, 1, 0x10081206, 'pl1'],
+        [0x5082E, 1, 0x100811F0, 'pl2'], [0x50886, 1, 0x100811DA, 'pl0']] } },
 };
 // v1 and v2 (1.2.0, 1.2.1) of Tropical/Glacier jumped from these places too
 const OLD_PATCH = [[0x20ED2, '41f21431c1f20901'], [0x20FBC, '41f22c31c1f20901']];
 // Land firmware: background table, adult table and a few code places (to recognise it)
-const LAND_BG = 0x1007BAA8, LAND_ADULT = 0x10079AA4, LAND_SPEED = 0x10086918;
+const LAND_BG = 0x1007BAA8, LAND_ADULT = 0x10079AA4, LAND_SPEED = 0x10086918, LAND_PLANET = 0x100877EC;
+// planet stages of Sky (Land, Water, Sky ROMs: third row of LAND_PLANET)
+const SKY_PLANET = [2, 5, 5, 5, 8, 8, 9, 9, 9, 9, 10];
 const LAND_BG_AT = 0x11000 + 0x158F8, LAND_ADULT_AT = 0x11000 + 0xE2D0;
 const LAND_FP = [[0x11000 + 0x38AA6, '46f61811c1f20801'], [0x11000 + 0x4D316, '01f65301']];
 /*
@@ -290,7 +300,8 @@ function sixInfo(rom) {
   if (rom.length < SIX_OFF + 0x400 || u32(rom, SIX_OFF) !== SIX_MAGIC) return null;
   const version = u32(rom, SIX_OFF + 4);
   return { version, kind: version >= 3 && u32(rom, SIX_OFF + 28) === 1 ? 'jade' : 'gen3', flagOff: u32(rom, SIX_OFF + 12),
-    sprites: u32(rom, SIX_OFF + 16), comps: u32(rom, SIX_OFF + 20), anims: version >= 2 ? u32(rom, SIX_OFF + 24) : 0 };
+    sprites: u32(rom, SIX_OFF + 16), comps: u32(rom, SIX_OFF + 20), anims: version >= 2 ? u32(rom, SIX_OFF + 24) : 0,
+    planet: version >= 5 && (u32(rom, SIX_OFF + 32) & 1) === 1 };
 }
 const movPairBytes = (r, t) => concat([movEnc(r, t & 0xFFFF), movEnc(r, t >>> 16, true)]);
 /** Can this ROM get more fields? (Tropical/Glacier: Land, Water, Sky; Jade Forest: Sky) */
@@ -299,7 +310,8 @@ function sixCan(rom) {
   if (sixInfo(rom)) return true;
   const K = KINDS[k], f = (o) => 0x11000 + o;
   return hex(rom, f(K.bg.at), 4) === K.bg.orig && hex(rom, f(K.child.at), 6) === K.child.orig &&
-    K.sites.every(([o, r, t]) => hex(rom, f(o), 8) === hex(movPairBytes(r, t), 0, 8));
+    K.sites.concat(K.planet.sites).every(([o, r, t]) => hex(rom, f(o), 8) === hex(movPairBytes(r, t), 0, 8)) &&
+    K.planet.calls.every((o) => hex(rom, f(o), 4) === hex(branch(XIP(f(o)), K.planet.fn, true), 0, 4));
 }
 /** Is this a Land, Water or Sky ROM that can give its fields? */
 function sixSource(land) {
@@ -318,7 +330,8 @@ function sixStrip(rom) {
   const put = (o, h) => { for (let k = 0; k < h.length / 2; k++) out[o + k] = parseInt(h.substr(2 * k, 2), 16); };
   put(f(K.bg.at), K.bg.orig); put(f(K.child.at), K.child.orig);
   if (info.kind === 'gen3') for (const [o, h] of OLD_PATCH) put(o, h);
-  for (const [o, r, t] of K.sites) out.set(movPairBytes(r, t), f(o));
+  for (const [o, r, t] of K.sites.concat(K.planet.sites)) out.set(movPairBytes(r, t), f(o));
+  for (const o of K.planet.calls) out.set(branch(XIP(f(o)), K.planet.fn, true), f(o));
   out.fill(0xFF, SIX_OFF, SIX_OFF + 0x1000);
   if (u32(out, B_OFF) === B_MAGIC) out.fill(0xFF, B_OFF, B_END);
   if (info.kind === 'jade') return out;
@@ -329,11 +342,11 @@ function sixStrip(rom) {
   return C.buildRom({ rom: out, entries: T.entries.slice(0, info.sprites), files: [null, null, T.files[2]], limit: T.limit, assetEnd: T.assetEnd }, new Map(), dpJoin(tabs)).rom;
 }
 /* Helper page and firmware jumps. alt: alternative tables by name (rows like the original). */
-function install(out, kind, blob, alt, counts) {
-  const K = KINDS[kind], f = (o) => 0x11000 + o;
+function install(out, kind, blob, alt, counts, planet) {
+  const K = KINDS[kind], f = (o) => 0x11000 + o, sites = planet ? K.sites.concat(K.planet.sites) : K.sites;
   const page = new Uint8Array(0x1000).fill(0xFF); page.set(blob);
   w32(page, 8, K.flag); w32(page, 12, FLAG_OFF);
-  w32(page, 16, counts[0]); w32(page, 20, counts[1]); w32(page, 24, counts[2]); w32(page, 28, K.id);
+  w32(page, 16, counts[0]); w32(page, 20, counts[1]); w32(page, 24, counts[2]); w32(page, 28, K.id); w32(page, 32, planet ? 1 : 0);
   // background table and child list
   alt.bg.forEach((v, i) => w16(page, T_BG + 2 * i, v));
   w32(page, P_BG, K.bg.table); w32(page, P_BG + 4, SIX_XIP + T_BG); w32(page, P_BG + 8, K.bg.mode);
@@ -341,21 +354,26 @@ function install(out, kind, blob, alt, counts) {
   w32(page, P_CHILD, SIX_XIP + T_CHILD_O); w32(page, P_CHILD + 4, SIX_XIP + T_CHILD); w32(page, P_CHILD + 8, K.child.sp);
   // other tables, then the site list
   let pos = T_MORE; const at = {};
-  for (const name of new Set(K.sites.map((x) => x[3]))) {
+  for (const name of new Set(sites.map((x) => x[3]))) {
     const v = alt[name]; if (v === undefined) throw new Error('table ' + name + ' missing');
     if (typeof v === 'number') { at[name] = v - SIX_XIP; continue; }   // a value instead of a table
     at[name] = pos; v.forEach((x, i) => w16(page, pos + 2 * i, x)); pos += (2 * v.length + 3) & ~3;
   }
   if (pos > 0x800) throw new Error('helper page full');
-  K.sites.forEach(([o, , t, name], i) => { const e = T_SITES + 12 * i; w32(page, e, (XIP(f(o)) + 4) | 1); w32(page, e + 4, t); w32(page, e + 8, SIX_XIP + at[name]); });
-  w32(page, T_SITES + 12 * K.sites.length, 0);
+  if (12 * (sites.length + 1) > T_MORE - T_SITES) throw new Error('helper page full');
+  sites.forEach(([o, , t, name], i) => { const e = T_SITES + 12 * i; w32(page, e, (XIP(f(o)) + 4) | 1); w32(page, e + 4, t); w32(page, e + 8, SIX_XIP + at[name]); });
+  w32(page, T_SITES + 12 * sites.length, 0);
+  // planet: original function, field byte, row per field slot
+  w32(page, P_PMAP, K.planet.fn | 1); w32(page, P_PMAP + 4, K.planet.field);
+  K.planet.rows.forEach((v, i) => { page[P_PMAP + 8 + i] = v; });
   out.set(page, SIX_OFF);
   // firmware: background function -> b.w, child -> bl + b, sites -> bl + 2 nop
   const fn = (k) => u32(page, P_FN + 4 * k) & ~1;
   out.set(branch(XIP(f(K.bg.at)), fn(FN_BG), false), f(K.bg.at));
   { const src = XIP(f(K.child.at)), b = new Uint8Array(6); b.set(branch(src, fn(FN_CHILD), true));
     w16(b, 4, 0xE000 | (((XIP(f(K.child.back)) - (src + 8)) >> 1) & 0x7FF)); out.set(b, f(K.child.at)); }
-  for (const [o, r] of K.sites) { const b = new Uint8Array(8); b.set(branch(XIP(f(o)), fn(FN_TAB[r]), true)); w16(b, 4, 0xBF00); w16(b, 6, 0xBF00); out.set(b, f(o)); }
+  for (const [o, r] of sites) { const b = new Uint8Array(8); b.set(branch(XIP(f(o)), fn(FN_TAB[r]), true)); w16(b, 4, 0xBF00); w16(b, 6, 0xBF00); out.set(b, f(o)); }
+  if (planet) for (const o of K.planet.calls) out.set(branch(XIP(f(o)), fn(FN_PMAP), true), f(o));
   return out;
 }
 /* rows of an original table with some rows replaced: table at XIP address, per row n values */
@@ -369,9 +387,10 @@ function rows(rom, addr, n, nrows, repl) {
  * (call feldStrip first). land: the user's Land, Water or Sky image (only for Tropical/Glacier).
  * blob: six.bin.
  */
-function sixApply(rom, land, blob) {
+function sixApply(rom, land, blob, opts = {}) {
+  const planet = opts.planet !== false;
   const have = sixInfo(rom);
-  if (have && have.version >= SIX_VERSION) return rom;
+  if (have && have.version >= SIX_VERSION && have.planet === planet) return rom;
   if (have) rom = sixStrip(rom);
   const kind = kindOf(rom);
   if (!kind || !sixCan(rom)) throw new Error('more fields need a Tropical, Glacier or Jade Forest ROM with the original firmware');
@@ -386,7 +405,10 @@ function sixApply(rom, land, blob) {
       speed: rows(rom, 0x1008BCE8, 3, 3, { 1: J.speed }), egg: rows(rom, 0x100820E8, 1, 3, { 1: J.egg }),
       wagon: rows(rom, 0x100820D0, 4, 3, { 1: J.wagon }), scene: rows(rom, 0x10081198, 5, 3, { 1: J.scene }),
       spec1: 0x0FE40FE2 };   // Land 4066, Sky 4068 (Yayacorntchi) in the Water slot
-    return install(new Uint8Array(rom), 'jade', blob, alt, [0, 0, 0]);
+    // planet: Sky stages in the Water row (the field slot of Sky)
+    alt.plTab = rows(rom, 0x1008CBD0, 11, 3, { 1: SKY_PLANET });
+    alt.pl0 = rows(rom, 0x100811DA, 11, 1, {}); alt.pl1 = SKY_PLANET; alt.pl2 = rows(rom, 0x100811F0, 11, 1, {});
+    return install(new Uint8Array(rom), 'jade', blob, alt, [0, 0, 0], planet);
   }
   if (!sixSource(land)) throw new Error('the second ROM must be a Land, Water or Sky ROM');
   const trop = rom;
@@ -459,7 +481,11 @@ function sixApply(rom, land, blob) {
   const out = C.buildRom({ rom: trop, entries, files: [null, null, T.files[2]], limit: T.limit, assetEnd: T.assetEnd }, new Map(), dpJoin(tt)).rom;
   const alt = { bg: tBg, child: [2002, 2003, 2004], teen: Array.from({ length: 12 }, (_, i) => 3005 + i), adult, speed, egg, eggPic, scene, wagon,
     spec1: 0x0FE30FE2, spec2: 0x0FE40FE4 };   // specials Chodracotchi 4066, Mermarintchi 4067, Yayacorntchi 4068
-  install(out, 'gen3', blob, alt, [nspr0, ncomp0, nanim0]);
+  // planet stages of Land, Water, Sky (from the Land ROM, the same in all three)
+  alt.plTab = []; for (let i = 0; i < 33; i++) alt.plTab.push(lw(lfw(LAND_PLANET) + 2 * i));
+  if (alt.plTab[0] !== 2 || alt.plTab[11] !== 2 || alt.plTab[22] !== 2) throw new Error('unexpected Land planet table');
+  alt.pl0 = alt.plTab.slice(0, 11); alt.pl1 = alt.plTab.slice(11, 22); alt.pl2 = alt.plTab.slice(22, 33);
+  install(out, 'gen3', blob, alt, [nspr0, ncomp0, nanim0], planet);
   // region B: rain cells
   for (let i = B_OFF; i < B_END; i++) if (trop[i] !== 0xFF) throw new Error('area 0xF00000 is in use');
   const bh = new Uint8Array(bHead); w32(bh, 0, B_MAGIC); w32(bh, 4, bList.length);

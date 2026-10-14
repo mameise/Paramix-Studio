@@ -170,6 +170,33 @@ function emuPatch(rom, guest, app, stubTpl, opts = {}) {
   return { rom: out, device: dev, blocks };
 }
 
+/**
+ * Newer emulator program into a ROM that already has the emulator (v1.2.6).
+ * Only the program at 0x0A0000 changes: settings (firmware layout) are taken over,
+ * the packed firmware, the spare pages and the saved session stay. Returns null if
+ * the program is already the same.
+ */
+function emuUpgrade(rom, app) {
+  const ci0 = 0x140;
+  if (u32(rom, APP_OFF + ci0) !== PMXC) return null;
+  const a = new Uint8Array(app);
+  let ci = -1; for (let i = 0; i + 4 <= a.length; i += 4) if (u32(a, i) === PMXC) { ci = i; break; }
+  if (ci !== ci0) return null;
+  const ver = u32(rom, APP_OFF + ci + 4);
+  if (ver < 2) return null;
+  for (let i = 8; i < 152; i++) a[ci + i] = rom[APP_OFF + ci + i];
+  w32(a, ci + 4, 3);
+  w32(a, ci + 152, ver >= 3 ? u32(rom, APP_OFF + ci + 152) : GUEST_END);
+  if (u32(a, ci + 152) > GUEST_END || u32(a, ci + 8) !== GUEST_OFF) return null;
+  let same = true;
+  for (let i = 0; i < APP_MAX && same; i++) if (rom[APP_OFF + i] !== (i < a.length ? a[i] : 0)) same = false;
+  if (same) return null;
+  const out = new Uint8Array(rom);
+  out.fill(0x00, APP_OFF, APP_OFF + APP_MAX);
+  out.set(a, APP_OFF);
+  return out;
+}
+
 /** Remove the emulator again (home screen back to the original handlers). */
 function emuRemove(rom) {
   const out = new Uint8Array(rom);
@@ -297,6 +324,6 @@ function embedded() {
   return { app: b64(EMU_APP_B64), stub: b64(EMU_STUB_B64) };
 }
 
-root.ParamixEmu = { installApp, dlcStores, dlcRoute, dlcAdd, dlcFree, dlcSlots, dlcRecord, dlcPut, dlcName, emuDetect, sceneTable, packGuest, emuPatch, emuRemove, installedOrigs, embedded, DEVICES, GUEST_OFF };
+root.ParamixEmu = { installApp, dlcStores, dlcRoute, dlcAdd, dlcFree, dlcSlots, dlcRecord, dlcPut, dlcName, emuDetect, sceneTable, packGuest, emuPatch, emuUpgrade, emuRemove, installedOrigs, embedded, DEVICES, GUEST_OFF };
 if (typeof module !== 'undefined') module.exports = root.ParamixEmu;
 })(typeof window !== 'undefined' ? window : globalThis);

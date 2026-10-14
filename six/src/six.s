@@ -9,12 +9,13 @@
 .global _start
 _start:
 hdr:    .word 0x31584953          @ 0x00 "SIX1"
-        .word 4                   @ 0x04 version (4: also plain values in the site list)
+        .word 5                   @ 0x04 version (4: plain values in the site list, 5: planet)
         .word 0                   @ 0x08 flag address (RAM)
         .word 0xF04               @ 0x0C flag offset in the settings block
         .word 0, 0, 0             @ 0x10 sprites, composites, scripts before (for removing)
         .word 0                   @ 0x1C kind: 0 Tropical/Glacier, 1 Jade Forest
-        .space 0x40-0x20
+        .word 0                   @ 0x20 options: bit 0 planet of the field
+        .space 0x40-0x24
 
 @ r12 = flag (0 or 1), flags set. Keeps every other register.
 .macro FLAG
@@ -94,12 +95,60 @@ six_tab_r0:
 .thumb_func
 six_tab_r1:
   TAB r1, r0
+
+@ Same for a table loaded into r2 (planet stages).
+.thumb_func
+six_tab_r2:
+  push {r0,r3}
+  ldr r0,=t_sites
+1:ldr r3,[r0]
+  cmp r3,#0
+  beq 3f
+  cmp r3,lr
+  beq 2f
+  adds r0,#12
+  b 1b
+2:ldr r3,=_start
+  ldr r3,[r3,#8]
+  ldrsb r3,[r3]
+  cmp r3,#0
+  ite ne
+  ldrne r2,[r0,#8]
+  ldreq r2,[r0,#4]
+3:pop {r0,r3}
+  bx lr
+
+@ Planet row: replaces the call that turns the device edition into a row of the planet
+@ tables. With the set byte, the field slot picks the row from w_pmap+8 (0xFF = as before).
+.thumb_func
+six_pmap:
+  FLAG
+  beq 1f
+  ldr r12,=w_pmap
+  push {r1}
+  ldr r1,[r12,#4]
+  ldrsb r1,[r1]               @ field slot 0..2
+  cmp r1,#2
+  bhi 4f
+  add r1,r12,r1
+  ldrb r1,[r1,#8]
+  cmp r1,#0xFF
+  beq 4f
+  mov r0,r1
+  pop {r1}
+  bx lr
+4:pop {r1}
+1:ldr r12,=w_pmap
+  ldr r12,[r12]
+  bx r12
 .ltorg
+.org 0x1b0
+w_pmap:  .word 0, 0, 0xFFFFFFFF   @ original function, field byte, row per slot (bytes)
 .org 0x1c0
 w_bg:    .word 0, 0, 0            @ original table, alternative table, mode
 w_child: .word 0, 0, 0            @ original list, alternative list, stack offset of the index
 .org 0x1e0
-  .word six_tab_r0, six_tab_r1, six_bg, six_child
+  .word six_tab_r0, six_tab_r1, six_bg, six_child, six_pmap, six_tab_r2
 .org 0x200
 t_bg:        .space 0x140         @ alternative background table
 t_child:     .space 8             @ 0x340 alternative child list

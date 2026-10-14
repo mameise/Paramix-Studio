@@ -51,10 +51,10 @@ const T = {
     fl_appSilent: 'die Flash-App ist gesendet, antwortet aber nicht. Nochmals versuchen', fl_unknownEd: 'Ausgabe des neuen ROMs unbekannt, "Spielstände behalten" abwählen',
     fl_otherEd: 'das Gerät ist {d}, das neue ROM ist {r}. Zum Wechseln der Ausgabe "Spielstände behalten" abwählen',
     fl_noteNoFit: 'Feld {f} passt nicht ins neue Fach und wird nicht behalten', fl_noteMoved: 'Feld {f} ist ins neue Fach umgezogen',
-    fl_noteDropped: 'das neue ROM hat kein Feld-Menü, die gespeicherten Felder auf dem Gerät fallen weg', fl_noteEmu: 'TamaEmu ist geändert, der Emulator startet frisch',
+    fl_noteDropped: 'das neue ROM hat kein Feld-Menü, die gespeicherten Felder auf dem Gerät fallen weg', fl_noteEmu: 'TamaEmu-Firmware neu gewählt, der Emulator startet frisch. Für ein Update das ROM nur öffnen und speichern',
     tabFeld: 'Menü', feldOn: 'Feldwahl', bagOn: 'Items und Tamapoints',
     sixOn: 'Alle 6 Felder', sixPick: 'Land-, Water- oder Sky-ROM wählen', sixHint: 'Holt Land, Water und Sky zu Tropical, Glacier und Forest dazu. Die Feldbilder kommen aus deinem eigenen Land-, Water- oder Sky-ROM.',
-    sixNeed: 'Für alle 6 Felder fehlt noch ein Land-, Water- oder Sky-ROM.', sixOk: 'Feldbilder aus {n} übernommen.', sixBad: '{n} ist kein Land-, Water- oder Sky-ROM.', sixIn: 'Alle 6 Felder sind eingebaut.', sixFail: 'Felder nicht eingebaut: {e}', sixNoFw: 'Die Firmware dieses ROMs ist verändert, weitere Felder gehen hier nicht.', planSix: 'Mehr Felder', sixOnJ: 'Sky als 4. Feld', sixHintJ: 'Jade Forest hat die Sky-Bilder schon dabei.', sixInJ: 'Sky ist als 4. Feld eingebaut.', sixOld: 'Alle 6 Felder sind eingebaut, aber in einer älteren Version. Wähl dein Land-, Water- oder Sky-ROM, dann wird beim Speichern alles nachgerüstet.', sixOldJ: 'Sky ist eingebaut und wird beim Speichern auf den neuen Stand gebracht.', sixApp: 'DOOM und Emulator passen nicht dazu',
+    sixNeed: 'Für alle 6 Felder fehlt noch ein Land-, Water- oder Sky-ROM.', sixOk: 'Feldbilder aus {n} übernommen.', sixBad: '{n} ist kein Land-, Water- oder Sky-ROM.', sixIn: 'Alle 6 Felder sind eingebaut.', sixFail: 'Felder nicht eingebaut: {e}', sixNoFw: 'Die Firmware dieses ROMs ist verändert, weitere Felder gehen hier nicht.', planSix: 'Mehr Felder', sixOnJ: 'Sky als 4. Feld', sixHintJ: 'Jade Forest hat die Sky-Bilder schon dabei.', sixInJ: 'Sky ist als 4. Feld eingebaut.', sixOld: 'Alle 6 Felder sind eingebaut, aber in einer älteren Version. Wähl dein Land-, Water- oder Sky-ROM, dann wird beim Speichern alles nachgerüstet.', sixOldJ: 'Sky ist eingebaut und wird beim Speichern auf den neuen Stand gebracht.', sixPlanet: 'Planet passend zum Feld', sixPlanetNeed: 'Zum Ändern des Planeten braucht es nochmals dein Land-, Water- oder Sky-ROM.', sixApp: 'DOOM und Emulator passen nicht dazu',
     feldHint: 'Kleines Menü im ROM: Feld wechseln (jedes mit eigenem Spielstand), Items in die Tasche legen, Tamapoints setzen.',
     feldUse: 'Öffnen: auf dem Heimbildschirm A und C zusammen halten. Rad wählt, B bestätigt, C zurück.',
     feldNo: 'Feldwahl geht mit Land, Water, Sky (untereinander) und Tropical, Glacier (untereinander).', feldMissing: 'In dieser Ausgabe fehlt das Menü.',
@@ -70,7 +70,7 @@ const T = {
     emuPick: 'Firmware wählen', emuOff: 'Emulator entfernen',
     emuHint: 'Baut einen Emulator für Farb-Tamas ins ROM. Die Firmware (4 MB oder 8 MB) bringst du selbst mit.',
     emuUse: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Zurück: Rad lange drücken (speichert). Neu beginnen: A und C loslassen und in den ersten 3 Sekunden das Rad drücken.',
-    emuNone: 'Kein Emulator gewählt.', emuHas: 'In diesem ROM ist ein Emulator eingebaut.',
+    emuNone: 'Kein Emulator gewählt.', emuHas: 'In diesem ROM ist ein Emulator eingebaut.', emuUp: 'Beim Speichern kommt die neue Emulator-Version hinein. Mit "Spielstände behalten" bleibt der Spielstand.',
     emuOk: 'Firmware erkannt ({size}). Sie wird beim Speichern eingebaut.', emuBad: 'Firmware nicht erkannt: {e}',
     emuGone: 'Emulator wird beim Speichern entfernt.', emuMissing: 'In dieser Ausgabe fehlt das Emulator-Programm.',
     emuFail: 'Emulator nicht eingebaut: {e}', savedEmu: 'Gespeichert: {name}',
@@ -145,7 +145,7 @@ const T = {
     devSame: 'Nothing to write, the device already has this ROM.', devErr: 'Error: {e}', devCancelled: 'Cancelled.',
     tabFeld: 'Menu', feldOn: 'Field switch', bagOn: 'Items and Tamapoints',
     sixOn: 'All 6 fields', sixPick: 'Choose Land, Water or Sky ROM', sixHint: 'Adds Land, Water and Sky to Tropical, Glacier and Forest. The field pictures come from your own Land, Water or Sky ROM.',
-    sixNeed: 'All 6 fields still need a Land, Water or Sky ROM.', sixOk: 'Field pictures taken from {n}.', sixBad: '{n} is not a Land, Water or Sky ROM.', sixIn: 'All 6 fields are built in.', sixFail: 'Fields not built in: {e}', sixNoFw: 'The firmware of this ROM is changed, more fields do not work here.', planSix: 'More fields', sixOnJ: 'Sky as 4th field', sixHintJ: 'Jade Forest already has the Sky pictures.', sixInJ: 'Sky is built in as the 4th field.', sixOld: 'All 6 fields are built in, but an older version. Choose your Land, Water or Sky ROM and everything is updated when you save.', sixOldJ: 'Sky is built in and is updated when you save.', sixApp: 'DOOM and the emulator do not fit with it',
+    sixNeed: 'All 6 fields still need a Land, Water or Sky ROM.', sixOk: 'Field pictures taken from {n}.', sixBad: '{n} is not a Land, Water or Sky ROM.', sixIn: 'All 6 fields are built in.', sixFail: 'Fields not built in: {e}', sixNoFw: 'The firmware of this ROM is changed, more fields do not work here.', planSix: 'More fields', sixOnJ: 'Sky as 4th field', sixHintJ: 'Jade Forest already has the Sky pictures.', sixInJ: 'Sky is built in as the 4th field.', sixOld: 'All 6 fields are built in, but an older version. Choose your Land, Water or Sky ROM and everything is updated when you save.', sixOldJ: 'Sky is built in and is updated when you save.', sixPlanet: 'Planet to match the field', sixPlanetNeed: 'Changing the planet needs your Land, Water or Sky ROM again.', sixApp: 'DOOM and the emulator do not fit with it',
     feldHint: 'Small menu in the ROM: switch fields (each with its own save), put items in the bag, set Tamapoints.',
     feldUse: 'Open: hold A and C together on the home screen. Wheel selects, B confirms, C goes back.',
     feldNo: 'Field switch works with Land, Water, Sky (among each other) and Tropical, Glacier (among each other).', feldMissing: 'This build does not contain the menu.',
@@ -161,7 +161,7 @@ const T = {
     emuPick: 'Choose firmware', emuOff: 'Remove emulator',
     emuHint: 'Builds an emulator for colour tamas into the ROM. Bring your own firmware (4 MB or 8 MB).',
     emuUse: 'Start: hold A and C together on the home screen. Back: hold the wheel (saves). Start over: release A and C and press the wheel within the first 3 seconds.',
-    emuNone: 'No emulator chosen.', emuHas: 'This ROM contains an emulator.',
+    emuNone: 'No emulator chosen.', emuHas: 'This ROM contains an emulator.', emuUp: 'Saving puts in the new emulator version. With "Keep saves" the save stays.',
     emuOk: 'Firmware recognised ({size}). It is built in on save.', emuBad: 'Firmware not recognised: {e}',
     emuGone: 'The emulator is removed on save.', emuMissing: 'This build does not contain the emulator program.',
     emuFail: 'Emulator not built in: {e}', savedEmu: 'Saved: {name}',
@@ -343,6 +343,7 @@ async function loadRom(file) {
   $('start').hidden = true; $('work').classList.add('on'); $('btnSave').disabled = false;
   $('romname').textContent = file.name;
   state.emu = null; state.emuRemove = false; state.doom = null; state.doomKeys = null; state.six = null; state.sixName = ''; state.sixWant = false;
+  { const si = S6.sixInfo(buf); state.sixPlanet = si && si.version >= 5 ? si.planet : true; }
   { const fe = F.embedded(), f = fe && F.feldFind(buf, fe.stub);
     state.feld = !!(f && (f.flags & F.F_FIELDS)); state.bag = !!(f && (f.flags & F.F_BAG));
     state.feldInit = state.feld; state.bagInit = state.bag;
@@ -725,7 +726,7 @@ function renderPlan() {
   const st = (on, isNew, old, extra) => on ? (isNew ? t('stNew') : t('stKeep')) + (extra ? ', ' + extra : '') : (old ? t('stDel') : t('stNone'));
   const chips = [
     [t('planFig'), state.changed.size ? t('stChanged', { n: state.changed.size }) : t('stSame'), state.changed.size ? 'new' : 'keep'],
-    [t('planEmu'), st(emuOn, !!state.emu, kind === 2, state.emu ? E.DEVICES[state.emu.dev].label : ''), state.emu ? 'new' : emuOn ? 'keep' : kind === 2 ? 'del' : 'off'],
+    [t('planEmu'), emuUpPending() ? t('stUpd') : st(emuOn, !!state.emu, kind === 2, state.emu ? E.DEVICES[state.emu.dev].label : ''), state.emu || emuUpPending() ? 'new' : emuOn ? 'keep' : kind === 2 ? 'del' : 'off'],
     [t('planDoom'), st(doomOn, !!state.doom, kind === 1, state.doom ? 'E' + $('doomEp').value + ($('doomMusic').checked ? ' + ' + t('doomMusic') : '') : ''), state.doom ? 'new' : doomOn ? 'keep' : kind === 1 ? 'del' : 'off'],
   ];
   const menuOn = state.feld || state.bag, parts = [state.feld ? t('feldOn') : '', state.bag ? t('bagOn') : ''].filter(Boolean).join(', ');
@@ -767,6 +768,11 @@ function appInstalled() {
 }
 function emuInstalled() { return appInstalled() === 2; }
 function doomInstalled() { return appInstalled() === 1; }
+function emuUpPending() {
+  const emb = E.embedded();
+  if (state.emu || state.emuRemove || state.doom || !emb || !emuInstalled()) return false;
+  try { return !!E.emuUpgrade(state.ctx.rom, emb.app); } catch (e) { return false; }
+}
 /* Room for emulator and DOOM: both need the area after the characters from 0x830000 and the program space at 0x0A0000 */
 function appRoom() { const r = state.ctx.rom; return estimateEnd() <= 0x830000 && (F.appKind(r) || r.subarray(0xA0000, 0xA1000).every(b => b === 0xFF)); }
 function renderEmu() {
@@ -777,7 +783,7 @@ function renderEmu() {
   if (!E.embedded()) s = t('emuMissing');
   else if (state.emu) s = t('emuOk', { size: E.DEVICES[state.emu.dev].label });
   else if (state.emuRemove) s = t('emuGone');
-  else s = has ? t('emuHas') : t('emuNone');
+  else s = has ? t('emuHas') + (emuUpPending() ? ' ' + t('emuUp') : '') : t('emuNone');
   s += (state.emu || (has && !state.emuRemove) ? '\n' + t('emuUse') : '');
   const room = appRoom();
   $('btnEmu').disabled = !room;
@@ -947,7 +953,9 @@ function renderFeld() {
   $('sixRow').hidden = !sixCan;
   for (const [id, k] of [['sixOnTxt', jade ? 'sixOnJ' : 'sixOn'], ['sixHintTxt', jade ? 'sixHintJ' : 'sixHint']]) { $(id).dataset.t = k; $(id).textContent = t(k); }
   $('sixOn').checked = sixIn || !!state.six || !!state.sixWant; $('sixOn').disabled = (sixIn && !sixOld) || !fe || !S6.embedded();
-  $('btnSix').hidden = jade || (sixIn && !sixOld);
+  $('btnSix').hidden = jade || (sixIn && !sixOld && si.planet === state.sixPlanet);
+  $('sixPlanetRow').hidden = !sixCan || !(sixIn || state.six || state.sixWant);
+  $('sixPlanet').checked = state.sixPlanet !== false; $('sixPlanet').disabled = !fe || !S6.embedded();
   if (!fe) s = t('feldMissing');
   else if (!ed) s = t('feldUnknown');
   else {
@@ -961,6 +969,7 @@ function renderFeld() {
       if (jade) { if (sixOld) s += '\n' + t('sixOldJ'); else if (sixIn) s += '\n' + t('sixInJ'); else if (!S6.sixCan(rom)) s += '\n' + t('sixNoFw'); }
       else if (sixOld && state.six) s += '\n' + t('sixOk', { n: state.sixName });
       else if (sixOld) s += '\n' + t('sixOld');
+      else if (sixIn && si.planet !== state.sixPlanet && !state.six) s += '\n' + t('sixPlanetNeed');
       else if (sixIn) s += '\n' + t('sixIn');
       else if (!S6.sixCan(rom)) s += '\n' + t('sixNoFw');
       else if (state.sixWant && !state.six) s += '\n' + t('sixNeed');
@@ -979,6 +988,7 @@ $('sixOn').onchange = (e) => {
   renderFeld();
 };
 $('btnSix').onclick = () => $('fileSix').click();
+$('sixPlanet').onchange = (e) => { state.sixPlanet = e.target.checked; renderFeld(); };
 $('fileSix').onchange = async (e) => {
   const f = e.target.files[0]; e.target.value = '';
   if (!f) return;
@@ -994,8 +1004,9 @@ $('bagOn').onchange = (e) => { state.bag = e.target.checked; renderFeld(); };
    Returns { rom, name, res } or null (the reason is shown). same: nothing chosen. */
 async function composeRom() {
   const keysDirty = !state.doom && doomInstalled() && state.doomKeys && D.doomKeysGet(state.ctx.rom) && JSON.stringify(state.doomKeys) !== JSON.stringify(D.doomKeysGet(state.ctx.rom));
-  const si0 = S6.sixInfo(state.ctx.rom), sixUp = !!si0 && si0.version < S6.VERSION && !S6.sixNeedsSource(state.ctx.rom);
-  if (!state.changed.size && !state.emu && !state.emuRemove && !state.doom && !keysDirty && !state.six && !sixUp && !(state.sixWant && !S6.sixInfo(state.ctx.rom)) && state.feld === state.feldInit && state.bag === state.bagInit && !state.feldStale) return { rom: state.ctx.rom, name: state.name, res: null, same: true };
+  const si0 = S6.sixInfo(state.ctx.rom), sixUp = !!si0 && (si0.version < S6.VERSION || si0.planet !== state.sixPlanet) && !S6.sixNeedsSource(state.ctx.rom);
+  const emuUp = emuUpPending();
+  if (!state.changed.size && !state.emu && !state.emuRemove && !state.doom && !keysDirty && !emuUp && !state.six && !sixUp && !(state.sixWant && !S6.sixInfo(state.ctx.rom)) && state.feld === state.feldInit && state.bag === state.bagInit && !state.feldStale) return { rom: state.ctx.rom, name: state.name, res: null, same: true };
   const fe = F.embedded(), feldSaved = fe ? F.feldSlots(state.ctx.rom, fe.stub) : [];
   if (state.emu && state.doom) { toast(t('doomBoth'), true); return null; }
   if (state.doom && state.doomKeys && D.doomKeysCheck(state.doomKeys)) { toast(em(D.doomKeysCheck(state.doomKeys)), true); return null; }
@@ -1014,6 +1025,8 @@ async function composeRom() {
       else rom = E.emuRemove(rom);
     } catch (e) { toast(t('emuFail', { e: em(e) }), true); return null; }
   }
+  // newer emulator program: only the program changes, the Tamagotchi's save stays
+  if (emuUp && F.appKind(rom) === 2) { const u = E.emuUpgrade(rom, E.embedded().app); if (u) rom = u; }
   if (state.doom && !state.doom.ok.length) { toast(t('doomBig'), true); return null; }
   if (state.doom) {
     const emb = D.embedded(), embE = E.embedded();
@@ -1031,9 +1044,10 @@ async function composeRom() {
   const needSrc = S6.sixNeedsSource(rom);
   if (state.sixWant && needSrc && !state.six && !S6.sixInfo(rom)) { toast(t('sixNeed'), true); return null; }
   const sixHave = S6.sixInfo(rom);
-  if ((state.six || (state.sixWant && !needSrc) || (!needSrc && sixHave)) && !(sixHave && sixHave.version >= S6.VERSION)) {
+  if (sixHave && needSrc && !state.six && sixHave.version >= S6.VERSION && sixHave.planet !== state.sixPlanet) { toast(t('sixPlanetNeed'), true); return null; }
+  if ((state.six || (state.sixWant && !needSrc) || (!needSrc && sixHave)) && !(sixHave && sixHave.version >= S6.VERSION && sixHave.planet === state.sixPlanet)) {
     if (state.doom || doomInstalled() || state.emu) { toast(t('sixFail', { e: t('sixApp') }), true); return null; }
-    try { rom = S6.sixApply(rom, state.six, S6.embedded()); }
+    try { rom = S6.sixApply(rom, state.six, S6.embedded(), { planet: state.sixPlanet !== false }); }
     catch (e) { toast(t('sixFail', { e: em(e) }), true); return null; }
   }
   if (S6.sixInfo(rom)) rom = S6.sixFix(rom);   // the archive may have moved: rain pictures point to 0xF00000

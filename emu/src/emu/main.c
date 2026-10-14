@@ -612,11 +612,15 @@ void Reset_Handler(void){
     }
     /* one millisecond of guest time */
     u32 mhz = e->cmu.mclk_hz ? e->cmu.mclk_hz : e->dev.osc3_hz;
+    /* v0.9.3: carry the rest of the division. With the 32768 Hz clock (the guest sleeping)
+     * mhz/1000 gave 32 instead of 32.768 cycles per ms: the guest clock lost 2.3 percent. */
+    static u32 cy_rest;
+    u32 cy_ms; { u32 t = mhz + cy_rest; cy_ms = t / 1000u; cy_rest = t % 1000u; }
 #ifdef CLEAN
-    u32 tr_stop=tc_run(e, e->cycles + mhz/1000u);
+    u32 tr_stop=tc_run(e, e->cycles + cy_ms);
 #else
     u32 pc0=cyc_now();
-    u32 tr_stop=tc_run(e, e->cycles + mhz/1000u);
+    u32 tr_stop=tc_run(e, e->cycles + cy_ms);
     g_cy_emu += cyc_now()-pc0;
 #endif
     if(tr_stop){ /* core stopped: show the error and wait */
@@ -628,6 +632,24 @@ void Reset_Handler(void){
       for(;;){ hw_wdt_feed(); if(hw_buttons()&BTN_WHEEL) leave_nosave(); }
     }
     emu_ms++; busy_ms++;
+    /* v0.9.3: keep the guest clock on the Paradise's own seconds counter (crystal). If the
+     * millisecond tick runs slow, or busy scenes (shop, flash writes) make the emulator drop
+     * time, the missing seconds are added to the guest clock. */
+    static u32 run_ms; run_ms++;          /* ms the guest really ran (dropped ms not counted) */
+    if((run_ms & 1023u)==0u){
+      static u32 r0, m0, have; static s32 owe;
+      u32 r = REG(0x45000304u);
+      if(!have){ r0=r; m0=run_ms; have=1; }
+      else if(r - r0 >= 30u){
+        u32 dr = r - r0, dm = run_ms - m0;
+        if(dr <= dm/1000u + 600u && dm/1000u <= dr + 5u){      /* plausible: no jump of the counter */
+          owe += (s32)(dr*1000u) - (s32)dm;
+          if(owe >= 1000){ u32 n=(u32)owe/1000u; periph_rtc_advance(e, n); owe -= (s32)(n*1000u); }
+          if(owe < -2000) owe = -2000;                            /* tick fast: nothing to take back */
+        }
+        r0=r; m0=run_ms;
+      }
+    }
     /* Guest save into the Paradise flash: writing briefly stalls everything.
      * So only once nothing has been written for 3 s AND the screen has been still
      * for a moment (no game running), at the latest after 2 minutes. */
