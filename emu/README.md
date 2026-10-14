@@ -22,6 +22,26 @@ The Studio builds it into the ROM together with the user's own firmware.
 | 0x0B0000 | launcher and home screen hooks |
 | 0x0C0000 | run state (written by the emulator) |
 | 0x940000 | guest firmware, packed in 64 KB blocks; blocks the guest writes stay unpacked and hold its save |
+| behind it, up to 0xD40000 | spare pages: a table (4 KB) and 8 KB pages for blocks that are empty in the firmware but written by the guest |
+
+## Writing the guest flash
+
+The guest erases and programs its flash like the real chip. Parameter sectors
+(8 KB) and, since v0.9.2, the 64 KB sectors are kept as 8 KB copies in RAM and
+written back to the Paradise flash when the slots run out or the game is
+quiet. Erasing a 64 KB sector erases the stored block right away. Blocks that
+are empty in the firmware are not stored by the Studio; their written 8 KB
+parts go into spare pages behind the packed firmware. The table (magic
+"PMXP", checksum) is written after the page, so a power cut leaves either the
+old or the new state.
+
+Before v0.9.2 writes to 64 KB sectors were lost. The iD L then hung when it
+saved something there, for example buying the mop in the Tamadepa (daily
+items), and the long press saved that hung state.
+
+Leaving with a long press does not save the session if the core stopped or
+guest writes were lost. Pressing the wheel within the first 3 seconds after a
+resumed start drops the saved session.
 
 ## Download content (8 MB firmware)
 

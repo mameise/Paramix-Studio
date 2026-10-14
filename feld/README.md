@@ -22,20 +22,24 @@ screen). Texts on the device are English, the font and graphics are our own.
   own ROM (28 bytes per entry); pictures are drawn straight from the ROM's image
   table.
 
-Settings block of the program (288 bytes at program + 0x140, version 3): slots,
+Settings block of the program (372 bytes at program + 0x140, version 4): slots,
 ID page (footer, constant), fields (ID, name, colour), factory settings per
-edition and field, positions of money, item list, counts, catalog. The Studio
-fills it in (`src/feld.js`, profiles gen1, jade, gen3).
+edition and field, positions of money, item list, counts, catalog. Version 4
+adds fields 5 and 6, the set byte of six fields (see `six/README.md`) and a
+second slot region. The Studio fills it in (`src/feld.js`, profiles gen1,
+jade, gen3).
 
 Location: launcher 0x0B0000, program and catalog from 0x0B1000, slots behind the
 character data. Tropical and Glacier still have firmware code there, so launcher
 and program move to the first free page (0x0B6000). With DOOM, program, catalog
-and slots use the free end of the DOOM program area.
+and slots use the free end of the DOOM program area. With six fields the six
+slots lie behind the menu (up to 0x10F000, where the helper page starts) and
+behind the character data.
 
 ## Build
 
 ```
-sh src/feld/build.sh     # clang, ld.lld, llvm-objcopy -> src/feld/feld.bin
+sh src/feld/build.sh     # clang, ld.lld, llvm-objcopy -> src/feld/feld.bin (copy it to feld/feld.bin)
 ```
 
 Launcher template: as in `emu/README.md`, plus `-DFELD=1 -DFELD_SRC=0x6789EF01`.

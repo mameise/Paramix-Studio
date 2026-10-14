@@ -1592,7 +1592,7 @@ uint32_t (*jit_tgt_of)(const uint8_t *p);
 static uint32_t jit_tgt(const uint8_t *p) { return !p ? 0 : jit_tgt_of ? jit_tgt_of(p) : (uint32_t)(uintptr_t)p; }
 /* Read pointer for ROM offset off: outside the parameter block, the fast
  * block (64 KB); inside it, the overlay or the original per 8 KB. 0 = helper. */
-void jit_rom_update(Emu *e, uint32_t off)
+__attribute__((noinline)) void jit_rom_update(Emu *e, uint32_t off)
 {
     if (off >= 0x800000u) return;
     uint32_t b = off & ~0x1FFFu;

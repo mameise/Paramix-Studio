@@ -16,17 +16,39 @@ static void sector_of(Emu *e, uint32_t off, uint32_t *base, uint32_t *size)
 /* Pointer to the current byte (overlay or original). Erased
  * blocks read 0xFF. */
 static const uint8_t rom_ff[4] = { 0xFF, 0xFF, 0xFF, 0xFF };
+/* Start of the stored 8 KB part (0 = erased). */
+static inline const uint8_t *rom_chunk(Emu *e, uint32_t base)
+{
+    uint32_t b = (base >> 16) & 127u;
+    if ((e->pg_blk[b >> 5] >> (b & 31u)) & 1u) {
+        uint8_t k = e->pg_map[(base >> 13) & 1023u];
+        return k == 0xFFu ? 0 : e->pg_base + (uint32_t)k * 0x2000u;
+    }
+    const uint8_t *p = e->rom_src[b];
+    return p ? p + (base & 0xE000u) : 0;
+}
 static inline const uint8_t *rom_src_ptr(Emu *e, uint32_t off)
 {
-    const uint8_t *b = e->rom_src[(off >> 16) & 127];
-    return b ? b + (off & 0xFFFFu) : rom_ff;
+    uint32_t b = (off >> 16) & 127u;
+    if ((e->pg_blk[b >> 5] >> (b & 31u)) & 1u) {
+        const uint8_t *c = rom_chunk(e, off & ~0x1FFFu);
+        return c ? c + (off & 0x1FFFu) : rom_ff;
+    }
+    const uint8_t *p = e->rom_src[b];
+    return p ? p + (off & 0xFFFFu) : rom_ff;
 }
+/* Slow path: parameter block, written copies, spare pages, erased blocks. */
+__attribute__((noinline)) static const uint8_t *rom_slow(Emu *e, uint32_t off)
+{
+    for (int i = 0; i < e->ovl.n; i++)
+        if (off - e->ovl.base[i] < OVL_SIZE) return e->ovl.mem[i] + (off - e->ovl.base[i]);
+    return rom_src_ptr(e, off);
+}
+/* rom_blk is set only for blocks without written copies (see tc_blk_update). */
 static inline const uint8_t *rom_ptr(Emu *e, uint32_t off)
 {
-    if (off - e->par_base < 0x10000u)
-        for (int i = 0; i < e->ovl.n; i++)
-            if (off - e->ovl.base[i] < OVL_SIZE) return e->ovl.mem[i] + (off - e->ovl.base[i]);
-    return rom_src_ptr(e, off);
+    const uint8_t *b = e->rom_blk[(off >> 16) & 127u];
+    return b ? b + (off & 0xFFFFu) : rom_slow(e, off);
 }
 
 /* Get a writable copy of the sector (create it if needed). Only
@@ -37,17 +59,27 @@ static uint8_t *rom_wptr(Emu *e, uint32_t off)
     for (int i = 0; i < e->ovl.n; i++)
         if (off - e->ovl.base[i] < OVL_SIZE) return e->ovl.mem[i] + (off - e->ovl.base[i]);
     uint32_t base, size; sector_of(e, off, &base, &size);
-    if (size > OVL_SIZE) { e->flash_lost_writes++; return 0; }
+    if (size > OVL_SIZE) {
+        /* 64 KB sector: kept in 8 KB parts like the parameter sectors (v0.9.2). Before, these
+         * writes were lost and the guest could hang or crash (for example when buying an item). */
+        if (!tc_big_erase) { e->flash_lost_writes++; return 0; }
+        base = off & ~(OVL_SIZE - 1u);
+    }
     for (int pass = 0; pass < 2; pass++) {
     if (pass && !(tc_ovl_evict && tc_ovl_evict(e))) break;
     for (int i = 0; i < OVL_SLOTS; i++)
         if (e->ovl.mem[i] && e->ovl.base[i] == 0xFFFFFFFFu) {
             e->ovl.base[i] = base;
-            if (e->rom_src[base >> 16]) memcpy(e->ovl.mem[i], rom_src_ptr(e, base), OVL_SIZE);
-            else memset(e->ovl.mem[i], 0xFF, OVL_SIZE);
+            { const uint8_t *c = rom_chunk(e, base);
+              if (c) memcpy(e->ovl.mem[i], c, OVL_SIZE); else memset(e->ovl.mem[i], 0xFF, OVL_SIZE); }
             if (i >= e->ovl.n) e->ovl.n = i + 1;
+            if (base - e->par_base >= 0x10000u) {
+                uint32_t b = (base >> 16) & 127u;
+                e->ovl_blk[b >> 5] |= 1u << (b & 31u);
+                tc_blk_update(e, b);
+            }
 #ifdef TC_JIT
-            jit_rom_update(e, base);
+            else jit_rom_update(e, base);
 #endif
             return e->ovl.mem[i] + (off - base);
         }
@@ -56,10 +88,48 @@ static uint8_t *rom_wptr(Emu *e, uint32_t off)
     return 0;
 }
 
+int (*tc_big_erase)(Emu *e, uint32_t base);
+/* Fast read pointers of a 64 KB block: direct only while no written copy exists. */
+__attribute__((noinline)) void tc_blk_update(Emu *e, uint32_t b)
+{
+    b &= 127u;
+    if ((b << 16) - e->par_base < 0x10000u) return;
+    int busy = (int)(((e->ovl_blk[b >> 5] | e->pg_blk[b >> 5]) >> (b & 31u)) & 1u);
+    e->rom_blk[b] = busy ? 0 : e->rom_src[b];
+    e->fw_len = 0; e->fw_lo = 0xFFFFFFFFu;
+#ifdef TC_JIT
+    jit_rom_update(e, b << 16);
+    e->jit_flush = 1;                      /* translated code may have read this block */
+#endif
+}
+__attribute__((noinline)) void tc_ovl_free(Emu *e, int i)
+{
+    uint32_t base = e->ovl.base[i];
+    if (base == 0xFFFFFFFFu) return;
+    e->ovl.base[i] = 0xFFFFFFFFu;
+    e->fw_len = 0; e->fw_lo = 0xFFFFFFFFu;
+    if (base - e->par_base < 0x10000u) {
+#ifdef TC_JIT
+        jit_rom_update(e, base);
+#endif
+        return;
+    }
+    uint32_t b = (base >> 16) & 127u;
+    for (int k = 0; k < e->ovl.n; k++) if (e->ovl.base[k] != 0xFFFFFFFFu && ((e->ovl.base[k] >> 16) & 127u) == b) return;
+    e->ovl_blk[b >> 5] &= ~(1u << (b & 31u));
+    tc_blk_update(e, b);
+}
 static void flash_erase_sector(Emu *e, uint32_t off)
 {
     uint32_t base, size; sector_of(e, off, &base, &size);
-    uint8_t *p = rom_wptr(e, base);
+    uint8_t *p = 0;
+    if (size > OVL_SIZE) {
+        /* drop the written copies of this sector, then erase the backing store */
+        for (int i = 0; i < e->ovl.n; i++) if (e->ovl.base[i] - base < size) tc_ovl_free(e, i);
+        e->flash_big_ops++;
+        if (!(tc_big_erase && tc_big_erase(e, base))) e->flash_lost_writes++;
+        tc_blk_update(e, base >> 16);
+    } else p = rom_wptr(e, base);
     if (p) memset(p, 0xFF, size);
     e->flash_dirty = true;
     e->flash_busy = FLASH_BUSY_READS; e->fw_len = 0; e->fw_lo = 0xFFFFFFFFu;

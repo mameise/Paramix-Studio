@@ -26,6 +26,9 @@ const FELD_MAGIC = 0x444C4546, SLOT_MAGIC = 0x544C5346, CAT_MAGIC = 0x54414350, 
 const PH_APP = 0x1234ABCD, PH_FELD = 0x6789EF01, PH_ORIG = [0x22222221, 0x33333331, 0x44444441, 0x55555551];
 const HOOK_OFF = [0x40, 0x46, 0x4C, 0x52];
 const F_FIELDS = 1, F_BAG = 2;
+// Six fields (six.js): helper page at 0x10F000, set byte in the settings block
+const SIX_OFF = 0x10F000, SIX_MAGIC = 0x31584953, SIX_FLAG = 0xF04, CODE_END = 0x10F000;
+const isSix = (rom) => rom.length > SIX_OFF + 4 && u32(rom, SIX_OFF) === SIX_MAGIC;
 
 const rgb = (r, g, b) => ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
 /*
@@ -51,6 +54,21 @@ const PROFILES = [
     field: [[[499, 0]], [[499, 1]], [[499, 2]]], bag: [0xc0, 0x270, 0x770] },
 ];
 const NAMES = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier' };
+/* Tropical/Glacier with six fields: the second three are slots 0..2 with the set byte 1. */
+function profileOf(rom, p) {
+  if (!isSix(rom)) return p;
+  const g = PROFILES[0];
+  if (p.name === 'gen3') return Object.assign({}, p, {
+    ids: p.ids.concat(p.ids), names: p.names.concat(g.names), cols: p.cols.concat(g.cols),
+    field: p.field.concat(p.field.map((f) => f.concat([[SIX_FLAG, 1]]))), six: SIX_FLAG, sixMap: [0, 1, 2, 255, 3, 4, 5, 255],
+  });
+  // Jade Forest: Sky is slot 1 (Water) with the set byte
+  if (p.name === 'jade') return Object.assign({}, p, {
+    ids: p.ids.concat([0]), names: p.names.concat(['SKY']), cols: p.cols.concat([g.cols[2]]),
+    field: p.field.concat([[[p.fieldByte, 1], [SIX_FLAG, 1]]]), six: SIX_FLAG, sixMap: [0, 1, 2, 255, 0, 3, 2, 255],
+  });
+  return p;
+}
 const cap = (s) => s.charAt(0) + s.slice(1).toLowerCase();
 
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);
@@ -78,12 +96,14 @@ function feldId(rom) { const e = edition(rom); return e ? e.id : 0; }
 /** Does this ROM support the field switch? (every recognized edition has three fields) */
 function canFields(rom) { return !!edition(rom); }
 /** The fields of this ROM (names). */
-function fieldNames(rom) { const e = edition(rom); return e ? e.profile.names.map(cap) : []; }
+function fieldNames(rom) { const e = edition(rom); return e ? profileOf(rom, e.profile).names.map(cap) : []; }
 /** Active field (name), read from the save. */
 function fieldNow(rom) {
   const e = edition(rom); if (!e) return '';
-  const f = rom[0xEFE000 + e.profile.fieldByte];
-  return f < e.profile.names.length ? cap(e.profile.names[f]) : NAMES[e.id];
+  const P = profileOf(rom, e.profile);
+  let f = rom[0xEFE000 + P.fieldByte];
+  if (P.six && f < 4) f = P.sixMap[(rom[0xEFE000 + P.six] === 1 ? 4 : 0) + f];
+  return f < P.names.length ? cap(P.names[f]) : NAMES[e.id];
 }
 
 /** Program in the ROM: 0 none, 1 DOOM, 2 emulator. */
@@ -113,8 +133,11 @@ function feldAt(rom, stubOff, ph) {
   const version = u32(rom, c + 4);
   const f = { off, stubOff, version, slotOff: u32(rom, c + 8), slotSize: u32(rom, c + 12), nslots: u32(rom, c + 16), flags: F_FIELDS, catOff: 0, catN: 0 };
   if (version >= 2) { f.flags = u32(rom, c + 36); f.catOff = u32(rom, c + 272); f.catN = u32(rom, c + 276); }
+  f.slotOff2 = version >= 4 ? u32(rom, c + 364) : 0; f.slotN1 = version >= 4 ? u32(rom, c + 368) : 0;
   return f;
 }
+/** Flash address of slot i (from menu version 4 the slots can lie in two regions). */
+function slotAddr(f, i) { return f.slotOff2 && f.slotN1 && i >= f.slotN1 ? f.slotOff2 + (i - f.slotN1) * f.slotSize : f.slotOff + i * f.slotSize; }
 /** Is the menu installed? Returns { off, stubOff, version, slotOff, slotSize, nslots, flags, catOff, catN } or null. */
 function feldFind(rom, tpl) {
   const ph = findWord(tpl, PH_FELD);
@@ -131,7 +154,7 @@ function feldSlots(rom, tpl) {
   if (!f || !(f.flags & F_FIELDS)) return [];
   const out = [];
   for (let i = 0; i < f.nslots; i++) {
-    const b = f.slotOff + i * f.slotSize;
+    const b = slotAddr(f, i);
     if (u32(rom, b) !== SLOT_MAGIC) continue;
     const field = u32(rom, b + 4), bytes = u32(rom, b + 12);
     if (field < 1 || field > 6 || bytes > f.slotSize - 0x1000) continue;
@@ -306,12 +329,16 @@ function feldStrip(rom, emb, E) {
     end = Math.max(end, page(ce));
   }
   if (f.slotOff > f.off && f.slotOff < end) end = f.slotOff;
-  end = Math.min(end, f.stubOff === STUB_OFF && f.off < FELD_END ? FELD_END : 0x110000);
+  end = Math.min(end, f.stubOff === STUB_OFF && f.off < FELD_END ? FELD_END : (isSix(out) ? CODE_END : 0x110000));
   out.fill(0xFF, f.off, end);
   // Slots: never erase into the character data
   if (f.nslots && f.slotSize) {
-    const from = f.slotOff < 0x800000 ? f.slotOff : Math.max(f.slotOff, page(assetEnd(out)));
-    out.fill(0xFF, from, f.slotOff + f.nslots * f.slotSize);
+    if (f.slotOff2 && f.slotN1) {
+      for (let i = 0; i < f.nslots; i++) { const b = slotAddr(f, i); if (b >= page(assetEnd(out)) || b < 0x111000) out.fill(0xFF, b, b + f.slotSize); }
+    } else {
+      const from = f.slotOff < 0x800000 ? f.slotOff : Math.max(f.slotOff, page(assetEnd(out)));
+      out.fill(0xFF, from, f.slotOff + f.nslots * f.slotSize);
+    }
   }
   if (prev) {
     if (f.stubOff === STUB_OFF && appKind(out) && emb.oldStub) return E.installApp(out, out.slice(APP_OFF, APP_OFF + 0x10000), emb.oldStub);
@@ -332,7 +359,7 @@ function feldApply(rom, opts, saved, emb, E) {
   if (feldFind(out, emb.stub)) throw new Error('the menu is already built in');
   const ed = edition(out);
   if (!ed) throw new Error('edition not recognised');
-  const P = ed.profile;
+  const P = profileOf(out, ed.profile);
   const fields = !!opts.fields, bag = !!opts.bag;
   if (!fields && !bag) throw new Error('nothing chosen');
   const tab = E.sceneTable(out);
@@ -348,7 +375,7 @@ function feldApply(rom, opts, saved, emb, E) {
   const prog = doom ? doomCodeEnd(out) : stubOff + 0x1000;
   const catOff = cat.length ? prog + fsz : 0;
   const nslots = fields ? P.ids.length : 0;
-  let slotOff = 0, slotSize = 0;
+  let slotOff = 0, slotSize = 0, slotOff2 = 0, slotN1 = 0;
   if (doom) {
     if (prog + fsz + csz > DOOM_SAVE) throw new Error('no room for the menu next to DOOM');
     if (fields) {
@@ -357,22 +384,31 @@ function feldApply(rom, opts, saved, emb, E) {
       if (slotSize < 0x8000) throw new Error('no room for the saves next to DOOM');
     }
   } else {
-    if (prog + fsz + csz > (stubOff === STUB_OFF ? FELD_END : 0x110000)) throw new Error('menu program too big');
+    if (prog + fsz + csz > (stubOff === STUB_OFF ? FELD_END : CODE_END)) throw new Error('menu program too big');
     if (!isFF(out, prog, fsz + csz)) throw new Error('the area for the menu is in use');
-    if (fields) {
+    if (fields && P.six) {
+      // six fields: slots behind the menu (up to the helper page) and behind the character data
+      const a1 = page(prog + fsz + csz), r1 = CODE_END - a1, a2 = page(assetEnd(out)), r2 = P.idPage - 0x1000 - a2;
+      for (let s = SLOT_SIZE; s >= 0x10000; s -= 0x1000) {
+        const n1 = Math.max(0, Math.floor(r1 / s)), n2 = Math.max(0, Math.floor(r2 / s));
+        if (n1 + n2 >= nslots) { slotSize = s; slotN1 = Math.min(n1, nslots); slotOff = slotN1 ? a1 : a2; slotOff2 = slotN1 && slotN1 < nslots ? a2 : 0; if (!slotN1) slotN1 = 0; break; }
+      }
+      if (!slotSize) throw new Error('no room for the saves');
+    } else if (fields) {
       slotOff = Math.max(SLOT_BASE, page(assetEnd(out)));
       const limit = kind === 2 ? GUEST_OFF : P.idPage - 0x1000;
       slotSize = Math.min(SLOT_SIZE, Math.floor((limit - slotOff) / nslots / 0x1000) * 0x1000);
       if (slotSize < 0x10000) throw new Error('no room for the saves');
     }
   }
-  if (fields && !isFF(out, slotOff, nslots * slotSize)) throw new Error('the area for the saves is in use');
+  const fs = { slotOff, slotSize, slotOff2, slotN1 };
+  if (fields) for (let i = 0; i < nslots; i++) if (!isFF(out, slotAddr(fs, i), slotSize)) throw new Error('the area for the saves is in use');
   // Program with settings
   const f = new Uint8Array(emb.feld);
   const ci = findWord(f, FELD_MAGIC);
   if (ci < 0 || u32(f, ci + 4) < 3) throw new Error('settings block of the menu missing');
   w32(f, ci + 8, slotOff); w32(f, ci + 12, slotSize); w32(f, ci + 16, nslots);
-  w32(f, ci + 20, P.idPage + 0x1000); w32(f, ci + 24, 0x1000000); w32(f, ci + 28, P.idPage);
+  w32(f, ci + 20, P.idPage + 0x1000); w32(f, ci + 24, P.six ? 0xF00000 : 0x1000000);   // six fields: rain pictures from 0xF00000 w32(f, ci + 28, P.idPage);
   w32(f, ci + 32, stubOff); w32(f, ci + 36, (fields ? F_FIELDS : 0) | (bag ? F_BAG : 0));
   w32(f, ci + 40, P.c); w16(f, ci + 44, P.h[0]); w16(f, ci + 46, P.h[1]);
   w32(f, ci + 48, P.ids.length);
@@ -390,6 +426,19 @@ function feldApply(rom, opts, saved, emb, E) {
   w32(f, ci + 260, P.bag[0]); w32(f, ci + 264, P.bag[1]); w32(f, ci + 268, P.bag[2]);
   w32(f, ci + 272, catOff); w32(f, ci + 276, cat.length ? u32(cat, 4) : 0);
   w32(f, ci + 280, P.fieldByte); w32(f, ci + 284, bag && catList.pack > 0 ? catList.pack : 0);
+  if (P.six) {
+    if (u32(f, ci + 4) < 4) throw new Error('menu program too old for six fields');
+    w32(f, ci + 288, P.six);
+    for (let i = 4; i < 6; i++) {
+      w32(f, ci + 292 + 4 * (i - 4), P.ids[i] || 0);
+      const nm = P.names[i] || '';
+      for (let k = 0; k < 12; k++) f[ci + 300 + 12 * (i - 4) + k] = k < nm.length ? nm.charCodeAt(k) : 0;
+      w32(f, ci + 324 + 4 * (i - 4), P.cols[i] || 0xFFFF);
+      for (let k = 0; k < 4; k++) { const p = (P.field[i] || [])[k], o = ci + 332 + 16 * (i - 4) + 4 * k; w16(f, o, p ? p[0] : 0); f[o + 2] = p ? p[1] : 0; f[o + 3] = 0; }
+    }
+    w32(f, ci + 364, slotOff2); w32(f, ci + 368, slotOff2 ? slotN1 : 0);
+    P.sixMap.forEach((v, k) => { f[ci + 372 + k] = v; });
+  }
   out.set(f, prog);
   if (cat.length) out.set(cat, catOff);
   // carry over saved slots (the active field lives in the save itself)
@@ -398,7 +447,7 @@ function feldApply(rom, opts, saved, emb, E) {
     if (i < 0 || i >= nslots) continue;
     if (s.data.length > slotSize) throw new Error('the stored save of ' + cap(P.names[i]) + ' does not fit here');
     const d = new Uint8Array(s.data); w32(d, 4, i + 1);          // new slot ID: field number + 1
-    out.set(d, slotOff + i * slotSize);
+    out.set(d, slotAddr(fs, i));
   }
   // Stub
   const origs = prev || [0, 1, 2, 3].map((k) => u32(out, tab.PSID_HOME + 12 + 4 * k));
@@ -419,6 +468,6 @@ function embedded() {
   return { feld: b64(FELD_B64), stub: b64(FELD_STUB_B64) };
 }
 
-root.ParamixFeld = { edition, feldId, canFields, fieldNames, fieldNow, feldFind, feldSlots, feldStrip, feldApply, appKind, itemCatalog, embedded, NAMES, F_FIELDS, F_BAG };
+root.ParamixFeld = { isSix, slotAddr, textTabelle, zeichenkette, edition, feldId, canFields, fieldNames, fieldNow, feldFind, feldSlots, feldStrip, feldApply, appKind, itemCatalog, embedded, NAMES, F_FIELDS, F_BAG };
 if (typeof module !== 'undefined') module.exports = root.ParamixFeld;
 })(typeof window !== 'undefined' ? window : globalThis);

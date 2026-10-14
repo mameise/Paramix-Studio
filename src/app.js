@@ -6,6 +6,7 @@ const C = window.ParamixCore;
 const E = window.ParamixEmu;
 const D = window.ParamixDoom;
 const F = window.ParamixFeld;
+const S6 = window.ParamixSix;
 const $ = (id) => document.getElementById(id);
 
 // ------------------------------------------------------------------ texts
@@ -52,6 +53,8 @@ const T = {
     fl_noteNoFit: 'Feld {f} passt nicht ins neue Fach und wird nicht behalten', fl_noteMoved: 'Feld {f} ist ins neue Fach umgezogen',
     fl_noteDropped: 'das neue ROM hat kein Feld-Menü, die gespeicherten Felder auf dem Gerät fallen weg', fl_noteEmu: 'TamaEmu ist geändert, der Emulator startet frisch',
     tabFeld: 'Menü', feldOn: 'Feldwahl', bagOn: 'Items und Tamapoints',
+    sixOn: 'Alle 6 Felder', sixPick: 'Land-, Water- oder Sky-ROM wählen', sixHint: 'Holt Land, Water und Sky zu Tropical, Glacier und Forest dazu. Die Feldbilder kommen aus deinem eigenen Land-, Water- oder Sky-ROM.',
+    sixNeed: 'Für alle 6 Felder fehlt noch ein Land-, Water- oder Sky-ROM.', sixOk: 'Feldbilder aus {n} übernommen.', sixBad: '{n} ist kein Land-, Water- oder Sky-ROM.', sixIn: 'Alle 6 Felder sind eingebaut.', sixFail: 'Felder nicht eingebaut: {e}', sixNoFw: 'Die Firmware dieses ROMs ist verändert, weitere Felder gehen hier nicht.', planSix: 'Mehr Felder', sixOnJ: 'Sky als 4. Feld', sixHintJ: 'Jade Forest hat die Sky-Bilder schon dabei.', sixInJ: 'Sky ist als 4. Feld eingebaut.', sixOld: 'Alle 6 Felder sind eingebaut, aber in einer älteren Version. Wähl dein Land-, Water- oder Sky-ROM, dann wird beim Speichern alles nachgerüstet.', sixOldJ: 'Sky ist eingebaut und wird beim Speichern auf den neuen Stand gebracht.', sixApp: 'DOOM und Emulator passen nicht dazu',
     feldHint: 'Kleines Menü im ROM: Feld wechseln (jedes mit eigenem Spielstand), Items in die Tasche legen, Tamapoints setzen.',
     feldUse: 'Öffnen: auf dem Heimbildschirm A und C zusammen halten. Rad wählt, B bestätigt, C zurück.',
     feldNo: 'Feldwahl geht mit Land, Water, Sky (untereinander) und Tropical, Glacier (untereinander).', feldMissing: 'In dieser Ausgabe fehlt das Menü.',
@@ -66,12 +69,13 @@ const T = {
     doomBig: 'Keine Episode dieser WAD passt ins ROM.', doomNoMusic: 'Diese Episode passt nur ohne Musik.',
     emuPick: 'Firmware wählen', emuOff: 'Emulator entfernen',
     emuHint: 'Baut einen Emulator für Farb-Tamas ins ROM. Die Firmware (4 MB oder 8 MB) bringst du selbst mit.',
-    emuUse: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Zurück: Rad lange drücken (speichert).',
+    emuUse: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Zurück: Rad lange drücken (speichert). Neu beginnen: A und C loslassen und in den ersten 3 Sekunden das Rad drücken.',
     emuNone: 'Kein Emulator gewählt.', emuHas: 'In diesem ROM ist ein Emulator eingebaut.',
     emuOk: 'Firmware erkannt ({size}). Sie wird beim Speichern eingebaut.', emuBad: 'Firmware nicht erkannt: {e}',
     emuGone: 'Emulator wird beim Speichern entfernt.', emuMissing: 'In dieser Ausgabe fehlt das Emulator-Programm.',
     emuFail: 'Emulator nicht eingebaut: {e}', savedEmu: 'Gespeichert: {name}',
     dlcPick: 'Download-Inhalte hinzufügen', dlcHint: 'Essen, Kleider, Accessoires, Spiele usw. als .jpg aus der Tamagotchi-App. Mehrere Dateien auf einmal gehen.', dlcFreeN: '{n} frei', dlcDel: 'entfernen', dlcK0: 'Mahlzeiten', dlcK1: 'Snacks', dlcK2: 'Kleider', dlcK3: 'Accessoires', dlcK4: 'Gegenstände', dlcK5: 'Alltagsdinge', dlcK6: 'Hintergründe', dlcK7: 'Spiele', dlcK8: 'Ausflugsziele', dlcOk: '{n} liegt jetzt in {k}, Platz {s}.', dlcBad: '{f}: {e}', dlcGone: '{n} entfernt.',
+    figField: 'Feld:', figAll: 'alle', zipField: 'Feld als ZIP', fieldZipOk: '{f}: {n} Figuren und {s} Bilder als ZIP.', fieldIn: 'Feld aus ZIP übernehmen', fieldInBad: 'Kein Feld-ZIP (field.json fehlt).', fieldInOk: '{src} in {dst} übernommen: {n} Teile.', fieldInEyes: '{k} Figuren bleiben original, ihre Augenbilder sind hier zu gross.',
     zipFigs: 'Alle Figuren als ZIP', zipAll: 'Alle Sprites als ZIP', upload: 'Sheets hochladen (PNG oder ZIP)',
     numbers: 'Nummern-Test-ROM',
     figHint: 'Eine Figur besteht aus Körper, Augen und Mund, je gross und klein. Klick auf eine Figur für ihr Sheet.',
@@ -140,6 +144,8 @@ const T = {
     devDone: 'Done and checked: {w} sectors written{k}. Restart the device (reset or battery).', devKept: ', {k} save sectors kept',
     devSame: 'Nothing to write, the device already has this ROM.', devErr: 'Error: {e}', devCancelled: 'Cancelled.',
     tabFeld: 'Menu', feldOn: 'Field switch', bagOn: 'Items and Tamapoints',
+    sixOn: 'All 6 fields', sixPick: 'Choose Land, Water or Sky ROM', sixHint: 'Adds Land, Water and Sky to Tropical, Glacier and Forest. The field pictures come from your own Land, Water or Sky ROM.',
+    sixNeed: 'All 6 fields still need a Land, Water or Sky ROM.', sixOk: 'Field pictures taken from {n}.', sixBad: '{n} is not a Land, Water or Sky ROM.', sixIn: 'All 6 fields are built in.', sixFail: 'Fields not built in: {e}', sixNoFw: 'The firmware of this ROM is changed, more fields do not work here.', planSix: 'More fields', sixOnJ: 'Sky as 4th field', sixHintJ: 'Jade Forest already has the Sky pictures.', sixInJ: 'Sky is built in as the 4th field.', sixOld: 'All 6 fields are built in, but an older version. Choose your Land, Water or Sky ROM and everything is updated when you save.', sixOldJ: 'Sky is built in and is updated when you save.', sixApp: 'DOOM and the emulator do not fit with it',
     feldHint: 'Small menu in the ROM: switch fields (each with its own save), put items in the bag, set Tamapoints.',
     feldUse: 'Open: hold A and C together on the home screen. Wheel selects, B confirms, C goes back.',
     feldNo: 'Field switch works with Land, Water, Sky (among each other) and Tropical, Glacier (among each other).', feldMissing: 'This build does not contain the menu.',
@@ -154,12 +160,13 @@ const T = {
     doomBig: 'No episode of this WAD fits into the ROM.', doomNoMusic: 'This episode only fits without music.',
     emuPick: 'Choose firmware', emuOff: 'Remove emulator',
     emuHint: 'Builds an emulator for colour tamas into the ROM. Bring your own firmware (4 MB or 8 MB).',
-    emuUse: 'Start: hold A and C together on the home screen. Back: hold the wheel (saves).',
+    emuUse: 'Start: hold A and C together on the home screen. Back: hold the wheel (saves). Start over: release A and C and press the wheel within the first 3 seconds.',
     emuNone: 'No emulator chosen.', emuHas: 'This ROM contains an emulator.',
     emuOk: 'Firmware recognised ({size}). It is built in on save.', emuBad: 'Firmware not recognised: {e}',
     emuGone: 'The emulator is removed on save.', emuMissing: 'This build does not contain the emulator program.',
     emuFail: 'Emulator not built in: {e}', savedEmu: 'Saved: {name}',
     dlcPick: 'Add download content', dlcHint: 'Food, clothes, accessories, games etc. as .jpg from the Tamagotchi app. Several files at once work.', dlcFreeN: '{n} free', dlcDel: 'remove', dlcK0: 'Meals', dlcK1: 'Snacks', dlcK2: 'Clothing', dlcK3: 'Accessories', dlcK4: 'Items', dlcK5: 'Daily items', dlcK6: 'Wallpapers', dlcK7: 'Games', dlcK8: 'Destinations', dlcOk: '{n} now sits in {k}, slot {s}.', dlcBad: '{f}: {e}', dlcGone: '{n} removed.',
+    figField: 'Field:', figAll: 'all', zipField: 'Field as ZIP', fieldZipOk: '{f}: {n} characters and {s} pictures as ZIP.', fieldIn: 'Load field from ZIP', fieldInBad: 'Not a field ZIP (field.json missing).', fieldInOk: '{src} applied to {dst}: {n} parts.', fieldInEyes: '{k} characters stay original, their eye images are too big here.',
     zipFigs: 'All characters as ZIP', zipAll: 'All sprites as ZIP', upload: 'Upload sheets (PNG or ZIP)',
     numbers: 'Number test ROM',
     figHint: 'A character is made of body, eyes and mouth, each large and small. Click a character for its sheet.',
@@ -239,6 +246,14 @@ const MSG_DE = [
   [/^(.+): all slots used, remove one first$/, (m, a) => storeDe(a) + ': alle Plätze belegt, zuerst einen entfernen'],
   [/^no such slot$/, 'kein solcher Platz'],
   [/^the menu is already built in$/, 'das Menü ist schon eingebaut'],
+  [/^more fields need a Tropical, Glacier or Jade Forest ROM with the original firmware$/, 'mehr Felder gehen nur mit einem Tropical-, Glacier- oder Jade-Forest-ROM mit Original-Firmware'],
+  [/^rain pictures too big$/, 'Regenbilder zu gross'], [/^area 0xF00000 is in use$/, 'Bereich 0xF00000 ist belegt'], [/^unexpected Jade Forest data$/, 'unerwartete Jade-Forest-Daten'], [/^helper page full$/, 'Hilfsseite voll'], [/^table (\S+) missing$/, 'Tabelle $1 fehlt'],
+  [/^the second ROM must be a Land, Water or Sky ROM$/, 'das zweite ROM muss ein Land-, Water- oder Sky-ROM sein'],
+  [/^six fields program missing$/, 'Programm für 6 Felder fehlt'],
+  [/^unexpected map picture$/, 'unerwartetes Feldbild'],
+  [/^unexpected Land picture (\d+)$/, 'unerwartetes Land-Bild $1'],
+  [/^composite table full$/, 'Bildtabelle voll'],
+  [/^menu program too old for six fields$/, 'Menüprogramm zu alt für 6 Felder'],
   [/^edition not recognised$/, 'Ausgabe nicht erkannt'],
   [/^nothing chosen$/, 'nichts gewählt'],
   [/^no room for the launcher$/, 'kein Platz für den Starter'],
@@ -278,7 +293,7 @@ function applyLang() {
 document.querySelectorAll('[data-lang]').forEach(b => b.onclick = () => { lang = b.dataset.lang; try { localStorage.setItem('paramix-lang', lang); } catch (e) {} applyLang(); });
 
 // ------------------------------------------------------------------ state
-const state = { ctx: null, name: '', changed: new Map(), dim: null, open: null, zoom: 2, decoded: new Map(), eyeOffsets: new Map(), eyeRects: new Map(), eyeLayer: false };
+const state = { ctx: null, name: '', changed: new Map(), dim: null, open: null, zoom: 2, decoded: new Map(), eyeOffsets: new Map(), eyeRects: new Map(), eyeLayer: false, fields: [], charNames: new Map() };
 const entry = (i) => state.changed.get(i) || state.ctx.entries[i];
 function decode(i) {
   const e = entry(i);
@@ -327,7 +342,7 @@ async function loadRom(file) {
   Object.assign(state, { ctx, name: file.name, changed: new Map(), decoded: new Map(), open: null, eyeOffsets: new Map() });
   $('start').hidden = true; $('work').classList.add('on'); $('btnSave').disabled = false;
   $('romname').textContent = file.name;
-  state.emu = null; state.emuRemove = false; state.doom = null; state.doomKeys = null;
+  state.emu = null; state.emuRemove = false; state.doom = null; state.doomKeys = null; state.six = null; state.sixName = ''; state.sixWant = false;
   { const fe = F.embedded(), f = fe && F.feldFind(buf, fe.stub);
     state.feld = !!(f && (f.flags & F.F_FIELDS)); state.bag = !!(f && (f.flags & F.F_BAG));
     state.feldInit = state.feld; state.bagInit = state.bag;
@@ -340,6 +355,13 @@ async function loadRom(file) {
         state.feldStale = re.length !== buf.length || re.some((v, i) => v !== buf[i]);
       } catch (e) { state.feldStale = false; }
     } }
+  // fields and character names (from the ROM's character table and text table)
+  state.fields = []; state.charNames = new Map();
+  try {
+    state.fields = C.fieldSets(ctx);
+    const tt = F.textTabelle(buf), chars = C.charTable(ctx.files[0]).filter((c) => c.id > 1000 && c.id < 9000);
+    if (tt >= 0 && chars.length + 1 === ctx.groups.length) chars.forEach((c, i) => { const n = F.zeichenkette(buf, tt, c.name); if (n) state.charNames.set(ctx.groups[i + 1], n); });
+  } catch (e) { state.fields = []; }
   renderInfo(); renderGrids(); renderDim(); renderEmu(); renderDoom(); renderFeld(); if (!dv.run) devRender();
   toast(t('loaded', { ed: ctx.edition, s: ctx.entries.length, f: ctx.groups.length }));
 }
@@ -366,7 +388,8 @@ function renderInfo() {
 let observer;
 function tile(kind, idx, label) {
   const b = document.createElement('button'); b.className = 'tile'; b.dataset.kind = kind; b.dataset.idx = idx;
-  b.innerHTML = '<div class="stage"></div><div class="cap"><b>#' + idx + '</b> ' + (label || '') + '</div>';
+  b.innerHTML = '<div class="stage"></div><div class="cap"><b>#' + idx + '</b> <span></span></div>';
+  b.querySelector('.cap span').textContent = label || '';
   b.onclick = () => openDrawer(kind, idx);
   observer.observe(b);
   return b;
@@ -386,7 +409,8 @@ function renderGrids() {
   if (observer) observer.disconnect();
   observer = new IntersectionObserver((es) => es.forEach(e => { if (e.isIntersecting) { paintTile(e.target); observer.unobserve(e.target); } }), { rootMargin: '300px' });
   const ctx = state.ctx, gf = $('gridFigs'), ga = $('gridAll'); gf.innerHTML = ''; ga.innerHTML = '';
-  for (const g of ctx.groups) gf.appendChild(tile('fig', g, groupRole(g)));
+  for (const g of ctx.groups) gf.appendChild(tile('fig', g, [state.charNames.get(g), groupRole(g)].filter(Boolean).join(' ')));
+  renderFieldPick();
   ctx.entries.forEach((e, i) => { const h = C.spriteHeader(e); ga.appendChild(tile('spr', i, h.sw * Math.max(1, h.iw) + '×' + h.sh * Math.max(1, h.ih))); });
 }
 function refreshTile(kind, idx) {
@@ -423,16 +447,19 @@ const sheetName = (kind, idx) => (kind === 'fig' ? 'figur_' : 'sprite_') + pad4(
 /** Apply an edited sheet. Unchanged parts keep their original bytes. */
 function applySheet(kind, idx, img) {
   const opts = { allowMoreColors: $('optColors').checked };
+  // encode first, change nothing until every part is accepted (a character is never half replaced)
+  const plan = [];
   const setEntry = (i, subs) => {
     const cur = decode(i).subs;
     if (subs.length === cur.length && subs.every((s, k) => C.sameImage(s, cur[k]))) return;
     const orig = state.ctx.entries[i];
     const od = C.spriteDecode(orig).subs;
-    if (subs.every((s, k) => C.sameImage(s, od[k]))) { state.changed.delete(i); return; }
-    state.changed.set(i, C.spriteEncode(orig, subs, Object.assign({}, opts, partOpts(i))));
+    if (subs.every((s, k) => C.sameImage(s, od[k]))) { plan.push([i, null]); return; }
+    plan.push([i, C.spriteEncode(orig, subs, Object.assign({}, opts, partOpts(i)))]);
   };
-  if (kind === 'fig') C.groupFromSheet(img).forEach((subs, k) => setEntry(idx + k, subs));
-  else { const h = C.spriteHeader(state.ctx.entries[idx]); const d = decode(idx); setEntry(idx, C.subsFromSheet(img, d.subs[0].w, d.subs[0].h, d.subs.length)); void h; }
+  const commit = () => plan.forEach(([i, e]) => { if (e) state.changed.set(i, e); else state.changed.delete(i); });
+  if (kind === 'fig') { C.groupFromSheet(img).forEach((subs, k) => setEntry(idx + k, subs)); commit(); return; }
+  const d = decode(idx); setEntry(idx, C.subsFromSheet(img, d.subs[0].w, d.subs[0].h, d.subs.length)); commit();
 }
 function parseName(name) {
   const m = /(figur|figure|sprite)_(\d+)\.png$/i.exec(name.split('/').pop());
@@ -460,6 +487,60 @@ async function uploadFiles(files) {
   else toast(t('upOk', { n: ok }) + (skip.length ? '\n' + t('upSkip', { list: skip.slice(0, 6).join(', ') + (skip.length > 6 ? ' …' : '') }) : ''), skip.length > 0 && !ok);
   if (state.open) openDrawer(state.open.kind, state.open.idx);
 }
+/* Fields (worlds): filter the character grid and export everything of one field */
+function renderFieldPick() {
+  const sel = $('figField'), cur = sel.value; sel.innerHTML = '';
+  const o = document.createElement('option'); o.value = ''; o.textContent = t('figAll'); sel.appendChild(o);
+  state.fields.forEach((f) => { const x = document.createElement('option'); x.value = f.type; x.textContent = f.name; sel.appendChild(x); });
+  sel.value = state.fields.some((f) => String(f.type) === cur) ? cur : '';
+  applyFieldPick();
+}
+function applyFieldPick() {
+  const f = state.fields.find((x) => String(x.type) === $('figField').value);
+  const set = f ? new Set(f.chars.map((c) => c.group)) : null;
+  document.querySelectorAll('#gridFigs .tile').forEach((b) => { b.hidden = !!set && !set.has(+b.dataset.idx); });
+  $('btnZipField').hidden = !f; $('btnFieldIn').hidden = !f;
+}
+$('figField').onchange = applyFieldPick;
+$('btnZipField').onclick = () => busy(async () => {
+  const f = state.fields.find((x) => String(x.type) === $('figField').value); if (!f) return;
+  const files = [], lines = ['Paramix Studio: ' + f.name + ' (' + state.ctx.edition + ')', ''];
+  for (const c of f.chars) { files.push({ name: sheetName('fig', c.group), data: await pngBytes(sheetOf('fig', c.group)) }); lines.push(sheetName('fig', c.group) + '  stage ' + c.stage + '  ' + (state.charNames.get(c.group) || '')); }
+  const pics = [...f.maps, ...f.overlays, ...f.closeups];
+  for (const i of pics) files.push({ name: sheetName('spr', i), data: await pngBytes(sheetOf('spr', i)) });
+  if (f.maps.length) lines.push('', 'field map: ' + f.maps.map((i) => sheetName('spr', i)).join(' '));
+  if (f.overlays.length) lines.push('map overlays: ' + f.overlays.map((i) => sheetName('spr', i)).join(' '));
+  if (f.closeups.length) lines.push('close-up backgrounds: ' + f.closeups.map((i) => sheetName('spr', i)).join(' '));
+  files.push({ name: 'contents.txt', data: new TextEncoder().encode(lines.join('\n') + '\n') });
+  const meta = { paramix: 'field', edition: state.ctx.edition, type: f.type, name: f.name, chars: f.chars.map((c) => ({ id: c.id, stage: c.stage, group: c.group })), maps: f.maps, overlays: f.overlays, closeups: f.closeups };
+  files.push({ name: 'field.json', data: new TextEncoder().encode(JSON.stringify(meta, null, 1)) });
+  download(C.zipBuild(files), baseName() + '_' + f.name.toLowerCase() + '.zip', 'application/zip');
+  toast(t('fieldZipOk', { f: f.name, n: f.chars.length, s: pics.length }));
+});
+/* Load a field ZIP (from this or another ROM) into the selected field: characters in
+   the same order (child, teens, adults), field map, overlays and close-ups one to one. */
+$('btnFieldIn').onclick = () => $('fileField').click();
+$('fileField').onchange = (e) => {
+  const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+  busy(async () => {
+    const dst = state.fields.find((x) => String(x.type) === $('figField').value); if (!dst) return;
+    const z = await C.zipRead(new Uint8Array(await file.arrayBuffer()), inflateRaw);
+    const by = new Map(z.map((x) => [x.name.split('/').pop(), x.data]));
+    let meta = null; try { meta = JSON.parse(new TextDecoder().decode(by.get('field.json'))); } catch (err) { meta = null; }
+    if (!meta || meta.paramix !== 'field') { toast(t('fieldInBad'), true); return; }
+    let n = 0, eyes = 0; const skip = [];
+    const put = async (kind, srcIdx, dstIdx) => {
+      const nm = sheetName(kind, srcIdx), data = by.get(nm); if (!data || dstIdx === undefined) return;
+      try { applySheet(kind, dstIdx, await decodePng(new Blob([data], { type: 'image/png' }))); n++; refreshTile(kind, dstIdx); }
+      catch (err) { if (/^eye image too detailed/.test(err.message)) eyes++; else skip.push(t('wrongSize', { f: nm, e: em(err) })); }
+    };
+    for (let i = 0; i < meta.chars.length && i < dst.chars.length; i++) await put('fig', meta.chars[i].group, dst.chars[i].group);
+    for (let i = 0; i < meta.maps.length && i < dst.maps.length; i++) await put('spr', meta.maps[i], dst.maps[i]);
+    for (let i = 0; i < meta.overlays.length && i < dst.overlays.length; i++) await put('spr', meta.overlays[i], dst.overlays[i]);
+    for (let i = 0; i < meta.closeups.length && i < dst.closeups.length; i++) await put('spr', meta.closeups[i], dst.closeups[i]);
+    toast(t('fieldInOk', { src: meta.name + ' (' + meta.edition + ')', dst: dst.name, n }) + (eyes ? '\n' + t('fieldInEyes', { k: eyes }) : '') + (skip.length ? '\n' + t('upSkip', { list: skip.slice(0, 4).join(', ') + (skip.length > 4 ? ' …' : '') }) : ''), skip.length > 0 && !n);
+  });
+};
 async function zipSheets(kind) {
   const list = kind === 'fig' ? state.ctx.groups : state.ctx.entries.map((e, i) => i);
   const files = [];
@@ -649,9 +730,11 @@ function renderPlan() {
   ];
   const menuOn = state.feld || state.bag, parts = [state.feld ? t('feldOn') : '', state.bag ? t('bagOn') : ''].filter(Boolean).join(', ');
   chips.push([t('planMenu'), menuOn ? parts + (state.feldStale && state.feld === state.feldInit && state.bag === state.bagInit ? ' (' + t('stUpd') + ')' : '') : (menuOld ? t('stDel') : t('stNone')), menuOn ? ((state.feld === state.feldInit && state.bag === state.bagInit && !state.feldStale) ? 'keep' : 'new') : menuOld ? 'del' : 'off']);
+  const sixIn = !!S6.sixInfo(rom);
+  if (sixIn || state.six || state.sixWant) chips.push([t('planSix'), sixIn ? t('stKeep') : t('stNew'), sixIn ? 'keep' : 'new']);
   // Flash: from 0x111000 to the end
   const base = 0x111000, end = 0x1000000, total = end - base, segs = [];
-  const assets = estimateEnd() - base; segs.push(['fw', t('segFw'), assets]);
+  const assets = estimateEnd() - base + (state.six && !sixIn ? 0xB9000 : 0); segs.push(['fw', t('segFw'), assets]);
   let doomSize = 0, emuSize = 0;
   if (state.doom) { const f = state.doom.fit[$('doomEp').value]; doomSize = (f ? ($('doomMusic').checked && f.music ? f.sizeM : f.sizeP) : 0) + (0xD48000 - 0xCA0000); }
   else if (doomOn) doomSize = (rom[0x830000] | rom[0x830001] << 8 | rom[0x830002] << 16 | rom[0x830003] << 24) + (0xD48000 - 0xCA0000);
@@ -859,28 +942,60 @@ function renderFeld() {
   box.checked = !!state.feld && can; box.disabled = !fe || !can;
   bag.checked = !!state.bag; bag.disabled = !fe || !ed;
   let s;
+  // six fields (Tropical/Glacier): row visible there only
+  const si = S6.sixInfo(rom), sixIn = !!si, sixOld = !!si && si.version < S6.VERSION, sixCan = !!S6.kindOf(rom), jade = S6.kindOf(rom) === 'jade';
+  $('sixRow').hidden = !sixCan;
+  for (const [id, k] of [['sixOnTxt', jade ? 'sixOnJ' : 'sixOn'], ['sixHintTxt', jade ? 'sixHintJ' : 'sixHint']]) { $(id).dataset.t = k; $(id).textContent = t(k); }
+  $('sixOn').checked = sixIn || !!state.six || !!state.sixWant; $('sixOn').disabled = (sixIn && !sixOld) || !fe || !S6.embedded();
+  $('btnSix').hidden = jade || (sixIn && !sixOld);
   if (!fe) s = t('feldMissing');
   else if (!ed) s = t('feldUnknown');
   else {
     s = t('feldCur', { f: F.fieldNow(rom) });
     if (can) {
-      s += ' ' + t('feldList', { s: F.fieldNames(rom).join(', ') });
+      s += ' ' + t('feldList', { s: F.fieldNames(rom).concat(!sixIn && (state.six || (jade && state.sixWant)) ? (jade ? ['Sky'] : ['Land', 'Water', 'Sky']) : []).join(', ') });
       const sl = F.feldSlots(rom, fe.stub).map(x => F.NAMES[x.field]);
       if (sl.length) s += ' ' + t('feldStored', { s: sl.join(', ') });
     } else s += '\n' + t('feldNo');
+    if (sixCan) {
+      if (jade) { if (sixOld) s += '\n' + t('sixOldJ'); else if (sixIn) s += '\n' + t('sixInJ'); else if (!S6.sixCan(rom)) s += '\n' + t('sixNoFw'); }
+      else if (sixOld && state.six) s += '\n' + t('sixOk', { n: state.sixName });
+      else if (sixOld) s += '\n' + t('sixOld');
+      else if (sixIn) s += '\n' + t('sixIn');
+      else if (!S6.sixCan(rom)) s += '\n' + t('sixNoFw');
+      else if (state.sixWant && !state.six) s += '\n' + t('sixNeed');
+      else if (state.six) s += '\n' + t('sixOk', { n: state.sixName });
+    }
     if (state.feld || state.bag) s += '\n' + t('feldUse');
   }
   $('feldStat').textContent = s;
   renderPlan();
 }
 $('feldOn').onchange = (e) => { state.feld = e.target.checked; renderFeld(); };
+$('sixOn').onchange = (e) => {
+  state.sixWant = e.target.checked;
+  if (!e.target.checked) state.six = null;
+  else { state.feld = true; if (!state.six && S6.sixNeedsSource(state.ctx.rom)) $('fileSix').click(); }
+  renderFeld();
+};
+$('btnSix').onclick = () => $('fileSix').click();
+$('fileSix').onchange = async (e) => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  const buf = new Uint8Array(await f.arrayBuffer());
+  if (!S6.sixSource(buf)) { toast(t('sixBad', { n: f.name }), true); renderFeld(); return; }
+  state.six = buf; state.sixName = f.name; state.sixWant = true; state.feld = true;
+  toast(t('sixOk', { n: f.name }));
+  renderFeld();
+};
 $('bagOn').onchange = (e) => { state.bag = e.target.checked; renderFeld(); };
 
 /* Build the new ROM from the loaded one and everything chosen in the tabs.
    Returns { rom, name, res } or null (the reason is shown). same: nothing chosen. */
 async function composeRom() {
   const keysDirty = !state.doom && doomInstalled() && state.doomKeys && D.doomKeysGet(state.ctx.rom) && JSON.stringify(state.doomKeys) !== JSON.stringify(D.doomKeysGet(state.ctx.rom));
-  if (!state.changed.size && !state.emu && !state.emuRemove && !state.doom && !keysDirty && state.feld === state.feldInit && state.bag === state.bagInit && !state.feldStale) return { rom: state.ctx.rom, name: state.name, res: null, same: true };
+  const si0 = S6.sixInfo(state.ctx.rom), sixUp = !!si0 && si0.version < S6.VERSION && !S6.sixNeedsSource(state.ctx.rom);
+  if (!state.changed.size && !state.emu && !state.emuRemove && !state.doom && !keysDirty && !state.six && !sixUp && !(state.sixWant && !S6.sixInfo(state.ctx.rom)) && state.feld === state.feldInit && state.bag === state.bagInit && !state.feldStale) return { rom: state.ctx.rom, name: state.name, res: null, same: true };
   const fe = F.embedded(), feldSaved = fe ? F.feldSlots(state.ctx.rom, fe.stub) : [];
   if (state.emu && state.doom) { toast(t('doomBoth'), true); return null; }
   if (state.doom && state.doomKeys && D.doomKeysCheck(state.doomKeys)) { toast(em(D.doomKeysCheck(state.doomKeys)), true); return null; }
@@ -913,11 +1028,20 @@ async function composeRom() {
     if (err) { toast(em(err), true); return null; }
     rom = D.doomKeysSet(rom, k);
   }
+  const needSrc = S6.sixNeedsSource(rom);
+  if (state.sixWant && needSrc && !state.six && !S6.sixInfo(rom)) { toast(t('sixNeed'), true); return null; }
+  const sixHave = S6.sixInfo(rom);
+  if ((state.six || (state.sixWant && !needSrc) || (!needSrc && sixHave)) && !(sixHave && sixHave.version >= S6.VERSION)) {
+    if (state.doom || doomInstalled() || state.emu) { toast(t('sixFail', { e: t('sixApp') }), true); return null; }
+    try { rom = S6.sixApply(rom, state.six, S6.embedded()); }
+    catch (e) { toast(t('sixFail', { e: em(e) }), true); return null; }
+  }
+  if (S6.sixInfo(rom)) rom = S6.sixFix(rom);   // the archive may have moved: rain pictures point to 0xF00000
   if (fe && (state.feld || state.bag)) {
     try { rom = F.feldApply(rom, { fields: state.feld, bag: state.bag }, feldSaved, { feld: fe.feld, stub: fe.stub }, E); }
     catch (e) { toast(t('feldFail', { e: em(e) }), true); return null; }
   }
-  const name = baseName() + (state.changed.size ? '_paramix' : '') + (state.emu ? '_emu' : '') + (state.doom ? '_doom_E' + $('doomEp').value : '') + (state.feld ? '_fields' : '') + (state.bag ? '_items' : '') + '.bin';
+  const name = baseName() + (state.changed.size ? '_paramix' : '') + (state.emu ? '_emu' : '') + (state.doom ? '_doom_E' + $('doomEp').value : '') + (S6.sixInfo(rom) ? (S6.kindOf(rom) === 'jade' ? '_4fields' : '_6fields') : state.feld ? '_fields' : '') + (state.bag ? '_items' : '') + '.bin';
   return { rom, name, res };
 }
 $('btnSave').onclick = () => busy(async () => {

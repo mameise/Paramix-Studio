@@ -836,7 +836,59 @@ async function zipRead(buf, inflateRaw) {
   return out;
 }
 
+
+// ------------------------------------------------------------- fields (worlds)
+/*
+ * What belongs to which field. Every edition carries complete sets of characters
+ * for several field types (1 Land, 2 Water, 3 Sky, 4 Forest, 5 Tropical, 6 Glacier):
+ * Land/Water/Sky ROMs types 1-3, Jade Forest 1-4, Tropical/Glacier all six.
+ * Per field: 1 child, 4 teens, 17 adults. Characters come from the character table
+ * of the data pack (30 byte records: id, ?, name index, stage, line, ..., field at
+ * word 7); the sprite groups follow the character ids in order (group 0 = fallback).
+ * Field maps are 7 sprites of 64x64x64 per field (Tropical/Glacier: plus 7 overlay
+ * sprites of 64x64x32), close-ups are 6 sprites of 64x64x4 per field type.
+ */
+const FIELD_NAMES = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Forest', 5: 'Tropical', 6: 'Glacier' };
+function charTable(dp) {
+  const u32 = (o) => (dp[o] | (dp[o + 1] << 8) | (dp[o + 2] << 16) | (dp[o + 3] << 24)) >>> 0;
+  const u16 = (o) => dp[o] | (dp[o + 1] << 8);
+  const n = u32(0);
+  for (let t = 0; t < Math.min(n, 40); t++) {
+    const a = u32(4 + 4 * t) * 2, b = u32(8 + 4 * t) * 2;
+    if (b > a && b <= dp.length && (b - a) % 30 === 0 && b - a >= 60 && u16(a) === 0xFFFF && u16(a + 30) === 1000) {
+      const out = [];
+      for (let o = a; o < b; o += 30) out.push({ id: u16(o), name: u16(o + 4) + 1, stage: u16(o + 6), line: u16(o + 8), field: u16(o + 14) });
+      return out;
+    }
+  }
+  return [];
+}
+function fieldSets(ctx) {
+  const chars = charTable(ctx.files[0]).filter((c) => c.id > 1000 && c.id < 9000);
+  if (chars.length + 1 !== ctx.groups.length) return [];
+  chars.forEach((c, i) => { c.group = ctx.groups[i + 1]; });
+  const types = [...new Set(chars.map((c) => c.field).filter((f) => f >= 1 && f <= 6))].sort((a, b) => a - b);
+  const kind = (i) => { const h = spriteHeader(ctx.entries[i]); return h.sw === 64 && h.sh === 64 ? Math.max(1, h.iw) * Math.max(1, h.ih) : 0; };
+  const maps = [], over = [];
+  ctx.entries.forEach((e, i) => { const k = kind(i); if (k === 64) maps.push(i); });
+  // close-ups: the longest run of 64x64x4 sprites, 6 per field type
+  let best = [0, 0];
+  for (let i = 0; i < ctx.entries.length; i++) { if (kind(i) !== 4) continue; let j = i; while (j + 1 < ctx.entries.length && kind(j + 1) === 4) j++; if (j - i + 1 > best[1] - best[0]) best = [i, j + 1]; i = j; }
+  const nClose = Math.floor((best[1] - best[0]) / 6);
+  const nMap = Math.floor(maps.length / 7);
+  // maps belong to the highest field types present (Tropical/Glacier: Forest, Tropical, Glacier)
+  const mapTypes = types.slice(Math.max(0, types.length - nMap));
+  return types.map((tp) => {
+    const m = mapTypes.indexOf(tp), maps7 = m >= 0 ? maps.slice(7 * m, 7 * m + 7) : [];
+    const overlays = [];
+    if (maps7.length) { const last = maps7[6]; for (let j = last + 1; j < last + 8 && j < ctx.entries.length && kind(j) === 32; j++) overlays.push(j); }
+    const close = tp <= nClose ? Array.from({ length: 6 }, (_, k) => best[0] + 6 * (tp - 1) + k) : [];
+    return { type: tp, name: FIELD_NAMES[tp], chars: chars.filter((c) => c.field === tp), maps: maps7, overlays, closeups: close };
+  });
+}
+
 root.ParamixCore = {
+  fieldSets, charTable, FIELD_NAMES,
   ASSET_BASE, EDITIONS, GROUP_PARTS, GROUP_SHEET_W, GROUP_SHEET_H,
   arc2Parse, arc2Files, arc2Build, arc2Checksum, packSplit, packJoin, spriteHeader, spriteDecode, spriteEncode, spriteBlank, partOptions,
   rleEncode, rleDecode, quantize, findGroups, findEgg, openRom, buildRom, verifyRom,

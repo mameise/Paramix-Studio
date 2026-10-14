@@ -60,11 +60,28 @@ use palette slots 8 to 15 (outline slot 1, slots 2 to 7 are recoloured by the
 game), archive checksums are recalculated and every changed image is read back
 before saving.
 
+### Fields
+Every edition carries complete character sets for several field types: Land,
+Water and Sky ROMs have all three, Jade Forest also has Sky, Tropical and
+Glacier carry all six. Each field has the same structure: 1 child, 4 teens,
+17 adults. In the Characters tab, "Field" shows only one field's characters.
+"Field as ZIP" exports everything of that field (characters, field map,
+close-up backgrounds) for editing; upload the edited sheets as usual.
+"Load field from ZIP" puts a field from the same or another ROM into the
+selected field. Eye images must not get bigger than the original ones, so
+characters whose eyes do not fit stay original.
+
 ### TamaEmu
 Tab "Emulator": choose the firmware of a colour Tamagotchi (4 MB or 8 MB image).
 It is packed into the ROM on save. On the device: hold A and C on the home
 screen to start, hold the wheel to go back (the state is saved and continues
-next time).
+next time). To start over from the Tamagotchi's own save instead, release A
+and C and press the wheel within the first 3 seconds: the saved session is
+dropped and you are back on the Paradise; the next start begins fresh.
+
+The guest may write anywhere in its flash (item stores, shop purchases, its
+own reset). Written parts of blocks that are empty in the firmware go into
+spare pages behind the packed firmware (up to 0xD40000).
 
 With the 8 MB firmware the tab lists the download content stores (meals,
 snacks, clothing, accessories, items, daily items, wallpapers, games,
@@ -85,6 +102,14 @@ hold A and C on the home screen: wheel selects, B confirms, C goes back.
   Land/Water/Forest, Tropical and Glacier: Tropical/Glacier/Forest). Switching
   packs the save of the current field into its own slot and brings back the save
   of the chosen one. A field that never ran starts like a new device.
+- All 6 fields (Tropical and Glacier): tick "All 6 fields" and choose your
+  own Land, Water or Sky ROM. The menu then offers Tropical, Glacier, Forest,
+  Land, Water and Sky. The pictures of Land, Water and Sky are taken from that
+  ROM; characters of all six fields are already in Tropical/Glacier.
+- Sky as 4th field (Jade Forest): tick "Sky as 4th field". Jade Forest
+  already has everything of Sky, no second ROM is needed.
+- Neither works together with DOOM or the emulator (these editions have no
+  room for them).
 - Items: put items into the bag and set their amount, with picture. The list
   and the pictures come from your own ROM.
 - Tamapoints: set digit by digit.
@@ -139,11 +164,12 @@ Pages, Source "GitHub Actions" publishes the page as a website as well.
 | `emu/` | TamaEmu, the emulator program for the Paradise, with source in `emu/src` |
 | `doom/` | DOOM for the Paradise and the WAD converter (WebAssembly), with source in `doom/src` |
 | `feld/` | the on-device menu (field switch, items, Tamapoints), with source in `feld/src` |
+| `six/` | helper code for six fields on Tropical/Glacier, with source in `six/src` |
 | `flash/` | the flash app loaded for reading and writing over UART, with source in `flash/src` |
 | `test/` | tests |
 
 Every shipped binary (`emu/emu.bin`, `emu/stub_tpl.bin`, `doom/*.bin`,
-`doom/mcuwad.wasm`, `feld/*.bin`, `flash/flashapp.bin`) is built from the source
+`doom/mcuwad.wasm`, `feld/*.bin`, `six/six.bin`, `flash/flashapp.bin`) is built from the source
 next to it; the build commands are in the README of each folder.
 
 ## Credits and license

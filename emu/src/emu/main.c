@@ -7,10 +7,11 @@
 uint32_t jit_used(void);
 
 /* Settings, filled in by the ROM builder (magic "PMXC"). */
-typedef struct { u32 magic, version, guest_off, guest_size, save_off, device; u8 map[128]; } PmxCfg;
+typedef struct { u32 magic, version, guest_off, guest_size, save_off, device; u8 map[128]; u32 spare_end; } PmxCfg;
+/* version 3 (v0.9.2): spare_end = end of the guest area; the room behind the packed firmware holds spare pages */
 __attribute__((section(".pmxcfg"), used))
 volatile const PmxCfg g_cfg = { 0x43584D50u, 1, 0x940000u, 0x400000u, 0xC0000u, 0,
-  { [0 ... 63] = 0xFE, [64 ... 127] = 0xFF } };   /* 0xFE: linear (old layout) */
+  { [0 ... 63] = 0xFE, [64 ... 127] = 0xFF }, 0 };   /* 0xFE: linear (old layout) */
 
 static uint16_t g_gram[GRAM_H][GRAM_W];
 static Emu g_emu;
@@ -264,7 +265,8 @@ static void leave_go(int save){
   XIP_BASE_REG = 0x60011000u; XIP_CTRL_REG = 3u;
   hw_back_to_paradise();
 }
-static void leave(void){ leave_go(1); }
+/* v0.9.2: if guest writes were lost, the guest may be stuck: do not keep that state */
+static void leave(void){ leave_go(g_emu.flash_lost_writes==0u); }
 static void leave_nosave(void){ leave_go(0); }
 
 /* ROM blocks: packed from guest_off, the first 16 are in the cached window */
@@ -480,7 +482,7 @@ void Reset_Handler(void){
 #else
   (void)swn; (void)swf; (void)swk;
 #endif
-  g_sc.guest_off=g_cfg.guest_off; g_sc.guest_size=g_cfg.guest_size; g_sc.save_off=g_cfg.save_off; g_sc.device=g_cfg.device; g_sc.map=g_cfg.map;
+  g_sc.guest_off=g_cfg.guest_off; g_sc.guest_size=g_cfg.guest_size; g_sc.save_off=g_cfg.save_off; g_sc.device=g_cfg.device; g_sc.map=g_cfg.map; g_sc.spare_end = g_cfg.version>=3u ? g_cfg.spare_end : 0u;
   hw_init();
 #ifndef CLEAN
   g_pc_n=pram_check((u32)__pdata_start, 1);
@@ -528,7 +530,7 @@ void Reset_Handler(void){
   g_stage=2; diag(e,0);
   if(g_cfg.device==1) tc_profile_idl(&e->dev); else tc_profile_plus_color(&e->dev);
   tc_init(e, 0, g_gram, g_pool, NSLOT);
-  tc_ovl_evict = st_evict; st_init(&g_sc, g_pool);
+  tc_ovl_evict = st_evict; tc_big_erase = st_big_erase; st_init(&g_sc, g_pool);
 #ifdef OVL_RAM20
   ovl_extra(e);
 #endif
@@ -544,7 +546,7 @@ void Reset_Handler(void){
 #ifdef OVL_RAM20
       ovl_extra(e);
 #endif
-      e->ovl.n=0;
+      e->ovl.n=0; for(int i=0;i<4;i++) e->ovl_blk[i]=0;
       e->rom=0; e->rom_fast=0; e->rom_fast_len=0;
       e->fw_len=0; e->fw_lo=0xFFFFFFFFu;
       setup_rom(e);
@@ -553,6 +555,7 @@ void Reset_Handler(void){
       e->lcd.dx0=0; e->lcd.dy0=0; e->lcd.dx1=127; e->lcd.dy1=127; LCD_ALL();
     }
   }
+  st_pages(e, &g_sc);                     /* spare pages for written empty blocks (after a restore as well) */
   /* startup code is done: the translator gets its space as well */
   g_stage=4; diag(e,0);
 #if defined(JIT_STAGE)
@@ -622,7 +625,7 @@ void Reset_Handler(void){
       e->lcd.dx0=0; e->lcd.dy0=0; e->lcd.dx1=127; e->lcd.dy1=127; LCD_ALL();
       e->lcd.sleep_out=1; e->lcd.disp_on=1; e->lcd.madctl=0;
       push_dirty(e);
-      for(;;){ hw_wdt_feed(); if(hw_buttons()&BTN_WHEEL) leave(); }
+      for(;;){ hw_wdt_feed(); if(hw_buttons()&BTN_WHEEL) leave_nosave(); }
     }
     emu_ms++; busy_ms++;
     /* Guest save into the Paradise flash: writing briefly stalls everything.
@@ -648,6 +651,10 @@ void Reset_Handler(void){
       g_st[14]=b | ((u32)lock<<8);
       if(lock){ if(b) b=0; else lock=0; } }
     periph_buttons(e,(uint8_t)(b&7));
+    /* v0.9.2: wheel within the first 3 s after resuming a saved session: throw the session away
+     * and go back to the Paradise. The next start begins fresh from the Tamagotchi's own save. */
+    { static u32 t_start; if(!t_start) t_start=now?now:1;
+      if(g_restored && (b&BTN_WHEEL) && now-t_start<3000u){ st_drop(&g_sc); leave_nosave(); } }
     #ifndef NOWHEEL
     if(b&BTN_WHEEL){ if(!wheel_ms) wheel_ms=now?now:1; else if(now-wheel_ms>1500) leave(); }
 #ifdef CLEAN

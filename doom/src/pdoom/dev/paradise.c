@@ -117,9 +117,23 @@ PRAMF static void mus_ms(void){
   if(best!=g_mus_cur){ g_mus_cur=best; hw_tone(best>=0 ? g_note_hz[best] : 0); }
 }
 #endif
+/* ---- Wheel button, sampled every millisecond (v0.4.1) ----
+ * DOOM reads the keys only once per frame. Quick taps on the wheel (looking for secret doors)
+ * then fell between two frames, the releases were missed and the taps added up to a long press
+ * (back to the Paradise). The timer now follows the button on its own: a change counts after
+ * 8 ms without bouncing, every press is counted, the long press measures from the last press. */
+static volatile u32 g_wh_down, g_wh_cand, g_wh_t0, g_wh_press;
+PRAMF static void wheel_poll(u32 ms, u32 down){
+  if(down==g_wh_down){ g_wh_cand=0; return; }
+  if(!g_wh_cand){ g_wh_cand=ms|1u; return; }
+  if((int)(ms-g_wh_cand)<8) return;
+  g_wh_cand=0; g_wh_down=down;
+  if(down){ g_wh_t0=ms|1u; g_wh_press++; } else g_wh_t0=0;
+}
 PRAMF void plat_hang(u32 *fr);
 PRAMF void systick_c(u32 *fr){
   g_ms++;
+  wheel_poll(g_ms, (REG(0x40018000u) & (1u<<8)) ? 0u : 1u);
 #ifdef DIAG_OVL
   /* If execution hangs (no frame for 3 s, not in the middle of a frame output): show where it was interrupted */
   if(g_ms>6000u && g_ms-g_last_frame>3000u && (g_ms & 1023u)==0){ plat_hang(fr); hw_tone(880); g_beep=40; }
@@ -288,17 +302,21 @@ extern void plat_toggle_run(void); void plat_sound_mode_next(void);
  * The hold key (k_mod) only does its own action after 120 ms and only while the wheel
  * has not been turned, otherwise every weapon switch would also be a step back. */
 void getKeys(pkey_t *keys){
-  static u32 wheel_t0, mod_t0, b_last, b_prev, use_left, turn_left, menu_hold, chg_left, chg_dir, wheel_m;
+  static u32 mod_t0, b_last, b_prev, use_left, turn_left, menu_hold, chg_left, chg_dir, wh_seen;
   static int turn_dir, det_seen;
   u32 now=now_ms(), b=hw_buttons(); pkey_t k=0;
   u32 kf=g_dcfg.k_fire, kv=g_dcfg.k_fwd, kz=g_dcfg.k_back, ku=g_dcfg.k_use, km=g_dcfg.k_mod;
   if(g_dcfg.version<2u){ kf=BTN_A; kv=BTN_B; kz=BTN_C; ku=BTN_WHEEL; km=BTN_C; }
-  /* Wheel pressed: with hold key = sound, otherwise short = use (if mapped so), long = exit */
-  if((b & BTN_WHEEL) && !wheel_t0 && (b & km)){ wheel_m=1; det_seen=1; plat_sound_mode_next(); }
-  if(b & BTN_WHEEL){ if(!wheel_t0) wheel_t0=now|1u; else if(now-wheel_t0>2000u) plat_leave(); }
-  else {
-    if(wheel_m){ wheel_m=0; wheel_t0=0; }
-    else { if(wheel_t0 && now-wheel_t0<800u && ku==BTN_WHEEL) use_left=3; wheel_t0=0; } }
+  /* Wheel pressed: with hold key = sound, otherwise use (if mapped so); held 2 s from the last press = exit.
+   * Presses and the time come from the millisecond timer (wheel_poll); this call only adds a sample
+   * in case the timer interrupt does not run. */
+  u32 np, wdown, wt0;
+  __asm__ volatile("cpsid i");
+  wheel_poll(now, (b & BTN_WHEEL) ? 1u : 0u);
+  np=g_wh_press-wh_seen; wh_seen+=np; wdown=g_wh_down; wt0=g_wh_t0;
+  __asm__ volatile("cpsie i");
+  if(np){ if(b & km){ det_seen=1; plat_sound_mode_next(); } else if(ku==BTN_WHEEL) use_left=3; }
+  if(wdown && wt0 && now-wt0>2000u) plat_leave();
   int det; __asm__ volatile("cpsid i"); det=g_enc_det; g_enc_det=0; __asm__ volatile("cpsie i");
   if(g_dcfg.invert) det=-det;
   if(det){

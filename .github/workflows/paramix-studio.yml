@@ -9,9 +9,12 @@
 #      ParamixStudio-vX.Y.Z.html to download. Building the same version again
 #      replaces the file in that release. Releases do not count against the
 #      Actions storage.
-#   2. Optional: the page on GitHub Pages. Enable it once under
-#      Settings > Pages > Source: "GitHub Actions". Without that the step is
-#      skipped and the release is made anyway.
+#      Any other branch (for example "dev") makes a pre-release
+#      "vX.Y.Z-<branch>" with ParamixStudio-vX.Y.Z-<branch>.html instead, so
+#      the normal release stays untouched.
+#   2. Optional, main branch only: the page on GitHub Pages. Enable it once
+#      under Settings > Pages > Source: "GitHub Actions". Without that the step
+#      is skipped and the release is made anyway.
 #
 # No ROMs are needed and none are uploaded.
 name: Paramix Studio
@@ -78,17 +81,25 @@ jobs:
         run: |
           set -e
           TAG="v${{ steps.ver.outputs.version }}"
+          PRE=""
+          BRANCH="${{ github.ref_name }}"
+          if [ "$BRANCH" != "main" ] && [ "$BRANCH" != "master" ]; then
+            TAG="$TAG-$(echo "$BRANCH" | tr -c 'A-Za-z0-9.\n' '-')"
+            PRE="--prerelease"
+          fi
           cp "$PROJECT/dist/ParamixStudio.html" "ParamixStudio-$TAG.html"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG exists, replacing the file."
             gh release upload "$TAG" "ParamixStudio-$TAG.html" --clobber
           else
-            gh release create "$TAG" "ParamixStudio-$TAG.html" \
+            gh release create "$TAG" "ParamixStudio-$TAG.html" $PRE \
+              --target "${{ github.sha }}" \
               --title "Paramix Studio $TAG" \
               --notes "Download and open in Chrome or Edge. Runs locally, your ROM is never uploaded. Changes: see CHANGELOG.md."
           fi
 
       - name: Prepare the page for GitHub Pages
+        if: github.ref_name == 'main' || github.ref_name == 'master'
         uses: actions/upload-pages-artifact@v3
         with:
           path: ${{ env.PROJECT }}/dist
@@ -96,6 +107,7 @@ jobs:
 
   pages:
     needs: build
+    if: github.ref_name == 'main' || github.ref_name == 'master'
     runs-on: ubuntu-latest
     continue-on-error: true
     environment:

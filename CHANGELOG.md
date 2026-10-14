@@ -2,6 +2,50 @@
 
 Versions are listed newest first.
 
+## 1.2.4 (2026-10-14)
+
+- Six fields: the special character of each field. On Land, Water and Sky the firmware now picks Chodracotchi, Mermarintchi and Yayacorntchi instead of the Tropical, Glacier and Forest special characters (Manapatchi, Hobohorntchi, Tatsutchi). Jade Forest: Yayacorntchi on Sky.
+- Helper page version 4 (the site list also holds plain values). ROMs with more fields from 1.2.0 to 1.2.3 are updated when saved: Jade Forest on its own, Tropical/Glacier with your Land, Water or Sky ROM chosen.
+
+## 1.2.3 (2026-10-14)
+
+- TamaEmu: fixed the crash when buying in the Tamadepa (for example the mop under daily items on the iD L). The iD L writes its item stores into 64 KB flash sectors; the emulator only kept writes to the small parameter sectors, so the purchase was lost and the game hung waiting for the flash. Now 64 KB sectors are erased and written like on the real chip. Blocks that are empty in the firmware get spare pages behind the packed firmware. The in-game reset of the iD L works again too (it hung on "WAIT!" before).
+- TamaEmu: a long press after such a hang no longer saves the hung session (no save if the core stopped or guest writes were lost).
+- TamaEmu: new way out of a bad session: release A and C after starting and press the wheel within the first 3 seconds. The saved session is dropped, the next start begins fresh from the Tamagotchi's own save. No reflashing needed.
+- Emulator program v0.9.2, settings block version 3 (end of the spare area). Saved sessions of older versions are not resumed (the Tamagotchi's own save stays).
+
+## 1.2.2 (2026-10-14)
+
+- Six fields: rain on Land, Water and Sky. The rain pictures lie in the unused flash area from 0xF00000 (the cells the clear pictures do not share); the Studio points them there again after every save.
+- Six fields: the scene animations now follow Jade Forest's tables, which have the same layout as Tropical's (the columns of 1.2.1 were partly wrong), and the wagon scene of the planet view shows Land, Water and Sky too.
+- Jade Forest: new switch "Sky as 4th field". Jade Forest already carries everything of Sky, no second ROM is needed. Sky uses the Water slot with the set byte; the menu lists Land, Water, Forest, Sky.
+- Helper page version 3 (one code for both firmwares, all addresses and tables filled in by the Studio). ROMs of 1.2.0 and 1.2.1 are updated when saved with a Land, Water or Sky ROM chosen.
+- Menu settings block: field table for the set byte (Jade Forest: Sky; Tropical/Glacier: Land, Water, Sky). The menu no longer packs the area from 0xF00000 into the field saves.
+- Device: "Keep saves" does not keep the area from 0xF00000 of the device when the new ROM has the extra fields (it holds pictures there).
+
+## 1.2.1 (2026-10-14)
+
+- Six fields: on Land, Water and Sky the travel backgrounds, the field eggs and the scene animations (birthday and others) now show the Land, Water and Sky pictures too. Eleven more places of the firmware jump into the helper page; the Land scripts are copied with the scripts and sprites they use (most sprites are already in Tropical/Glacier and are shared).
+- Six fields of 1.2.0 are updated automatically when the ROM is saved again.
+- DOOM: the wheel button is now followed every millisecond. Quick taps on the wheel (looking for secret doors) no longer add up to a long press that ended the game. The long press (2 s) counts from the last press.
+
+## 1.2.0 (2026-10-14)
+
+- Menu tab: new switch "All 6 fields" for Tropical and Glacier. Adds Land, Water and Sky to Tropical, Glacier and Forest. The field pictures come from your own Land, Water or Sky ROM (any of the three).
+- How it works: the Tropical/Glacier firmware has three field slots and already carries the characters of all six fields. The Studio copies the field pictures of Land, Water and Sky into the archive (128 colours per picture, tiles shared between the times of day) and patches four places of the firmware: a set byte in the save (offset 0xF04) switches the three slots to Land, Water, Sky for the backgrounds and for child, teen and adult characters. Helper code at flash 0x10F000, source in `six/src`.
+- To make room the Tropical, Glacier and Forest field pictures are stored with 128 colours (no visible difference).
+- On Land, Water and Sky rain shows the clear picture (no room for the rain pictures). Some scenes still show the pictures of the matching Tropical, Glacier or Forest slot (fixed in 1.2.1).
+- Menu on the device: six fields in a compact list; saves of the fields in two regions (behind the menu and behind the character data). Settings block version 4.
+- Not possible together with DOOM or the emulator (Tropical, Glacier and Jade Forest have no room for them anyway).
+
+## 1.1.0 (2026-10-13)
+
+- Characters tab: new field filter. Shows only the characters of one field (Land, Water, Sky, Forest, Tropical, Glacier), with their names from the ROM.
+- "Field as ZIP": all sheets of one field in one ZIP: 22 characters (child, 4 teens, 17 adults), the 7 field map pictures (plus 7 overlays on Tropical/Glacier), the 6 close-up backgrounds, a contents list and field.json.
+- "Load field from ZIP": puts a field ZIP (from the same or another ROM) into the selected field, character by character in the same order. Characters whose eye images do not fit stay original as a whole.
+- Character tiles show the character's name.
+- A character sheet is now applied completely or not at all (no half replaced characters).
+
 ## 1.0.5 (2026-10-13)
 
 - Fixed missing item pictures in ROMs with DOOM: the Studio searched the whole ROM for the image table and found a similar looking table inside the DOOM program first. It now searches only the asset archive. This was the cause of the codes P6 and P7 on the device.

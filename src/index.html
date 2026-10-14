@@ -207,6 +207,7 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
 <input type="file" id="fileDim" hidden accept=".bin,.BIN">
 <input type="file" id="fileEmu" hidden accept=".bin,.BIN">
 <input type="file" id="fileDlc" hidden multiple accept=".jpg,.JPG,.jpeg,.bin">
+<input type="file" id="fileField" hidden accept=".zip,.ZIP">
 <input type="file" id="fileWad" hidden accept=".wad,.WAD">
 
 <main>
@@ -257,6 +258,9 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
     </div>
     <div class="pane" id="pane-figs">
       <div class="tools">
+        <label class="check"><span data-t="figField"></span> <select id="figField"></select></label>
+        <button class="btn small" id="btnZipField" data-t="zipField" hidden></button>
+        <button class="btn small" id="btnFieldIn" data-t="fieldIn" hidden></button>
         <button class="btn small" id="btnZipFigs" data-t="zipFigs"></button>
         <button class="btn small" id="btnUpload" data-t="upload"></button>
         <button class="btn small" id="btnNumbers" data-t="numbers"></button>
@@ -326,6 +330,12 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
         <label class="check"><input type="checkbox" id="bagOn"> <span data-t="bagOn"></span></label>
         <span class="hint" data-t="feldHint"></span>
       </div>
+      <div class="tools" id="sixRow" hidden>
+        <label class="check"><input type="checkbox" id="sixOn"> <span id="sixOnTxt" data-t="sixOn"></span></label>
+        <button class="btn small" id="btnSix" data-t="sixPick"></button>
+        <input type="file" id="fileSix" accept=".bin,.BIN" hidden>
+        <span class="hint" id="sixHintTxt" data-t="sixHint"></span>
+      </div>
       <p class="emustat" id="feldStat"></p>
     </div>
   </section>
@@ -360,6 +370,9 @@ __DOOM__
 </script>
 <script>
 __FELD__
+</script>
+<script>
+__SIX__
 </script>
 <script>
 __FLASH__

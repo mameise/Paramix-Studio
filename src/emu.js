@@ -8,7 +8,8 @@
  *   0x0A0000  emulator program (copied to PRAM at startup)
  *   0x0B0000  stub and home screen hook (hold A+C)
  *   0x0C0000  saved run state (written by the emulator itself)
- *   0x940000  color Tama firmware, packed in 64 KB blocks
+ *   0x940000  color Tama firmware, packed in 64 KB blocks; behind it, up to
+ *             0xD40000, spare pages for blocks the guest writes (item stores)
  *
  * Author: mameise
  */
@@ -157,8 +158,10 @@ function emuPatch(rom, guest, app, stubTpl, opts = {}) {
   const a = new Uint8Array(app);
   let ci = -1; for (let i = 0; i + 4 <= a.length; i += 4) if (u32(a, i) === PMXC) { ci = i; break; }
   if (ci < 0) throw new Error('settings block missing in the program');
-  w32(a, ci + 4, 2); w32(a, ci + 8, GUEST_OFF); w32(a, ci + 12, blob.length); w32(a, ci + 16, SAVE_OFF); w32(a, ci + 20, DEVICES[dev].kind);
+  // version 3: the room behind the packed firmware up to GUEST_END holds the guest's spare pages
+  w32(a, ci + 4, 3); w32(a, ci + 8, GUEST_OFF); w32(a, ci + 12, blob.length); w32(a, ci + 16, SAVE_OFF); w32(a, ci + 20, DEVICES[dev].kind);
   a.set(map, ci + 24);
+  w32(a, ci + 152, GUEST_END);
   out.fill(0x00, APP_OFF, APP_OFF + APP_MAX);
   out.set(a, APP_OFF);
   installStub(out, tab, prev, stubTpl);

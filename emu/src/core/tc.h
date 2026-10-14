@@ -140,6 +140,13 @@ typedef struct Emu {
     bool     flash_toggle;
     uint32_t flash_lost_writes;  /* write attempts without a free slot */
     uint64_t lcd_writes;
+    uint32_t ovl_blk[4];         /* 64 KB blocks outside the parameter block with a written copy (bit per block) */
+    uint32_t flash_big_ops;      /* erases and writes in 64 KB sectors (for the display) */
+    /* Blocks without their own storage (erased in the original): written 8 KB parts live in
+     * spare pages (device). pg_blk: bit per block, pg_map: page index per 8 KB (0xFF = erased). */
+    const uint8_t *pg_base;
+    uint32_t pg_blk[4];
+    uint8_t  pg_map[1024];
 } Emu;
 
 /* cpu */
@@ -181,6 +188,11 @@ void jit_flush_all(Emu *e);
 uint32_t periph_tone_hz(Emu *e);   /* guest tone in Hz, 0 = silent */
 /* All overlay slots in use: write one back and free it (device). */
 extern int (*tc_ovl_evict)(Emu *e);
+/* Erase a 64 KB sector of the guest in the backing store (host image or Paradise flash).
+ * Returns 1 if done. Without it, such erases are lost as before. */
+extern int (*tc_big_erase)(Emu *e, uint32_t base);
+void tc_ovl_free(Emu *e, int i);              /* release a slot without writing it back */
+void tc_blk_update(Emu *e, uint32_t blk);     /* fast pointers of a 64 KB block after a change */
 void jit_rom_update(Emu *e, uint32_t off);   /* ROM offset: recompute the entry */
 extern uint32_t (*jit_tgt_of)(const uint8_t *p);   /* host pointer -> target address (test bench) */
 extern int jit_enabled;

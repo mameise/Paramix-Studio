@@ -21,7 +21,9 @@ build switch `-DKEYMAP`): fire, forward, back, use (key or wheel press), hold ke
 for weapon change (hold + wheel) and sound (hold + wheel press), run with a
 double tap on forward, wheel direction. The Studio sets it when building DOOM in
 and can change it in a ROM that already has DOOM, without the WAD.
-`src/pdoom/test/tasten_test.c` checks the key logic on a PC
+The wheel button is sampled every millisecond by the timer (from v0.4.1), so quick
+taps between two frames are not lost and do not add up to the long press (2 s, back
+to the Paradise). `src/pdoom/test/tasten_test.c` checks the key logic on a PC
 (`cc -w tasten_test.c && ./a.out`).
 
 ## Build

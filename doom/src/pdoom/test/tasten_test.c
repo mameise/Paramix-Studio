@@ -12,18 +12,30 @@ static void plat_toggle_run(void){ runs++; } static void plat_sound_mode_next(vo
 typedef struct { u32 magic, version, a,b,c,d,e,f, detent, turn_tics, sound, invert, k_fire,k_fwd,k_back,k_use,k_mod,run_dbl; } PdmCfg;
 static PdmCfg g_dcfg={0,2,0,0,0,0,0,0,1,3,1,0, BTN_A,BTN_B,BTN_C,BTN_WHEEL,BTN_C,1};
 #define cpsid
+static volatile u32 g_wh_down, g_wh_cand, g_wh_t0, g_wh_press;
+static void wheel_poll(u32 ms, u32 down){
+  if(down==g_wh_down){ g_wh_cand=0; return; }
+  if(!g_wh_cand){ g_wh_cand=ms|1u; return; }
+  if((int)(ms-g_wh_cand)<8) return;
+  g_wh_cand=0; g_wh_down=down;
+  if(down){ g_wh_t0=ms|1u; g_wh_press++; } else g_wh_t0=0;
+}
 void getKeys(pkey_t *keys){
-  static u32 wheel_t0, mod_t0, b_last, b_prev, use_left, turn_left, menu_hold, chg_left, chg_dir, wheel_m;
+  static u32 mod_t0, b_last, b_prev, use_left, turn_left, menu_hold, chg_left, chg_dir, wh_seen;
   static int turn_dir, det_seen;
   u32 now=now_ms(), b=hw_buttons(); pkey_t k=0;
   u32 kf=g_dcfg.k_fire, kv=g_dcfg.k_fwd, kz=g_dcfg.k_back, ku=g_dcfg.k_use, km=g_dcfg.k_mod;
   if(g_dcfg.version<2u){ kf=BTN_A; kv=BTN_B; kz=BTN_C; ku=BTN_WHEEL; km=BTN_C; }
-  /* Wheel pressed: with hold key = sound, otherwise short = use (if mapped so), long = exit */
-  if((b & BTN_WHEEL) && !wheel_t0 && (b & km)){ wheel_m=1; det_seen=1; plat_sound_mode_next(); }
-  if(b & BTN_WHEEL){ if(!wheel_t0) wheel_t0=now|1u; else if(now-wheel_t0>2000u) plat_leave(); }
-  else {
-    if(wheel_m){ wheel_m=0; wheel_t0=0; }
-    else { if(wheel_t0 && now-wheel_t0<800u && ku==BTN_WHEEL) use_left=3; wheel_t0=0; } }
+  /* Wheel pressed: with hold key = sound, otherwise use (if mapped so); held 2 s from the last press = exit.
+   * Presses and the time come from the millisecond timer (wheel_poll); this call only adds a sample
+   * in case the timer interrupt does not run. */
+  u32 np, wdown, wt0;
+  
+  wheel_poll(now, (b & BTN_WHEEL) ? 1u : 0u);
+  np=g_wh_press-wh_seen; wh_seen+=np; wdown=g_wh_down; wt0=g_wh_t0;
+  
+  if(np){ if(b & km){ det_seen=1; plat_sound_mode_next(); } else if(ku==BTN_WHEEL) use_left=3; }
+  if(wdown && wt0 && now-wt0>2000u) plat_leave();
   int det;  det=g_enc_det; g_enc_det=0; 
   if(g_dcfg.invert) det=-det;
   if(det){
@@ -37,7 +49,7 @@ void getKeys(pkey_t *keys){
   else {
     /* pressed, unless the hold key is still in its waiting time */
     u32 eff = b & ~km;
-    if((b & km) && !det_seen){ if(!mod_t0) mod_t0=now|1u; if((int)(now-mod_t0)>=120) eff |= km; }
+    if((b & km) && !det_seen){ if(!mod_t0) mod_t0=now|1u; if((int)(now-mod_t0)>=120) eff |= km; }   /* v0.4.0: signed, otherwise a step already came in the first tick (now even) */
     if(eff & kv) k|=KEY_UP;
     if(eff & kz) k|=KEY_DOWN;
     if(eff & kf) k|=KEY_FIRE;
@@ -53,8 +65,10 @@ void getKeys(pkey_t *keys){
   if(chg_left){ chg_left--; k |= chg_dir ? KEY_CHGW : (KEY_CHGW|KEY_USE); }
   *keys=k;
 }
-
-static pkey_t step(u32 b,int det){ BTN=b; g_enc_det=det; pkey_t k; getKeys(&k); T+=10; return k; }
+static void tick(u32 b){ BTN=b; T++; wheel_poll(T,(b&BTN_WHEEL)?1u:0u); }
+static pkey_t step(u32 b,int det){ BTN=b; g_enc_det=det; pkey_t k; getKeys(&k); for(int i=0;i<10;i++) tick(b); return k; }
+/* one frame of 100 ms with a quick tap: up 30 ms, then down; the frame itself only sees "down" */
+static pkey_t frame_tap(void){ pkey_t k=0; for(int i=0;i<100;i++) tick(i>=30?BTN_WHEEL:0); getKeys(&k); return k; }
 static pkey_t run(u32 b,int n){ pkey_t acc=0; for(int i=0;i<n;i++) acc|=step(b,0); return acc; }
 int main(void){
   int bad=0;
@@ -76,5 +90,10 @@ int main(void){
   run(0,5); { pkey_t k=step(BTN_A,1); k|=run(BTN_A,20); CHECK((k&KEY_CHGW) && !(k&KEY_UP), "umbelegt: A+Rad Waffe"); }
   run(0,5); { pkey_t k=run(BTN_C,2); k|=run(0,4); CHECK(k&KEY_USE, "umbelegt: C benutzt"); }
   run(0,5); run(BTN_WHEEL,3); CHECK(!(run(0,4)&KEY_USE), "remapped: wheel does not use");
+  /* v0.4.1: quick taps between the frames (60 ms down, 40 ms up, frames every 100 ms): no exit, uses come */
+  g_dcfg.k_fire=BTN_A; g_dcfg.k_fwd=BTN_B; g_dcfg.k_back=BTN_C; g_dcfg.k_use=BTN_WHEEL; g_dcfg.k_mod=BTN_C;
+  run(0,50); left=0; { int uses=0; for(int i=0;i<60;i++){ pkey_t k=frame_tap(); if(k&KEY_USE) uses++; }
+    CHECK(left==0, "6 s quick taps: no exit"); CHECK(uses>=20, "quick taps: use comes"); }
+  run(0,50); left=0; run(BTN_WHEEL,150); CHECK(left==0, "wheel 1.5 s: still in"); run(BTN_WHEEL,60); CHECK(left>0, "wheel over 2 s: exit");
   printf(bad?"%d wrong\n":"all good\n",bad); return bad;
 }

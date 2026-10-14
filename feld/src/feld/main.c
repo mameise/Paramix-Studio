@@ -54,6 +54,14 @@ typedef struct {
   u32 cat_off, cat_n;                /* catalog: 8 byte header, then 28 bytes per entry (u16 id, u8 fixed, u8 len, u16 image, u16 0, 20 chars) */
   u32 field_byte;                    /* offset of the field in the settings block (Land 439, Jade 443, Tropical 499) */
   u32 pack_off;                      /* image table in flash (for the item pictures), 0 = none */
+  /* from version 4: fields 5 and 6 (six fields: Land, Water, Sky next to Tropical, Glacier, Forest) */
+  u32 six_off;                       /* offset of the field set byte in the settings block, 0 = none */
+  u32 field_id2[2];
+  char field_name2[2][12];
+  u32 field_col2[2];
+  Patch fac_field2[2][4];
+  u32 slot_off2, slot_n1;            /* slots slot_n1.. lie at slot_off2 (0 = all at slot_off) */
+  u8 six_map[8];                     /* field of (set byte * 4 + field byte), 0xFF = none */
 } Cfg;
 
 #ifdef HOST
@@ -62,17 +70,19 @@ typedef struct {
 #define CFG_QUAL const
 #endif
 __attribute__((section(".pmxcfg"), used))
-volatile CFG_QUAL Cfg g_cfg = { FELD_MAGIC, 3, 0x830000u, 0x58000u, 3, 0xD4A000u, 0x1000000u, 0xD49000u, 0xB0000u,
+volatile CFG_QUAL Cfg g_cfg = { FELD_MAGIC, 4, 0x830000u, 0x58000u, 3, 0xD4A000u, 0x1000000u, 0xD49000u, 0xB0000u,
   F_FIELDS|F_BAG, 0x70169E2Cu, 1, 4, 3, {1,2,3,0}, {"LAND","WATER","SKY",""},
   {0x5647u, 0x2BDFu, 0x7E9Fu, 0xFD45u},
   {{8,0x11,0},{16,0xc0,0},{17,0xa8,0},{168,1,0},{576,0x3f,0},{577,0x1f,0},{1856,1,0}},
   {{{4,0x0c,0},{170,2,0},{439,0,0}}, {{4,4,0},{170,1,0},{439,1,0}}, {{4,4,0},{170,1,0},{439,2,0}}},
-  0xb4u, 0x240u, 0x740u, 0, 0, 439u, 0 };
+  0xb4u, 0x240u, 0x740u, 0, 0, 439u, 0, 0, {0,0}, {"",""}, {0,0}, {{{0,0,0}}}, 0, 0, {0} };
 #define XIP_DEC 0x11000u
 #include <stddef.h>
 _Static_assert(offsetof(Cfg,flags)==36 && offsetof(Cfg,id_c)==40 && offsetof(Cfg,nfields)==48 && offsetof(Cfg,field_name)==68
   && offsetof(Cfg,field_col)==116 && offsetof(Cfg,fac_common)==132 && offsetof(Cfg,fac_field)==196
-  && offsetof(Cfg,money_off)==260 && offsetof(Cfg,cat_n)==276 && offsetof(Cfg,field_byte)==280 && sizeof(Cfg)==288, "settings block layout");
+  && offsetof(Cfg,money_off)==260 && offsetof(Cfg,cat_n)==276 && offsetof(Cfg,field_byte)==280 && offsetof(Cfg,six_off)==288 && offsetof(Cfg,field_name2)==300
+  && offsetof(Cfg,field_col2)==324 && offsetof(Cfg,fac_field2)==332 && offsetof(Cfg,slot_off2)==364 && offsetof(Cfg,six_map)==372 && sizeof(Cfg)==380, "settings block layout");
+#define NF_MAX 6u
 
 typedef struct {
   u32 magic, field, npages, bytes, sum, res[3];
@@ -128,8 +138,10 @@ static void utoa_(u32 v, char *s){ char t[12]; int n=0; do{ t[n++]=(char)('0'+v%
 #define ORANGE RGB(255,170,40)
 #define PINK  RGB(255,120,200)
 
-static u16 fcol(u32 i){ return (u16)g_cfg.field_col[i]; }
-static const char *fname(u32 i){ return (const char*)g_cfg.field_name[i]; }
+static u16 fcol(u32 i){ return (u16)(i<4u ? g_cfg.field_col[i] : g_cfg.field_col2[i-4u]); }
+static const char *fname(u32 i){ return i<4u ? (const char*)g_cfg.field_name[i] : (const char*)g_cfg.field_name2[i-4u]; }
+static u32 fid(u32 i){ return i<4u ? g_cfg.field_id[i] : g_cfg.field_id2[i-4u]; }
+static u32 nfields(void){ return g_cfg.nfields>NF_MAX ? NF_MAX : g_cfg.nfields; }
 
 static void progress(const char *what, u32 n, u32 tot){
   rect(0,40,128,100,BG);
@@ -260,17 +272,24 @@ static void stamp(u8 *p){ u32 c=crc16arc(p,4,PAGE); p[0]=(u8)c; p[1]=(u8)(c>>8);
 
 /* Fields: index 0..nfields-1, ID g_cfg.field_id[i] */
 static u32 cur_id(void){ return rd32(g_cfg.id_page); }
-static int field_index(u32 id){ for(u32 i=0;i<g_cfg.nfields && i<4u;i++) if(g_cfg.field_id[i] && g_cfg.field_id[i]==id) return (int)i; return -1; }
+static int field_index(u32 id){ for(u32 i=0;i<nfields();i++) if(fid(i) && fid(i)==id) return (int)i; return -1; }
 /* The active field is stored in the save (settings block), not in the ID:
  * verified on the emulator (fresh Land ROM with ID Water, field byte Land: egg in Land). */
 static int field_now(void){
   flash_read(SET_A, g_page, PAGE);
   u32 c=crc16arc(g_page,4,PAGE);
   if((g_page[0]|(g_page[1]<<8))==c && (g_page[2]|(g_page[3]<<8))==(~c&0xFFFFu) && g_cfg.field_byte<PAGE){
-    u32 f=g_page[g_cfg.field_byte]; if(f<g_cfg.nfields) return (int)f; }
+    u32 f=g_page[g_cfg.field_byte];
+    /* six fields: the set byte (0 or 1) picks the second three */
+    if(g_cfg.six_off && g_cfg.six_off<PAGE && f<4u){
+      u32 m=g_cfg.six_map[(g_page[g_cfg.six_off]==1u ? 4u : 0u) + f];
+      if(m<nfields()) return (int)m;
+    } else if(f<nfields()) return (int)f; }
   return field_index(cur_id());
 }
-static u32 slot_base(u32 i){ return g_cfg.slot_off + i*g_cfg.slot_size; }
+static u32 slot_base(u32 i){
+  if(g_cfg.slot_off2 && g_cfg.slot_n1 && i>=g_cfg.slot_n1) return g_cfg.slot_off2 + (i-g_cfg.slot_n1)*g_cfg.slot_size;
+  return g_cfg.slot_off + i*g_cfg.slot_size; }
 static int slot_valid(u32 i){
   u32 b=slot_base(i);
   if(rd32(b)!=SLOT_MAGIC || rd32(b+4)!=i+1u) return 0;   /* slot ID = field number + 1 */
@@ -289,7 +308,8 @@ static void write_id(u32 id){
 static void factory_page(u32 i, u8 *p){
   for(u32 k=0;k<PAGE;k++) p[k]=0;
   for(u32 k=0;k<16u && g_cfg.fac_common[k].off;k++) p[g_cfg.fac_common[k].off & 0xFFFu]=g_cfg.fac_common[k].val;
-  for(u32 k=0;k<4u && g_cfg.fac_field[i][k].off;k++) p[g_cfg.fac_field[i][k].off & 0xFFFu]=g_cfg.fac_field[i][k].val;
+  const volatile Patch *fp = i<4u ? g_cfg.fac_field[i] : g_cfg.fac_field2[i-4u];
+  for(u32 k=0;k<4u && fp[k].off;k++) p[fp[k].off & 0xFFFu]=fp[k].val;
   stamp(p);
 }
 
@@ -427,7 +447,7 @@ static void field_switch(u32 tgt, int has){
   if(e){ erase_page(slot_base((u32)g_cur)); error_screen(e); }
   e=restore(tgt,!has);
   if(e) error_screen(e);
-  if(g_cfg.field_id[tgt]){ write_id(g_cfg.field_id[tgt]); if(cur_id()!=g_cfg.field_id[tgt]) error_screen(30); }
+  if(fid(tgt)){ write_id(fid(tgt)); if(cur_id()!=fid(tgt)) error_screen(30); }
   if(field_now()!=(int)tgt) error_screen(31);
   erase_page(slot_base(tgt));
   done_screen(fname(tgt), fcol(tgt));
@@ -446,7 +466,7 @@ static int field_confirm(u32 tgt, int has){
 /* Field list. with_app: program as the last entry (when there is no main menu).
  * Returns when C is pressed and there is a main menu. */
 static void field_menu(int with_app, int top){
-  int has[4]; u32 nf=g_cfg.nfields; for(u32 i=0;i<nf;i++) has[i]=slot_valid(i);
+  int has[NF_MAX]; u32 nf=nfields(); for(u32 i=0;i<nf;i++) has[i]=slot_valid(i);
   u32 n = nf + (with_app && g_app ? 1u : 0u);
   u32 sel = (with_app && g_app) ? nf : (u32)g_cur;
   for(;;){
@@ -454,11 +474,15 @@ static void field_menu(int with_app, int top){
     int y0 = n>=4u ? 1 : 12;
     if(n<4u) ctext(2, top ? "PARAMIX" : "FIELD", WHITE,1);
     for(u32 i=0;i<n;i++){
-      int y=y0+(int)i*29;
-      if(i<nf){
-        const char *st = ((int)i==g_cur) ? "ACTIVE" : has[i] ? "SAVED" : "NEW";
-        big_entry(y, i==sel, fname(i), st, fcol(i), ((int)i==g_cur)?WHITE:GREY);
-      } else big_entry(y, i==sel, g_appname[g_app], "START", ORANGE, GREY);
+      const char *nm = i<nf ? fname(i) : g_appname[g_app];
+      const char *st = i>=nf ? "START" : ((int)i==g_cur) ? "ACTIVE" : has[i] ? "SAVED" : "NEW";
+      u16 c = i<nf ? fcol(i) : ORANGE, stc = (i<nf && (int)i==g_cur) ? WHITE : GREY;
+      if(n>4u){                       /* six fields: compact rows */
+        int y=2+(int)i*16;
+        if(i==sel){ rect(1,y,127,y+15,c); rect(2,y+1,126,y+14,BG); }
+        text(5,y+4,nm,c,1);
+        text(123-text_w(st,1),y+4,st,stc,1);
+      } else big_entry(y0+(int)i*29, i==sel, nm, st, c, stc);
     }
     ctext(119,"B OK   C BACK",GREY,1);
     show(); wait_release();

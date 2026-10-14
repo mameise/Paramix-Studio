@@ -30,18 +30,23 @@ static void wait_ready(void)
   }
 }
 
+void flash_erase4k(u32 addr)
+{
+  u32 a1=addr>>1;
+  REG(FCTL+0x008)=(a1>>16)&0xFFFFu;
+  REG(FCTL+0x00C)=a1 & 0xFFFFu;
+  REG(FCTL+0x004)=0x00000400u;
+  for(u32 g=0; (REG(FCTL+0x004)&0x400u) && g<60000000u; g++){ if((g & 0xFFFFu)==0) feed(); }
+  for(u32 g=0; (REG(FCTL+0x004)&0x2u) && g<60000000u; g++){ if((g & 0xFFFFu)==0) feed(); }
+  wait_ready();
+}
+
 void flash_prog4k(u32 addr, const void *src)
 {
   u32 a1=addr>>1;
   u32 hi=(a1>>16)&0xFFFFu;
   u32 lo=a1 & 0xFFFFu;
-  /* erase */
-  REG(FCTL+0x008)=hi;
-  REG(FCTL+0x00C)=lo;
-  REG(FCTL+0x004)=0x00000400u;
-  for(u32 g=0; (REG(FCTL+0x004)&0x400u) && g<60000000u; g++){ if((g & 0xFFFFu)==0) feed(); }
-  for(u32 g=0; (REG(FCTL+0x004)&0x2u) && g<60000000u; g++){ if((g & 0xFFFFu)==0) feed(); }
-  wait_ready();
+  flash_erase4k(addr);
   /* program */
   REG(FCTL+0x008)=0x3000u | hi;
   REG(FCTL+0x00C)=lo;
@@ -79,5 +84,12 @@ int flash_update4k(u32 addr, const void *src)
 {
   if(flash_same(addr, src, 0x1000u)) return 0;
   flash_prog4k(addr, src);
+  return 1;
+}
+
+int flash_isff(u32 addr, u32 len)
+{
+  const volatile u32 *s=(const volatile u32*)(0x60000000u + (addr & 0x00FFFFFFu));
+  for(u32 i=0;i<len/4u;i++) if(s[i]!=0xFFFFFFFFu) return 0;
   return 1;
 }

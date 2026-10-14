@@ -11,6 +11,10 @@ const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 
 function w32(b, o, v) { b[o] = v & 255; b[o + 1] = (v >>> 8) & 255; b[o + 2] = (v >>> 16) & 255; b[o + 3] = (v >>> 24) & 255; }
 
 const land = rd(process.argv[2]);
+{ // fields: characters, maps and close-ups per field type
+  const C = require('../src/core.js'), fs2 = C.fieldSets(C.openRom(land));
+  ok(fs2.length === 3 && fs2.every((f) => f.chars.length === 22 && f.maps.length === 7 && f.closeups.length === 6), 'fields of the ROM: ' + fs2.map((f) => f.name).join(', '));
+}
 ok(F.feldId(land) >= 1, 'Feld erkannt: ' + F.NAMES[F.feldId(land)]);
 ok(!F.feldFind(land, emb.stub), 'Original ohne Feldwahl');
 

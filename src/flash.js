@@ -369,20 +369,23 @@ function keepPlan(F, E, menu, opts = {}) {
     // the device's program area (stub, menu, apps), only the sectors that differ
     const view = new Uint8Array(img);
     for (const s of changed) if (s >= 0x90000 && s < 0x110000) view.set(await dev.read(s, SECTOR), s);
-    const ranges = [[ed.profile.idPage + SECTOR, FLASH_SIZE]];
+    const ranges = [[ed.profile.idPage + SECTOR, F.isSix && F.isSix(img) ? 0xF00000 : FLASH_SIZE]];   // six fields keep pictures from 0xF00000
     // field slots
     const fi = menu && F.feldFind(img, menu.stub), fd = menu && F.feldFind(view, menu.stub);
     if (fd && (fd.flags & 1)) {
-      if (fi && (fi.flags & 1) && fi.slotOff === fd.slotOff && fi.slotSize === fd.slotSize && fi.nslots === fd.nslots) ranges.push([fd.slotOff, fd.slotOff + fd.nslots * fd.slotSize]);
+      const at = (f, i) => (F.slotAddr ? F.slotAddr(f, i) : f.slotOff + i * f.slotSize);
+      if (fi && (fi.flags & 1) && fi.slotOff === fd.slotOff && fi.slotSize === fd.slotSize && fi.nslots === fd.nslots && (fi.slotOff2 || 0) === (fd.slotOff2 || 0) && (fi.slotN1 || 0) === (fd.slotN1 || 0)) {
+        for (let i = 0; i < fd.nslots; i++) ranges.push([at(fd, i), at(fd, i) + fd.slotSize]);
+      }
       else if (fi && (fi.flags & 1)) {
         // other layout: copy every stored field into the matching new slot
         for (let i = 0; i < fd.nslots; i++) {
-          const b = fd.slotOff + i * fd.slotSize, head = await dev.read(b, SECTOR);
+          const b = at(fd, i), head = await dev.read(b, SECTOR);
           if (u32(head, 0) !== 0x544C5346) continue;
           const field = u32(head, 4), bytes = u32(head, 12), idx = fd.version >= 3 ? field - 1 : i;
           if (idx < 0 || idx >= fi.nslots || 0x1000 + bytes > fi.slotSize) { notes.push(note('noteNoFit', { f: field })); continue; }
           const data = await dev.read(b, (0x1000 + bytes + 0xFFF) & ~0xFFF);
-          const d = fi.slotOff + idx * fi.slotSize;
+          const d = at(fi, idx);
           image.fill(0xFF, d, d + fi.slotSize); image.set(data.subarray(0, 0x1000 + bytes), d);
           for (let s = d; s < d + fi.slotSize; s += SECTOR) if (crc32(image, s, SECTOR) !== crc32(img, s, SECTOR)) changed.add(s);
           notes.push(note('noteMoved', { f: field }));

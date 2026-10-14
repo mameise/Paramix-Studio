@@ -26,6 +26,14 @@ let feld = fs.readFileSync(__dirname + '/src/feld.js', 'utf8');
   for (const f of ['feld.bin', 'stub_feld_tpl.bin']) if (!fs.existsSync(__dirname + '/feld/' + f)) throw new Error('feld/' + f + ' fehlt');
   feld = feld.replace('__FELD_B64__', d('feld.bin')).replace('__FELD_STUB_B64__', d('stub_feld_tpl.bin'));
 }
+// Six fields: helper page (source in six/src)
+let six = fs.readFileSync(__dirname + '/src/six.js', 'utf8');
+{
+  const f = __dirname + '/six/six.bin';
+  if (!fs.existsSync(f)) throw new Error('six/six.bin fehlt');
+  six = six.replace('__SIX_B64__', fs.readFileSync(f).toString('base64'));
+}
+if (six.includes('</script')) throw new Error('script end tag inside source');
 // Flash app for the device tab (our own code, source in flash/src)
 let flash = fs.readFileSync(__dirname + '/src/flash.js', 'utf8');
 {
@@ -37,7 +45,7 @@ if (flash.includes('</script')) throw new Error('script end tag inside source');
 if (feld.includes('</script')) throw new Error('script end tag inside source');
 if (doom.includes('</script')) throw new Error('script end tag inside source');
 if (core.includes('</script') || app.includes('</script') || emu.includes('</script')) throw new Error('script end tag inside source');
-html = html.replace('__CORE__', () => core).replace('__EMU__', () => emu).replace('__DOOM__', () => doom).replace('__FELD__', () => feld).replace('__FLASH__', () => flash).replace('__APP__', () => app).split('__VERSION__').join('v' + v);
+html = html.replace('__CORE__', () => core).replace('__EMU__', () => emu).replace('__DOOM__', () => doom).replace('__FELD__', () => feld).replace('__SIX__', () => six).replace('__FLASH__', () => flash).replace('__APP__', () => app).split('__VERSION__').join('v' + v);
 fs.mkdirSync(__dirname + '/dist', { recursive: true });
 fs.writeFileSync(__dirname + '/dist/ParamixStudio.html', html);
 fs.writeFileSync(__dirname + '/dist/index.html', html);

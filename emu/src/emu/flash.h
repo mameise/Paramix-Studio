@@ -5,4 +5,6 @@ void flash_prog4k(u32 addr, const void *src);
 void flash_read(u32 addr, void *dst, u32 len);
 int  flash_same(u32 addr, const void *src, u32 len);
 int  flash_update4k(u32 addr, const void *src);
+void flash_erase4k(u32 addr);
+int  flash_isff(u32 addr, u32 len);
 #endif
