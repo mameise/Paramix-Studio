@@ -10,6 +10,8 @@
  *   0x0C0000  saved run state (written by the emulator itself)
  *   0x940000  color Tama firmware, packed in 64 KB blocks; behind it, up to
  *             0xD40000, spare pages for blocks the guest writes (item stores)
+ *   0x840000  instead, for firmware that does not fit there (P's, 4U+): up to 0xD48000.
+ *             The menu's field saves then have no room.
  *
  * Author: mameise
  */
@@ -20,6 +22,7 @@ const XIP_DEC = 0x11000;
 const xip = (off) => 0x10000000 + off - XIP_DEC;
 const APP_OFF = 0xA0000, STUB_OFF = 0xB0000, SAVE_OFF = 0xC0000, SAVE_END = 0x110000;
 const GUEST_OFF = 0x940000, GUEST_END = 0xD40000;
+const BIG_OFF = 0x840000, BIG_END = 0xD48000, SPARE_MIN = 0x4000;   // big firmware (1.3.2); 256 KB aligned like 0x940000
 const APP_MAX = 0x10000;
 const PMXC = 0x43584D50;
 // Placeholders in the prebuilt stub (stub_tpl.bin)
@@ -28,15 +31,23 @@ const HOOK_OFF = [0x40, 0x46, 0x4C, 0x52];
 const DEVICES = {
   pc:  { kind: 0, size: 0x400000, label: '4 MB', par: 0x3F },
   idl: { kind: 1, size: 0x800000, label: '8 MB', par: 0x00 },
+  ps:  { kind: 2, size: 0x800000, label: "P's", par: 0x00 },
+  '4u': { kind: 3, size: 0x800000, label: '4U+', par: 0x00 },
+  '4u-plain': { kind: 4, size: 0x800000, label: '4U', par: 0x00 },
+  t7:  { kind: 99, size: 0, label: 'T7Emu', par: 0x00 },   // V7 (T7Emu), not packed like the others
 };
+// 8 MB firmware by its reset vector (file offset 0x400000), as tamaemu's dlc tool tells them apart
+const RESET_VEC = { 0x024FDFE6: 'ps', 0x024F6256: '4u', 0x024C680A: '4u-plain' };
 // Blocks with many data accesses first: they sit in the cached 1 MB window
 const HOT = {
   pc:  [0x25, 0x21, 0x04, 0x02, 0x01, 0x03, 0x05, 0x20, 0x22, 0x23, 0x24, 0x26, 0x27, 0x28, 0x29, 0x2a],
   idl: [0x0b, 0x0e, 0x0d, 0x19, 0x08, 0x09, 0x16, 0x18, 0x0c, 0x17, 0x4f, 0x50, 0x40, 0x15, 0x4c, 0x4d],   // v0.8.17 after measuring (0x08/0x09 added)
+  ps: [], '4u': [], '4u-plain': [],
 };
 
 const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
 function w32(b, o, v) { b[o] = v & 255; b[o + 1] = (v >>> 8) & 255; b[o + 2] = (v >>> 16) & 255; b[o + 3] = (v >>> 24) & 255; }
+function assetEnd(b) { return 0x111000 + 16 + u32(b, 0x111000 + 8); }
 function isFF(b, a, n) { for (let i = a; i < a + n; i++) if (b[i] !== 0xFF) return false; return true; }
 function b64(s) {
   if (typeof atob === 'function') { const t = atob(s); const o = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) o[i] = t.charCodeAt(i); return o; }
@@ -51,7 +62,7 @@ function emuDetect(g) {
   }
   if (g.length > 0x400000 && g.length <= 0x800000) {
     const v = u32(g, 0x400000);
-    if (v >= 0x2000000 && v < 0x2800000) return 'idl';
+    if (v >= 0x2000000 && v < 0x2800000) return RESET_VEC[v] || 'idl';
   }
   throw new Error('firmware not recognised (expected a 4 MB or 8 MB image of a colour Tamagotchi)');
 }
@@ -93,8 +104,8 @@ function packGuest(fw, dev) {
   const map = new Uint8Array(128); map.fill(0xFF);
   const blob = new Uint8Array(order.length << 16);
   order.forEach((b, idx) => { map[b] = idx; blob.set(g.subarray(b << 16, (b + 1) << 16), idx << 16); });
-  if (GUEST_OFF + blob.length > GUEST_END) throw new Error('firmware too big: ' + order.length + ' blocks');
-  return { map, blob, blocks: order.length };
+  if (BIG_OFF + blob.length + SPARE_MIN > BIG_END) throw new Error('firmware too big: ' + order.length + ' blocks');
+  return { map, blob, blocks: order.length, big: GUEST_OFF + blob.length + SPARE_MIN > GUEST_END };
 }
 
 /** Is an emulator already installed? Returns the original handlers or null. */
@@ -145,30 +156,33 @@ function emuPatch(rom, guest, app, stubTpl, opts = {}) {
   if (!tab.PSID_HOME) throw new Error('home screen not found');
   const prev = installedOrigs(out, tab);
   // Regions must be free (or already used by us)
+  const { map, blob, blocks, big } = packGuest(guest, dev);
+  const gOff = big ? BIG_OFF : GUEST_OFF, gEnd = big ? BIG_END : GUEST_END;
+  if (big && assetEnd(out) > 0x830000) throw new Error('the character data reaches 0x' + assetEnd(out).toString(16) + ', the emulator needs 0x830000 onwards');
   if (!prev) {
     if (!isFF(out, APP_OFF, 0x11000)) throw new Error('area 0x0A0000 is in use');
-    if (!isFF(out, GUEST_OFF, GUEST_END - GUEST_OFF)) throw new Error('area 0x940000 is in use');
+    if (!isFF(out, gOff, gEnd - gOff)) throw new Error('area 0x' + gOff.toString(16) + ' is in use');
   }
   if (!isFF(out, SAVE_OFF, SAVE_END - SAVE_OFF) && !prev) throw new Error('area 0x0C0000 is in use');
-  // Pack and store the guest
-  const { map, blob, blocks } = packGuest(guest, dev);
-  out.fill(0xFF, GUEST_OFF, GUEST_END);
-  out.set(blob, GUEST_OFF);
+  // Store the packed guest (an earlier one may sit in the other layout)
+  if (prev && u32(out, APP_OFF + 0x140) === PMXC) { const o = u32(out, APP_OFF + 0x148); if (o === BIG_OFF) out.fill(0xFF, BIG_OFF, BIG_END); else if (o === GUEST_OFF) out.fill(0xFF, GUEST_OFF, GUEST_END); }
+  out.fill(0xFF, gOff, gEnd);
+  out.set(blob, gOff);
   // Program with settings
   if (app.length > APP_MAX) throw new Error('emulator program too big');
   const a = new Uint8Array(app);
   let ci = -1; for (let i = 0; i + 4 <= a.length; i += 4) if (u32(a, i) === PMXC) { ci = i; break; }
   if (ci < 0) throw new Error('settings block missing in the program');
   // version 3: the room behind the packed firmware up to GUEST_END holds the guest's spare pages
-  w32(a, ci + 4, 3); w32(a, ci + 8, GUEST_OFF); w32(a, ci + 12, blob.length); w32(a, ci + 16, SAVE_OFF); w32(a, ci + 20, DEVICES[dev].kind);
+  w32(a, ci + 4, 3); w32(a, ci + 8, gOff); w32(a, ci + 12, blob.length); w32(a, ci + 16, SAVE_OFF); w32(a, ci + 20, DEVICES[dev].kind);
   a.set(map, ci + 24);
-  w32(a, ci + 152, GUEST_END);
+  w32(a, ci + 152, gEnd);
   out.fill(0x00, APP_OFF, APP_OFF + APP_MAX);
   out.set(a, APP_OFF);
   installStub(out, tab, prev, stubTpl);
   // erase the old save (it may belong to a different firmware)
   out.fill(0xFF, SAVE_OFF, SAVE_END);
-  return { rom: out, device: dev, blocks };
+  return { rom: out, device: dev, blocks, big };
 }
 
 /**
@@ -188,7 +202,8 @@ function emuUpgrade(rom, app) {
   for (let i = 8; i < 152; i++) a[ci + i] = rom[APP_OFF + ci + i];
   w32(a, ci + 4, 3);
   w32(a, ci + 152, ver >= 3 ? u32(rom, APP_OFF + ci + 152) : GUEST_END);
-  if (u32(a, ci + 152) > GUEST_END || u32(a, ci + 8) !== GUEST_OFF) return null;
+  const go = u32(a, ci + 8);
+  if (!(go === GUEST_OFF && u32(a, ci + 152) <= GUEST_END) && !(go === BIG_OFF && u32(a, ci + 152) <= BIG_END)) return null;
   let same = true;
   for (let i = 0; i < APP_MAX && same; i++) if (rom[APP_OFF + i] !== (i < a.length ? a[i] : 0)) same = false;
   if (same) return null;
@@ -244,6 +259,7 @@ function emuRemove(rom) {
   out.fill(0xFF, APP_OFF, APP_OFF + 0x11000);
   out.fill(0xFF, SAVE_OFF, SAVE_END);
   out.fill(0xFF, GUEST_OFF, GUEST_END);
+  if (u32(rom, APP_OFF + 0x140) === PMXC && u32(rom, APP_OFF + 0x148) === BIG_OFF) out.fill(0xFF, BIG_OFF, BIG_END);
   // DOOM: program part in the flash window and WAD (only behind the character data)
   out.fill(0xFF, STUB_OFF + 0x1000, SAVE_OFF);
   const assetEnd = (0x111000 + 16 + u32(out, 0x111000 + 8) + 0xFFF) & ~0xFFF;
@@ -355,12 +371,121 @@ function dlcPut(g, rec, slot) {
   return out;
 }
 
+
+// ------------------------------------------------------------ T7Emu (V7, 6502)
+/*
+ * T7Emu (1.4.0): the V7 core of the T7Emu app (after asterick/tamago, BSD) as a second
+ * emulator. Same launcher and program place as TamaEmu (only one of them), settings block
+ * "PMX7" at 0x140 of the program. Layout: the 640 KB ROM at 0x940000, the figures right
+ * behind it (trailing zero bytes cut off, the core reads them as zero anyway), up to
+ * 0xD40000. Save area at 0x0C0000: session (4 KB), the pet's EEPROM in two slots from 0x0C1000, settings at 0x0C5000.
+ */
+const T7_MAGIC = 0x37584D50, T7_ROM_SIZE = 0xA0000, T7_FIG_MAX = 16, T7_EE = 0xC1000, T7_EE_END = 0xC6000;   // EEPROM slots, then the settings sector
+const T7_APP_B64 = '__T7_APP_B64__';
+function t7Embedded() { return T7_APP_B64.startsWith('__') ? null : b64(T7_APP_B64); }
+/** V7 ROM: 640 KB, reset vector in the static part (0xC000..0xFFFF). */
+function t7Detect(b) {
+  if (!b || b.length !== T7_ROM_SIZE) return false;
+  const v = b[0x3FFC] | (b[0x3FFD] << 8);
+  return v >= 0xC000;
+}
+/** Figure: "AA 55" at 1 and at 0x11. */
+function t7FigDetect(b) { return !!b && b.length >= 0x40 && b[1] === 0xAA && b[2] === 0x55 && b[0x11] === 0xAA && b[0x12] === 0x55; }
+function t7Trim(b) { let e = b.length; while (e > 0 && b[e - 1] === 0) e--; return b.slice(0, Math.max(e, 0x40)); }
+/** Name for the menu on the device from the file name: "(03)_Tama-Go_Mametchi.bin" -> "Mametchi". */
+function t7FigName(file) {
+  let n = String(file || '').split(/[\\/]/).pop().replace(/\.[^.]*$/, '');
+  n = n.replace(/^\(\d+\)[_ -]*/, '').replace(/^tama[-_ ]?go[_ -]*/i, '').replace(/[_ -]*figure$/i, '').replace(/_/g, ' ');
+  n = n.replace(/[^\x20-\x7E]/g, '').trim();
+  return (n || 'Figur').slice(0, 15);
+}
+function t7Cfg(rom) {
+  if (u32(rom, APP_OFF + 0x140) !== T7_MAGIC) return null;
+  const c = APP_OFF + 0x140, n = Math.min(u32(rom, c + 20), T7_FIG_MAX), figs = [];
+  for (let i = 0; i < n; i++) {
+    const f = c + 24 + i * 24; let name = '';
+    for (let k = 0; k < 16 && rom[f + 8 + k]; k++) name += String.fromCharCode(rom[f + 8 + k]);
+    figs.push({ off: u32(rom, f), len: u32(rom, f + 4), name });
+  }
+  return { version: u32(rom, c + 4), romOff: u32(rom, c + 8), romLen: u32(rom, c + 12), saveOff: u32(rom, c + 16), figs, flags: u32(rom, c + 24 + T7_FIG_MAX * 24) };
+}
+/** What is installed, as input for t7Patch again (to add or remove figures). */
+function t7FromRom(rom) {
+  const c = t7Cfg(rom); if (!c) return null;
+  return { rom: rom.slice(c.romOff, c.romOff + c.romLen), figs: c.figs.map((f) => ({ name: f.name, data: rom.slice(f.off, f.off + f.len) })) };
+}
+/** Room the figures may still use (bytes), for the Studio's display. */
+function t7Room(figs) { let a = GUEST_OFF + T7_ROM_SIZE; for (const f of figs) a = (a + f.data.length + 0xFFF) & ~0xFFF; return GUEST_END - a; }
+/**
+ * Install T7Emu. rom: 16 MB Paradise image, t7rom: 640 KB V7 ROM, figs: [{name, data}],
+ * app: t7.bin, stubTpl: launcher. opts.lang 'en' for English texts on the device. Returns a new image.
+ */
+function t7Patch(rom, t7rom, figs, app, stubTpl, opts = {}) {
+  if (!t7Detect(t7rom)) throw new Error('not a V7 ROM (640 KB)');
+  if (figs.length > T7_FIG_MAX) throw new Error('at most ' + T7_FIG_MAX + ' figures');
+  if (assetEnd(rom) > 0x830000) throw new Error('the character data reaches 0x' + assetEnd(rom).toString(16) + ', the emulator needs 0x830000 onwards');
+  const oldT7 = t7Cfg(rom), oldTama = u32(rom, APP_OFF + 0x140) === PMXC;
+  const sameRom = !!oldT7 && oldT7.romLen === t7rom.length && rom.subarray(oldT7.romOff, oldT7.romOff + oldT7.romLen).every((v, i) => v === t7rom[i]);
+  const bigOld = oldTama && u32(rom, APP_OFF + 0x148) === BIG_OFF;
+  const out = installApp(rom, app, stubTpl);
+  if (!installedOrigs(rom, sceneTable(rom)) && !isFF(rom, GUEST_OFF, GUEST_END - GUEST_OFF)) throw new Error('area 0x940000 is in use');
+  if (bigOld) out.fill(0xFF, BIG_OFF, BIG_END);
+  out.fill(0xFF, GUEST_OFF, GUEST_END);
+  out.set(t7rom, GUEST_OFF);
+  let at = GUEST_OFF + T7_ROM_SIZE;
+  const list = [];
+  for (const f of figs) {
+    const d = t7Trim(f.data);
+    if (at + d.length > GUEST_END) throw new Error('no room for figure ' + f.name);
+    out.set(d, at); list.push({ off: at, len: d.length, name: t7FigName(f.name) });
+    at = (at + d.length + 0xFFF) & ~0xFFF;
+  }
+  const c = APP_OFF + 0x140;
+  if (u32(out, c) !== T7_MAGIC) throw new Error('settings block missing in the program');
+  w32(out, c + 4, 1); w32(out, c + 8, GUEST_OFF); w32(out, c + 12, T7_ROM_SIZE); w32(out, c + 16, SAVE_OFF); w32(out, c + 20, list.length);
+  out.fill(0, c + 24, c + 24 + T7_FIG_MAX * 24);
+  list.forEach((f, i) => { const o = c + 24 + i * 24; w32(out, o, f.off); w32(out, o + 4, f.len); for (let k = 0; k < f.name.length; k++) out[o + 8 + k] = f.name.charCodeAt(k); });
+  w32(out, c + 24 + T7_FIG_MAX * 24, opts.lang === 'en' ? 1 : 0);
+  // save area: the pet's EEPROM stays when the same ROM was in before, the session only with the same figures
+  const sameFigs = sameRom && oldT7.figs.length === list.length && oldT7.figs.every((f, i) => f.len === list[i].len && f.off === list[i].off);
+  if (!sameRom) out.fill(0xFF, SAVE_OFF, SAVE_END);
+  else { out.fill(0xFF, T7_EE_END, SAVE_END); if (!sameFigs) out.fill(0xFF, SAVE_OFF, T7_EE); }
+  return out;
+}
+/**
+ * Local time when writing to the device, for the first time setting in the game (T7Emu fills
+ * it in). counter: the device's seconds counter, date: now. Returns a new image.
+ */
+function t7Wall(rom, counter, date) {
+  if (u32(rom, APP_OFF + 0x140) !== T7_MAGIC) return rom;
+  const out = new Uint8Array(rom), c = APP_OFF + 0x140 + 24 + T7_FIG_MAX * 24 + 4;
+  w32(out, c, counter >>> 0);
+  w32(out, c + 4, date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds());
+  w32(out, c + 8, (date.getFullYear() << 16) | ((date.getMonth() + 1) << 8) | date.getDate());
+  return out;
+}
+/** Newer T7 program into a ROM that already has T7Emu: settings stay. null if nothing to do. */
+function t7Upgrade(rom, app) {
+  if (u32(rom, APP_OFF + 0x140) !== T7_MAGIC) return null;
+  const a = new Uint8Array(app);
+  if (u32(a, 0x140) !== T7_MAGIC) return null;
+  const n = 24 + T7_FIG_MAX * 24 + 4;
+  a.set(rom.subarray(APP_OFF + 0x140, APP_OFF + 0x140 + n), 0x140);
+  let same = true;
+  for (let i = 0; i < APP_MAX && same; i++) if (rom[APP_OFF + i] !== (i < a.length ? a[i] : 0)) same = false;
+  if (same) return null;
+  const out = new Uint8Array(rom);
+  out.fill(0x00, APP_OFF, APP_OFF + APP_MAX);
+  out.set(a, APP_OFF);
+  return out;
+}
+
 const EMU_APP_B64 = '__EMU_APP_B64__', EMU_STUB_B64 = '__EMU_STUB_B64__';
 function embedded() {
   if (EMU_APP_B64.startsWith('__')) return null;
   return { app: b64(EMU_APP_B64), stub: b64(EMU_STUB_B64) };
 }
 
-root.ParamixEmu = { installApp, dlcStores, dlcRoute, dlcAdd, dlcFree, dlcSlots, dlcRecord, dlcPut, dlcName, emuDetect, sceneTable, packGuest, emuPatch, emuUpgrade, emuRemove, autoGet, autoGetOld, autoSet, STUB_OFF, installedOrigs, embedded, DEVICES, GUEST_OFF };
+root.ParamixEmu = { installApp, dlcStores, dlcRoute, dlcAdd, dlcFree, dlcSlots, dlcRecord, dlcPut, dlcName, emuDetect, sceneTable, packGuest, emuPatch, emuUpgrade, emuRemove, t7Embedded, t7Detect, t7FigDetect, t7FigName, t7Cfg, t7FromRom, t7Room, t7Patch, t7Upgrade, t7Wall, T7_MAGIC, autoGet, autoGetOld, autoSet, STUB_OFF, installedOrigs, embedded, DEVICES, GUEST_OFF, BIG_OFF };
 if (typeof module !== 'undefined') module.exports = root.ParamixEmu;
 })(typeof window !== 'undefined' ? window : globalThis);

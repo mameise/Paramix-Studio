@@ -17,6 +17,8 @@ the device over a UART dongle.
   program, upload it again. Digimon from DIM cards too.
 - **Device:** read the ROM from the device and write a new one, only the parts
   that changed, keeping the saves on the device.
+- **Save games:** back up the Paradise and the TamaEmu save on their own and
+  restore them, for example to play on in the TamaParadise or TamaEmu app.
 
 Everything runs locally in one HTML file. Your ROM, firmware and WAD never leave
 your computer. The Studio contains no ROM, no firmware, no WAD and no game
@@ -76,6 +78,8 @@ characters whose eyes do not fit stay original.
 
 ### TamaEmu
 Tab "Emulator": choose the firmware of a colour Tamagotchi (4 MB or 8 MB image).
+Known: Plus Color, iD L, P's, 4U+ and 4U. The P's and 4U firmware is bigger and
+uses the room the menu needs for the field switch, so the two do not go together.
 It is packed into the ROM on save. On the device: hold A and C on the home
 screen to start, hold the wheel to go back (the state is saved and continues
 next time). To start over from the Tamagotchi's own save instead, release A
@@ -101,6 +105,26 @@ With the 8 MB firmware the tab lists the download content stores (meals,
 snacks, clothing, accessories, items, daily items, wallpapers, games,
 destinations). Add `.jpg` download files (several at once), remove entries per
 slot.
+
+### T7Emu
+Tab "Emulator": choose the ROM of the Tama-Go (640 KB) instead of a firmware.
+Figure ROMs (the ones that start with AA 55) can be added with "Add figure",
+up to 16, and removed with the cross next to their name. Everything is packed
+into the ROM on save; you bring your own ROMs.
+
+On the device: hold A and C on the home screen to start, hold the wheel to go
+back (the state is saved). A short press on the wheel opens the settings: A
+goes to the next line, B changes it, C goes back or closes. Figure, background
+colour, Tama colour, light and dark grey, screen (Large fills the width, Pixel
+exact keeps every pixel the same size), pixel look, grid, pixel view, icons,
+sound, light, clock and language. The settings stay on the device. When the
+game asks for the time, T7Emu fills it in (the local time written along by the
+Studio, or after a restart the game time from before); birthday and name follow. The game clock follows the Paradise clock; after a pause the missed
+hours pass, up to 30. If T7Emu hangs: start with A and C, release them and
+press the wheel within the first 3 seconds.
+
+Updating: open the ROM in a newer Studio and save it. Written with "Keep
+saves", the Tama-Go keeps its save as long as its ROM is the same.
 
 ### DOOM
 Tab "DOOM": choose your own `DOOM.WAD` (Ultimate DOOM or the shareware
@@ -158,6 +182,19 @@ middle = GND, right = TX of the dongle. 3.3 V, not 5 V.
    Keep the device switched on while writing. Every sector is checked after it
    is written and the whole flash is checked at the end. If something goes
    wrong, leave the device on and write again.
+5. "Back up save" reads only the game progress: the Paradise save as a
+   .tamasave for the TamaParadise app (with the device's clock), and if the
+   device runs TamaEmu also the colour Tama's save as a .sav for the TamaEmu
+   app. "Save to device" writes a .tamasave back. It must be from the same
+   edition; a save of another edition is refused. Only pages that differ are
+   written and the clock is set from the save.
+
+### Save games (tab "Save")
+From the loaded ROM: the Paradise save as a .tamasave (without the clock, set
+it in the app if needed), the TamaEmu save as a .sav and the T7Emu save as a .bin
+(the save.bin of the T7Emu app). Import: a .sav or a T7Emu .bin goes into the
+ROM (then save the ROM or write it to the device), a .tamasave goes straight to
+a connected device.
 
 ## Build
 
@@ -180,13 +217,14 @@ Pages, Source "GitHub Actions" publishes the page as a website as well.
 | --- | --- |
 | `src/` | the Studio (HTML, JavaScript) |
 | `emu/` | TamaEmu, the emulator program for the Paradise, with source in `emu/src` |
+| `t7/` | T7Emu, the Tama-Go emulator program for the Paradise, with source in `t7/src` |
 | `doom/` | DOOM for the Paradise and the WAD converter (WebAssembly), with source in `doom/src` |
 | `feld/` | the on-device menu (field switch, items, Tamapoints), with source in `feld/src` |
 | `six/` | helper code for six fields on Tropical/Glacier, with source in `six/src` |
 | `flash/` | the flash app loaded for reading and writing over UART, with source in `flash/src` |
 | `test/` | tests |
 
-Every shipped binary (`emu/emu.bin`, `emu/stub_tpl.bin`, `doom/*.bin`,
+Every shipped binary (`emu/emu.bin`, `t7/t7.bin`, `emu/stub_tpl.bin`, `doom/*.bin`,
 `doom/mcuwad.wasm`, `feld/*.bin`, `six/six.bin`, `flash/flashapp.bin`) is built from the source
 next to it; the build commands are in the README of each folder.
 

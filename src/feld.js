@@ -106,8 +106,9 @@ function fieldNow(rom) {
   return f < P.names.length ? cap(P.names[f]) : NAMES[e.id];
 }
 
-/** Program in the ROM: 0 none, 1 DOOM, 2 emulator. */
+/** Program in the ROM: 0 none, 1 DOOM, 2 emulator (TamaEmu or T7Emu, see emuType). */
 function appKind(rom) {
+  if (u32(rom, APP_OFF + 0x140) === 0x37584D50) return 2;   // "PMX7": T7Emu
   if (u32(rom, APP_OFF + 0x140) !== PMXC) return 0;
   for (let i = 0x140; i < 0x400; i += 4) if (u32(rom, APP_OFF + i) === PDMC) return 1;
   return 2;
@@ -454,7 +455,9 @@ function feldApply(rom, opts, saved, emb, E) {
       if (!slotSize) throw new Error('no room for the saves');
     } else if (fields) {
       slotOff = Math.max(SLOT_BASE, page(assetEnd(out)));
-      const limit = kind === 2 ? GUEST_OFF : P.idPage - 0x1000;
+      // the emulator's firmware starts at 0x940000, a big one (P's, 4U+) already at 0x840000 (1.3.2)
+      const limit = kind === 2 ? (u32(out, 0xA0140) === PMXC ? Math.min(u32(out, 0xA0148), GUEST_OFF) : GUEST_OFF) : P.idPage - 0x1000;
+      if (limit - slotOff < nslots * 0x10000) throw new Error('no room for the field saves next to this emulator firmware');
       // all the room up to the emulator or the device's save area (1.2.11; before at most 0x58000 each)
       slotSize = Math.floor((limit - slotOff) / nslots / 0x1000) * 0x1000;
       if (slotSize < 0x10000) throw new Error('no room for the saves');
@@ -528,6 +531,7 @@ function embedded() {
   return { feld: b64(FELD_B64), stub: b64(FELD_STUB_B64) };
 }
 
-root.ParamixFeld = { isSix, slotAddr, slotReadAsync, slotPlace, poolAddr, textTabelle, zeichenkette, edition, feldId, canFields, fieldNames, fieldNow, feldFind, feldSlots, feldStrip, feldApply, appKind, itemCatalog, embedded, NAMES, F_FIELDS, F_BAG };
+function emuType(rom) { const m = u32(rom, APP_OFF + 0x140); return m === 0x37584D50 ? 't7' : m === PMXC && appKind(rom) === 2 ? 'tama' : ''; }
+root.ParamixFeld = { emuType, isSix, slotAddr, slotReadAsync, slotPlace, poolAddr, textTabelle, zeichenkette, edition, feldId, canFields, fieldNames, fieldNow, feldFind, feldSlots, feldStrip, feldApply, appKind, itemCatalog, embedded, NAMES, F_FIELDS, F_BAG };
 if (typeof module !== 'undefined') module.exports = root.ParamixFeld;
 })(typeof window !== 'undefined' ? window : globalThis);

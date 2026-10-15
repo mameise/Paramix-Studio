@@ -23,6 +23,7 @@ The Studio builds it into the ROM together with the user's own firmware.
 | 0x0C0000 | run state (written by the emulator) |
 | 0x940000 | guest firmware, packed in 64 KB blocks; blocks the guest writes stay unpacked and hold its save |
 | behind it, up to 0xD40000 | spare pages: a table (4 KB) and 8 KB pages for blocks that are empty in the firmware but written by the guest |
+| 0x840000 to 0xD48000 | instead of the two rows above, for firmware that does not fit there (P's, 4U+, 4U); the menu's field saves then have no room |
 
 ## Writing the guest flash
 
@@ -89,3 +90,12 @@ llvm-objcopy -O binary stub.elf stub_tpl.bin
 Both results are byte-identical to the files shipped here.
 
 License: GNU GPL version 3 (see `LICENSE`).
+
+## Code that overwrites itself
+
+The translator throws away all translated code when the guest writes to an
+a0ram page that holds translated code. Since v0.9.6 a page that causes this 8
+times within about 0.1 s of guest time is run by the interpreter only, for
+about 5 s, then it gets another chance. Before, Connect to a Plus Color on the
+iD L (code at 0xC00 next to its data) caused thousands of flushes per second
+and the emulator stood still on the device. Build switch `JIT_WHOT`.

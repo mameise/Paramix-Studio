@@ -72,9 +72,8 @@ static u32 pram_check(u32 end, int fix){
 }
 /* Startup display: until the guest has sent a frame, two rows of numbers (hex)
  * are shown at the bottom. Shows on the device how far startup gets. */
-#ifndef CLEAN
+#if !defined(CLEAN) || defined(MESS)
 static const u16 g_font[16]={0x7B6F,0x2C97,0x73E7,0x73CF,0x5BC9,0x79CF,0x79EF,0x7249,0x7BEF,0x7BCF,0x7BED,0x6BAE,0x7927,0x6B6E,0x79E7,0x79E4};
-static volatile u32 g_stage, g_guest_drawn, g_loops;
 static void diag_line(u32 y0, const u32 *v, const u8 *n, int cnt){
   for(u32 y=0;y<10;y++){
     for(u32 x=0;x<128;x++) g_row[x]=0x0010u;
@@ -90,6 +89,9 @@ static void diag_line(u32 y0, const u32 *v, const u8 *n, int cnt){
     hw_push(g_row, 0, 0, y0+y, 128, y0+y+1);
   }
 }
+#endif
+#ifndef CLEAN
+static volatile u32 g_stage, g_guest_drawn, g_loops;
 static void diag(Emu *e, u32 emu_ms){
   if(g_guest_drawn) return;
   u32 a[3]={g_stage, g_ms, emu_ms}; static const u8 na[3]={1,5,5};
@@ -162,6 +164,9 @@ static u16 g_prof[256]; static u32 g_prof_other;
 #endif
 __attribute__((used)) void systick_c(u32 *fr, u32 r9){
   g_ms++;
+#if defined(PROF) && defined(MESS) && defined(CLEAN)
+  { u32 pc=fr[6]; if(pc<0x10000u){ if(g_prof[pc>>8]<0xFFFFu) g_prof[pc>>8]++; } else g_prof_other++; }
+#endif
 #ifndef CLEAN
 #ifdef PROF
   if(g_stage==7){ u32 pc=fr[6]; if(pc<0x10000u){ if(g_prof[pc>>8]<0xFFFFu) g_prof[pc>>8]++; } else g_prof_other++; }
@@ -378,8 +383,9 @@ __attribute__((noinline)) static u32 sram_watch(u32 *first, u32 *c2){
 static u32 g_sw_n, g_sw_f, g_sw_k;
 #endif
 static u32 g_ovl;                         /* speed display on (short wheel press) */
-/* Timing (v0.8.20): cycles from SysTick (g_ms * 96000 + elapsed part of the current ms) */
-#ifndef CLEAN
+/* Timing (v0.8.20): cycles from SysTick (g_ms * 96000 + elapsed part of the current ms).
+ * MESS: release build plus only the speed display (short wheel press), for measuring on the device. */
+#if !defined(CLEAN) || defined(MESS)
 static u32 g_cy_emu, g_cy_disp;
 static u32 cyc_now(void){ u32 m, v; do { m=g_ms; v=SYST_CVR; } while(m!=g_ms); return m*96000u + (95999u - v); }
 #endif
@@ -529,7 +535,9 @@ void Reset_Handler(void){
   XIP_CTRL_REG = 3u;
   Emu *e=&g_emu;
   g_stage=2; diag(e,0);
-  if(g_cfg.device==1) tc_profile_idl(&e->dev); else tc_profile_plus_color(&e->dev);
+  /* device: 0 Plus Color (4 MB), 1 iD L, 2 P's, 3 4U+, 4 4U (all 8 MB, same map as the iD L; the 4U runs at 30 MHz) */
+  if(g_cfg.device>=1){ tc_profile_idl(&e->dev); if(g_cfg.device>=3) e->dev.osc3_hz=30000000u; }
+  else tc_profile_plus_color(&e->dev);
   tc_init(e, 0, g_gram, g_pool, NSLOT);
   tc_ovl_evict = st_evict; tc_big_erase = st_big_erase; st_init(&g_sc, g_pool);
 #ifdef OVL_RAM20
@@ -617,7 +625,7 @@ void Reset_Handler(void){
      * mhz/1000 gave 32 instead of 32.768 cycles per ms: the guest clock lost 2.3 percent. */
     static u32 cy_rest;
     u32 cy_ms; { u32 t = mhz + cy_rest; cy_ms = t / 1000u; cy_rest = t % 1000u; }
-#ifdef CLEAN
+#if defined(CLEAN) && !defined(MESS)
     u32 tr_stop=tc_run(e, e->cycles + cy_ms);
 #else
     u32 pc0=cyc_now();
@@ -687,7 +695,7 @@ void Reset_Handler(void){
       if(g_restored && (b&BTN_WHEEL) && now-t_start<3000u){ st_drop(&g_sc); leave_nosave(); } }
     #ifndef NOWHEEL
     if(b&BTN_WHEEL){ if(!wheel_ms) wheel_ms=now?now:1; else if(now-wheel_ms>1500) leave(); }
-#ifdef CLEAN
+#if defined(CLEAN) && !defined(MESS)
     else wheel_ms=0;
 #else
     else { if(wheel_ms && now-wheel_ms<1000u){ g_ovl^=1u; if(!g_ovl){ e->lcd.dx0=0; e->lcd.dy0=0; e->lcd.dx1=127; e->lcd.dy1=59; LCD_ALL(); } } wheel_ms=0; }
@@ -696,7 +704,7 @@ void Reset_Handler(void){
 #ifdef LCD_SKIP
     /* v0.8.19: if emulation lags behind (more than 20 ms), only one frame every 80 ms instead of every 40 ms */
     if(emu_ms-last_push >= (((s32)(g_ms-emu_ms) > 20) ? 80u : 40u)){ last_push=emu_ms;
-#ifdef CLEAN
+#if defined(CLEAN) && !defined(MESS)
       push_dirty(e); }
 #else
       u32 c0=cyc_now(); push_dirty(e); g_cy_disp += cyc_now()-c0; }
@@ -707,7 +715,7 @@ void Reset_Handler(void){
     /* Speed display (short wheel press): top row, every 0.5 s.
      * 5 <speed in % of real time, decimal> <JIT buffer used in 256 B> <flushes per s> <idle in %, decimal>
      * 6 <translated blocks per s> <evicted flash sectors per s> <save parts to flash per s> */
-#ifndef CLEAN
+#if !defined(CLEAN) || defined(MESS)
     { static u32 t0, e0, d0, f0, i0, b0, v0, g0, ce0, cd0;
       if(now-t0>=500u){
         if(g_ovl && t0){ u32 dt=now-t0, de=(emu_ms-e0)-(dropped-d0); u32 pct=de*100u/(dt?dt:1u); if(pct>999u) pct=999u;

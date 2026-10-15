@@ -211,6 +211,7 @@ static uint32_t jit_codewrite(Emu *e, uint32_t a, uint32_t n)
 {
     if (a > A0RAM_MAX - n) return 0;
     if (!(e->jit_map[a >> 8] | e->jit_map[(a + n - 1) >> 8])) return 0;
+    jit_cw_note(e, a, n);
     e->jit_flush = 1; jit_st_cw++;
     memset(e->jit_map, 0, sizeof e->jit_map);
     return 1;
@@ -1570,6 +1571,9 @@ void jit_stage_setup(uint8_t *stage, uint32_t size)
 TC_INIT_LAST void jit_init(Emu *e, uint8_t *buf, uint32_t tgt, uint32_t size)
 {
     J_buf = buf; J_tgt = tgt; J_size = size;
+#ifdef JIT_WHOT
+    memset(jit_wcnt, 0, sizeof jit_wcnt); memset(jit_nojit, 0, sizeof jit_nojit); jit_wwin = jit_nojit_at = 0;
+#endif
 #ifdef JIT_STAGE
     stage_begin(0);
     emit_fixed(e);
@@ -1712,6 +1716,9 @@ void jit_exec(Emu *e, uint64_t ziel)
              * interpreter and does not evict hot blocks from the buffer. */
             uint8_t *cn = &jit_cnt[((pc >> 1) ^ (pc >> 11)) & (JIT_CNT - 1)];
             if (pc > jit_prev_pc && pc - jit_prev_pc <= 6u) code = JIT_INTERP;   /* in the middle of a sequence: keep interpreting */
+#ifdef JIT_WHOT
+            else if (pc < A0RAM_MAX && jit_nojit_pc(e, pc)) code = JIT_INTERP;   /* code there keeps being overwritten */
+#endif
             else if (*cn < jit_hot) { (*cn)++; code = JIT_INTERP; }
             else code = get_block(e, pc);
         }

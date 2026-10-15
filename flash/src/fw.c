@@ -595,6 +595,16 @@ static void handle(const u8* f, u32 flen){
 #endif
     u8* p=reply_head(12,seq,off,0,0); send_frame(28+0); return;
   }
+  if(type==14){ /* CLOCK_READ (1.3.0): the Paradise's seconds counter and RTC control -> 8 bytes */
+    u8* p=reply_head(14,seq,off,0,8); wr32(p, REG(0x45000304u)); wr32(p+4, REG(0x45000200u));
+    send_frame(28+8); return;
+  }
+  if(type==15){ /* CLOCK_SET (1.3.0): seconds counter := payload (only with the RTC running) -> 4 bytes back */
+    u32 ok=0;
+    if(plen>=4 && (REG(0x45000200u) & 0x80u)){ REG(0x45000304u)=rd32(pl); ok=1; }
+    u8* p=reply_head(15,seq,off,ok?0:1,4); wr32(p, REG(0x45000304u));
+    send_frame(28+4); return;
+  }
   if(type==3){ /* CANCEL */
     u8* p=reply_head(3,seq,off,0,0); send_frame(28+0); return;
   }

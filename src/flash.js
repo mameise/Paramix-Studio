@@ -37,6 +37,7 @@ const FLASH_SIZE = 0x1000000, SECTOR = 0x1000, BLOCK64 = 0x10000;
 const BAUD = 460800;
 const FIRST_USER = 0x111000;   // write order starts here
 // PAU1 commands
+const CLOCK_READ = 14, CLOCK_SET = 15;
 const HELLO = 1, READ = 5, CRC = 6, WRITE_TEST = 8, WRITE_BEGIN = 9, WRITE_DATA = 10, WRITE_COMMIT = 11, WRITE_FINISH = 12, WRITE_STATE = 13;
 // App loading: constants of the device's download protocol (needed to load our
 // own flash app, the same values as in the Paradise Flash Tool).
@@ -226,6 +227,13 @@ class Paradise {
     const r = await this.link.request(HELLO, 0, undefined, ms);
     const p = r.payload; if (p.length !== 44) throw fe('hello');
     this.info = { edition: p[8], wave: p[9], maxBlock: p[10] | (p[11] << 8), jedec: u32(p, 24), capacity: u32(p, 32), flashError: u32(p, 36) };
+    // The flash app always reports 1 (Land). The real edition is the ID page in the flash
+    // (0xD49000, Tropical/Glacier 0xD29000), read like the Studio reads a ROM (1.3.0).
+    try {
+      const x = await this.read(0xD49000, 4), v = u32(x, 0);
+      if (v >= 1 && v <= 6) this.info.edition = v;
+      else { const y = await this.read(0xD29000, 4), w = u32(y, 0); if (w >= 1 && w <= 6) this.info.edition = w; }
+    } catch (e) { if (!(e instanceof TimeoutError)) throw e; }
     this.info.name = EDITIONS[this.info.edition] || 'Edition ' + this.info.edition;
     return this.info;
   }
@@ -249,6 +257,49 @@ class Paradise {
       catch (e) { if (!(e instanceof TimeoutError)) throw e; }
     }
     throw fe('noCrc', { a: hex(off) });
+  }
+  /** Seconds counter of the Paradise (1.3.0 flash app). null if the app is older. */
+  async clockRead() {
+    try { const r = await this.link.request(CLOCK_READ, 0, undefined, 2500); if (r.payload.length === 8) return { counter: u32(r.payload, 0), ctrl: u32(r.payload, 4) }; }
+    catch (e) { if (!(e instanceof TimeoutError)) throw e; }
+    return null;
+  }
+  /** Set the seconds counter. Returns true if the device took it. */
+  async clockSet(v) {
+    try { const r = await this.link.request(CLOCK_SET, 0, u32le(v >>> 0), 2500); return r.payload.length === 4 && !r.status && u32(r.payload, 0) - v < 5; }
+    catch (e) { if (!(e instanceof TimeoutError)) throw e; }
+    return false;
+  }
+  /** Which 4 KB sectors in [from, to) are not empty (0xFF)? Uses the CRC, reads nothing. */
+  async usedSectors(from, to, progress, cancel) {
+    const ff = new Uint8Array(BLOCK64).fill(0xFF), cB = crc32(ff, 0, BLOCK64), cS = crc32(ff, 0, SECTOR), out = [];
+    for (let off = from & ~(BLOCK64 - 1); off < to; off += BLOCK64) {
+      if (cancel && cancel()) throw fe('cancelled');
+      if (await this.crc(off, BLOCK64) !== cB) for (let s = off; s < off + BLOCK64; s += SECTOR) if (s >= from && s < to && await this.crc(s, SECTOR) !== cS) out.push(s);
+      if (progress) progress('compare', off + BLOCK64 - from, to - from);
+    }
+    return out;
+  }
+  /** Write single 4 KB sectors (Map address -> data), checked one by one. */
+  async writeSectors(map, progress, cancel) {
+    this.ready();
+    const list = [...map.keys()].sort((a, b) => a - b);
+    const st = await this.link.request(WRITE_STATE, 0);
+    if (!(st.payload.length >= 16 && u32(st.payload, 12))) await this.link.request(WRITE_TEST, 0, undefined, 15000);
+    await this.link.request(WRITE_BEGIN, 0, new Uint8Array(36), 15000);
+    const blk = this.block;
+    let n = 0;
+    for (const s of list) {
+      if (cancel && cancel()) throw fe('cancelledWrite');
+      const d = map.get(s);
+      for (let o = 0; o < SECTOR; o += blk) await this.link.request(WRITE_DATA, s + o, d.subarray(o, o + blk), 15000);
+      const c = await this.link.request(WRITE_COMMIT, s, u32le(crc32(d, 0, SECTOR)), 15000);
+      if (c.payload.length !== 8) throw fe('notAccepted', { a: hex(s) });
+      if (u32(c.payload, 4) || u32(c.payload, 0) !== crc32(d, 0, SECTOR)) throw fe('differs', { a: hex(s) });
+      n++; if (progress) progress('write', n, list.length);
+    }
+    await this.link.request(WRITE_FINISH, 0, undefined, 15000);
+    return n;
   }
   /** Whole flash (16 MB). */
   async dump(progress, cancel) {
@@ -399,13 +450,24 @@ function keepPlan(F, E, menu, opts = {}) {
     }
     // TamaEmu: settings block at 0x0A0140 (guest size and block map decide the layout)
     const kind = F.appKind(img), dkind = F.appKind(view);
-    if (kind === 2 && dkind === 2) {
+    const T7 = 0x37584D50, t7i = u32(img, 0xA0140) === T7, t7d = u32(view, 0xA0140) === T7;
+    if (t7i && t7d) {
+      // T7Emu (1.4.0): the pet's EEPROM stays as long as the V7 ROM is the same, the session also needs the same figures
+      const ro = u32(img, 0xA0148), rl = u32(img, 0xA014C);
+      let sameRom = ro === u32(view, 0xA0148) && rl === u32(view, 0xA014C);
+      for (let a = ro & ~0xFFF; sameRom && a < ro + rl; a += SECTOR) if (changed.has(a)) sameRom = false;
+      if (sameRom && opts.t7Save) ranges.push([0xC5000, 0xC6000]);   // an imported save.bin replaces the pet, the settings stay
+      else if (sameRom) {
+        ranges.push([0xC1000, 0xC6000]);   // EEPROM slots and the settings
+        if (view.subarray(0xA0148, 0xA0140 + 24 + 16 * 24).every((v, i) => v === img[0xA0148 + i])) ranges.push([0xC0000, 0xC1000]);
+      } else notes.push(note('noteEmu'));
+    } else if (kind === 2 && dkind === 2 && !t7i && !t7d) {
       // same firmware layout (offset, size, save area, device, block map); the program version may differ
       const same = view.subarray(0xA0148, 0xA0140 + 24 + 128).every((v, i) => v === img[0xA0148 + i]);
       if (same && !opts.emuChanged) {
         const gOff = u32(img, 0xA0148), gLen = u32(img, 0xA014C);
         // with the packed firmware also the spare pages behind it (item stores, since v0.9.2)
-        const end = u32(img, 0xA0144) >= 3 ? Math.min(u32(img, 0xA0140 + 152), 0xD40000) : gOff + gLen;
+        const end = u32(img, 0xA0144) >= 3 ? Math.min(u32(img, 0xA0140 + 152), 0xD48000) : gOff + gLen;
         ranges.push([0xC0000, 0x110000], [gOff, Math.max((gOff + gLen + 0xFFF) & ~0xFFF, end)]);
       } else notes.push(note('noteEmu'));
     }

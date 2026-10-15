@@ -2,6 +2,53 @@
 
 Versions are listed newest first.
 
+## 1.4.2 (2026-10-15)
+
+- T7Emu: on a new install the screen starts pixel exact and without the pixel look.
+- Studio: the Emulator and Save tabs now name both emulators (TamaEmu for colour tamas, T7Emu for the Tama-Go) and both save formats.
+
+## 1.4.1 (2026-10-15)
+
+- T7Emu: the first time setting got stuck. The game only takes the time once the hour was changed, so at midnight it started over and the egg did not hatch. T7Emu now fills in the time: the one written along by the Studio when writing to the device, or after a restart the game time from before. Birthday and name follow as on the toy.
+- T7Emu: the clock no longer corrects the time while the game asks for it.
+- T7Emu settings: light and dark grey, grid, pixel view, icons in steps, clock (Auto or game), language. New "Screen": Large fills the width (the pixels are 2 or 3 dots wide), Pixel exact keeps every pixel the same size (smaller).
+- The menu on A and C shows T7EMU instead of PROGRAM.
+
+## 1.4.0 (2026-10-14)
+
+- New emulator T7Emu: choose the ROM of the Tama-Go (640 KB) in the Emulator tab, like a firmware. Figure ROMs can be added (up to 16) and removed again.
+- On the device: hold A and C on the home screen to start, hold the wheel to go back (saves). A short press on the wheel opens the settings: figure, background colour, Tama colour, pixel mode, icons, sound and light. They are kept on the device.
+- The clock of the Tama-Go follows the Paradise clock. After a pause the missed hours pass (up to 30).
+- Tab "Save": the T7Emu save as a .bin file (the same as the save.bin of the T7Emu app), out of the ROM and back in. "Back up save" on a device with T7Emu also downloads it.
+- "Keep saves" keeps the Tama-Go save as long as the Tama-Go ROM stays the same.
+
+## 1.3.4 (2026-10-14)
+
+- Fix: 1.3.3 did not load any ROM because of a broken text. Every script is now checked when building.
+
+## 1.3.3 (2026-10-14)
+
+- TamaEmu: Connect on the iD L (Plus Color) hung. Code that keeps overwriting itself made the emulator throw away its translated code thousands of times per second. Such parts now run without translation; after the waiting time FAILED appears and the iD L goes back as usual.
+- Emulator tab: the hint says how to restart TamaEmu if it hangs.
+
+## 1.3.2 (2026-10-14)
+
+- TamaEmu: firmware of the P's, 4U+ and 4U is recognised. Their firmware is bigger than the room so far; it now goes into a larger area of the ROM. With such a firmware the field switch of the menu has no room (items in the menu still work).
+- TamaEmu: the 4U+ and 4U run with their own clock (30 MHz). They need more computing power than the iD L, so games run slower on the Paradise.
+
+## 1.3.1 (2026-10-14)
+
+- Tab "Save": own buttons to import a save. A TamaEmu .sav goes into the ROM, a Paradise .tamasave onto the connected device.
+- Switching the language now updates every text, also in the tabs.
+- Some error messages now have a German text.
+
+## 1.3.0 (2026-10-14)
+
+- Save games: back up the Paradise save from the device as a .tamasave for the TamaParadise app, with the device's clock, and the TamaEmu save as a .sav for the TamaEmu app. A .tamasave goes back onto the device; a save of another edition is refused. New tab "Save" for the same from a loaded ROM.
+- TamaEmu: a .sav from the TamaEmu app can be chosen like a firmware, so the game carries on on the Paradise.
+- Device: the edition is now read from the device's flash. Before, every device counted as Land, so "Keep saves" refused other editions.
+- Flash app: reads and sets the Paradise's clock.
+
 ## 1.2.12 (2026-10-14)
 
 - Menu: the saved fields share one room instead of a fixed slot each. With all 6 fields on Tropical or Glacier a slot was only 72 KB, so a much played save stopped the switch with error code 11. Now one field can use up to about 430 KB there (the room the other fields do not need). Saves of older versions are still read; they move to the new form at the next switch.

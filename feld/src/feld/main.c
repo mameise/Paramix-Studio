@@ -465,16 +465,17 @@ static void done_screen(const char *what, u16 col){
   leave();
 }
 
-/* Program in the stub? 0 = none, 1 = DOOM, 2 = TamaEmu, 3 = other */
+/* Program in the stub? 0 = none, 1 = DOOM, 2 = TamaEmu, 3 = other, 4 = T7Emu */
 static u32 g_app;
 static void app_detect(void){
   u32 src=rd32(g_cfg.stub_off+8u);
   if(src<0x10000000u || src>=0x11000000u){ g_app=0; return; }
   u32 off=src-0x10000000u+XIP_DEC;
-  g_app = rd32(off+0x140u)==0x43584D50u ? 2u : 3u;
+  u32 m=rd32(off+0x140u);
+  g_app = m==0x43584D50u ? 2u : m==0x37584D50u ? 4u : 3u;
   for(u32 i=0x140u;i<0x400u;i+=4u) if(rd32(off+i)==0x434D4450u){ g_app=1u; break; }
 }
-static const char *const g_appname[4]={"","DOOM","TAMAEMU","PROGRAM"};
+static const char *const g_appname[5]={"","DOOM","TAMAEMU","PROGRAM","T7EMU"};
 static void start_app(void){
   rect(0,0,128,128,0); show();
 #ifdef HOST

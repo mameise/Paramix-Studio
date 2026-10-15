@@ -20,6 +20,17 @@ copyright and licenses stay in force; the files keep their original notices.
 - The S1C33 instruction decoding follows the SLEIGH definition by GMMan,
   https://github.com/GMMan/s1c33_sleigh.
 
+## T7Emu (`t7/`)
+
+- The 6502 core in `t7/src/core` is a C port of the JavaScript emulator
+  **tamago** by asterick, https://github.com/asterick/tamago, which its
+  package declares under the BSD license. The port comes from the T7Emu app by
+  mameise. The note in the source files stays.
+- Changes for this project: a fast run loop (`t7_run.inc`), a build without C
+  library, the Paradise host (`t7/src/app`) with screen, settings menu, clock
+  and save. The 20x20 icons were drawn by mameise for the T7Emu ESP32 version.
+- No ROM of the Tama-Go or of a figure is in this repository.
+
 ## DOOM (`doom/`)
 
 - **DOOM** source code by id Software, released under the GNU GPL.

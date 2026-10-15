@@ -22,9 +22,32 @@ static inline uint8_t *f_ramp(Emu *e, uint32_t a, uint32_t n)
 }
 #ifdef TC_JIT
 /* Write to RAM that has already been translated: discard all translations */
+#ifdef JIT_WHOT
+/* v0.9.6: a0ram pages whose code keeps getting overwritten (iD L, Connect to Plus Color: code at 0xC00
+ * next to its data) are no longer translated. Before, every write threw away all translations, thousands
+ * of times per second, and the emulator stood still on the device. */
+uint8_t jit_wcnt[128], jit_nojit[128];
+uint64_t jit_wwin, jit_nojit_at;
+#define JIT_WWIN   2000000u     /* window for counting (about 0.1 s of guest time) */
+#define JIT_NOJIT 100000000u    /* after about 5 s the pages get another chance */
+static void jit_cw_note(Emu *e, uint32_t a, uint32_t n)
+{
+    if (e->cycles - jit_wwin > JIT_WWIN) { memset(jit_wcnt, 0, sizeof jit_wcnt); jit_wwin = e->cycles; }
+    for (uint32_t p = a >> 8; p <= ((a + n - 1) >> 8) && p < 128u; p++)
+        if (e->jit_map[p] && ++jit_wcnt[p] >= 8u) { jit_nojit[p] = 1; jit_wcnt[p] = 0; jit_nojit_at = e->cycles; }
+}
+static int jit_nojit_pc(Emu *e, uint32_t pc)
+{
+    if (!jit_nojit[pc >> 8]) return 0;
+    if (e->cycles - jit_nojit_at > JIT_NOJIT) { memset(jit_nojit, 0, sizeof jit_nojit); return 0; }
+    return 1;
+}
+#else
+#define jit_cw_note(e, a, n) ((void)0)
+#endif
 __attribute__((noinline)) static void jit_cw_chk(Emu *e, uint32_t a, uint32_t n)
 {
-    if (e->jit_map[a >> 8] | e->jit_map[(a + n - 1) >> 8]) { e->jit_flush = 1; memset(e->jit_map, 0, sizeof e->jit_map); }
+    if (e->jit_map[a >> 8] | e->jit_map[(a + n - 1) >> 8]) { jit_cw_note(e, a, n); e->jit_flush = 1; memset(e->jit_map, 0, sizeof e->jit_map); }
 }
 #endif
 #ifdef TC_STATS

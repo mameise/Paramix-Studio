@@ -103,6 +103,7 @@ img, canvas { image-rendering: pixelated; }
 .pane { background: var(--panel); margin: 0 20px 24px; border-radius: 0 var(--radius) var(--radius) var(--radius); padding: 16px; min-height: 60vh; }
 .tools { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin-bottom: 14px; }
 .tools .hint { color: var(--soft); font-size: 13px; }
+.tools .lbl { min-width: 96px; }
 .check { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; }
 
 /* overview of the new ROM */
@@ -209,7 +210,10 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
 <input type="file" id="fileSheets" hidden multiple accept=".png,.zip">
 <input type="file" id="fileOne" hidden accept=".png">
 <input type="file" id="fileDim" hidden accept=".bin,.BIN">
-<input type="file" id="fileEmu" hidden accept=".bin,.BIN">
+<input type="file" id="fileEmu" hidden accept=".bin,.BIN,.sav,.SAV">
+<input type="file" id="fileSave" hidden accept=".tamasave">
+<input type="file" id="fileEmuSav" hidden accept=".sav,.SAV,.bin,.BIN">
+<input type="file" id="fileT7Fig" hidden multiple accept=".bin,.BIN">
 <input type="file" id="fileDlc" hidden multiple accept=".jpg,.JPG,.jpeg,.bin">
 <input type="file" id="fileField" hidden accept=".zip,.ZIP">
 <input type="file" id="fileWad" hidden accept=".wad,.WAD">
@@ -229,6 +233,11 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <label class="check"><input type="checkbox" id="devOnly" checked> <span data-t="devOnly"></span></label>
       <label class="check"><input type="checkbox" id="devKeep" checked> <span data-t="devKeep"></span></label>
       <button class="btn small" id="btnDevStop" data-t="devStop" hidden></button>
+    </div>
+    <div class="tools">
+      <button class="btn small" id="btnSaveRead" data-t="devSaveRead" disabled></button>
+      <button class="btn small" id="btnSaveWrite" data-t="devSaveWrite" disabled></button>
+      <span class="hint" data-t="devSaveHint"></span>
     </div>
     <div class="flash"><span class="seg emu" id="devBar" style="width:0"></span></div>
     <p class="emustat" id="devStat"></p>
@@ -268,6 +277,7 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <button class="tab" role="tab" data-tab="emu" aria-selected="false" data-t="tabEmu"></button>
       <button class="tab" role="tab" data-tab="doom" aria-selected="false" data-t="tabDoom"></button>
       <button class="tab" role="tab" data-tab="feld" aria-selected="false" data-t="tabFeld"></button>
+      <button class="tab" role="tab" data-tab="save" aria-selected="false" data-t="tabSave"></button>
     </div>
     <div class="pane" id="pane-figs">
       <div class="tools">
@@ -301,9 +311,11 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <div class="tools">
         <button class="btn small" id="btnEmu" data-t="emuPick"></button>
         <button class="btn small" id="btnEmuOff" data-t="emuOff" hidden></button>
+        <button class="btn small" id="btnT7Fig" data-t="t7FigPick" hidden></button>
         <span class="hint" data-t="emuHint"></span>
       </div>
       <p class="emustat" id="emuStat"></p>
+      <div class="chips" id="t7Figs" hidden></div>
       <div class="tools" id="emuAutoRow" hidden><label class="check"><input type="checkbox" id="emuAuto"> <span data-t="emuAuto"></span></label> <span class="hint" data-t="emuAutoHint"></span></div>
       <div id="emuDlc" hidden>
         <div class="tools">
@@ -337,6 +349,19 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
         </div>
         <p class="hint" id="keysStat"></p>
       </div>
+    </div>
+    <div class="pane" id="pane-save" hidden>
+      <div class="tools">
+        <b class="lbl" data-t="saveOutT"></b>
+        <button class="btn small" id="btnParaOut" data-t="saveParaOut"></button>
+        <button class="btn small" id="btnEmuOut" data-t="saveEmuOut"></button>
+      </div>
+      <div class="tools">
+        <b class="lbl" data-t="saveInT"></b>
+        <button class="btn small" id="btnParaIn" data-t="saveParaOut"></button>
+        <button class="btn small" id="btnEmuIn" data-t="saveEmuOut"></button>
+      </div>
+      <p class="emustat" id="saveStat"></p>
     </div>
     <div class="pane" id="pane-feld" hidden>
       <div class="tools">
@@ -393,6 +418,9 @@ __SIX__
 </script>
 <script>
 __FLASH__
+</script>
+<script>
+__SAVES__
 </script>
 <script>
 __APP__

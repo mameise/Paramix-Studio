@@ -12,6 +12,12 @@ if (!fs.existsSync(eb) || !fs.existsSync(es)) throw new Error('emu/emu.bin oder 
 {
   emu = emu.replace('__EMU_APP_B64__', fs.readFileSync(eb).toString('base64')).replace('__EMU_STUB_B64__', fs.readFileSync(es).toString('base64'));
 }
+// T7Emu: V7 program (source in t7/src). No ROM, no figures.
+{
+  const t7 = __dirname + '/t7/t7.bin';
+  if (!fs.existsSync(t7)) throw new Error('t7/t7.bin fehlt');
+  emu = emu.replace('__T7_APP_B64__', fs.readFileSync(t7).toString('base64'));
+}
 // DOOM: program (two parts) and WAD converter (WebAssembly) as Base64 (if present). No WAD, no graphics.
 let doom = fs.readFileSync(__dirname + '/src/doom.js', 'utf8');
 {
@@ -41,11 +47,20 @@ let flash = fs.readFileSync(__dirname + '/src/flash.js', 'utf8');
   if (!fs.existsSync(f)) throw new Error('flash/flashapp.bin fehlt');
   flash = flash.replace('__FLASH_APP_B64__', fs.readFileSync(f).toString('base64'));
 }
+// every script must parse (a stray quote in a text broke the whole page once)
+{
+  const vm = require('vm');
+  for (const [n, src] of [['core.js', core], ['app.js', app], ['emu.js', emu], ['doom.js', doom], ['feld.js', feld], ['six.js', six], ['flash.js', flash], ['saves.js', fs.readFileSync(__dirname + '/src/saves.js', 'utf8')]]) {
+    try { new vm.Script(src, { filename: n }); } catch (e) { throw new Error(n + ': ' + e.message); }
+  }
+}
+const saves = fs.readFileSync(__dirname + '/src/saves.js', 'utf8');
+if (saves.includes('</script')) throw new Error('script end tag inside source');
 if (flash.includes('</script')) throw new Error('script end tag inside source');
 if (feld.includes('</script')) throw new Error('script end tag inside source');
 if (doom.includes('</script')) throw new Error('script end tag inside source');
 if (core.includes('</script') || app.includes('</script') || emu.includes('</script')) throw new Error('script end tag inside source');
-html = html.replace('__CORE__', () => core).replace('__EMU__', () => emu).replace('__DOOM__', () => doom).replace('__FELD__', () => feld).replace('__SIX__', () => six).replace('__FLASH__', () => flash).replace('__APP__', () => app).split('__VERSION__').join('v' + v);
+html = html.replace('__CORE__', () => core).replace('__EMU__', () => emu).replace('__DOOM__', () => doom).replace('__FELD__', () => feld).replace('__SIX__', () => six).replace('__FLASH__', () => flash).replace('__SAVES__', () => saves).replace('__APP__', () => app).split('__VERSION__').join('v' + v);
 fs.mkdirSync(__dirname + '/dist', { recursive: true });
 fs.writeFileSync(__dirname + '/dist/ParamixStudio.html', html);
 fs.writeFileSync(__dirname + '/dist/index.html', html);
