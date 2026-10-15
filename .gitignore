@@ -10,6 +10,7 @@
 !feld/stub_feld_tpl.bin
 !flash/flashapp.bin
 !six/six.bin
+!t7/t7.bin
 *.wad
 *.WAD
 *.jpg
