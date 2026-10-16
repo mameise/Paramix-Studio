@@ -15,6 +15,8 @@ void hw_push(const u16* fb, u32 stride, u32 x0, u32 y0, u32 x1, u32 y1);
 void hw_back_to_paradise(void);
 void hw_backlight(int on);
 void hw_bl_pwm_off(void);
+void hw_bl_level(u32 pct);
+void hw_bl_test(u32 m, u32 pct);
 void hw_tone(u32 hz);              /* 0 = off */
 #ifdef FAST_LCD
 void hw_px_begin(u32 x0, u32 y0, u32 x1, u32 y1);

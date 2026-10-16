@@ -26,7 +26,10 @@ Settings block of the program (372 bytes at program + 0x140, version 4): slots,
 ID page (footer, constant), fields (ID, name, colour), factory settings per
 edition and field, positions of money, item list, counts, catalog. Version 4
 adds fields 5 and 6, the set byte of six fields (see `six/README.md`) and a
-second slot region. The Studio fills it in (`src/feld.js`, profiles gen1,
+second slot region. Version 5 (1.6.0, 492 bytes) adds the name of the launcher's
+own program (380, 12 bytes), the number of further programs (392) and up to six
+entries (396, 16 bytes each: XIP address of the 64 KB program image, name).
+The menu starts them through the launcher entry at +0x0C (r0 = image). The Studio fills it in (`src/feld.js`, profiles gen1,
 jade, gen3).
 
 Location: launcher 0x0B0000, program and catalog from 0x0B1000, slots behind the

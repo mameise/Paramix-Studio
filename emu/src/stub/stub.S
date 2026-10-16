@@ -64,6 +64,18 @@ start:
   b.w realstart
   .align 2
 app_src:  .word APP_SRC
+@ 1.6.0: start the program image at r0 (XIP address), fixed at +0x0C. The menu starts its
+@ other programs (more emulators) through here.
+  .global start_src
+  .thumb_func
+start_src:
+  cpsid i
+  mov r4, r0
+@ 1.6.6: the cached window (0x10000000) shows only 1 MB from 0x11000; programs further up (more emulators
+@ from 0xD40000 down) came out as garbage. Copy from the uncached flash (0x60000000 + offset) instead.
+  add r4, r4, #0x50000000
+  add r4, r4, #0x11000
+  b.w realstart
 #else
   b.w realstart
   .ltorg

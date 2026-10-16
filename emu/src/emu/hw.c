@@ -156,14 +156,14 @@ TC_INIT static void display_init(void){
   lcd_cmd(0x2a,pcas0,4); lcd_cmd(0x2b,pras0,4);
   lcd_cmd(0x11,0,0); MS(150);
 }
-static void pwm2(u32 mr1, int first){
+static void pwm2p(u32 mr1, u32 per, int first){
   if(first) REG(CT2+0x34)=0;
   REG(CT2+0x00)=0;
   REG(CT2+0x18)=0; REG(CT2+0x1C)=0; REG(CT2+0x20)=0; REG(CT2+0x24)=0;
   REG(CT2+0x14)=0;
   REG(CT2+0x00)=2; REG(CT2+0x08)=0; REG(CT2+0x00)=0;
   REG(CT2+0x14)=0x400u;
-  REG(CT2+0x24)=0x17700u;
+  REG(CT2+0x24)=per;
   REG(CT2+0x1C)=mr1;
   REG(CT2+0x14)=0;
   REG(CT2+0x34)=0x00200002u;
@@ -171,6 +171,7 @@ static void pwm2(u32 mr1, int first){
   REG(CT2+0x3C)=0x1Fu;
   REG(CT2+0x00)=1;
 }
+static void pwm2(u32 mr1, int first){ pwm2p(mr1, 0x17700u, first); }
 TC_INIT static void backlight_on(void){
   REG(0x40007034u)=0;
   pwm2(0x17700u,1);
@@ -223,6 +224,17 @@ void hw_tone(u32 hz){
 }
 #endif
 void hw_bl_pwm_off(void){ REG(CT2+0x00)=0; REG(CT2+0x34)=0; }   /* backlight off only (when leaving) */
+#ifdef HW_BL_LEVELS   /* 1.6.6 tests (T7 dimming): the PWM had no visible effect on the device */
+/* 1.6.6 test: backlight in percent through the PWM (MR1: 0 = full; near the period = dark), panel stays on */
+void hw_bl_level(u32 pct){ if(pct>=100u) pwm2(0u,0); else pwm2(0x17700u - 0x17700u*pct/100u, 0); }
+/* 1.6.6 test: which setting dims on the device? m bit 0: MR1 = pct of the period (else the rest of it),
+ * bit 1: 20 kHz (else 750 Hz like the Paradise firmware) */
+void hw_bl_test(u32 m, u32 pct){
+  u32 per = (m & 2u) ? 3600u : 0x17700u;
+  u32 mr1 = (m & 1u) ? per*pct/100u : per - per*pct/100u;
+  pwm2p(mr1, per, 0);
+}
+#endif
 #ifdef BL_SLEEP
 /* v0.8.18: off = put the display to sleep (DISPOFF, SLPIN) and stop the backlight timer,
  * PWM output off (like panel_down in the Flash Tool). On = SLPOUT, short wait, DISPON, backlight restart.

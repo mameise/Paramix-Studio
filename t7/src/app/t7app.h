@@ -10,7 +10,7 @@ typedef struct { uint32_t off, len; char name[16]; } T7Fig;
 typedef struct {
   uint32_t magic, version, rom_off, rom_len, save_off, nfig;
   T7Fig fig[T7_FIG_MAX];
-  uint32_t flags;
+  uint32_t flags;                          /* bit 0: English, bit 1: clock from the Paradise at every start */
   uint32_t wall_cnt, wall_sod, wall_ymd;   /* written by the Studio on the device: seconds counter, local time and date then (0 = none) */
 } T7Cfg;
 #define T7_MAGIC 0x37584D50u   /* "PMX7" */
@@ -20,7 +20,16 @@ typedef struct {
   uint8_t bg, ink, g1, g2, size, pixel, grid, pixvis, ghost, sound, light, sync, lang, r0, r1, r2;
 } T7Set;
 extern T7Set g_set;
-static inline uint32_t app_light_ms(void) { static const uint32_t t[5] = { 30000u, 60000u, 120000u, 300000u, 0u }; return t[g_set.light % 5]; }
+/* 1.6.6: light = time without a key until the screen dims (0..6: 10 s .. 10 min, 7 = never),
+ * r0 = dim level (1, 5, 10, 25, 50 %), r2 = time until the screen goes off (0 = never, 1..7 = 10 s .. 10 min,
+ * always longer than the dim time), r1: bits 0..3 = 2 (this layout). Dimmed = darker colours (the backlight PWM had no effect on the device). */
+#define T7_T_N 7
+static inline uint32_t t7_t_ms(int i) { static const uint32_t t[T7_T_N] = { 10000u, 20000u, 30000u, 60000u, 120000u, 300000u, 600000u }; return t[i % T7_T_N]; }
+static inline uint32_t app_dim_ms(void) { return g_set.light >= T7_T_N ? 0u : t7_t_ms(g_set.light); }
+static inline uint32_t app_off_ms(void) { return g_set.r2 ? t7_t_ms(g_set.r2 - 1) : 0u; }
+static inline int app_dim_pct(void) { static const uint8_t p[5] = { 1, 5, 10, 25, 50 }; return p[g_set.r0 % 5]; }
+void app_dim(int pct);
+int app_bell(void);                                       /* 1 = the bell icon is on (the pet calls) */
 #define T7_STORE_LEN 64u
 
 /* Platform (device or PC test) */
@@ -46,4 +55,6 @@ int  app_menu_open(void);
 int  app_lang(void);                                       /* 0 German, 1 English */
 void app_setup_fill(uint32_t rtc);                         /* every 0.5 s: the game asks for the time, fill it in */
 void app_store(void);                                      /* settings and clock note into the flash (on leaving) */
+extern uint32_t g_para_time, g_para_cnt;                   /* the Paradise's time at the start (platform), 0 = unknown */
+int  app_clock_hard(uint32_t rtc);                         /* settings flag 2: game clock = the Paradise's time (1 = done) */
 #endif

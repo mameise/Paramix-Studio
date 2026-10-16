@@ -109,6 +109,11 @@ img, canvas { image-rendering: pixelated; }
 /* overview of the new ROM */
 .plan { margin: 12px 20px 0; padding: 12px 14px; background: var(--panel); border-radius: var(--radius); border: 2px solid var(--line); }
 .plan-h { font-weight: 800; margin-bottom: 6px; }
+.help h3 { font-size: 14px; margin: 12px 0 4px; }
+.help p { margin: 0; white-space: pre-line; }
+.helpkeys { border-collapse: collapse; font-size: 14px; }
+.helpkeys td { padding: 3px 12px 3px 0; vertical-align: top; }
+.helpkeys td:first-child { font-weight: 700; white-space: nowrap; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-bottom: 10px; }
 .chip { border-radius: 999px; padding: 2px 10px; font-size: 13px; border: 2px solid var(--line); color: var(--soft); }
 .chip b { color: var(--ink); }
@@ -199,6 +204,7 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
   <div class="brand"><span class="planet" aria-hidden="true"></span>Paramix Studio</div>
   <span class="romname" id="romname"></span>
   <span class="spacer"></span>
+  <button class="btn" id="btnHelp" data-t="help"></button>
   <button class="btn" id="btnDevice" data-t="device"></button>
   <button class="btn" id="btnOpen" data-t="open"></button>
   <button class="btn primary" id="btnSave" data-t="save" disabled></button>
@@ -214,11 +220,22 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
 <input type="file" id="fileSave" hidden accept=".tamasave">
 <input type="file" id="fileEmuSav" hidden accept=".sav,.SAV,.bin,.BIN">
 <input type="file" id="fileT7Fig" hidden multiple accept=".bin,.BIN">
+<input type="file" id="fileApp" hidden accept=".bin,.BIN">
 <input type="file" id="fileDlc" hidden multiple accept=".jpg,.JPG,.jpeg,.bin">
 <input type="file" id="fileField" hidden accept=".zip,.ZIP">
 <input type="file" id="fileWad" hidden accept=".wad,.WAD">
 
 <main>
+  <section class="plan help" id="helpBox" hidden>
+    <div class="tools"><span class="plan-h" data-t="helpTitle"></span><span class="spacer"></span><button class="btn small" id="helpClose" data-t="close"></button></div>
+    <h3 data-t="h1t"></h3><p data-t="h1"></p>
+    <h3 data-t="h2t"></h3>
+    <table class="helpkeys"><tr><td data-t="hk1"></td><td data-t="hv1"></td></tr><tr><td data-t="hk2"></td><td data-t="hv2"></td></tr><tr><td data-t="hk3"></td><td data-t="hv3"></td></tr><tr><td data-t="hk4"></td><td data-t="hv4"></td></tr><tr><td data-t="hk5"></td><td data-t="hv5"></td></tr><tr><td data-t="hk6"></td><td data-t="hv6"></td></tr></table>
+    <h3 data-t="h3t"></h3><p data-t="h3"></p>
+    <h3 data-t="h4t"></h3><p data-t="h4"></p>
+    <h3 data-t="h5t"></h3><p data-t="h5"></p>
+    <h3 data-t="h6t"></h3><p data-t="h6"></p>
+  </section>
   <section class="plan device" id="device" hidden>
     <div class="plan-h" data-t="devTitle"></div>
     <p class="hint" data-t="devHint"></p>
@@ -317,6 +334,14 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <p class="emustat" id="emuStat"></p>
       <div class="chips" id="t7Figs" hidden></div>
       <div class="tools" id="emuAutoRow" hidden><label class="check"><input type="checkbox" id="emuAuto"> <span data-t="emuAuto"></span></label> <span class="hint" data-t="emuAutoHint"></span></div>
+      <div class="tools" id="emuClockRow" hidden><label class="check"><input type="checkbox" id="emuClock" checked> <span data-t="emuClock"></span></label> <span class="hint" data-t="emuClockHint"></span></div>
+      <div id="appsBox">
+        <div class="tools">
+          <button class="btn small" id="btnApp" data-t="appPick"></button>
+          <span class="hint" data-t="appHint"></span>
+        </div>
+        <div class="chips" id="appsList"></div>
+      </div>
       <div id="emuDlc" hidden>
         <div class="tools">
           <button class="btn small" id="btnDlc" data-t="dlcPick"></button>
@@ -351,6 +376,10 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       </div>
     </div>
     <div class="pane" id="pane-save" hidden>
+      <div class="tools" id="saveForRow" hidden>
+        <b class="lbl" data-t="saveFor"></b>
+        <select id="saveFor"></select>
+      </div>
       <div class="tools">
         <b class="lbl" data-t="saveOutT"></b>
         <button class="btn small" id="btnParaOut" data-t="saveParaOut"></button>

@@ -137,6 +137,8 @@ T7_INLINE void t7_write(uint16_t addr, uint8_t value)
 }
 
 // ROM banking
+extern uint32_t g_t7_static_off;   /* 0 Tama-Go, 0x4000 Friends */
+extern uint8_t  g_t7_banks;
 void t7_set_rom_bank(uint8_t bank);
 bool t7_load_static_rom(void);
 

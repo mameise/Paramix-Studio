@@ -11,6 +11,8 @@
 !flash/flashapp.bin
 !six/six.bin
 !t7/t7.bin
+!t18/t18.bin
+!t18/t18x.bin
 *.wad
 *.WAD
 *.jpg

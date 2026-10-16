@@ -32,7 +32,7 @@ uint32_t T7_HOT t7_cpu_run(uint32_t budget)
   const int son = g_snd_on;
   int32_t snd = g_snd_next;
   uint32_t cyc = 0;
-  uint32_t chk = 1, b3 = g_rom_bank_id == 3;   /* look at IRQs / IR hooks only when something changed */
+  uint32_t chk = 1, b3 = (g_rom_bank_id == 3 && !g_t7_static_off);   /* look at IRQs / IR hooks only when something changed */
 
 #define T7R_SAVE() do { CPU.pc = (uint16_t)pc; CPU.a = (uint8_t)a; CPU.x = (uint8_t)x; CPU.y = (uint8_t)y; CPU.s = (uint8_t)sp; \
   s_flag_c = (uint8_t)fc; s_flag_v = (uint8_t)fv; s_flag_d = (uint8_t)fd; s_flag_i = (uint8_t)fi; s_nz_n = (uint8_t)nzn; s_nz_z = (uint8_t)nzz; g_snd_next = snd; } while (0)
@@ -40,7 +40,7 @@ uint32_t T7_HOT t7_cpu_run(uint32_t budget)
   fi = s_flag_i; nzn = s_nz_n; nzz = s_nz_z; snd = g_snd_next; } while (0)
 #define RD(ad) ({ uint32_t _ra = (ad); const uint8_t *_rp = rp[_ra >> 8]; _rp ? (uint32_t)_rp[_ra & 0xFF] : (uint32_t)t7_io_read((uint16_t)_ra); })
 #define WR(ad, v) do { uint32_t _wa = (ad); uint8_t *_wp = wp[_wa >> 8]; uint8_t _wv = (uint8_t)(v); \
-  if (_wp) _wp[_wa & 0xFF] = _wv; else if ((_wa >> 12) == 3) { g_snd_next = snd; t7_io_write((uint16_t)_wa, _wv); snd = g_snd_next; chk = 1; b3 = g_rom_bank_id == 3; } } while (0)
+  if (_wp) _wp[_wa & 0xFF] = _wv; else if ((_wa >> 12) == 3) { g_snd_next = snd; t7_io_write((uint16_t)_wa, _wv); snd = g_snd_next; chk = 1; b3 = (g_rom_bank_id == 3 && !g_t7_static_off); } } while (0)
 #define FETCH() ({ uint32_t _fv = RD(pc); pc = (pc + 1) & 0xFFFF; _fv; })
 #define FETCH16() ({ uint32_t _f16l = FETCH(); uint32_t _f16h = FETCH(); _f16l | (_f16h << 8); })
 #define PUSH(v) do { g_wram[0x100 | sp] = (uint8_t)(v); sp = (sp - 1) & 0xFF; } while (0)   /* page 1 is always work RAM */

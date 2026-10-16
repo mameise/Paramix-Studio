@@ -66,6 +66,7 @@ const MSG = {
   differs: 'sector {a} differs after writing. Keep the device switched on and write again',
   checkFail: 'check failed at {a}. Keep the device switched on and write again',
   noAnswer: 'no answer. Put the device on the download screen and try again',
+  lost: 'the device stopped answering before writing. Nothing was written. Switch the Paradise off and on, put it on the download screen, connect again and write again',
   appSilent: 'the flash app was sent but does not answer. Try again',
   unknownEd: 'unknown edition in the new ROM, untick "keep saves"',
   otherEd: 'the device is {d}, the new ROM is {r}. Untick "keep saves" to switch the edition',
@@ -280,11 +281,20 @@ class Paradise {
     }
     return out;
   }
+  /** Writer state; asked again a few times, then a ping (1.5.6: a lost answer here broke the write). */
+  async writeState() {
+    for (let t = 0; t < 3; t++) {
+      try { return await this.link.request(WRITE_STATE, 0, undefined, 6000); }
+      catch (e) { if (!(e instanceof TimeoutError)) throw e; }
+      try { await this.link.request(HELLO, 0, undefined, 3000); } catch (e) { if (!(e instanceof TimeoutError)) throw e; }
+    }
+    throw fe('lost');
+  }
   /** Write single 4 KB sectors (Map address -> data), checked one by one. */
   async writeSectors(map, progress, cancel) {
     this.ready();
     const list = [...map.keys()].sort((a, b) => a - b);
-    const st = await this.link.request(WRITE_STATE, 0);
+    const st = await this.writeState();
     if (!(st.payload.length >= 16 && u32(st.payload, 12))) await this.link.request(WRITE_TEST, 0, undefined, 15000);
     await this.link.request(WRITE_BEGIN, 0, new Uint8Array(36), 15000);
     const blk = this.block;
@@ -339,7 +349,7 @@ class Paradise {
       image = k.image; notes = k.notes; kept = k.kept;
       for (const s of k.protectedSectors) changed.delete(s);
     }
-    const st = await this.link.request(WRITE_STATE, 0);
+    const st = await this.writeState();
     if (!(st.payload.length >= 16 && u32(st.payload, 12))) { if (progress) progress('prepare', 0, 1); await this.link.request(WRITE_TEST, 0, undefined, 15000); }
     let order = sectorOrder();
     if (opts.onlyChanged) {
@@ -451,6 +461,7 @@ function keepPlan(F, E, menu, opts = {}) {
     // TamaEmu: settings block at 0x0A0140 (guest size and block map decide the layout)
     const kind = F.appKind(img), dkind = F.appKind(view);
     const T7 = 0x37584D50, t7i = u32(img, 0xA0140) === T7, t7d = u32(view, 0xA0140) === T7;
+    const T18 = 0x38584D50, t18i = u32(img, 0xA0140) === T18, t18d = u32(view, 0xA0140) === T18;
     if (t7i && t7d) {
       // T7Emu (1.4.0): the pet's EEPROM stays as long as the V7 ROM is the same, the session also needs the same figures
       const ro = u32(img, 0xA0148), rl = u32(img, 0xA014C);
@@ -461,7 +472,7 @@ function keepPlan(F, E, menu, opts = {}) {
         ranges.push([0xC1000, 0xC6000]);   // EEPROM slots and the settings
         if (view.subarray(0xA0148, 0xA0140 + 24 + 16 * 24).every((v, i) => v === img[0xA0148 + i])) ranges.push([0xC0000, 0xC1000]);
       } else notes.push(note('noteEmu'));
-    } else if (kind === 2 && dkind === 2 && !t7i && !t7d) {
+    } else if (kind === 2 && dkind === 2 && !t7i && !t7d && !t18i && !t18d) {
       // same firmware layout (offset, size, save area, device, block map); the program version may differ
       const same = view.subarray(0xA0148, 0xA0140 + 24 + 128).every((v, i) => v === img[0xA0148 + i]);
       if (same && !opts.emuChanged) {
@@ -472,9 +483,53 @@ function keepPlan(F, E, menu, opts = {}) {
       } else notes.push(note('noteEmu'));
     }
     if (kind === 1 && dkind === 1) ranges.push([0x10E000, 0x110000]);
+    // more programs of the menu (1.6.0): a save stays when the device has the same program at the same
+    // place with the same ROM
+    if (menu && F.feldApps) {
+      const ai = F.feldApps(img, menu.stub).apps, ad = F.feldApps(view, menu.stub).apps;
+      for (const [ix, a] of ai.entries()) {
+        if (!ad.some((d) => d.src === a.src)) continue;
+        const off = a.src - 0x10000000 + 0x11000;
+        const dv = changed.has(off) ? await dev.read(off, SECTOR) : img.subarray(off, off + SECTOR);
+        const same = [0x140, 0x148, 0x14C, 0x150].every((k) => u32(dv, k) === u32(img, off + k)) && u32(img, off + 0x140) === T7;
+        if (!same) continue;
+        const ro = u32(img, off + 0x148), rl = u32(img, off + 0x14C), so = u32(img, off + 0x150);
+        let sameRom = true;
+        for (let x = ro & ~0xFFF; sameRom && x < ro + rl; x += SECTOR) if (changed.has(x)) sameRom = false;
+        if (sameRom && opts.t7SaveX === ix) ranges.push([so + 0x5000, so + 0x6000]);   // an imported save.bin replaces the pet, the settings stay
+        else if (sameRom) ranges.push([so, so + 0x6000]); else notes.push(note('noteEmu'));
+      }
+    }
+    // T18Emu (1.5.0): firmware blocks come from the image (they may lie in areas that are kept
+    // otherwise); its save (map, clock note, session at 0x0C0000 and the spare blocks the firmware
+    // wrote) stays when the block map is the same
+    const t18blocks = [], t18keep = [];
+    if (t18i) {
+      const c = 0xA0140, ns = Math.min(u32(img, c + 12), 64);
+      for (let i = 0; i < 128; i++) { const b = img[c + 16 + 2 * i] | (img[c + 17 + 2 * i] << 8); if (b !== 0xFFFF) t18blocks.push(b); }
+      // spares must be empty unless the save that uses them is kept (they may lie in the Paradise save range)
+      for (let i = 0; i < ns; i++) t18blocks.push(img[c + 272 + 2 * i] | (img[c + 273 + 2 * i] << 8));
+      if (img[c + 400] & 4) t18blocks.push(0xFD, 0xFE);   // hot window (1.6.6): second copy of the flash part
+      const same = t18d && view.subarray(c + 12, c + 400).every((v, i) => v === img[c + 12 + i]);
+      if (same && !opts.emuChanged) {
+        ranges.push([0xC0000, 0xC0000 + 0x24000]);   // map, clock note, session (the program's flash part at 0x0F0000 comes from the image)
+        for (let i = 0; i < ns; i++) { const b = img[c + 272 + 2 * i] | (img[c + 273 + 2 * i] << 8); t18keep.push([b << 16, (b + 1) << 16]); }
+      } else if (t18d) notes.push(note('noteEmu'));
+    }
+    // T18Emu leaves the device or gets other blocks (1.5.6): its old firmware blocks and spares are no
+    // save of the Paradise; they take what the new image has there (mostly empty) instead of being kept
+    const t18old = [];
+    if (t18d && !t18keep.length) {
+      const c = 0xA0140, ns = Math.min(u32(view, c + 12), 64);
+      for (let i = 0; i < 128; i++) { const b = view[c + 16 + 2 * i] | (view[c + 17 + 2 * i] << 8); if (b !== 0xFFFF && b < 0x100) t18old.push(b); }
+      for (let i = 0; i < ns; i++) { const b = view[c + 272 + 2 * i] | (view[c + 273 + 2 * i] << 8); if (b < 0x100) t18old.push(b); }
+      if (view[c + 400] & 4) t18old.push(0xFD, 0xFE);
+    }
     // take the device's copy of every protected sector that differs
     const prot = new Set();
     for (const [a, b] of ranges) for (let s = a & ~0xFFF; s < b; s += SECTOR) prot.add(s);
+    for (const b of t18blocks.concat(t18old)) for (let s = b << 16; s < (b + 1) << 16; s += SECTOR) prot.delete(s);
+    for (const [a, b] of t18keep) for (let s = a; s < b; s += SECTOR) prot.add(s);
     let kept = 0;
     for (const s of prot) if (changed.has(s)) { image.set(await dev.read(s, SECTOR), s); kept++; }
     const protectedSectors = [...prot].filter((s) => changed.has(s));
@@ -490,14 +545,20 @@ async function serialOpen(port) {
   await port.open({ baudRate: BAUD, bufferSize: 1 << 16 });
   const writer = port.writable.getWriter();
   const io = { onData: null, closed: false };
-  const reader = port.readable.getReader();
+  let reader = null, stop = false;
   (async () => {
-    try { for (;;) { const { value, done } = await reader.read(); if (done) break; if (value && io.onData) io.onData(value); } }
-    catch (e) { /* port gone */ }
+    // a buffer overrun, framing or parity error ends the reader but not the port: take a new one (1.5.6)
+    while (!stop && port.readable) {
+      reader = port.readable.getReader();
+      try { for (;;) { const { value, done } = await reader.read(); if (done) break; if (value && io.onData) io.onData(value); } }
+      catch (e) { io.errors = (io.errors || 0) + 1; }
+      try { reader.releaseLock(); } catch (e) {}
+      if (stop) break;
+    }
     io.closed = true;
   })();
   io.write = (d) => writer.write(d);
-  io.close = async () => { try { await reader.cancel(); } catch (e) {} try { reader.releaseLock(); } catch (e) {} try { writer.releaseLock(); } catch (e) {} try { await port.close(); } catch (e) {} };
+  io.close = async () => { stop = true; try { await reader.cancel(); } catch (e) {} try { reader.releaseLock(); } catch (e) {} try { writer.releaseLock(); } catch (e) {} try { await port.close(); } catch (e) {} };
   return io;
 }
 

@@ -13,9 +13,10 @@ const ff = (b, a, e) => b.subarray(a, e).every((v) => v === 0xFF);
   const a = E.t7Patch(L, R, figs, app, stub, { lang: 'en' });
   const c = E.t7Cfg(a);
   ok(F.appKind(a) === 2 && F.emuType(a) === 't7', 'kind: emulator, type t7');
-  ok(c.romOff === 0x940000 && c.flags === 1 && c.figs.length === figs.length, 'settings block');
+  ok(c.romOff === 0x940000 && c.flags === 3 && c.figs.length === figs.length, 'settings block');
   ok(Buffer.from(a.subarray(0x940000, 0x940000 + 0xA0000)).equals(Buffer.from(R)), 'V7 ROM in place');
-  ok(c.figs.every((f, i) => Buffer.from(a.subarray(f.off, f.off + f.len)).equals(Buffer.from(figs[i].data.subarray(0, f.len))) && figs[i].data.subarray(f.len).every((v) => v === 0)), 'figures in place (only zero bytes cut)');
+  ok(c.figs.every((f, i) => Buffer.from(a.subarray(f.off, f.off + f.len)).equals(Buffer.from(E.t7FigData(figs[i].data)))), 'figures in place (zero bytes cut, full dumps: one copy)');
+  for (const f of figs) if (f.data.length > 0x100000) { const d = E.t7FigData(f.data); ok(d.length <= 0x100000 && d[0x55561] === 0xAA && d[0x55562] === 0x55, 'full figure: 1 MB copy with its second block (' + (d.length >> 10) + ' KB)'); }
   ok(a.subarray(0xD49000).every((v, i) => v === L[0xD49000 + i]), 'Paradise save untouched');
   const back = E.t7FromRom(a);
   ok(Buffer.from(back.rom).equals(Buffer.from(R)) && back.figs.length === figs.length, 'read back from the ROM');
@@ -47,5 +48,15 @@ const ff = (b, a, e) => b.subarray(a, e).every((v) => v === 0xFF);
   const dev = { info: { edition: F.edition(img).id }, read: async (ad, n) => device.slice(ad, ad + n) };
   const plan = await FL.keepPlan(F, E, null, {})(dev, img, changed);
   ok(plan.image.subarray(0xC1000, 0xC5000).every((v) => v === 0x33) && plan.image.subarray(0xC0000, 0xC1000).every((v) => v !== 0x44), 'write with "keep saves": EEPROM from the device, session not (other figures)');
+  // Tamagotchi Friends: 768 KB, reset vector at 0x7FFC (synthetic ROM, or the real one with FRIENDS=<file>)
+  let FR = process.env.FRIENDS ? new Uint8Array(fs.readFileSync(process.env.FRIENDS)) : null;
+  if (!FR) { FR = new Uint8Array(0xC0000); FR[0x7FFC] = 0x00; FR[0x7FFD] = 0xCC; }
+  const bad3 = new Uint8Array(FR); bad3[0x3FFD] = 0xC0;
+  ok(E.t7Kind(FR) === 'friends' && E.t7Kind(R) === 'go' && !E.t7Detect(bad3) && !E.t7Detect(FR.subarray(0, 0xA0000)), 'Friends detection');
+  const fr = E.t7Patch(L, FR, figs, app, stub, {}), fc = E.t7Cfg(fr);
+  ok(fc.romLen === 0xC0000 && fc.figs.length === 0 && Buffer.from(fr.subarray(0x940000, 0xA00000)).equals(Buffer.from(FR)) && ff(fr, 0xA00000, 0xD40000), 'Friends in place, no figures');
+  ok(E.t7Room([], 0xC0000) === 0xD40000 - 0xA00000, 'room behind the Friends ROM');
+  const frGo = E.t7Patch(fr, R, figs, app, stub, {});
+  ok(E.t7Cfg(frGo).romLen === 0xA0000 && ff(frGo, 0xC0000, 0x110000), 'Friends to Tama-Go: other ROM, save area cleared');
   console.log(bad ? 'FAIL ' + bad : 'all good');
 })();

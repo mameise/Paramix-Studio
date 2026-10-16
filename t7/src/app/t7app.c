@@ -5,6 +5,10 @@
 #include "../core/t7.h"
 #include "font.h"
 #include "icons.h"
+#ifdef T7_FR_ICONS
+#include "icons_friends.h"
+extern uint32_t g_rom_size;
+#endif
 
 void figure_rom_set_active(const unsigned char *p, unsigned int n);
 
@@ -43,9 +47,10 @@ static uint16_t mix(uint16_t a, uint16_t b, int pa)   /* pa percent of a, rest b
 static const uint16_t PAL_BG[BG_N] = { 0xFFFF, 0xAE66, 0x9DE1, 0xB79A, 0xFD80, 0xB71F, 0x4C67, 0x469A, 0xFF08, 0xFC06, 0xFD99, 0xC51F, 0x0000, 0xF800 };
 static const char *const BG_DE[BG_N] = { "Weiss", "Gruen", "GB-Gruen", "Mint", "Amber", "Blau", "Dunkelgruen", "Tuerkis", "Gelb", "Orange", "Rosa", "Lila", "Schwarz", "Rot" };
 static const char *const BG_EN[BG_N] = { "White", "Green", "GB green", "Mint", "Amber", "Blue", "Dark green", "Turquoise", "Yellow", "Orange", "Pink", "Purple", "Black", "Red" };
-static const T7Set SET_DEF = { 1, 0, 90, 70, 0, 0, 0, 3, 3, 1, 1, 1, 0xFF, 0, 0, 0 };
-T7Set g_set = { 1, 0, 90, 70, 0, 0, 0, 3, 3, 1, 1, 1, 0xFF, 0, 0, 0 };
+static const T7Set SET_DEF = { 1, 0, 90, 70, 0, 0, 0, 3, 3, 1, 2, 1, 0xFF, 1, 2, 5 };
+T7Set g_set = { 1, 0, 90, 70, 0, 0, 0, 3, 3, 1, 2, 1, 0xFF, 1, 2, 5 };
 static int g_lang;                                /* 0 German, 1 English */
+static int g_dimp;                                /* dimmed: colours at this percent, 0 = normal */
 int app_lang(void) { return g_lang; }
 static const char *tr(const char *de, const char *en) { return g_lang ? en : de; }
 
@@ -77,6 +82,10 @@ static void palette(void)
   g_grid = mix(bg, mix(bg, ink, 76), 100 - g_set.grid);              /* full grid: 24 percent towards the ink */
   g_off = mix(bg, ink, 100 - g_set.pixvis);                           /* pixels that are off, slightly visible */
   g_ghostc = mix(bg, ink, 100 - g_set.ghost);                         /* icons that are off */
+  if (g_dimp) {                                                       /* dimmed (screen left on) */
+    for (int i = 0; i < 4; i++) { g_pal[i] = mix(g_pal[i], 0, g_dimp); g_mpal[i] = mix(g_mpal[i], 0, g_dimp); }
+    g_grid = mix(g_grid, 0, g_dimp); g_off = mix(g_off, 0, g_dimp); g_ghostc = mix(g_ghostc, 0, g_dimp);
+  }
   geometry();
 }
 static int icon_x(int i) { return (i % 5) * SCR / 5 + (SCR / 5 - 20) / 2; }
@@ -86,7 +95,11 @@ static void draw_icon(int i, int on)
   uint16_t c = on ? g_pal[3] : g_set.ghost ? g_ghostc : g_pal[0];
   plat_rect(x0, y0, x0 + 20, y0 + 20);
   for (int y = 0; y < 20; y++) {
+#ifdef T7_FR_ICONS
+    uint32_t b = g_rom_size == 0xC0000u ? g_icons_fr[i][y] : g_icons[i][y];   /* Friends ROM (768 KB): its own icons */
+#else
     uint32_t b = g_icons[i][y];
+#endif
     for (int x = 0; x < 20; x++) g_row[x] = (b & (0x80000u >> x)) ? c : g_pal[0];
     plat_row(g_row, 20);
   }
@@ -127,19 +140,20 @@ static void num(char *o, int v, const char *unit)   /* "25%" or "Aus" for 0 */
 }
 /* Menu: page 0 = settings, page 1 = figures */
 static int g_page;
-enum { M_FIG, M_BG, M_INK, M_G1, M_G2, M_SIZE, M_PIX, M_GRID, M_PVIS, M_GHOST, M_SND, M_LIGHT, M_SYNC, M_LANG, M_N };
+enum { M_FIG, M_BG, M_INK, M_G1, M_G2, M_SIZE, M_PIX, M_GRID, M_PVIS, M_GHOST, M_SND, M_LIGHT, M_DIM, M_OFF, M_SYNC, M_LANG, M_N };
 static int g_items[M_N], g_nitems;
 #define ROWS 7
 static void menu_items(void)
 {
   g_nitems = 0;
   if (g_cfg->nfig) g_items[g_nitems++] = M_FIG;
-  for (int k = M_BG; k < M_N; k++) g_items[g_nitems++] = k;
+  for (int k = M_BG; k < M_N; k++) if (k != M_DIM || app_dim_ms()) g_items[g_nitems++] = k;   /* dim level only when dimming */
 }
 static const char *onoff(int v) { return v ? tr("Ein", "On") : tr("Aus", "Off"); }
 static void item_text(int it, const char **label, char *val)
 {
-  static const char *const lightDE[5] = { "30 s", "1 Min", "2 Min", "5 Min", "Nie" }, *const lightEN[5] = { "30 s", "1 min", "2 min", "5 min", "Never" };
+  static const char *const tDE[T7_T_N] = { "10 s", "20 s", "30 s", "1 Min", "2 Min", "5 Min", "10 Min" }, *const tEN[T7_T_N] = { "10 s", "20 s", "30 s", "1 min", "2 min", "5 min", "10 min" };
+  const char *const *tt = g_lang ? tEN : tDE, *never = tr("Nie", "Never");
   const char *b = 0; val[0] = 0;
   switch (it) {
   case M_FIG: *label = tr("Figur", "Figure"); if (g_fig < 0) b = tr("Keine", "None"); else { int c = 0; for (; c < 15 && g_cfg->fig[g_fig].name[c]; c++) val[c] = g_cfg->fig[g_fig].name[c]; val[c] = 0; } break;
@@ -153,7 +167,9 @@ static void item_text(int it, const char **label, char *val)
   case M_PVIS: *label = tr("Pixel-Sicht", "Pixel view"); num(val, g_set.pixvis, "%"); break;
   case M_GHOST: *label = "Icons"; num(val, g_set.ghost, "%"); break;
   case M_SND: *label = tr("Ton", "Sound"); b = onoff(g_set.sound); break;
-  case M_LIGHT: *label = tr("Licht", "Light"); b = g_lang ? lightEN[g_set.light % 5] : lightDE[g_set.light % 5]; break;
+  case M_LIGHT: *label = tr("Dimmen nach", "Dim after"); b = g_set.light >= T7_T_N ? never : tt[g_set.light]; break;
+  case M_DIM: *label = tr("Dimmen auf", "Dim to"); num(val, app_dim_pct(), "%"); break;
+  case M_OFF: *label = tr("Bild aus nach", "Screen off"); b = g_set.r2 ? tt[(g_set.r2 - 1) % T7_T_N] : never; break;
   case M_SYNC: *label = tr("Uhr", "Clock"); b = g_set.sync ? "Auto" : tr("Spiel", "Game"); break;
   case M_LANG: *label = tr("Sprache", "Language"); b = g_lang ? "English" : "Deutsch"; break;
   }
@@ -226,7 +242,15 @@ static void change(int it)
   case M_PVIS: g_set.pixvis = (uint8_t)(g_set.pixvis >= 10 ? 0 : g_set.pixvis + 1); break;
   case M_GHOST: g_set.ghost = (uint8_t)(g_set.ghost >= 10 ? 0 : g_set.ghost + 1); break;
   case M_SND: g_set.sound ^= 1; break;
-  case M_LIGHT: g_set.light = (uint8_t)((g_set.light + 1) % 5); break;
+  case M_LIGHT:
+    g_set.light = (uint8_t)((g_set.light + 1) % (T7_T_N + 1));
+    if (g_set.light < T7_T_N && g_set.r2 && g_set.r2 - 1 <= g_set.light) g_set.r2 = (uint8_t)(g_set.light + 2 <= T7_T_N ? g_set.light + 2 : 0);   /* off stays after dimming */
+    menu_items();
+    break;
+  case M_DIM: g_set.r0 = (uint8_t)((g_set.r0 + 1) % 5); break;
+  case M_OFF:
+    do g_set.r2 = (uint8_t)((g_set.r2 + 1) % (T7_T_N + 1)); while (g_set.r2 && g_set.light < T7_T_N && g_set.r2 - 1 <= g_set.light);
+    break;
   case M_SYNC: g_set.sync ^= 1; break;
   case M_LANG: g_set.lang = (uint8_t)(g_lang ^ 1); break;
   }
@@ -259,6 +283,14 @@ int app_keys(uint32_t b, uint32_t now)
   }
   return 0;
 }
+/* dimmed after the light time (screen left on) or normal again */
+void app_dim(int pct)
+{
+  if (pct == g_dimp) return;
+  g_dimp = pct; palette();
+  for (int i = 0; i < T7_ICON_COUNT; i++) g_icp[i] = 0xFF;
+  g_full = 1; app_render(1);
+}
 /* wheel, short press: menu open/close */
 void app_wheel_short(void)
 {
@@ -282,6 +314,13 @@ static void store_load(void)
     uint8_t *d = (uint8_t *)&g_set; for (unsigned i = 0; i < sizeof g_set; i++) d[i] = b[4 + i];
   } else if (b[0] == 'T' && b[1] == '7' && b[2] == 'S' && b[3] == 'T') {
     g_set.bg = b[4]; g_set.ink = b[5]; g_set.pixel = b[6] & 1; g_set.sound = b[8] & 1; g_set.light = b[9];
+    g_set.r0 = 0; g_set.r1 = 0;
+  }
+  if ((g_set.r1 & 0x0F) != 2) {                     /* older layouts: what was "light off after" stays */
+    uint8_t off;                                     /* index 0..6 (10 s .. 10 min) or 7 never */
+    if ((g_set.r1 & 0x0F) == 1) { static const uint8_t m[7] = { 0, 1, 2, 3, 4, 5, 7 }; off = m[g_set.light % 7]; }   /* test builds 1.6.6 */
+    else { static const uint8_t m[5] = { 2, 3, 4, 5, 7 }; off = m[g_set.light % 5]; }                                 /* 30 s, 1, 2, 5 min, never */
+    g_set.light = T7_T_N; g_set.r0 = 1; g_set.r2 = off >= T7_T_N ? 0 : (uint8_t)(off + 1); g_set.r1 = 2;
   }
   if (r32(b + 32) == CK_MAGIC) { g_ck_cnt = r32(b + 36); g_ck_sod = r32(b + 40); g_ck_md = r32(b + 44); g_ck_have = 1; }
 }
@@ -366,6 +405,13 @@ void app_render(int force)
   g_full = 0;
 }
 
+/* the bell icon (the pet calls) */
+int app_bell(void)
+{
+  uint8_t ic[T7_ICON_COUNT];
+  t7_get_icons(ic);
+  return ic[9] != 0;
+}
 /* Full screen message (start up, catching up the time) with a bar */
 void app_text_screen(const char *l1, const char *l2, int done, int total)
 {
@@ -384,14 +430,14 @@ void app_text_screen(const char *l1, const char *l2, int done, int total)
 }
 
 /* ---------------------------------------------------------------- clock
- * The V7 keeps its time in work RAM (binary): hour 0x306, minute 0x307, second 0x396,
+ * The V7 keeps its time in work RAM (binary): hour 0x306, minute 0x307, second 0x396 (Friends 0x136),
  * day 0x305, month 0x304. The hour may only change through the game itself (it ages the
  * pet and runs its day events), so behind by an hour or more we put the clock just
  * before the full hour and let the game count on. Within the hour, minute and second
  * are simply set. Reference: the Paradise's seconds counter. */
 #define RTC_H 0x0306
 #define RTC_M 0x0307
-#define RTC_S 0x0396
+#define RTC_S t7_rtc_sec_addr()   /* 0x396, Friends 0x136 */
 #define RTC_D 0x0305
 #define RTC_MO 0x0304
 static uint32_t g_ref_cnt, g_ref_sod, g_have_ref, g_last_obs, g_last_cnt;
@@ -469,6 +515,29 @@ static void add_days(uint32_t *y, uint32_t *m, uint32_t *d, uint32_t n)
     if (++*d > len) { *d = 1; if (++*m > 12) { *m = 1; if (*y) ++*y; } }
   }
 }
+/* The Paradise's own time at the start (seconds since 1970, 0 = not found) and its seconds counter
+ * then, read by the platform before anything overwrote it. With settings flag 2 ("clock from the
+ * Paradise") the game clock is set to it at every start, nothing is run in between. */
+uint32_t g_para_time, g_para_cnt;
+static int para_hard(void) { return (g_cfg->flags & 2u) && g_para_time && g_set.sync; }
+static void civil(uint32_t days, uint32_t *y, uint32_t *m, uint32_t *d)
+{
+  uint32_t z = days + 719468u, era = z / 146097u, doe = z - era * 146097u;
+  uint32_t yoe = (doe - doe / 1460u + doe / 36524u - doe / 146096u) / 365u, doy = doe - (365u * yoe + yoe / 4u - yoe / 100u);
+  uint32_t mp = (5u * doy + 2u) / 153u;
+  *d = doy - (153u * mp + 2u) / 5u + 1u; *m = mp < 10u ? mp + 3u : mp - 9u; *y = yoe + era * 400u + (*m <= 2u);
+}
+static uint32_t para_now(uint32_t rtc) { return g_para_time + (rtc - g_para_cnt); }
+int app_clock_hard(uint32_t rtc)
+{
+  if (!para_hard() || t7_ram_read(RTC_H) > 23) return 0;          /* hour 255: the game asks, app_setup_fill answers */
+  uint32_t now = para_now(rtc), sod = now % 86400u, y, m, d;
+  civil(now / 86400u, &y, &m, &d);
+  t7_ram_write(RTC_MO, (uint8_t)m); t7_ram_write(RTC_D, (uint8_t)d);
+  t7_ram_write(RTC_H, (uint8_t)(sod / 3600u)); t7_ram_write(RTC_M, (uint8_t)((sod / 60u) % 60u)); t7_ram_write(RTC_S, (uint8_t)(sod % 60u));
+  g_ref_cnt = rtc; g_ref_sod = sod; g_have_ref = 1; g_last_obs = sod; g_last_cnt = rtc;
+  return 1;
+}
 static int g_fill_seen, g_fill_done;
 void app_setup_fill(uint32_t rtc)
 {
@@ -478,7 +547,8 @@ void app_setup_fill(uint32_t rtc)
   if (++g_fill_seen < 2) return;                 /* seen twice, half a second apart */
   g_fill_done = 1;
   uint32_t sod, y = 0, m, d, have = 1, el;
-  if (g_ck_have) { el = g_ck_sod + (rtc - g_ck_cnt); m = (g_ck_md >> 8) & 0xFF; d = g_ck_md & 0xFF; }
+  if (para_hard()) { uint32_t now = para_now(rtc); el = now % 86400u; civil(now / 86400u, &y, &m, &d); y = 0; }
+  else if (g_ck_have) { el = g_ck_sod + (rtc - g_ck_cnt); m = (g_ck_md >> 8) & 0xFF; d = g_ck_md & 0xFF; }
   else if (g_cfg->wall_ymd) { el = g_cfg->wall_sod + (rtc - g_cfg->wall_cnt); y = g_cfg->wall_ymd >> 16; m = (g_cfg->wall_ymd >> 8) & 0xFF; d = g_cfg->wall_ymd & 0xFF; }
   else { have = 0; el = 0; m = 1; d = 1; }
   if (!have) { t7_ram_write(RTC_H, 0); return; }

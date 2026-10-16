@@ -14,12 +14,13 @@ for l in subprocess.run(['llvm-nm', elf], capture_output=True, text=True).stdout
 fl = bytearray(open(img, 'rb').read())
 u = Uc(UC_ARCH_ARM, UC_MODE_THUMB | UC_MODE_MCLASS)
 u.ctl_set_cpu_model(UC_CPU_ARM_CORTEX_M4)
-u.mem_map(0, 0x10000); u.mem_write(0, bytes(fl[0xA0000:0xB0000]))
+APPOFF = int(os.environ.get('APPOFF', '0xA0000'), 16)   # program image (1.6.0: more programs elsewhere)
+u.mem_map(0, 0x10000); u.mem_write(0, bytes(fl[APPOFF:APPOFF + 0x10000]))
 u.mem_map(0x18000000, 0x20000); u.mem_map(0x20000000, 0x1000)
 u.mem_map(0x10000000, 0x100000)
 u.mem_map(0x60000000, 0x1000000); u.mem_write(0x60000000, bytes(fl))
 u.mem_map(0x40000000, 0x100000); u.mem_map(0x45000000, 0x1000); u.mem_map(0xE000E000, 0x1000)
-cfg = 0xA0140
+cfg = APPOFF + 0x140
 rom_off = struct.unpack_from('<I', fl, cfg + 8)[0]
 u.mem_write(0x10000000, bytes(fl[rom_off:rom_off + 0x100000]))
 fb = [[0] * 128 for _ in range(128)]
@@ -68,6 +69,9 @@ for n, f in H.items():
 def bad(uc, access, addr, size, value, ud):
     print('unmapped', access, hex(addr), 'pc', hex(uc.reg_read(UC_ARM_REG_PC))); return False
 u.hook_add(UC_HOOK_MEM_UNMAPPED, bad)
+if os.environ.get('MEMW'):
+    _mw = int(os.environ['MEMW'], 16)
+    u.hook_add(UC_HOOK_MEM_WRITE, lambda uc, acc, a, sz, v, ud: print('W %08x = %08x at ms %d' % (a, v, state['ms'])), begin=_mw, end=_mw + 0x3F)
 def shot(name):
     from PIL import Image
     im = Image.new('RGB', (128, 128))

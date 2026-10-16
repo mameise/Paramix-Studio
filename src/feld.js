@@ -106,9 +106,10 @@ function fieldNow(rom) {
   return f < P.names.length ? cap(P.names[f]) : NAMES[e.id];
 }
 
-/** Program in the ROM: 0 none, 1 DOOM, 2 emulator (TamaEmu or T7Emu, see emuType). */
+/** Program in the ROM: 0 none, 1 DOOM, 2 emulator (TamaEmu, T7Emu or T18Emu, see emuType). */
 function appKind(rom) {
   if (u32(rom, APP_OFF + 0x140) === 0x37584D50) return 2;   // "PMX7": T7Emu
+  if (u32(rom, APP_OFF + 0x140) === 0x38584D50) return 2;   // "PMX8": T18Emu
   if (u32(rom, APP_OFF + 0x140) !== PMXC) return 0;
   for (let i = 0x140; i < 0x400; i += 4) if (u32(rom, APP_OFF + i) === PDMC) return 1;
   return 2;
@@ -152,6 +153,16 @@ function feldFind(rom, tpl) {
   return null;
 }
 
+/** More programs of the menu (version 5): { name0, apps: [{ src, name }] } (empty without). */
+function feldApps(rom, tpl) {
+  const f = feldFind(rom, tpl), r = { name0: '', apps: [] };
+  if (!f || f.version < 5) return r;
+  const c = f.off + 0x140, str = (o) => { let t = ''; for (let k = 0; k < 12 && rom[o + k]; k++) t += String.fromCharCode(rom[o + k]); return t; };
+  r.name0 = str(c + 380);
+  const n = Math.min(u32(rom, c + 392), 6);
+  for (let i = 0; i < n; i++) { const o = c + 396 + 16 * i; r.apps.push({ src: u32(rom, o), name: str(o + 4) }); }
+  return r;
+}
 /** Saved slots (raw bytes) of a ROM with the menu, for moving them over. */
 /*
  * Saved fields and the shared pool (1.2.12). The header page of field i sits at the start
@@ -456,7 +467,10 @@ function feldApply(rom, opts, saved, emb, E) {
     } else if (fields) {
       slotOff = Math.max(SLOT_BASE, page(assetEnd(out)));
       // the emulator's firmware starts at 0x940000, a big one (P's, 4U+) already at 0x840000 (1.3.2)
-      const limit = kind === 2 ? (u32(out, 0xA0140) === PMXC ? Math.min(u32(out, 0xA0148), GUEST_OFF) : GUEST_OFF) : P.idPage - 0x1000;
+      // T18Emu (1.5.1) puts its firmware from the top down: the saves get the room below its lowest block
+      const T18 = 0x38584D50, t18low = u32(out, 0xA0140) === T18 && E && E.t18Low ? E.t18Low(out) : 0;
+      const limit0 = kind === 2 ? (u32(out, 0xA0140) === PMXC ? Math.min(u32(out, 0xA0148), GUEST_OFF) : t18low ? Math.min(t18low, P.idPage - 0x1000) : GUEST_OFF) : P.idPage - 0x1000;
+      const limit = opts.appsLow ? Math.min(limit0, opts.appsLow) : limit0;
       if (limit - slotOff < nslots * 0x10000) throw new Error('no room for the field saves next to this emulator firmware');
       // all the room up to the emulator or the device's save area (1.2.11; before at most 0x58000 each)
       slotSize = Math.floor((limit - slotOff) / nslots / 0x1000) * 0x1000;
@@ -502,6 +516,18 @@ function feldApply(rom, opts, saved, emb, E) {
     w32(f, ci + 364, slotOff2); w32(f, ci + 368, slotOff2 ? slotN1 : 0);
     P.sixMap.forEach((v, k) => { f[ci + 372 + k] = v; });
   }
+  // more programs (1.6.0, version 5): name of the stub's program and the list the menu can start
+  if (u32(f, ci + 4) >= 5) {
+    const nm = (opts.name0 || '').slice(0, 12);
+    for (let k = 0; k < 12; k++) f[ci + 380 + k] = k < nm.length ? nm.charCodeAt(k) : 0;
+    const apps = (opts.apps || []).slice(0, 6);
+    w32(f, ci + 392, apps.length);
+    for (let i = 0; i < 6; i++) {
+      const a = apps[i], o = ci + 396 + 16 * i;
+      w32(f, o, a ? a.src : 0);
+      for (let k = 0; k < 12; k++) f[o + 4 + k] = a && k < a.name.length ? a.name.charCodeAt(k) : 0;
+    }
+  } else if (opts.apps && opts.apps.length) throw new Error('menu program too old for more programs');
   out.set(f, prog);
   if (cat.length) out.set(cat, catOff);
   // carry over saved slots (the active field lives in the save itself)
@@ -531,7 +557,7 @@ function embedded() {
   return { feld: b64(FELD_B64), stub: b64(FELD_STUB_B64) };
 }
 
-function emuType(rom) { const m = u32(rom, APP_OFF + 0x140); return m === 0x37584D50 ? 't7' : m === PMXC && appKind(rom) === 2 ? 'tama' : ''; }
-root.ParamixFeld = { emuType, isSix, slotAddr, slotReadAsync, slotPlace, poolAddr, textTabelle, zeichenkette, edition, feldId, canFields, fieldNames, fieldNow, feldFind, feldSlots, feldStrip, feldApply, appKind, itemCatalog, embedded, NAMES, F_FIELDS, F_BAG };
+function emuType(rom) { const m = u32(rom, APP_OFF + 0x140); return m === 0x37584D50 ? 't7' : m === 0x38584D50 ? 't18' : m === PMXC && appKind(rom) === 2 ? 'tama' : ''; }
+root.ParamixFeld = { emuType, isSix, slotAddr, slotReadAsync, slotPlace, poolAddr, textTabelle, zeichenkette, edition, feldId, canFields, fieldNames, fieldNow, feldFind, feldSlots, feldStrip, feldApply, feldApps, appKind, itemCatalog, embedded, NAMES, F_FIELDS, F_BAG };
 if (typeof module !== 'undefined') module.exports = root.ParamixFeld;
 })(typeof window !== 'undefined' ? window : globalThis);

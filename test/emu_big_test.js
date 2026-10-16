@@ -36,5 +36,13 @@ ok(r.rom.subarray(0xD49000).every((v, i) => v === land[0xD49000 + i]), 'save are
   ok(back.rom.every((v, i) => v === r.rom[i] || (i >= 0xA0000 && i < 0xC0000)), 'swap back gives the same layout');
   const rm = E.emuRemove(r.rom);
   ok(ff(rm, 0x830000, 0xD48000) && ff(rm, 0xA0000, 0xB0000), 'removal clears everything');
+  // 1.6.6: a save of another emulator with download content holds more blocks than fit: the sparsest go into spare pages
+  { const g = new Uint8Array(0x800000).fill(0xFF); g.set(big.subarray(0, 0x800000));
+    let added = 0; for (let b = 1; b < 128 && added < 4; b++) if (ff(g, b << 16, (b + 1) << 16)) { g.fill(0x5A, b << 16, (b << 16) + 0x3000); added++; }
+    const pk = E.packGuest(g, dev);
+    const pr = E.emuPatch(land, g, app, stub);
+    const cfg = SV.emuCfg(pr.rom.subarray(0xA0000, 0xA1000));
+    const back2 = await SV.emuGuestAsync((a, n) => pr.rom.subarray(a, a + n), cfg);
+    ok(pk.pages.length > 0 && back2.every((v, i) => v === g[i]), 'save with more blocks than fit: ' + pk.blocks + ' blocks and ' + pk.pages.length + ' spare pages, read back the same'); }
   console.log(bad ? 'FAIL ' + bad : 'all good');
 })();

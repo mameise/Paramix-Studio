@@ -168,6 +168,7 @@ void periph_write32(Emu *e, uint32_t a, uint32_t v);
 void periph_tick(Emu *e, uint32_t cycles);
 uint32_t periph_next(Emu *e);
 void periph_rtc_advance(Emu *e, uint32_t n);
+void periph_rtc_set(Emu *e, uint32_t t);   /* local time, seconds since 1970 */
 void periph_buttons(Emu *e, uint8_t mask);
 void periph_init(Emu *e);
 /* lcd */

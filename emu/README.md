@@ -65,6 +65,14 @@ whole seconds to the guest clock when it fell behind, for example when busy
 scenes (shopping, flash writes) made the emulator drop time. Implausible jumps
 of the counter are ignored.
 
+At the start (settings version 4, flag bit 1, set by the Studio's "Take the
+clock from the Paradise at the start"): the emulator reads the Paradise's own
+time from the SRAM before it overwrites it (`paraclock.h`: the base of days and
+seconds next to the six display fields, checked against the seconds counter)
+and sets the guest's RTC registers to it, after a resumed session and on a
+fresh start. Nothing is caught up. Without the flag, or when the time is not
+found, a resumed session moves the clock on by the pause as before.
+
 ## Download content (8 MB firmware)
 
 Stores and routing follow tamaemu `tools/dlc.c`: a record is a TAMAGO block,
@@ -88,6 +96,13 @@ llvm-objcopy -O binary stub.elf stub_tpl.bin
 ```
 
 Both results are byte-identical to the files shipped here.
+
+With `-DFELD=1` (menu launcher) the stub has a second entry at +0x0C
+(`start_src`, 1.6.0): it copies the 64 KB image at the XIP address in r0 to
+PRAM and restarts, like `start` does with its own program. The menu starts
+further programs through it. Since 1.6.6 it reads from the uncached flash
+(r0 + 0x50011000): the cached window shows only 1 MB. Build the menu launcher
+with the same line plus `-DFELD=1 -DFELD_SRC=0x6789EF01 -DAUTO=0x66666661`.
 
 License: GNU GPL version 3 (see `LICENSE`).
 

@@ -72,17 +72,22 @@ int main(int c, char **v)
       if (a[0] == 'W') { app_wheel_short(); run(0.3, 1); }
       else { keys = a[0] == 'A' ? 1 : a[0] == 'B' ? 2 : 4; run(0.2, 1); keys = 0; run(k > 2 ? x : 0.8, 1); }
     }
-    else if (!strcmp(cmd, "poke")) { int h, m, s2; sscanf(l, "%*s %d %d %d", &h, &m, &s2); t7_ram_write(0x306, h); t7_ram_write(0x307, m); t7_ram_write(0x396, s2); }
-    else if (!strcmp(cmd, "t")) printf("game %02d:%02d:%02d  day %d.%d  rtc %u fig %d species %02x\n", t7_ram_read(0x306), t7_ram_read(0x307), t7_ram_read(0x396), t7_ram_read(0x305), t7_ram_read(0x304), g_rtc, t7_figure_get(), t7_ram_read(0x22));
+    else if (!strcmp(cmd, "poke")) { int h, m, s2; sscanf(l, "%*s %d %d %d", &h, &m, &s2); t7_ram_write(0x306, h); t7_ram_write(0x307, m); t7_ram_write(t7_rtc_sec_addr(), s2); }
+    else if (!strcmp(cmd, "t")) printf("game %02d:%02d:%02d  day %d.%d  rtc %u fig %d species %02x\n", t7_ram_read(0x306), t7_ram_read(0x307), t7_ram_read(t7_rtc_sec_addr()), t7_ram_read(0x305), t7_ram_read(0x304), g_rtc, t7_figure_get(), t7_ram_read(0x22));
     else if (!strcmp(cmd, "save")) { static uint8_t b[4096]; uint32_t m = app_save(b, sizeof b); FILE *o = fopen(a, "wb"); fwrite(b, 1, m, o); fclose(o); printf("saved %u bytes\n", m); }
     else if (!strcmp(cmd, "load")) {
       size_t m; unsigned char *b = rd(a, &m); uint32_t sv;
       g_rtc += (uint32_t)x;
       t7_init();
       printf("load %s\n", app_load(b, (uint32_t)m, &sv) ? "ok" : "FAILED");
-      app_catchup(g_rtc, prog);
+      if (app_clock_hard(g_rtc)) printf("clock from the Paradise\n"); else app_catchup(g_rtc, prog);
     }
     else if (!strcmp(cmd, "s")) shot(a);
+    else if (!strcmp(cmd, "para")) {   /* para <y> <m> <d> <h> <mi>: the Paradise's time now, clock flag on */
+      int y, mo, d, h, mi; sscanf(l, "%*s %d %d %d %d %d", &y, &mo, &d, &h, &mi);
+      int yy = y - (mo <= 2), era = yy / 400, yoe = yy - era * 400, doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1, doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+      g_para_time = (uint32_t)(era * 146097 + doe - 719468) * 86400u + (uint32_t)(h * 3600 + mi * 60); g_para_cnt = g_rtc; cfg.flags |= 2u;
+    }
     else if (!strcmp(cmd, "wall")) { int h, m, d, mo; sscanf(l, "%*s %d %d %d %d", &h, &m, &d, &mo); cfg.wall_cnt = g_rtc; cfg.wall_sod = (uint32_t)(h * 3600 + m * 60); cfg.wall_ymd = (2026u << 16) | (uint32_t)(mo << 8 | d); }
     else if (!strcmp(cmd, "store")) app_store();
     else if (!strcmp(cmd, "reboot")) { t7_init(); app_init(&cfg); app_render(1); }

@@ -2,16 +2,21 @@
  * Tamagotchi core (tamaemu, GPL-3.0) directly on the device.
  * Long press on the wheel: save state and return to the Paradise. */
 #include "hw.h"
+#include "ask.h"
 #include "../core/tc.h"
 #include "state.h"
+#include "paraclock.h"
 uint32_t jit_used(void);
 
 /* Settings, filled in by the ROM builder (magic "PMXC"). */
-typedef struct { u32 magic, version, guest_off, guest_size, save_off, device; u8 map[128]; u32 spare_end; } PmxCfg;
+typedef struct { u32 magic, version, guest_off, guest_size, save_off, device; u8 map[128]; u32 spare_end, flags; } PmxCfg;
+/* version 4 (1.5.1): flags bit 1 = at every start the guest clock is set to the Paradise's time */
 /* version 3 (v0.9.2): spare_end = end of the guest area; the room behind the packed firmware holds spare pages */
 __attribute__((section(".pmxcfg"), used))
 volatile const PmxCfg g_cfg = { 0x43584D50u, 1, 0x940000u, 0x400000u, 0xC0000u, 0,
-  { [0 ... 63] = 0xFE, [64 ... 127] = 0xFF }, 0 };   /* 0xFE: linear (old layout) */
+  { [0 ... 63] = 0xFE, [64 ... 127] = 0xFF }, 0, 0 };   /* 0xFE: linear (old layout) */
+static u32 g_para, g_para_cnt;          /* the Paradise's time at the start (seconds since 1970, 0 = not found), its counter then */
+static int para_hard(void) { return g_cfg.version >= 4u && (g_cfg.flags & 2u) && g_para; }
 
 static uint16_t g_gram[GRAM_H][GRAM_W];
 static Emu g_emu;
@@ -392,6 +397,7 @@ static u32 cyc_now(void){ u32 m, v; do { m=g_ms; v=SYST_CVR; } while(m!=g_ms); r
 extern uint32_t jit_st_flush, jit_st_blocks;
 extern u32 st_n_evict;
 static u32 g_n_gflash;                    /* counter: guest save written to flash */
+static u32 g_btn_ms;                      /* last key (GFLUSH_IDLE) */
 /* Measure the size of the RAM at 0x20000000 (v0.8.15): read and write from 0x20001000 in 2 KB steps.
  * A bus fault on read is caught in the fault handler (g_probe); that marks the end.
  * Result in KB (0x20000000 up to the first missing step), at most 64. */
@@ -478,12 +484,16 @@ extern u32 __bss_start, __bss_end, __ram_end;
 void Reset_Handler(void){
   __asm__ volatile("cpsid i");
   u32 swf=0, swk=0, swn=0;
+  /* the Paradise's clock, before its SRAM is overwritten (the stack is in the top 4 KB) */
+  u32 pcnt=REG(0x45000304u), para=para_clock(pcnt, 0, 0x1F000u, 0, 0);
+  __asm__ volatile("" ::: "memory");
 #ifndef NOSRAMWATCH
   swn=sram_watch(&swf, &swk);
 #endif
   for(u32* p=&__bss_start; p<&__bss_end; p++) *p=0;
   { extern u32 __data_start, __data_end, __data_load;     /* initial data values into SRAM */
     const u32 *src=&__data_load; for(u32* p=&__data_start; p<&__data_end; p++) *p=*src++; }
+  g_para=para; g_para_cnt=pcnt;
 #ifndef CLEAN
   g_sw_n=swn; g_sw_f=swf; g_sw_k=swk;
 #else
@@ -545,6 +555,7 @@ void Reset_Handler(void){
 #endif
   setup_rom(e);
   cpu_reset(e);
+  if(para_hard()) periph_rtc_set(e, g_para + (REG(0x45000304u) - g_para_cnt));   /* fresh start: the Paradise's time too */
   g_stage=3; diag(e,0);
   { u32 pause=0;
     if(st_load(e, &g_sc, g_gram, &pause)){
@@ -559,8 +570,8 @@ void Reset_Handler(void){
       e->rom=0; e->rom_fast=0; e->rom_fast_len=0;
       e->fw_len=0; e->fw_lo=0xFFFFFFFFu;
       setup_rom(e);
-      if(pause > 400u*86400u) pause=400u*86400u;
-      periph_rtc_advance(e, pause);
+      if(para_hard()) periph_rtc_set(e, g_para + (REG(0x45000304u) - g_para_cnt));   /* the Paradise's time, nothing caught up */
+      else { if(pause > 400u*86400u) pause=400u*86400u; periph_rtc_advance(e, pause); }
       e->lcd.dx0=0; e->lcd.dy0=0; e->lcd.dx1=127; e->lcd.dy1=127; LCD_ALL();
     }
   }
@@ -663,6 +674,10 @@ void Reset_Handler(void){
      * So only once nothing has been written for 3 s AND the screen has been still
      * for a moment (no game running), at the latest after 2 minutes. */
     { static u32 quiet; static int pend;
+#ifdef GFLUSH_IDLE
+      static u32 pend_ms;
+      if(e->flash_dirty && !pend) pend_ms=now;
+#endif
       if(e->flash_dirty){ e->flash_dirty=false; quiet=0; pend=1; }
       #ifdef GFLUSH_STEP
       /* v0.8.22: after 3 s without new writes, at most one changed 4 KB part to flash every 250 ms,
@@ -670,7 +685,14 @@ void Reset_Handler(void){
 #ifdef GFLUSH_DARK
       /* v0.9.1: only write while the screen is dark (then the pause goes unnoticed);
        * after 10 minutes at the latest anyway, in case it never goes dark */
+#ifdef GFLUSH_IDLE
+      /* 1.6.6: with the screen always on it never went dark, and a guest that writes again within 10 minutes
+       * was never saved (power gone = save gone). Now also when no key was pressed for 20 s, and at the latest
+       * 10 minutes after the first unsaved write. */
+      else if(pend && ++quiet>3000u && (quiet % 250u)==0u && (!g_bl || quiet>600000u || now-g_btn_ms>20000u || now-pend_ms>600000u) && !e->flash_busy && !e->flash_state){ if(st_flush_step(e, &g_sc)){ pend=0; g_n_gflash++; } } }
+#else
       else if(pend && ++quiet>3000u && (quiet % 250u)==0u && (!g_bl || quiet>600000u) && !e->flash_busy && !e->flash_state){ if(st_flush_step(e, &g_sc)){ pend=0; g_n_gflash++; } } }
+#endif
 #else
       else if(pend && ++quiet>3000u && (quiet % 250u)==0u && !e->flash_busy && !e->flash_state){ if(st_flush_step(e, &g_sc)){ pend=0; g_n_gflash++; } } }
 #endif
@@ -689,10 +711,14 @@ void Reset_Handler(void){
       if(wk==0){ if(g_restored && !g_bl && !b && now-t0>1000u) { wk=1; wk_ms=now; } else if(now-t0>8000u) wk=2; }
       if(wk==1){ if(now-wk_ms<150u) b|=BTN_C; else wk=2; } }
     periph_buttons(e,(uint8_t)(b&7));
+    if(b) g_btn_ms=now;
     /* v0.9.2: wheel within the first 3 s after resuming a saved session: throw the session away
      * and go back to the Paradise. The next start begins fresh from the Tamagotchi's own save. */
     { static u32 t_start; if(!t_start) t_start=now?now:1;
-      if(g_restored && (b&BTN_WHEEL) && now-t_start<3000u){ st_drop(&g_sc); leave_nosave(); } }
+      if(g_restored && (b&BTN_WHEEL) && now-t_start<3000u){
+        /* 1.6.6: ask first (a press meant for the speed display lost the game) */
+        if(hw_ask_reset((int)(g_cfg.flags & 1u))){ st_drop(&g_sc); leave_nosave(); }
+        g_restored=0; b=0; e->lcd.dx0=0; e->lcd.dy0=0; e->lcd.dx1=127; e->lcd.dy1=59; LCD_ALL(); } }
     #ifndef NOWHEEL
     if(b&BTN_WHEEL){ if(!wheel_ms) wheel_ms=now?now:1; else if(now-wheel_ms>1500) leave(); }
 #if defined(CLEAN) && !defined(MESS)

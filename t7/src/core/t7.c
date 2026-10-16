@@ -125,6 +125,15 @@ uint8_t T7_HOT t7_step_one(void)
 #endif
 }
 
+
+/* Tamagotchi Friends: its frame tick comes from IRQ 3, every 122nd one (counter $55). Instead of
+ * 7.3 kHz of interrupts: at the video rate set the counter just below and fire IRQ 3 once. */
+static inline void t7_friends_tick(void)
+{
+  if (!g_t7_static_off) return;
+  if (g_wram[0x55] < 0x79) g_wram[0x55] = 0x79;
+  t7_fire_irq(3);
+}
 static uint32_t s_tbh_accumulator = 0;
 #define TBH_RATE (T7_CLOCK_RATE / 2)
 #ifdef T7_VIDEO_CYCLES
@@ -164,6 +173,7 @@ uint32_t T7_HOT t7_step_cycles(uint32_t target_cycles)
       s_video_accumulator -= VIDEO_PERIOD_CYCLES;
       t7_fire_irq(10);
       t7_fire_nmi(6);
+      t7_friends_tick();
     }
     s_tbh_accumulator += did;
     if (s_tbh_accumulator >= TBH_RATE) {
@@ -201,6 +211,7 @@ uint32_t T7_HOT t7_step_cycles(uint32_t target_cycles)
   for (int chunk = 0; chunk < VIDEO_FIRES_PER_FRAME; chunk++) {
     t7_fire_irq(10);
     t7_fire_nmi(6);
+    t7_friends_tick();
 
     uint32_t chunk_target = (chunk == VIDEO_FIRES_PER_FRAME - 1)
                               ? target_cycles   // last chunk takes the rest

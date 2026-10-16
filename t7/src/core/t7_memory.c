@@ -178,6 +178,15 @@ volatile uint32_t t7_snd_write_seq  = 0;
 volatile uint8_t  t7_snd_last_addr  = 0;
 volatile uint8_t  t7_snd_last_val   = 0;
 
+uint32_t g_t7_static_off = 0;
+uint8_t  g_t7_banks = 20;
+/* Tamagotchi Friends: the ROM file holds 16 KB more at the start. Bank 0 begins at 0x4000 (static
+ * ROM, then its code linked to $8000), bank n >= 1 at (n + 1) * 32 KB. Tama-Go: bank n at n * 32 KB. */
+static inline size_t t7_bank_off(uint8_t b) { size_t o = (size_t)b * T7_ROM_BANK_SIZE; return g_t7_static_off ? (b ? o + T7_ROM_BANK_SIZE : 0x4000) : o; }
+
+int      t7_is_friends(void)   { return g_t7_static_off != 0; }
+uint16_t t7_rtc_sec_addr(void) { return g_t7_static_off ? 0x0136 : 0x0396; }   /* second of the game clock */
+
 // Rebuild the entire page table. Called on init and on every ROM bank switch.
 static void rebuild_page_table(void)
 {
@@ -200,7 +209,7 @@ static void rebuild_page_table(void)
   // $4000-$BFFF — Banked ROM (zero-copy aus dem gemappten Flash falls verfuegbar).
   {
     const uint8_t *bankbase = g_rom_mapped
-        ? (g_rom_mapped + (size_t)g_rom_bank_id * T7_ROM_BANK_SIZE)
+        ? (g_rom_mapped + t7_bank_off(g_rom_bank_id))
         : g_rom_bank_buf;
     for (int p = 0x40; p < 0xC0; p++) {
       t7_read_page[p]  = (uint8_t *)(bankbase + (p - 0x40) * 0x100);
@@ -215,6 +224,7 @@ static void rebuild_page_table(void)
 }
 
 // ----- ROM banking --------------------------------------------------------
+
 
 bool t7_load_static_rom(void)
 {
@@ -231,7 +241,15 @@ bool t7_load_static_rom(void)
     return false;
   }
 
-  size_t n = resource_load_byte_range(h, 0, g_static_rom,
+  /* Tama-Go: static ROM at 0, 20 banks. Tamagotchi Friends: its reset vector is not at
+   * 0x3FFC but at 0x7FFC, the static ROM is at 0x4000, 23 banks (see t7_bank_off). */
+  g_t7_static_off = 0; g_t7_banks = 20;
+  if (total >= 0x8000) {
+    uint8_t v[4];
+    resource_load_byte_range(h, 0x3FFC, v, 2); resource_load_byte_range(h, 0x7FFC, v + 2, 2);
+    if (!(v[0] | v[1]) && (v[2] | v[3])) { g_t7_static_off = 0x4000; g_t7_banks = 23; }
+  }
+  size_t n = resource_load_byte_range(h, g_t7_static_off, g_static_rom,
                                       T7_STATIC_ROM_SIZE);
   if (n != T7_STATIC_ROM_SIZE) {
     APP_LOG(APP_LOG_LEVEL_ERROR,
@@ -266,7 +284,7 @@ bool t7_load_static_rom(void)
 
 void T7_HOT t7_set_rom_bank(uint8_t bank)
 {
-  uint8_t actual = bank % 20;
+  uint8_t actual = bank % g_t7_banks;
   if (actual == g_rom_bank_id && g_rom_loaded) return;
   if (!g_rom_loaded) return;
   g_rom_bank_id = actual;
@@ -274,14 +292,14 @@ void T7_HOT t7_set_rom_bank(uint8_t bank)
 
   if (g_rom_mapped) {
     // Zero-copy: Page-Table-Zeiger auf die neue Bank im Flash umsetzen.
-    const uint8_t *bankbase = g_rom_mapped + (size_t)actual * T7_ROM_BANK_SIZE;
+    const uint8_t *bankbase = g_rom_mapped + t7_bank_off(actual);
     for (int p = 0x40; p < 0xC0; p++)
       t7_read_page[p] = (uint8_t *)(bankbase + (p - 0x40) * 0x100);
     return;
   }
 
   // Fallback (Host): Bank in den RAM-Puffer kopieren.
-  size_t offset = (size_t)actual * T7_ROM_BANK_SIZE;
+  size_t offset = t7_bank_off(actual);
   size_t n = resource_load_byte_range(g_rom_resource, offset,
                                       g_rom_bank_buf, T7_ROM_BANK_SIZE);
   if (n != T7_ROM_BANK_SIZE)

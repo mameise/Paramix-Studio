@@ -23,7 +23,7 @@ const up = E.emuUpgrade(built, app);
 ok(!!up, 'new program recognised');
 ok(E.emuUpgrade(up, app) === null, 'second time: nothing to do');
 ok(up.subarray(0xA0148, 0xA0140 + 152).every((v, i) => v === built[0xA0148 + i]), 'firmware layout taken over');
-ok(u32(up, 0xA0144) === 3 && u32(up, 0xA0140 + 152) === 0xD40000, 'settings version 3, spare end');
+ok(u32(up, 0xA0144) === 4 && u32(up, 0xA0140 + 152) === 0xD40000 && u32(up, 0xA0140 + 156) === 2, 'settings version 4, spare end, clock from the Paradise');
 ok(up.subarray(0xA0000, 0xA0140).every((v, i) => v === app[i]), 'program is the new one');
 ok(up.subarray(gOff, 0xD40000).every((v, i) => v === built[gOff + i]), 'packed firmware untouched');
 // keep plan against the device

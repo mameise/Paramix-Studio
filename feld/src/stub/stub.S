@@ -64,6 +64,14 @@ start:
   b.w realstart
   .align 2
 app_src:  .word APP_SRC
+@ 1.6.0: start the program image at r0 (XIP address), fixed at +0x0C. The menu starts its
+@ other programs (more emulators) through here.
+  .global start_src
+  .thumb_func
+start_src:
+  cpsid i
+  mov r4, r0
+  b.w realstart
 #else
   b.w realstart
   .ltorg

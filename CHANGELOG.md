@@ -2,6 +2,96 @@
 
 Versions are listed newest first.
 
+## 1.6.6 (2026-10-16)
+
+- T7Emu: new light settings. "Dim after" (10 s to 10 min or never), "Dim to" (1 % to 50 %, only when dimming) and "Screen off after" (never or a time, always longer than the dim time). Dimmed means darker colours (the backlight PWM had no effect on the device).
+- T7Emu: when the pet calls, the screen comes on (or bright again), as after a key.
+- T7Emu: the Tamagotchi Friends gets its own icons around the screen.
+- T7Emu, T18Emu, TamaEmu: the wheel within the first 3 seconds after a resumed start now asks first ("Reset?", A yes, B no). A press meant for the menu no longer throws the game away.
+- TamaEmu: the Tama's own save is also written while the screen stays on: after 20 seconds without a key, at the latest 10 minutes after the first change. Before, with "always on", it could wait until leaving, and a power loss lost it.
+- TamaEmu: saves of the Android emulator with download content (more than 80 blocks of 64 KB, P's) did not fit and could not be used. The sparsest blocks now go into spare pages behind the firmware, as the device does with blocks it writes; exporting gives the same .sav back.
+- TamaEmu: download content (.jpg) for the P's, 4U+ and 4U as well, not only the iD L (stores and routing from tamaemu's dlc tool).
+- TamaEmu: the reset question follows the language of the Studio.
+- T18Emu (experimental) a lot faster: the most read firmware blocks lie in a part of the Paradise flash that is read through the cache; blocks that are empty in the firmware are answered at once; a bigger buffer for translated code; the idle check runs from the fast memory. The screen only shows finished pictures. The last written part of the firmware's own save is written back after 3 seconds (before only when leaving).
+- T18Emu: the speed display and the code screens of the test builds are gone.
+- More emulators (started from the menu): they never started on the device and went back to the Paradise. The cached flash window shows only 1 MB, the further programs lie higher up. The launcher now copies them from the uncached flash (stub_feld_tpl.bin rebuilt).
+
+## 1.6.5 (2026-10-15)
+
+- T18Emu: 1.6.4 hung on the device at the black start screen. At the start every firmware block is now checked: only where the cached flash window shows the same as the flash itself is it read through the cache, otherwise uncached as before.
+- T18Emu: the speed display (wheel short) shows a second line "C" with the number of firmware blocks read through the cache.
+
+## 1.6.4 (2026-10-15)
+
+- T18Emu faster: the firmware's flash (pictures, code) is now read through the cached flash window instead of the uncached one (about 1.5 us per access on the device; in the simulation the start alone made about 300,000 such accesses per second). Blocks the firmware writes to are still read uncached. Switch T18_FLASH_UNCACHED for the old way.
+- T18Emu: the picture goes to the screen at the moment the firmware has finished it. Before it was read later, while the next one was being drawn: built up from the top, black behind texts. Switch T18_PRESENT_LATE for the old way.
+
+## 1.6.3 (2026-10-15)
+
+- T18Emu: the next red screen E1 (UNALIGNED). The translator's helper for memory accesses read its two data words after the call with one double load (LDRD); they are only halfword aligned, and the Paradise's processor faults there (the PC emulator did not). Now read as halfwords.
+- Device simulation: ALIGNCHK=1 reports every LDRD/STRD/LDM/STM/PUSH/POP with an address that is not a multiple of 4.
+
+## 1.6.2 (2026-10-15)
+
+- T18Emu: cause of the red screen E1 found. On the device a halfword write into the PRAM fills the other half of its word with the halfword written just before (somewhere else). The translator patches single halfwords, so the first translated block got a broken instruction. The translated code is now written as whole words (read, change one half, write the word). Build switch T18_PRAM_HALF for the old way.
+- Device simulation (t18/test/devt18.py): PRAMQUIRK=1 behaves like that PRAM; with it the old build stops exactly like on the device, the new one runs. IRQ=1 takes the SysTick as a real exception.
+
+## 1.6.1 (2026-10-15)
+
+- Saves of the further emulators: in the Save tab a choice "T7Emu" (main emulator or one of the further ones) appears; backing up and taking over a save.bin works for each. "Back up save" on the device also fetches the save of every further T7Emu of the loaded ROM.
+- "Keep saves" with a save.bin taken over for a further emulator: its new pet stays, its settings come from the device.
+
+## 1.6.0 (2026-10-15)
+
+- More emulators in one ROM: in the Emulator tab "Add another emulator" takes one more Tama-Go or Friends ROM (up to 6). Each runs its own T7Emu with its own save and is started from the menu (A and C), under "PROGRAMS". The menu must be on (field switch or items).
+- The menu (settings block version 5) lists the programs; the launcher has a second entry for that. "Keep saves" keeps the save of each further emulator while its ROM stays the same.
+- The flash bar counts the further emulators.
+
+## 1.5.6 (2026-10-15)
+
+- Writing to the device with "Keep saves" after T18Emu: the old firmware blocks of T18Emu are no longer kept as if they were a save of the Paradise. They are freed (the new ROM's content goes there), and the Studio no longer reads about 1 MB from the device before writing.
+- Writing: if the device does not answer right before writing, the Studio asks again (with a ping in between) instead of stopping at once; if it still does not answer, a clear message says that nothing was written.
+- Web Serial: a buffer overrun, framing or parity error no longer ends the reading for good; the Studio takes a new reader.
+
+## 1.5.5 (2026-10-15)
+
+- T18Emu: the red screen E1 shows 16 values in two columns (fault frame, stack, fault status, start stage, translator).
+- T18Emu: self test at the start: code written into the PRAM where code already ran must run as written, otherwise red screen E6.
+- T18Emu: holding B while T18Emu starts runs the firmware without the translator (slower, for tests).
+
+## 1.5.4 (2026-10-15)
+
+- T18Emu: red screen E1 at the start on the device. The translated code is now written into the PRAM by a small routine running from the SRAM (the way TamaEmu does it on the device) instead of from the flash window.
+- T18Emu: the red screen E1 shows more: PC, LR, fault status, fault address, how far the start got and the firmware's PC.
+
+## 1.5.3 (2026-10-15)
+
+- T7Emu runs the Tamagotchi Friends too (test): choose its ROM (768 KB) in the Emulator tab instead of the Tama-Go ROM. Same settings, saves and clock as with the Tama-Go. There are no figures for it.
+- T7Emu core: the Friends ROM has 16 KB more in front and its bank 0 sits differently; its frame tick comes from another interrupt. Both are recognised from the ROM, the Tama-Go runs as before.
+
+## 1.5.2 (2026-10-15)
+
+- T7Emu: the full figure dumps (4 MB, with the extra games) can be added. The Studio keeps one copy of the 1 MB figure (the dump holds it four times), so it takes about 700 KB. In the menu it shows as "... Full".
+- The hint on the number of figures is gone.
+- New "Help" button at the top: steps, buttons on the Paradise, clock, saves. Opens and closes on a click.
+- The repository allows t7/t7.bin, t18/t18.bin and t18/t18x.bin (.gitignore).
+
+## 1.5.1 (2026-10-15)
+
+- T18Emu runs on the device. 1.5.0 hung with a black screen: the RAM at 0x20000000, where it kept its data and the translated code, has only 4 KB on the Paradise. Now the hot code and the translated code are in the PRAM, the rest of the code runs from the flash, the data is in a part of the SRAM the firmware does not use.
+- T18Emu: a red screen with a code instead of hanging when something goes wrong; the wheel goes back to the Paradise.
+- T18Emu: the firmware is placed from the top of the flash down, so the field switch of the menu now fits next to it (Land, Sky, Water).
+- All emulators: new switch "Take the clock from the Paradise at the start" (tab Emulator, on by default). At every start the emulator sets its clock to the Paradise's time, nothing is caught up.
+- Writing to the device with "Keep saves": if the device has an emulator whose save cannot be kept (another emulator, or a newly chosen firmware), the Studio says so before writing, so it can be backed up first.
+- README: how the emulators behave when leaving and coming back, the clock, the shortcuts.
+
+## 1.5.0 (2026-10-15)
+
+- New emulator T18Emu (test version) for the Tamagotchi Meets and On: choose the TG18 firmware (8 MB) in the Emulator tab. The Studio places its used blocks into free blocks of the Paradise flash and keeps spares for the firmware's own save data.
+- On the device: hold A and C on the home screen to start, hold the wheel to go back (saves). A short press on the wheel shows the speed. The firmware runs through a translator from ARM to Cortex-M3 code; loops that only wait are skipped. The pet screen may still run a little slower than on the toy.
+- "Keep saves" keeps the T18Emu save as long as the firmware is the same.
+- The menu on A and C shows T18EMU.
+
 ## 1.4.2 (2026-10-15)
 
 - T7Emu: on a new install the screen starts pixel exact and without the pixel look.

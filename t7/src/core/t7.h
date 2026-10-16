@@ -79,6 +79,9 @@ typedef struct t7_system t7_system_t;
 // Initialize the emulator. Must be called once at startup. Returns false on
 // failure (e.g. ROM resource missing).
 bool t7_init(void);
+/* After t7_init: 1 = Tamagotchi Friends ROM (768 KB), 0 = Tama-Go. */
+int      t7_is_friends(void);
+uint16_t t7_rtc_sec_addr(void);
 
 // Reset the CPU (jumps to the reset vector). Memory and EEPROM are preserved.
 void t7_reset(void);

@@ -174,24 +174,25 @@ async function emuGuestAsync(read, cfg, progress) {
 const T7_EE = 0xC1000, T7_EE_MAGIC = 0x45453754, T7_SAVE_LEN = 4098;
 function t7Sum(b, o) { let s = 0x7E7E; for (let i = 0; i < 4096; i++) s = (Math.imul(s, 31) + b[o + i]) >>> 0; return s; }
 function t7Slot(img, at) { if (u32(img, at) !== T7_EE_MAGIC || u32(img, at + 12) !== t7Sum(img, at + 0x1000)) return null; return { seq: u32(img, at + 4), have: u32(img, at + 8) & 0xFFFF, at }; }
-function t7Newest(img) { const a = t7Slot(img, T7_EE), b = t7Slot(img, T7_EE + 0x2000); if (a && b) return ((a.seq - b.seq) | 0) > 0 ? a : b; return a || b; }
-/** save.bin of the T7Emu app from a 16 MB image (null: the pet has no save yet). */
-function t7SaveOut(img) {
-  const s = t7Newest(img); if (!s) return null;
+function t7Newest(img, ee = T7_EE) { const a = t7Slot(img, ee), b = t7Slot(img, ee + 0x2000); if (a && b) return ((a.seq - b.seq) | 0) > 0 ? a : b; return a || b; }
+/** save.bin of the T7Emu app from a 16 MB image (null: the pet has no save yet). base: save area of
+ * the T7Emu (0x0C0000, a further one from 1.6.0 its own). */
+function t7SaveOut(img, base = 0xC0000) {
+  const s = t7Newest(img, base + 0x1000); if (!s) return null;
   const out = new Uint8Array(T7_SAVE_LEN); out[0] = s.have & 255; out[1] = s.have >> 8;
   out.set(img.subarray(s.at + 0x1000, s.at + 0x2000), 2);
   return out;
 }
 function t7SaveCheck(b) { return b && b.length === T7_SAVE_LEN; }
 /** save.bin into the image: into the older slot, as the device does. Returns a new image. */
-function t7SaveIn(img, save) {
+function t7SaveIn(img, save, base = 0xC0000) {
   if (!t7SaveCheck(save)) throw new Error('not a T7Emu save (save.bin, 4098 bytes)');
-  const out = new Uint8Array(img), cur = t7Newest(img);
-  const at = cur && cur.at === T7_EE ? T7_EE + 0x2000 : T7_EE;
+  const ee = base + 0x1000, out = new Uint8Array(img), cur = t7Newest(img, ee);
+  const at = cur && cur.at === ee ? ee + 0x2000 : ee;
   out.fill(0xFF, at, at + 0x2000);
   out.set(save.subarray(2), at + 0x1000);
   w32(out, at, T7_EE_MAGIC); w32(out, at + 4, cur ? (cur.seq + 1) >>> 0 : 1); w32(out, at + 8, save[0] | (save[1] << 8)); w32(out, at + 12, t7Sum(out, at + 0x1000));
-  out.fill(0xFF, 0xC0000, 0xC1000);            // the running session belongs to the old pet
+  out.fill(0xFF, base, base + 0x1000);          // the running session belongs to the old pet
   return out;
 }
 

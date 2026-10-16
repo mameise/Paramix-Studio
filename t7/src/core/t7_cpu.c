@@ -537,7 +537,7 @@ uint8_t t7_cpu_step(void)
   // IR-Bridge-Hooks: nur in Bank 3 (IR/Verbindung) ueberhaupt relevant. EIN
   // Bank-Check vorne -> im Normalbetrieb (andere Bank) genau EIN Vergleich pro
   // Instruktion statt sechs. Hot path (~4M Instr/s) -> spart spuerbar Emu-Zeit.
-  if (g_rom_bank_id == 3) {
+  if (g_rom_bank_id == 3 && !g_t7_static_off) {   /* Tama-Go only */
     if (CPU.pc == 0x60C4) {
       // $60C4 = IR-Empfangsanfrage (JSR $72D0). Wird nur im Verbindungsmenue/
       // STAND BY gepollt -> Zaehler fuer Auto-Aktivierung der Bridge.

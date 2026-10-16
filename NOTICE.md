@@ -31,6 +31,16 @@ copyright and licenses stay in force; the files keep their original notices.
   and save. The 20x20 icons were drawn by mameise for the T7Emu ESP32 version.
 - No ROM of the Tama-Go or of a figure is in this repository.
 
+## T18Emu (`t18/`)
+
+- The ARM7TDMI core and the TG18 SoC model in `t18/src/core` come from the
+  T18Emu app by mameise.
+- Changes for this project: a slim core for the Paradise, idle round skipping,
+  the translator from ARM and Thumb to Thumb-2 (`t18jit.c`, `t2enc.h`) and the
+  Paradise host (`t18/src/app`). It uses the Paradise hardware layer of TamaEmu
+  (`emu/src/emu`). Same license as the rest of this repository.
+- No firmware of the Meets or On is in this repository.
+
 ## DOOM (`doom/`)
 
 - **DOOM** source code by id Software, released under the GNU GPL.

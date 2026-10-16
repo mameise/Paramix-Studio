@@ -4,6 +4,7 @@
  * Author: mameise */
 #include "../../../emu/src/emu/hw.h"
 #include "../../../emu/src/emu/flash.h"
+#include "../../../emu/src/emu/paraclock.h"
 #include "../core/t7.h"
 #include "../core/t7_sound.h"
 #include "t7app.h"
@@ -97,9 +98,13 @@ extern u32 __bss_start, __bss_end;
 void Reset_Handler(void)
 {
   __asm__ volatile("cpsid i");
+  /* the Paradise's clock, before its SRAM is overwritten (the stack is in the top 4 KB) */
+  uint32_t cnt = REG(0x45000304u), para = para_clock(cnt, 0, 0x1F000u, 0, 0);
+  __asm__ volatile("" ::: "memory");
   for (u32 *p = &__bss_start; p < &__bss_end; p++) *p = 0;
   { extern u32 __data_start, __data_end, __data_load;
     const u32 *src = &__data_load; for (u32 *p = &__data_start; p < &__data_end; p++) *p = *src++; }
+  g_para_time = para; g_para_cnt = cnt;
   hw_init();
   g_rom_off = g_cfg.rom_off; g_rom_size = g_cfg.rom_len;
   XIP_BASE_REG = 0x60000000u | g_rom_off;     /* ROM in the cached window from 0x10000000 */
@@ -122,12 +127,12 @@ void Reset_Handler(void)
     for (u32 i = 0; i < 0x1000u; i++) g_sec[i] = s[i]; }
   if (app_load(g_sec, sizeof g_sec, &saved)) {
     restored = 1;
-    app_catchup(plat_rtc(), prog);
+    if (!app_clock_hard(plat_rtc())) app_catchup(plat_rtc(), prog);
   }
   app_render(1);
 
   uint32_t emu_ms = g_ms, last_draw = g_ms, last_clock = g_ms, last_fill = g_ms, t_start = g_ms, wheel_ms = 0, last_in = g_ms, quiet_since = g_ms;
-  int bl = 1, lock = 1;
+  int bl = 1, lock = 1, dimmed = 0;
   for (;;) {
     hw_wdt_feed();
     uint32_t now = g_ms;
@@ -135,11 +140,32 @@ void Reset_Handler(void)
     if (lock) { if (b) b = 0; else lock = 0; }         /* wait until A+C from the start are released */
     /* wheel: within 3 s after resuming = drop the session; long = leave; short = menu */
     if (b & BTN_WHEEL) {
-      if (restored && now - t_start < 3000u) { drop_session(); leave(0); }
+      if (restored && now - t_start < 3000u) {
+        /* 1.6.6: ask first (a press meant for the menu threw the session away) */
+        app_text_screen(app_lang() ? "Reset?" : "Zuruecksetzen?", app_lang() ? "A yes   B no" : "A ja   B nein", 0, 0);
+        while (hw_buttons()) hw_wdt_feed();
+        u32 k; do { hw_wdt_feed(); k = hw_buttons(); } while (!(k & (BTN_A | BTN_B | BTN_WHEEL)));
+        while (hw_buttons()) hw_wdt_feed();
+        if (k & BTN_A) { drop_session(); leave(0); }
+        restored = 0; wheel_ms = 0; last_in = g_ms; app_render(1); continue;
+      }
       if (!wheel_ms) wheel_ms = now ? now : 1;
       else if (now - wheel_ms > 1500u) leave(1);
     } else if (wheel_ms) { if (now - wheel_ms < 1000u && bl) app_wheel_short(); wheel_ms = 0; }
-    if (b) { last_in = now; if (!bl) { bl = 1; hw_backlight(1); app_render(1); while (hw_buttons()) hw_wdt_feed(); continue; } }
+    if (b) { last_in = now;
+      if (!bl) { bl = 1; hw_backlight(1); app_render(1); while (hw_buttons()) hw_wdt_feed(); continue; }
+      if (dimmed) { dimmed = 0;
+        app_dim(0);
+        while (hw_buttons()) hw_wdt_feed(); continue; }   /* the key only wakes */
+    }
+#ifdef T7_BELL_WAKE
+    /* test9: the pet calls (bell icon comes on): screen on, as after a key */
+    { static int bell0; int bell = app_bell();
+      if (bell && !bell0) { last_in = now;
+        if (!bl) { bl = 1; hw_backlight(1); app_render(1); }
+        if (dimmed) { dimmed = 0; app_dim(0); } }
+      bell0 = bell; }
+#endif
     t7_set_buttons((uint8_t)app_keys(b, now));
     app_tick(now);
     /* emulate the time that passed, in steps of 2 ms (keys and sound stay fine-grained) */
@@ -156,8 +182,13 @@ void Reset_Handler(void)
     if (now - last_draw >= 33u) { last_draw = now; if (bl) app_render(0); }
     if (now - last_fill >= 500u) { last_fill = now; app_setup_fill(plat_rtc()); }
     if (now - last_clock >= 2000u) { last_clock = now; app_clock(plat_rtc(), !restored && now - t_start < 90000u); }
-    /* backlight off after the time chosen in the menu without a key (the game runs on) */
-    if (bl && app_light_ms() && now - last_in > app_light_ms() && !app_menu_open()) { bl = 0; hw_backlight(0); }
+    /* 1.6.6: dimmed after the dim time, dark after the off time (both from the menu, without a key; the game runs on) */
+    if (bl && !app_menu_open()) {
+      uint32_t idle = now - last_in;
+      if (app_off_ms() && idle > app_off_ms()) { bl = 0; if (dimmed) app_dim(0); dimmed = 0; hw_backlight(0); }
+      else if (!dimmed && app_dim_ms() && idle > app_dim_ms()) { dimmed = 1;
+        app_dim(app_dim_pct()); }                                         /* darker colours: the backlight PWM had no effect */
+    }
     /* the pet's save: write it once things are quiet (1 minute after the last key) */
     if (b) quiet_since = now;
     if (now - quiet_since > 60000u) { t7_eeprom_flush(); if (eeprom_dirty()) { hw_tone(0); eeprom_store(EEPROM, g_sec); } quiet_since = now; }

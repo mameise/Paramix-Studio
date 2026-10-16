@@ -247,6 +247,33 @@ static void rtc_count_second(Emu *e)
     IOB(0x301924) = (v == 0xFF) ? 0 : v;
 }
 
+/* Set the guest clock to local time t (seconds since 1970), e.g. the Paradise's time at the start.
+ * The weekday moves by the days between the old date and the new one. */
+static uint8_t to_bcd(uint32_t v) { return (uint8_t)(((v / 10u) << 4) | (v % 10u)); }
+static uint32_t from_bcd(uint8_t v) { return (uint32_t)(v >> 4) * 10u + (v & 15u); }
+static int32_t days_from(int32_t y, int32_t m, int32_t d)
+{
+    y -= m <= 2; int32_t era = (y >= 0 ? y : y - 399) / 400, yoe = y - era * 400;
+    int32_t doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1, doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + doe - 719468;
+}
+void periph_rtc_set(Emu *e, uint32_t t)
+{
+    if ((IOB(0x301908) & 2) || (IOB(0x30190C) & 1)) return;     /* stopped or being set by the game */
+    uint32_t days = t / 86400u, sod = t % 86400u;
+    uint32_t z = days + 719468u, era = z / 146097u, doe = z - era * 146097u;
+    uint32_t yoe = (doe - doe / 1460u + doe / 36524u - doe / 146096u) / 365u, doy = doe - (365u * yoe + yoe / 4u - yoe / 100u);
+    uint32_t mp = (5u * doy + 2u) / 153u, d = doy - (153u * mp + 2u) / 5u + 1u, m = mp < 10u ? mp + 3u : mp - 9u, y = yoe + era * 400u + (m <= 2u);
+    uint32_t oy = 2000u + from_bcd(IOB(0x301924)), om = from_bcd(IOB(0x301920)), od = from_bcd(IOB(0x30191C)), wd;
+    if (om >= 1u && om <= 12u && od >= 1u && od <= 31u && IOB(0x301928) < 7u) {
+        int32_t diff = (int32_t)days - days_from((int32_t)oy, (int32_t)om, (int32_t)od);
+        wd = (uint32_t)(((int32_t)IOB(0x301928) + diff % 7 + 7) % 7);
+    } else wd = (days + 4u) % 7u;                                   /* 1970-01-01 was a Thursday (0 = Sunday) */
+    IOB(0x301910) = to_bcd(sod % 60u); IOB(0x301914) = to_bcd((sod / 60u) % 60u); IOB(0x301918) = to_bcd(sod / 3600u);
+    IOB(0x30191C) = to_bcd(d); IOB(0x301920) = to_bcd(m); IOB(0x301924) = to_bcd(y % 100u); IOB(0x301928) = (uint8_t)wd;
+    e->rtc_cyc = 0;
+}
+
 /* Advance the guest clock by n seconds (after a pause). */
 void periph_rtc_advance(Emu *e, uint32_t n)
 {

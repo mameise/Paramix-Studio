@@ -36,6 +36,7 @@
 #define F_FIELDS 1u
 #define F_BAG    2u
 
+#define APPS_MAX 6
 typedef struct { u16 off; u8 val; u8 pad; } Patch;
 typedef struct {
   u32 magic, version;
@@ -62,6 +63,11 @@ typedef struct {
   Patch fac_field2[2][4];
   u32 slot_off2, slot_n1;            /* slots slot_n1.. lie at slot_off2 (0 = all at slot_off) */
   u8 six_map[8];                     /* field of (set byte * 4 + field byte), 0xFF = none */
+  /* from version 5 (1.6.0): more programs (each a full PRAM image in the flash, started through the
+   * stub entry at +0x0C), and the name of the stub's own program ("" = by its kind) */
+  char name0[12];
+  u32 napps;
+  struct { u32 src; char name[12]; } apps[APPS_MAX];
 } Cfg;
 
 #ifdef HOST
@@ -70,18 +76,18 @@ typedef struct {
 #define CFG_QUAL const
 #endif
 __attribute__((section(".pmxcfg"), used))
-volatile CFG_QUAL Cfg g_cfg = { FELD_MAGIC, 4, 0x830000u, 0x58000u, 3, 0xD4A000u, 0x1000000u, 0xD49000u, 0xB0000u,
+volatile CFG_QUAL Cfg g_cfg = { FELD_MAGIC, 5, 0x830000u, 0x58000u, 3, 0xD4A000u, 0x1000000u, 0xD49000u, 0xB0000u,
   F_FIELDS|F_BAG, 0x70169E2Cu, 1, 4, 3, {1,2,3,0}, {"LAND","WATER","SKY",""},
   {0x5647u, 0x2BDFu, 0x7E9Fu, 0xFD45u},
   {{8,0x11,0},{16,0xc0,0},{17,0xa8,0},{168,1,0},{576,0x3f,0},{577,0x1f,0},{1856,1,0}},
   {{{4,0x0c,0},{170,2,0},{439,0,0}}, {{4,4,0},{170,1,0},{439,1,0}}, {{4,4,0},{170,1,0},{439,2,0}}},
-  0xb4u, 0x240u, 0x740u, 0, 0, 439u, 0, 0, {0,0}, {"",""}, {0,0}, {{{0,0,0}}}, 0, 0, {0} };
+  0xb4u, 0x240u, 0x740u, 0, 0, 439u, 0, 0, {0,0}, {"",""}, {0,0}, {{{0,0,0}}}, 0, 0, {0}, "", 0, {{0,""}} };
 #define XIP_DEC 0x11000u
 #include <stddef.h>
 _Static_assert(offsetof(Cfg,flags)==36 && offsetof(Cfg,id_c)==40 && offsetof(Cfg,nfields)==48 && offsetof(Cfg,field_name)==68
   && offsetof(Cfg,field_col)==116 && offsetof(Cfg,fac_common)==132 && offsetof(Cfg,fac_field)==196
   && offsetof(Cfg,money_off)==260 && offsetof(Cfg,cat_n)==276 && offsetof(Cfg,field_byte)==280 && offsetof(Cfg,six_off)==288 && offsetof(Cfg,field_name2)==300
-  && offsetof(Cfg,field_col2)==324 && offsetof(Cfg,fac_field2)==332 && offsetof(Cfg,slot_off2)==364 && offsetof(Cfg,six_map)==372 && sizeof(Cfg)==380, "settings block layout");
+  && offsetof(Cfg,field_col2)==324 && offsetof(Cfg,fac_field2)==332 && offsetof(Cfg,slot_off2)==364 && offsetof(Cfg,six_map)==372 && sizeof(Cfg)==492 && offsetof(Cfg,name0)==380 && offsetof(Cfg,napps)==392 && offsetof(Cfg,apps)==396, "settings block layout");
 #define NF_MAX 6u
 
 /* Saved field (header page at the start of its slot). res[0] = POOL_MAGIC (1.2.12): the
@@ -472,16 +478,43 @@ static void app_detect(void){
   if(src<0x10000000u || src>=0x11000000u){ g_app=0; return; }
   u32 off=src-0x10000000u+XIP_DEC;
   u32 m=rd32(off+0x140u);
-  g_app = m==0x43584D50u ? 2u : m==0x37584D50u ? 4u : 3u;
+  g_app = m==0x43584D50u ? 2u : m==0x37584D50u ? 4u : m==0x38584D50u ? 5u : 3u;
   for(u32 i=0x140u;i<0x400u;i+=4u) if(rd32(off+i)==0x434D4450u){ g_app=1u; break; }
 }
-static const char *const g_appname[5]={"","DOOM","TAMAEMU","PROGRAM","T7EMU"};
+static const char *const g_appname[6]={"","DOOM","TAMAEMU","PROGRAM","T7EMU","T18EMU"};
 static void start_app(void){
   rect(0,0,128,128,0); show();
 #ifdef HOST
   host_exit("APP");
 #endif
   ((void(*)(void))(0x10000000u + g_cfg.stub_off - XIP_DEC + 1u))();
+  for(;;){}
+}
+/* All programs: 0 = the stub's own (if any), then the ones of the settings block (version 5) */
+static u32 g_napp, g_appsrc[APPS_MAX+1];
+static char g_appnm[APPS_MAX+1][13];
+static void apps_detect(void){
+  g_napp=0;
+  if(g_app){
+    const volatile char *n=g_cfg.version>=5u && g_cfg.name0[0] ? g_cfg.name0 : g_appname[g_app];
+    for(int k=0;k<12;k++){ g_appnm[0][k]=n[k]; if(!n[k]) break; } g_appnm[0][12]=0;
+    g_appsrc[0]=0; g_napp=1;
+  }
+  /* the stub must have the entry at +0x0C (cpsid i; mov r4, r0) */
+  if(g_cfg.version<5u || rd32(g_cfg.stub_off+0x0Cu)!=0x4604B672u) return;
+  for(u32 i=0;i<g_cfg.napps && i<APPS_MAX;i++){
+    u32 s=g_cfg.apps[i].src; if(s<0x10000000u || s>=0x11000000u) continue;
+    for(int k=0;k<12;k++){ g_appnm[g_napp][k]=g_cfg.apps[i].name[k]; } g_appnm[g_napp][12]=0;
+    g_appsrc[g_napp++]=s;
+  }
+}
+static void start_app_i(u32 i){
+  if(!g_appsrc[i]){ start_app(); return; }
+  rect(0,0,128,128,0); show();
+#ifdef HOST
+  host_exit(g_appnm[i]);
+#endif
+  ((void(*)(u32))(0x10000000u + g_cfg.stub_off - XIP_DEC + 0x0Cu + 1u))(g_appsrc[i]);
   for(;;){}
 }
 
@@ -517,19 +550,47 @@ static int field_confirm(u32 tgt, int has){
   show();
   return yes_no();
 }
+static void big_entry(int y, int sel, const char *name, const char *st, u16 c, u16 stc);
+/* Program list (more than one program). Returns on C unless top. */
+static void apps_menu(int top){
+  u32 n=g_napp, sel=0;
+  for(;;){
+    rect(0,0,128,128,BG);
+    int y0 = n>=4u ? 1 : 12;
+    if(n<4u) ctext(2,"PROGRAMS",WHITE,1);
+    for(u32 i=0;i<n;i++){
+      if(n>4u){
+        int y=2+(int)i*16;
+        if(i==sel){ rect(1,y,127,y+15,ORANGE); rect(2,y+1,126,y+14,BG); }
+        text(5,y+4,g_appnm[i],ORANGE,1);
+        text(123-text_w("START",1),y+4,"START",GREY,1);
+      } else big_entry(y0+(int)i*29, i==sel, g_appnm[i], "START", ORANGE, GREY);
+    }
+    ctext(119,"B OK   C BACK",GREY,1);
+    show(); wait_release();
+    for(;;){
+      int k=input();
+      if(k==1){ sel=(u32)((int)sel + (g_step>0?1:-1) + (int)n) % n; break; }
+      if(k==K_A){ sel=(sel+1u)%n; break; }
+      if(k==K_BACK){ if(top) leave(); return; }
+      if(k==K_OK) start_app_i(sel);
+    }
+  }
+}
 /* Field list. with_app: program as the last entry (when there is no main menu).
  * Returns when C is pressed and there is a main menu. */
 static void field_menu(int with_app, int top){
   int has[NF_MAX]; u32 nf=nfields(); for(u32 i=0;i<nf;i++) has[i]=slot_valid(i);
-  u32 n = nf + (with_app && g_app ? 1u : 0u);
-  u32 sel = (with_app && g_app) ? nf : (u32)g_cur;
+  u32 na = with_app ? (g_napp>1u ? 1u : g_napp) : 0u;
+  u32 n = nf + na;
+  u32 sel = na ? nf : (u32)g_cur;
   for(;;){
     rect(0,0,128,128,BG);
     int y0 = n>=4u ? 1 : 12;
     if(n<4u) ctext(2, top ? "PARAMIX" : "FIELD", WHITE,1);
     for(u32 i=0;i<n;i++){
-      const char *nm = i<nf ? fname(i) : g_appname[g_app];
-      const char *st = i>=nf ? "START" : ((int)i==g_cur) ? "ACTIVE" : has[i] ? "SAVED" : "NEW";
+      const char *nm = i<nf ? fname(i) : g_napp>1u ? "PROGRAMS" : g_appnm[0];
+      const char *st = i>=nf ? (g_napp>1u ? "CHOOSE" : "START") : ((int)i==g_cur) ? "ACTIVE" : has[i] ? "SAVED" : "NEW";
       u16 c = i<nf ? fcol(i) : ORANGE, stc = (i<nf && (int)i==g_cur) ? WHITE : GREY;
       if(n>4u){                       /* six fields: compact rows */
         int y=2+(int)i*16;
@@ -546,7 +607,7 @@ static void field_menu(int with_app, int top){
       if(k==K_A){ sel=(sel+1u)%n; break; }
       if(k==K_BACK){ if(top) leave(); return; }
       if(k==K_OK){
-        if(sel>=nf){ start_app(); }
+        if(sel>=nf){ if(g_napp>1u) apps_menu(0); else start_app_i(0); break; }
         if((int)sel==g_cur){ if(top) leave(); return; }
         if(field_confirm(sel,has[sel])) field_switch(sel,has[sel]);
         break;
@@ -890,8 +951,8 @@ static void main_menu(void){
   u32 kinds[4], n=0;                   /* 0 field, 1 items, 2 Tamapoints, 3 program */
   if(fields) kinds[n++]=0;
   kinds[n++]=1; kinds[n++]=2;
-  if(g_app) kinds[n++]=3;
-  u32 sel = g_app ? n-1u : 0u;
+  if(g_napp) kinds[n++]=3;
+  u32 sel = g_napp ? n-1u : 0u;
   for(;;){
     int ok=set_load()==0;
     rect(0,0,128,128,BG);
@@ -905,7 +966,7 @@ static void main_menu(void){
                   big_entry(y,i==sel,"ITEMS",st,PINK,GREY); } break;
         case 2: if(ok) utoa_(money_get(),st); else { st[0]='-'; st[1]=0; }
                 big_entry(y,i==sel,"POINTS",st,GOLD,GREY); break;
-        default: big_entry(y,i==sel,g_appname[g_app],"START",ORANGE,GREY); break;
+        default: big_entry(y,i==sel,g_napp>1u ? "PROGRAMS" : g_appnm[0],g_napp>1u ? "CHOOSE" : "START",ORANGE,GREY); break;
       }
     }
     ctext(119,"B OK   C BACK",GREY,1);
@@ -916,7 +977,7 @@ static void main_menu(void){
       if(k==K_A){ sel=(sel+1u)%n; break; }
       if(k==K_BACK) leave();
       if(k==K_OK){
-        switch(kinds[sel]){ case 0: field_menu(0,0); break; case 1: items_menu(); break; case 2: points_menu(); break; default: start_app(); }
+        switch(kinds[sel]){ case 0: field_menu(0,0); break; case 1: items_menu(); break; case 2: points_menu(); break; default: if(g_napp>1u) apps_menu(0); else start_app_i(0); }
         break;
       }
     }
@@ -930,6 +991,7 @@ static void run(void){
   clock_start();
 #endif
   app_detect();
+  apps_detect();
   g_cur = field_now();
   int fields = (g_cfg.flags & F_FIELDS) && g_cur>=0 && g_cfg.nfields>=2u;
   /* interrupted switch? */
@@ -946,7 +1008,8 @@ static void run(void){
   }
   if(g_cfg.flags & F_BAG) main_menu();
   if(fields) field_menu(1,1);
-  if(g_app) start_app();
+  if(g_napp>1u) apps_menu(1);
+  if(g_napp) start_app_i(0);
   leave();
 }
 

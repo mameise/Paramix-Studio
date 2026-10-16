@@ -108,8 +108,10 @@ slot.
 
 ### T7Emu
 Tab "Emulator": choose the ROM of the Tama-Go (640 KB) instead of a firmware.
+The ROM of the Tamagotchi Friends (768 KB) works the same way (test version,
+no figures).
 Figure ROMs (the ones that start with AA 55) can be added with "Add figure",
-up to 16, and removed with the cross next to their name. Everything is packed
+also the full figure dumps (4 MB, with the extra games), and removed with the cross next to their name. Everything is packed
 into the ROM on save; you bring your own ROMs.
 
 On the device: hold A and C on the home screen to start, hold the wheel to go
@@ -118,13 +120,74 @@ goes to the next line, B changes it, C goes back or closes. Figure, background
 colour, Tama colour, light and dark grey, screen (Large fills the width, Pixel
 exact keeps every pixel the same size), pixel look, grid, pixel view, icons,
 sound, light, clock and language. The settings stay on the device. When the
-game asks for the time, T7Emu fills it in (the local time written along by the
-Studio, or after a restart the game time from before); birthday and name follow. The game clock follows the Paradise clock; after a pause the missed
-hours pass, up to 30. If T7Emu hangs: start with A and C, release them and
+game asks for the time, T7Emu fills it in (the Paradise's time, or the local
+time written along by the Studio, or after a restart the game time from before);
+birthday and name follow. The game clock follows the Paradise clock (see "How
+the emulators behave"). If T7Emu hangs: start with A and C, release them and
 press the wheel within the first 3 seconds.
 
 Updating: open the ROM in a newer Studio and save it. Written with "Keep
 saves", the Tama-Go keeps its save as long as its ROM is the same.
+
+### More emulators (1.6.0)
+Next to the emulator above, "Add another emulator" (tab Emulator) takes more
+Tama-Go or Friends ROMs, up to six. Each one gets its own copy of T7Emu, its
+own save and its own ROM, placed from the top of the emulator area (0xD40000)
+down: program 64 KB, save 24 KB, then the ROM. They are started from the menu
+(A and C, then "PROGRAMS"), so the field switch or the items must be switched
+on in the Menu tab. Figures only work with the main T7Emu. In the Save tab a
+choice "T7Emu" picks which one a save.bin is backed up from or taken over into. "Keep saves" keeps
+the save of each one as long as its ROM is the same.
+
+### T18Emu (test version)
+Tab "Emulator": choose the firmware of the Tamagotchi Meets or On (TG18, 8 MB)
+instead of a colour Tama firmware. The Studio puts its used 64 KB blocks into
+free blocks of the Paradise flash, from the top down (from 0xF00000, then from
+0xD40000 downwards; empty blocks are left out), plus up to 10 spares for the
+blocks the firmware writes later. The bottom (from 0x830000) stays free, so the
+field switch of the menu fits next to it on Land, Sky and Water. The program
+has two parts: one is loaded into the PRAM, the other runs from the flash
+(0x0F0000).
+
+On the device: hold A and C on the home screen to start, hold the wheel to go
+back (the state is saved). The firmware keeps its own save in its flash as on the toy; the
+first start sets that area up and takes a while. If T18Emu hangs: start with A
+and C, release them, press the wheel within the first 3 seconds and confirm with A; the
+firmware then starts over from its own save ("CONTINUE"). T18Emu is experimental:
+the pet still runs slower than on the toy.
+
+### How the emulators behave (TamaEmu, T7Emu, T18Emu)
+
+Starting and leaving:
+
+| What | TamaEmu | T7Emu | T18Emu |
+| --- | --- | --- | --- |
+| Start | A and C on the home screen | same | same |
+| Wheel long (about 1.5 s) | save the state, back to the Paradise | same | same |
+| Wheel short | nothing | settings menu | nothing |
+| Wheel in the first 3 s after a resumed start | asks first (A yes, B no); yes drops the saved state, back to the Paradise; next start fresh from the Tama's own save | same | same |
+| Autostart on, hold B while the Paradise starts | the Paradise starts instead of the emulator | same | same |
+| Reset button, battery change | with autostart: the emulator starts again | same | same |
+
+Leaving with the wheel saves the whole state (CPU, memory, screen). The next
+start continues exactly there. The Tama's own save (the one the toy keeps in
+its flash or EEPROM) is written by the game itself as on the toy and stays even
+when the state is dropped.
+
+The clock: by default ("Take the clock from the Paradise at the start", tab
+"Emulator") every start sets the emulator's clock to the Paradise's time. The
+time in between is not played through by the emulator: the Tama sees the clock
+jump, as when the toy's clock is set. If the Paradise's time cannot be read
+(for example right after its own first setup) the old way is used. Without
+the tick: TamaEmu moves its clock on by the time the Paradise counted while
+away, T7Emu lets the missed hours pass (up to 30, the pet ages), T18Emu moves
+its clock on like TamaEmu. While running, all three keep their clock on the
+Paradise's seconds counter, also when the emulation falls behind.
+
+Battery: the emulators sleep (WFI) whenever they have caught up with real
+time; waiting loops of the guest firmware are skipped, the screen only gets
+the rows that changed, and the light goes off when the guest switches it off.
+A running pet screen keeps the CPU busy, as on the toy.
 
 ### DOOM
 Tab "DOOM": choose your own `DOOM.WAD` (Ultimate DOOM or the shareware
@@ -217,14 +280,15 @@ Pages, Source "GitHub Actions" publishes the page as a website as well.
 | --- | --- |
 | `src/` | the Studio (HTML, JavaScript) |
 | `emu/` | TamaEmu, the emulator program for the Paradise, with source in `emu/src` |
-| `t7/` | T7Emu, the Tama-Go emulator program for the Paradise, with source in `t7/src` |
+| `t7/` | T7Emu, the Tama-Go and Tamagotchi Friends emulator program for the Paradise, with source in `t7/src` |
+| `t18/` | T18Emu, the Meets/On emulator program for the Paradise, with source in `t18/src` |
 | `doom/` | DOOM for the Paradise and the WAD converter (WebAssembly), with source in `doom/src` |
 | `feld/` | the on-device menu (field switch, items, Tamapoints), with source in `feld/src` |
 | `six/` | helper code for six fields on Tropical/Glacier, with source in `six/src` |
 | `flash/` | the flash app loaded for reading and writing over UART, with source in `flash/src` |
 | `test/` | tests |
 
-Every shipped binary (`emu/emu.bin`, `t7/t7.bin`, `emu/stub_tpl.bin`, `doom/*.bin`,
+Every shipped binary (`emu/emu.bin`, `t7/t7.bin`, `t18/t18.bin`, `emu/stub_tpl.bin`, `doom/*.bin`,
 `doom/mcuwad.wasm`, `feld/*.bin`, `six/six.bin`, `flash/flashapp.bin`) is built from the source
 next to it; the build commands are in the README of each folder.
 

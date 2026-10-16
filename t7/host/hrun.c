@@ -19,7 +19,7 @@ int main(int c, char **v){ size_t n; unsigned char *rom=rd(v[1],&n); host_set_ro
     if(!strcmp(cmd,"p")){ t7_set_buttons(a[0]=='A'?1:a[0]=='B'?2:4); frames(0.2); t7_set_buttons(0); frames(k>2?x:0.8); }
     else if(!strcmp(cmd,"w")) frames(atof(a));
     else if(!strcmp(cmd,"s")) shot(a);
-    else if(!strcmp(cmd,"t")) printf("time %02d:%02d:%02d day %d.%d\n", t7_ram_read(0x306),t7_ram_read(0x307),t7_ram_read(0x396),t7_ram_read(0x305),t7_ram_read(0x304));
+    else if(!strcmp(cmd,"t")) printf("time %02d:%02d:%02d day %d.%d\n", t7_ram_read(0x306),t7_ram_read(0x307),t7_ram_read(t7_rtc_sec_addr()),t7_ram_read(0x305),t7_ram_read(0x304));
     else if(!strcmp(cmd,"poke")){ t7_ram_write((uint16_t)strtol(a,0,16),(uint8_t)x); }
     else if(!strcmp(cmd,"d")){ FILE*o=fopen(a,"wb"); fwrite(g_wram,1,T7_WRAM_SIZE,o); fclose(o); }
     else if(!strcmp(cmd,"q")) break; fflush(stdout); }

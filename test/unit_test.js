@@ -189,6 +189,12 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
   let dup = ''; try { E.dlcAdd(a.guest, r); } catch (e) { dup = e.message; }
   ok(dup, 'dlc duplicate refused');
   ok(E.dlcStores(E.dlcFree(a.guest, 0, 0))[0].slots[0].name === null, 'dlc removed');
+  // 1.6.6: P's (reset vector 0x024FDFE6): its own stores
+  const gp = new Uint8Array(0x800000); gp.fill(0xFF); gp[0x400000] = 0xE6; gp[0x400001] = 0xDF; gp[0x400002] = 0x4F; gp[0x400003] = 0x02;
+  const rp = E.dlcRecord(rec, 'ps'), ap = E.dlcAdd(gp, rp);
+  ok(ap.store.base === 0x5A0000 && E.dlcStores(ap.guest).find((k) => k.kind === 0).slots[0].name === 'cake', 'dlc P\'s: meal into its store at 0x5A0000');
+  const rg = new Uint8Array(rec); rg[0x4E] = 0x94; rg[0x50] = 0x5B; rg[0x51] = 0x01; let sg = 0; for (let i = 0; i < 0xFE; i++) sg += rg[i]; rg[0xFE] = sg >> 8 & 255; rg[0xFF] = sg & 255;
+  ok(E.dlcRoute(E.dlcRecord(rg, 'ps'), 'ps').base === 0x710000 && E.dlcRoute(rg, '4u').base === 0x710000, 'dlc P\'s and 4U: game store');
 }).then(() => {
   console.log(fails ? fails + ' failed' : 'all good');
   process.exit(fails ? 1 : 0);
