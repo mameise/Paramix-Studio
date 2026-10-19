@@ -2,6 +2,9 @@
  * No hardware access here (see main.c); the PC test in host/ uses the same file.
  * Author: mameise */
 #include "t7app.h"
+#ifdef BL_PWM
+void hw_bl_set(unsigned int pct);
+#endif
 #include "../core/t7.h"
 #include "font.h"
 #include "icons.h"
@@ -47,7 +50,11 @@ static uint16_t mix(uint16_t a, uint16_t b, int pa)   /* pa percent of a, rest b
 static const uint16_t PAL_BG[BG_N] = { 0xFFFF, 0xAE66, 0x9DE1, 0xB79A, 0xFD80, 0xB71F, 0x4C67, 0x469A, 0xFF08, 0xFC06, 0xFD99, 0xC51F, 0x0000, 0xF800 };
 static const char *const BG_DE[BG_N] = { "Weiss", "Gruen", "GB-Gruen", "Mint", "Amber", "Blau", "Dunkelgruen", "Tuerkis", "Gelb", "Orange", "Rosa", "Lila", "Schwarz", "Rot" };
 static const char *const BG_EN[BG_N] = { "White", "Green", "GB green", "Mint", "Amber", "Blue", "Dark green", "Turquoise", "Yellow", "Orange", "Pink", "Purple", "Black", "Red" };
+#ifdef BL_PWM
+static const T7Set SET_DEF = { 1, 0, 90, 70, 0, 0, 0, 3, 3, 1, 2, 1, 0xFF, 3, 3, 5 };
+#else
 static const T7Set SET_DEF = { 1, 0, 90, 70, 0, 0, 0, 3, 3, 1, 2, 1, 0xFF, 1, 2, 5 };
+#endif
 T7Set g_set = { 1, 0, 90, 70, 0, 0, 0, 3, 3, 1, 2, 1, 0xFF, 1, 2, 5 };
 static int g_lang;                                /* 0 German, 1 English */
 static int g_dimp;                                /* dimmed: colours at this percent, 0 = normal */
@@ -140,14 +147,19 @@ static void num(char *o, int v, const char *unit)   /* "25%" or "Aus" for 0 */
 }
 /* Menu: page 0 = settings, page 1 = figures */
 static int g_page;
-enum { M_FIG, M_BG, M_INK, M_G1, M_G2, M_SIZE, M_PIX, M_GRID, M_PVIS, M_GHOST, M_SND, M_LIGHT, M_DIM, M_OFF, M_SYNC, M_LANG, M_N };
+enum { M_FIG, M_BG, M_INK, M_G1, M_G2, M_SIZE, M_PIX, M_GRID, M_PVIS, M_GHOST, M_SND, M_BL, M_LIGHT, M_DIM, M_OFF, M_SYNC, M_LANG, M_N };
 static int g_items[M_N], g_nitems;
 #define ROWS 7
 static void menu_items(void)
 {
   g_nitems = 0;
   if (g_cfg->nfig) g_items[g_nitems++] = M_FIG;
-  for (int k = M_BG; k < M_N; k++) if (k != M_DIM || app_dim_ms()) g_items[g_nitems++] = k;   /* dim level only when dimming */
+  for (int k = M_BG; k < M_N; k++) {
+#ifndef BL_PWM
+    if (k == M_BL) continue;
+#endif
+    if (k != M_DIM || app_dim_ms()) g_items[g_nitems++] = k;   /* dim level only when dimming */
+  }
 }
 static const char *onoff(int v) { return v ? tr("Ein", "On") : tr("Aus", "Off"); }
 static void item_text(int it, const char **label, char *val)
@@ -167,6 +179,9 @@ static void item_text(int it, const char **label, char *val)
   case M_PVIS: *label = tr("Pixel-Sicht", "Pixel view"); num(val, g_set.pixvis, "%"); break;
   case M_GHOST: *label = "Icons"; num(val, g_set.ghost, "%"); break;
   case M_SND: *label = tr("Ton", "Sound"); b = onoff(g_set.sound); break;
+#ifdef BL_PWM
+  case M_BL: *label = tr("Licht", "Light"); num(val, app_bl_pct(), "%"); break;
+#endif
   case M_LIGHT: *label = tr("Dimmen nach", "Dim after"); b = g_set.light >= T7_T_N ? never : tt[g_set.light]; break;
   case M_DIM: *label = tr("Dimmen auf", "Dim to"); num(val, app_dim_pct(), "%"); break;
   case M_OFF: *label = tr("Bild aus nach", "Screen off"); b = g_set.r2 ? tt[(g_set.r2 - 1) % T7_T_N] : never; break;
@@ -247,7 +262,12 @@ static void change(int it)
     if (g_set.light < T7_T_N && g_set.r2 && g_set.r2 - 1 <= g_set.light) g_set.r2 = (uint8_t)(g_set.light + 2 <= T7_T_N ? g_set.light + 2 : 0);   /* off stays after dimming */
     menu_items();
     break;
+#ifdef BL_PWM
+  case M_BL: g_set.r1 = (uint8_t)((g_set.r1 & 0x0F) | (((((g_set.r1 >> 4) & 15) + 1) % T7_BL_N) << 4)); hw_bl_set((unsigned int)app_bl_pct()); break;
+  case M_DIM: g_set.r0 = (uint8_t)((g_set.r0 + 1) % T7_DIM_N); break;
+#else
   case M_DIM: g_set.r0 = (uint8_t)((g_set.r0 + 1) % 5); break;
+#endif
   case M_OFF:
     do g_set.r2 = (uint8_t)((g_set.r2 + 1) % (T7_T_N + 1)); while (g_set.r2 && g_set.light < T7_T_N && g_set.r2 - 1 <= g_set.light);
     break;
@@ -286,6 +306,10 @@ int app_keys(uint32_t b, uint32_t now)
 /* dimmed after the light time (screen left on) or normal again */
 void app_dim(int pct)
 {
+#ifdef BL_PWM
+  hw_bl_set(pct ? (unsigned int)pct : (unsigned int)app_bl_pct());   /* 1.6.8: the light, as the Paradise does it, the colours stay */
+  return;
+#endif
   if (pct == g_dimp) return;
   g_dimp = pct; palette();
   for (int i = 0; i < T7_ICON_COUNT; i++) g_icp[i] = 0xFF;
@@ -316,12 +340,18 @@ static void store_load(void)
     g_set.bg = b[4]; g_set.ink = b[5]; g_set.pixel = b[6] & 1; g_set.sound = b[8] & 1; g_set.light = b[9];
     g_set.r0 = 0; g_set.r1 = 0;
   }
-  if ((g_set.r1 & 0x0F) != 2) {                     /* older layouts: what was "light off after" stays */
+  if ((g_set.r1 & 0x0F) != 2 && (g_set.r1 & 0x0F) != 3) {   /* older layouts: what was "light off after" stays */
     uint8_t off;                                     /* index 0..6 (10 s .. 10 min) or 7 never */
     if ((g_set.r1 & 0x0F) == 1) { static const uint8_t m[7] = { 0, 1, 2, 3, 4, 5, 7 }; off = m[g_set.light % 7]; }   /* test builds 1.6.6 */
     else { static const uint8_t m[5] = { 2, 3, 4, 5, 7 }; off = m[g_set.light % 5]; }                                 /* 30 s, 1, 2, 5 min, never */
     g_set.light = T7_T_N; g_set.r0 = 1; g_set.r2 = off >= T7_T_N ? 0 : (uint8_t)(off + 1); g_set.r1 = 2;
   }
+#ifdef BL_PWM
+  if ((g_set.r1 & 0x0F) == 2) {                     /* layout 2: dim 1, 5, 10, 25, 50 %, the light always full */
+    static const uint8_t m[5] = { 0, 3, 4, 6, 9 }; g_set.r0 = m[g_set.r0 % 5]; g_set.r1 = 3;
+  }
+  hw_bl_set((unsigned int)app_bl_pct());
+#endif
   if (r32(b + 32) == CK_MAGIC) { g_ck_cnt = r32(b + 36); g_ck_sod = r32(b + 40); g_ck_md = r32(b + 44); g_ck_have = 1; }
 }
 static int tama_sod(void);
@@ -542,6 +572,11 @@ static int g_fill_seen, g_fill_done;
 void app_setup_fill(uint32_t rtc)
 {
   int h = t7_ram_read(RTC_H);
+  /* 1.6.8: once the game's own setup is through (it asked for the time, now it has one), the Paradise's time
+   * replaces what was typed in (clock from the Paradise) */
+  static int asked, after;
+  if (h == 255) { asked = 1; after = 0; }
+  else if (h <= 23 && asked && ++after >= 4) { asked = 0; after = 0; app_clock_hard(rtc); }
   if (h <= 23) { g_fill_seen = 0; g_fill_done = 0; return; }
   if (h != 255 || !g_set.sync || g_fill_done) return;
   if (++g_fill_seen < 2) return;                 /* seen twice, half a second apart */

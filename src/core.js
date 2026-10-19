@@ -396,6 +396,21 @@ function spriteBlank(orig, opts = {}) {
   const subs = d.subs.map(s => ({ w: s.w, h: s.h, data: new Uint8ClampedArray(s.w * s.h * 4) }));
   return spriteEncode(orig, subs, opts);
 }
+/** Smallest image with the same frame (count, cell size, grid, anchor): 1 bit, all cells share one
+ *  run-length stream. Transparent originals stay transparent, the others become black (launcher ROM, 1.6.8). */
+function spriteTiny(orig) {
+  const h = spriteHeader(orig), n = h.numSprites, npx = h.sw * h.sh;
+  const tr = !!(h.flags & F_TRANSP);
+  const d = rleEncode(new Uint8Array(Math.ceil(npx / 8))).map(x => x ^ 0x53);
+  const palOff = 24, pixOff = palOff + 4, dataOff = pixOff + 8 * n;
+  const len = dataOff + d.length, pos = (len + 3) & ~3;
+  const out = new Uint8Array(pos);
+  writeHeader(out, { dataLength: pos, flags: F_XOR | F_RLE_BYTE | 0x03 | (tr ? F_TRANSP : 0), bpp: 0, numSprites: n, sw: h.sw, sh: h.sh, ox: h.ox, oy: h.oy, iw: h.iw, ih: h.ih, palBpp: 0x11, numPal: 1, transp: 0, palOffset: palOff, pixOffset: pixOff });
+  w16(out, palOff, tr ? 0x07e0 : 0); w16(out, palOff + 2, 0);
+  for (let i = 0; i < n; i++) { w32(out, pixOff + 8 * i, dataOff - pixOff); w32(out, pixOff + 8 * i + 4, d.length); }
+  out.set(d, dataOff);
+  return out;
+}
 /** Encoding options for part k (0..5) of a character group. */
 function partOptions(k, extra = {}) { return Object.assign({ figure: true, keepLength: k === 1 || k === 4 }, extra); }
 
@@ -440,6 +455,36 @@ function findEgg(entries) {
     if (a.sw === 32 && a.sh === 32 && a.numSprites === 5 && b.sw === 64 && b.sh === 64 && b.numSprites === 5) return i;
   }
   return -1;
+}
+
+// ------------------------------------------------------- launcher ROM (1.6.8)
+/*
+ * "Start device only": the Paradise keeps its setup (language, clock, birthday, continue or reset,
+ * planet name), everything else becomes the smallest possible image of the same frame, so the room
+ * goes to the programs. Kept: every image before the first character set (screens, buttons, frames)
+ * and the pictures the setup and its intro showed in the Paradise emulator (Land), found by content in
+ * every edition.
+ */
+const LAUNCH_KEEP_CRC = [0xe73bd469, 0x287aa401, 0xce0a2a87, 0x1d427953, 0x70c4b300, 0x5ebe8cc7, 0x5fe0481b, 0xb5b75196,
+  0x53ff02fb, 0x9e3c2e47, 0x1d2e4d3e, 0x786d7183, 0x7bc20923, 0xc6e5b7b7, 0xf5e876d9, 0x3a8acbb5, 0x615b997e, 0x6c829b75,
+  0xc5f0155f, 0xbff645c6, 0x4efa5d79, 0x5112672d, 0x8178c20b, 0xe56b3533, 0x0d47aefd, 0xa81e4c59, 0xfbaeefa0, 0x73b23e63];
+function launcherKeep(ctx) {
+  const first = ctx.groups.length ? ctx.groups[0] : 0, crcs = new Set(LAUNCH_KEEP_CRC), keep = new Set();
+  for (let i = 0; i < first; i++) keep.add(i);
+  ctx.entries.forEach((e, i) => { if (crcs.has(crc32(e))) keep.add(i); });
+  return keep;
+}
+/** Changed entries for a launcher ROM: Map index -> tiny image (only where it saves room). */
+function launcherChanges(ctx) {
+  const keep = launcherKeep(ctx), out = new Map();
+  ctx.entries.forEach((e, i) => { if (keep.has(i)) return; let t; try { t = spriteTiny(e); } catch (x) { return; } if (t.length < e.length) out.set(i, t); });
+  return out;
+}
+/** Is this ROM already a launcher ROM (most images outside the kept set are tiny)? */
+function isLauncher(ctx) {
+  const keep = launcherKeep(ctx); let n = 0, tiny = 0;
+  ctx.entries.forEach((e, i) => { if (keep.has(i)) return; n++; const h = spriteHeader(e); if (h.bpp === 0 && e.length <= 64 + 8 * h.numSprites) tiny++; });
+  return n > 0 && tiny * 10 >= n * 9;
 }
 
 // ------------------------------------------------------------------ ROM
@@ -565,6 +610,101 @@ function dimLoad(raw) {
   }
   const eggs = sprites.slice(0, 24).filter(s => isSize(s, 32, 40));
   return { chars, eggs };
+}
+
+// ------------------------------------------------------------ TamaSma cards (1.6.8)
+/*
+ * Character cards of the Tamagotchi Smart (1 or 2 MB). Header at 0x10 "BANDAINTPD...TAMASUMA"; at 0x1000 the list
+ * of packs (u16 0x3232, u16 count, then 16 bytes each: offset at +8, size at +16, from 0x1000). Pack 0: data (20
+ * tables, offsets in u16 units), pack 1: pictures (offsets of image sets, sprites, colours, pixels).
+ * Image set: first sprite u16, width and height in sprites u8 u8, first colour / 4 u16. Sprite: pixel index u16,
+ * x and y offset i16 (centre), properties u16 (bits 0-1 bpp 2/4/6/8, 4-5 width 8..64, 6-7 height, 15 four times).
+ * Pixels MSB first, index * sprite bytes. Colours 15 bit, bit 15 = transparent.
+ * Characters (table 11, 96 bytes): id, type (1 egg, 2 baby, 3 child, 4 teen, 5 adult, 6 other), frame group at +28.
+ * Frame groups (table 18): 53 frames of 4 bytes (first layer, count; 0xFFFF = none). Layers (table 15): a mask of
+ * which u16 follow (bit 0 x, 1 y, 2 sub-image, 4, 5, 8 unknown, 9 type, 10 image id). Image ids with bit 15 are
+ * on the card (low byte = image set), others are in the toy (accessories): left out. Type 3 body, 1 face.
+ */
+function smaDetect(raw) { return raw.length >= 0x1100 && String.fromCharCode(...raw.subarray(0x10, 0x1A)) === 'BANDAINTPD' && String.fromCharCode(...raw.subarray(0x20, 0x28)) === 'TAMASUMA'; }
+const SMA_POSES = { idle1: 1, idle2: 2, happy: 3, walk1: 22, walk2: 23, run1: 22, run2: 23, train1: 11, train2: 12, sleep: 1, attack: 11, dodge: 7 };
+function smaLoad(raw) {
+  if (!smaDetect(raw)) throw new Error('no TamaSma card');
+  const d = raw, B = 0x1000, s16 = (o) => { const v = u16(d, o); return v > 32767 ? v - 65536 : v; };
+  if (u16(d, B) !== 0x3232) throw new Error('no pack list');
+  const dp = B + u32(d, B + 8), sp = B + u32(d, B + 24);
+  const to = []; for (let i = 0; i < 20; i++) to.push(dp + u32(d, dp + 4 * i) * 2);
+  const tab = (i) => [to[i], to[i + 1] - to[i]];
+  // pictures
+  const [io, so, po, xo] = [0, 4, 8, 12].map((k) => sp + u32(d, sp + k));
+  const sprites = [];
+  for (let o = so; o + 8 <= po; o += 8) {
+    const pr = u16(d, o + 6), q = pr >> 15, bpp = [2, 4, 6, 8][pr & 3];
+    const w = [8, 16, 32, 64][(pr >> 4) & 3] * (q ? 4 : 1), h = [8, 16, 32, 64][(pr >> 6) & 3] * (q ? 4 : 1);
+    sprites.push({ idx: u16(d, o), ox: s16(o + 2), oy: s16(o + 4), bpp, w, h });
+  }
+  const sets = []; for (let o = io; o + 6 <= so; o += 6) sets.push({ fs: u16(d, o), ws: d[o + 2], hs: d[o + 3], pal: u16(d, o + 4) });
+  const colour = (i) => u16(d, po + 2 * i);
+  const cache = new Map();
+  const subimage = (si, sub) => {
+    const key = si * 4096 + sub; if (cache.has(key)) return cache.get(key);
+    const st = sets[si]; if (!st) return null;
+    const s0 = sprites[st.fs]; if (!s0) return null;
+    const W = st.ws * s0.w, H = st.hs * s0.h, img = emptyImage(W, H), first = st.fs + sub * st.ws * st.hs;
+    for (let r = 0; r < st.hs; r++) for (let c = 0; c < st.ws; c++) {
+      const sp1 = sprites[first + r * st.ws + c]; if (!sp1) return null;
+      const n = sp1.w * sp1.h * sp1.bpp / 8, base = xo + sp1.idx * n;
+      for (let i = 0; i < sp1.w * sp1.h; i++) {
+        const bit = i * sp1.bpp; let v = 0;
+        for (let k = 0; k < sp1.bpp; k++) { const b = bit + k; v = (v << 1) | ((d[base + (b >> 3)] >> (7 - (b & 7))) & 1); }
+        const col = colour(st.pal * 4 + v); if (col >> 15) continue;
+        const o = ((r * sp1.h + ((i / sp1.w) | 0)) * W + c * sp1.w + (i % sp1.w)) * 4;
+        img.data.set([((col >> 10) & 31) << 3, ((col >> 5) & 31) << 3, (col & 31) << 3, 255], o);
+      }
+    }
+    const f = sprites[first], res = { img, ox: f.ox - (s0.w >> 1), oy: f.oy - (s0.h >> 1) };
+    cache.set(key, res); return res;
+  };
+  // frames
+  const [lo, ls] = tab(15), layers = [];
+  for (let i = 0; i + 2 <= ls;) {
+    const m = u16(d, lo + i), L = { x: 0, y: 0, sub: 0, type: 0, img: 0 };
+    for (const [bit, key] of [[0, 'x'], [1, 'y'], [2, 'sub'], [4, ''], [5, ''], [8, ''], [9, 'type'], [10, 'img']]) {
+      if (!(m & (1 << bit))) continue;
+      i += 2; if (key) L[key] = key === 'x' || key === 'y' ? s16(lo + i) : u16(d, lo + i);
+    }
+    layers.push(L); i += 2;
+  }
+  const [fo, fsz] = tab(18), frames = [];
+  for (let k = 0; k + 4 <= fsz; k += 4) { const li = u16(d, fo + k), n = u16(d, fo + k + 2); frames.push(li === 0xFFFF ? null : layers.slice(li, li + n)); }
+  const render = (f) => {
+    const can = emptyImage(128, 128);
+    for (const L of f || []) {
+      if (!(L.img & 0x8000) || (L.type !== 1 && L.type !== 3)) continue;
+      const si = subimage(L.img & 0xFF, L.sub); if (!si) continue;
+      const x0 = 64 + L.x + si.ox, y0 = 100 + L.y + si.oy;
+      for (let y = 0; y < si.img.h; y++) for (let x = 0; x < si.img.w; x++) {
+        const s = (y * si.img.w + x) * 4; if (!si.img.data[s + 3]) continue;
+        const X = x0 + x, Y = y0 + y; if (X < 0 || Y < 0 || X >= 128 || Y >= 128) continue;
+        can.data.set(si.img.data.subarray(s, s + 4), (Y * 128 + X) * 4);
+      }
+    }
+    return can;
+  };
+  // characters
+  const [co, cs] = tab(11), chars = [], eggs = [];
+  for (let k = 0; k + 96 <= cs; k += 96) {
+    const type = u16(d, co + k + 2), grp = u16(d, co + k + 28) & 0xFF, fr = frames.slice(grp * 53, grp * 53 + 53);
+    if (type < 1 || type > 5 || !fr[1]) continue;
+    const imgs = {}; for (const [p, i] of Object.entries(SMA_POSES)) imgs[p] = render(fr[i] || fr[1]);
+    // one box around all poses, so they keep their place to each other
+    let bb = [128, 128, -1, -1];
+    for (const im of Object.values(imgs)) for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) if (im.data[(y * 128 + x) * 4 + 3]) { bb[0] = Math.min(bb[0], x); bb[1] = Math.min(bb[1], y); bb[2] = Math.max(bb[2], x); bb[3] = Math.max(bb[3], y); }
+    if (bb[2] < 0) continue;
+    const f = {}; for (const p in imgs) f[p] = crop(imgs[p], bb[0], bb[1], bb[2] - bb[0] + 1, bb[3] - bb[1] + 1);
+    if (type === 1) { eggs.push(place(f.idle1, 32, 40, 1)); continue; }
+    chars.push({ index: chars.length, name: null, baby: type === 2, stage: type, frames: f });
+  }
+  return { chars, eggs, kind: 'sma' };
 }
 const BODY_POSE_MAP = ['idle1', 'idle2', 'walk1', 'happy', 'idle1', 'walk2', 'idle2', 'idle1', 'happy', 'run1', 'run2', 'attack', 'train1', 'dodge', 'sleep', 'sleep', 'train2', 'dodge', 'idle1', 'idle2'];
 const SMALL_POSE_MAP = ['idle1', 'idle2', 'walk1', 'idle1', 'idle2', 'happy', 'idle1', 'idle2', 'happy', 'idle1', 'walk1', 'walk2', 'attack', 'train1', 'walk1', 'walk2', 'idle1', 'walk1', 'idle2', 'walk2', 'sleep', 'sleep', 'happy', 'happy'];
@@ -754,9 +894,55 @@ function eyeVariants(layer, isBig) {
   return EYE_STEPS.map(st => Array.from({ length: n }, (_, j) => empty.has(j) ? layer.em : (st[isBig ? 0 : 1].has(j) ? layer.lo : layer.lc)));
 }
 const s16v = (v) => (v > 32767 ? v - 65536 : v);
+/* 1.6.8 (EYE_V2): the layer table of the data pack read the way the game reads it. A layer is a mask word, then one
+ * word per set bit (0 x, 1 y, 2 sub-image, 3..8 other, 9 type, 10 picture), the picture comes last. x and y are the
+ * centre of the picture. Frames (table 18) point into it. The old scan took the word after the picture as the start
+ * of its fields, which are those of the next layer (eyes moved the mouth). EYE_V2 = false brings the old way back. */
+const EYE_V2 = true;
+function paraLayers(dp) {
+  try {
+    const u = (o) => dp[o] | (dp[o + 1] << 8), U = (o) => (u(o) | (u(o + 2) << 16)) >>> 0;
+    const to = []; for (let i = 0; i < 20; i++) to.push(U(4 * i) * 2);
+    const lo = to[15], le = to[16], fo = to[18], fe = to[19];
+    if (!(lo < le && le <= dp.length && fo < fe && fe <= dp.length)) return null;
+    const layers = [];
+    for (let i = lo; i + 2 <= le;) {
+      const m = u(i); if (m & 0xF800) return null;
+      const L = { m, x: 0, y: 0, sub: 0, type: 0, img: -1, ox: -1, oy: -1 };
+      for (let b = 0; b <= 10; b++) {
+        if (!(m & (1 << b))) continue; i += 2;
+        if (b === 0) { L.x = s16v(u(i)); L.ox = i; } else if (b === 1) { L.y = s16v(u(i)); L.oy = i; }
+        else if (b === 2) L.sub = u(i); else if (b === 9) L.type = u(i); else if (b === 10) L.img = u(i);
+      }
+      layers.push(L); i += 2;
+    }
+    const frames = [];
+    for (let k = fo; k + 4 <= fe; k += 4) { const li = u(k), n = u(k + 2); if (li !== 0xFFFF && li + n <= layers.length) frames.push(layers.slice(li, li + n)); }
+    return { layers, frames };
+  } catch (e) { return null; }
+}
+/* body and eye layer of every frame showing both (each eye layer once); null when the table cannot be read */
+function eyePairs(dp, bodyId, eyeId) {
+  if (!EYE_V2) return null;
+  const P = paraLayers(dp); if (!P) return null;
+  const out = [], seen = new Set();
+  for (const f of P.frames) {
+    const b = f.find((l) => l.img === bodyId), e = f.find((l) => l.img === eyeId);
+    if (!b || !e || seen.has(e) || e.ox < 0 || e.oy < 0) continue;
+    seen.add(e); out.push({ b, e });
+  }
+  return out;
+}
+function eyeMove(dataPack, bodyId, eyeId, fn) {
+  const pr = eyePairs(dataPack, bodyId, eyeId); if (!pr) return null;
+  const d = dataPack.slice();
+  for (const { b, e } of pr) { const [x, y] = fn(b, e); w16(d, e.ox, x & 0xffff); w16(d, e.oy, y & 0xffff); }
+  return { dataPack: d, count: pr.length };
+}
 /** Hide a character's eye layer on the field: move every eye entry far off screen.
  *  The eye sprite itself stays untouched, so the cell keeps the original eyes with all moods. */
 function hideEyes(dataPack, bodyId, eyeId, far = 2000) {
+  const v2 = eyeMove(dataPack, bodyId, eyeId, (b) => [b.x + far, b.y - far]); if (v2) return v2;
   const d = dataPack.slice(); const n = d.length >> 1; let count = 0;
   const w = (i) => d[2 * i] | (d[2 * i + 1] << 8);
   for (let i = 0; i < n - 12; i++) {
@@ -771,6 +957,8 @@ function hideEyes(dataPack, bodyId, eyeId, far = 2000) {
 }
 /** Place the eye layer of a character at (dx, top) relative to its body in every composite definition. */
 function setEyeOffset(dataPack, bodyId, eyeId, hBody, hEye, dx, top) {
+  /* EYE_V2: same width; centres: eye top = body top + top */
+  const v2 = eyeMove(dataPack, bodyId, eyeId, (b) => [b.x + dx, b.y - (hBody >> 1) + top + (hEye >> 1)]); if (v2) return v2;
   const d = dataPack.slice(); const n = d.length >> 1; let count = 0;
   const w = (i) => d[2 * i] | (d[2 * i + 1] << 8);
   for (let i = 0; i < n - 12; i++) {
@@ -778,6 +966,90 @@ function setEyeOffset(dataPack, bodyId, eyeId, hBody, hEye, dx, top) {
     for (let j = i + 5; j < i + 12; j++) if (w(j) === eyeId && w(j + 1) >= 1000 && w(j + 1) <= 1600) {
       const bx = s16v(w(i + 2)), by = s16v(w(i + 3));
       w16(d, 2 * (j + 2), (bx + dx) & 0xffff); w16(d, 2 * (j + 3), (by + top - (hBody - hEye)) & 0xffff);
+      count++; break;
+    }
+  }
+  return { dataPack: d, count };
+}
+/* 1.6.8: where a character's eye layer sits relative to its body, as most of its composite entries have it ([x, y]
+ * of the top left corners, y counted from the top of the body), or null. */
+/* The first composite entry of a character: sub-images of body and eyes and the eye layer's offset (for a preview) */
+function eyeFirst(dataPack, bodyId, eyeId) {
+  const pr = eyePairs(dataPack, bodyId, eyeId);
+  if (pr) {   /* dx, dy: top left of the eyes inside the body picture (same width; height from the caller) */
+    if (!pr.length) return null;
+    const { b, e } = pr.find((p) => p.e.sub === 0) || pr[0];
+    return { bs: b.sub, es: e.sub, dx: e.x - b.x, dy: e.y - b.y, centred: true };
+  }
+  const d = dataPack, n = d.length >> 1, w = (i) => d[2 * i] | (d[2 * i + 1] << 8);
+  for (let i = 0; i < n - 12; i++) {
+    if (w(i) !== bodyId || w(i + 1) < 1000 || w(i + 1) > 1600 || w(i + 4) > 40) continue;
+    for (let j = i + 5; j < i + 12; j++) if (w(j) === eyeId && w(j + 1) >= 1000 && w(j + 1) <= 1600) return { bs: w(i + 4), es: w(j + 4), dx: s16v(w(j + 2)) - s16v(w(i + 2)), dy: s16v(w(j + 3)) - s16v(w(i + 3)) };
+  }
+  return null;
+}
+/* 1.6.8: one frame of a character for the preview: body sub-image, eyes and mouth (sub-image and centre offset to
+ * the body). Prefers a frame with the eyes open (sub-image 0). */
+function faceFirst(dataPack, bodyId, eyeId, mouthId) {
+  const P = EYE_V2 ? paraLayers(dataPack) : null; if (!P) return null;
+  let best = null;
+  for (const f of P.frames) {
+    const b = f.find((l) => l.img === bodyId), e = f.find((l) => l.img === eyeId); if (!b || !e) continue;
+    const m = f.find((l) => l.img === mouthId), r = { bs: b.sub, eye: { sub: e.sub, dx: e.x - b.x, dy: e.y - b.y }, mouth: m ? { sub: m.sub, dx: m.x - b.x, dy: m.y - b.y } : null };
+    if (!best) best = r;
+    if (e.sub === 0 && m && m.sub === 0) return r;
+    if (e.sub === 0 && m && !best.mouth) best = r;
+  }
+  return best;
+}
+/* 1.6.8: every pose of a character (frames with body and eyes; each pair of eye and mouth layers once): body
+ * sub-image, eyes and mouth with sub-image, centre offset to the body and where their x and y words are (to move
+ * one pose alone). */
+function facePoses(dataPack, bodyId, eyeId, mouthId) {
+  const P = EYE_V2 ? paraLayers(dataPack) : null; if (!P) return [];
+  const out = [], seen = new Set();
+  const part = (l, b) => (l && l.ox >= 0 && l.oy >= 0 ? { sub: l.sub, dx: l.x - b.x, dy: l.y - b.y, ox: l.ox, oy: l.oy } : null);
+  for (const f of P.frames) {
+    const b = f.find((l) => l.img === bodyId), e = f.find((l) => l.img === eyeId); if (!b || !e) continue;
+    const m = f.find((l) => l.img === mouthId), key = e.ox + ':' + (m ? m.ox : -1);
+    if (seen.has(key)) continue; seen.add(key);
+    out.push({ bs: b.sub, eye: part(e, b), mouth: part(m, b) });
+  }
+  return out;
+}
+/* move single layers: list of { ox, oy, d: [dx, dy] } (word positions from facePoses) */
+function layersMove(dataPack, list) {
+  const d = dataPack.slice(), r = (o) => s16v(d[o] | (d[o + 1] << 8));
+  for (const { ox, oy, d: v } of list) { if (ox < 0 || oy < 0) continue; w16(d, ox, (r(ox) + v[0]) & 0xffff); w16(d, oy, (r(oy) + v[1]) & 0xffff); }
+  return d;
+}
+function eyeRelGet(dataPack, bodyId, eyeId, hBody, hEye) {
+  const pr = eyePairs(dataPack, bodyId, eyeId);
+  if (pr) {
+    const seen = new Map();
+    for (const { b, e } of pr) { const k = (e.x - b.x) + ',' + (e.y - b.y + ((hBody - hEye) >> 1)); seen.set(k, (seen.get(k) || 0) + 1); }
+    let best = null, bn = 0; for (const [k, c] of seen) if (c > bn) { bn = c; best = k; }
+    return best ? best.split(',').map(Number) : null;
+  }
+  const d = dataPack, n = d.length >> 1, w = (i) => d[2 * i] | (d[2 * i + 1] << 8), seen = new Map();
+  for (let i = 0; i < n - 12; i++) {
+    if (w(i) !== bodyId || w(i + 1) < 1000 || w(i + 1) > 1600 || w(i + 4) > 40) continue;
+    for (let j = i + 5; j < i + 12; j++) if (w(j) === eyeId && w(j + 1) >= 1000 && w(j + 1) <= 1600) {
+      const k = (s16v(w(j + 2)) - s16v(w(i + 2))) + ',' + (s16v(w(j + 3)) - s16v(w(i + 3)) + hBody - hEye); seen.set(k, (seen.get(k) || 0) + 1); break;
+    }
+  }
+  let best = null, bn = 0; for (const [k, c] of seen) if (c > bn) { bn = c; best = k; }
+  return best ? best.split(',').map(Number) : null;
+}
+/* 1.6.8: move a character's eye layer by (dx, dy) in every composite entry (the animation stays as it is) */
+function shiftEyes(dataPack, bodyId, eyeId, dx, dy) {
+  const v2 = eyeMove(dataPack, bodyId, eyeId, (b, e) => [e.x + dx, e.y + dy]); if (v2) return v2;
+  const d = dataPack.slice(); const n = d.length >> 1; let count = 0;
+  const w = (i) => d[2 * i] | (d[2 * i + 1] << 8);
+  for (let i = 0; i < n - 12; i++) {
+    if (w(i) !== bodyId || w(i + 1) < 1000 || w(i + 1) > 1600 || w(i + 4) > 40) continue;
+    for (let j = i + 5; j < i + 12; j++) if (w(j) === eyeId && w(j + 1) >= 1000 && w(j + 1) <= 1600) {
+      w16(d, 2 * (j + 2), (s16v(w(j + 2)) + dx) & 0xffff); w16(d, 2 * (j + 3), (s16v(w(j + 3)) + dy) & 0xffff);
       count++; break;
     }
   }
@@ -887,10 +1159,74 @@ function fieldSets(ctx) {
   });
 }
 
-root.ParamixCore = {
+
+// ------------------------------------------------------------ texts (1.6.8)
+/*
+ * The third file of the asset archive is an ARC2 with one text table per language (JP, EN, FR, DE, PT, ES, IT and
+ * two Chinese ones). A table: u16 offsets (in u16 units from the table start; the first one is the number of
+ * entries), then the strings, u16 glyph codes ending in 0. Names (Tamas, items, fields) are entries of it. A changed
+ * name goes into every table with Latin letters; the strings are laid out anew, so a name may be longer.
+ */
+const TXT_ENC = { ' ': 305, '&': 375, "'": 376, '.': 381, '!': 370, '?': 388, '/': 382 };
+for (let i = 0; i < 26; i++) TXT_ENC[String.fromCharCode(65 + i)] = 318 + i;
+for (let i = 0; i < 10; i++) TXT_ENC[String(i)] = 306 + i;
+const TXT_DEC = {}; for (const k in TXT_ENC) TXT_DEC[TXT_ENC[k]] = k; TXT_DEC[317] = ' ';
+/** Clean a name for the Paradise font: capitals, digits, space and . & ' ! ? / ; null if nothing is left. */
+function textClean(s) { const t = String(s || '').toUpperCase().split('').filter((c) => c in TXT_ENC).join('').replace(/\s+/g, ' ').trim(); return t || null; }
+function textTablesOf(rom) {
+  const root = arc2Parse(rom, ASSET_BASE), off = ASSET_BASE + root.ents[2].offset;
+  if (u32(rom, off) !== ARC2_MAGIC) return null;
+  const tabs = arc2Files(rom, off).map((b) => {
+    const w = (o) => b[o] | (b[o + 1] << 8), n = w(0), offs = [];
+    for (let i = 0; i < n; i++) offs.push(w(2 * i));
+    return { b, n, offs };
+  });
+  return { off, tabs };
+}
+function txtWords(t, i) { const w = (o) => t.b[o] | (t.b[o + 1] << 8), out = []; for (let o = 2 * t.offs[i]; o + 1 < t.b.length; o += 2) { const c = w(o); if (!c) break; out.push(c); } return out; }
+/* Latin table: its words for LAND/WATER/SKY-like entries are capitals or accented letters */
+function txtLatin(t) { if (t.n < 20) return false; const ws = txtWords(t, 1); return ws.length > 2 && ws.every((c) => (c >= 305 && c <= 470) || c === 61440); }
+/** English text i (Paradise font), '' if it has other glyphs */
+function textGet(rom, i) {
+  const x = textTablesOf(rom); if (!x) return '';
+  const t = x.tabs.find(txtLatin); if (!t || i >= t.n) return '';
+  let s = ''; for (const c of txtWords(t, i)) { if (TXT_DEC[c] === undefined) return ''; s += TXT_DEC[c]; } return s.trim();
+}
+/** ROM with changed texts. edits: Map text index -> name (cleaned). Throws if the archive would not fit. */
+function textApply(rom, edits) {
+  if (!edits || !edits.size) return rom;
+  const x = textTablesOf(rom); if (!x) throw new Error('text tables not found');
+  const tabs = x.tabs.map((t) => {
+    if (!txtLatin(t)) return t.b;
+    const end = t.b.length >> 1, segs = [];
+    for (let i = 0; i < t.n; i++) {
+      const a = t.offs[i], b = i + 1 < t.n ? t.offs[i + 1] : end;
+      let seg = t.b.subarray(2 * a, 2 * b);
+      const nm = edits.has(i) ? textClean(edits.get(i)) : null;
+      // only an entry that is exactly its string plus the 0 is replaced (the first and the last are not)
+      if (nm && i > 0 && i + 1 < t.n && b === a + txtWords(t, i).length + 1) {
+        const ns = new Uint8Array(2 * (nm.length + 1)); [...nm].forEach((c, k) => w16(ns, 2 * k, TXT_ENC[c])); seg = ns;
+      }
+      segs.push(seg);
+    }
+    let pos = t.n; const head = new Uint8Array(2 * t.n);
+    segs.forEach((sg, i) => { if (pos > 0xFFFF) throw new Error('text table too long'); w16(head, 2 * i, pos); pos += sg.length >> 1; });
+    const out = concat([head, ...segs]);
+    return (t.b.length & 1) ? concat([out, new Uint8Array(1)]) : out;
+  });
+  const files = arc2Files(rom, ASSET_BASE); files[2] = arc2Build(tabs);
+  const ctx = openRom(rom), root = arc2Build(files), end = ASSET_BASE + root.length;
+  if (end > ctx.limit) throw new Error('too big: assets would end at 0x' + end.toString(16));
+  const out = rom.slice(); out.set(root, ASSET_BASE);
+  if (end < ctx.assetEnd) out.fill(0xff, end, ctx.assetEnd);
+  verifyRom(out, []);
+  return out;
+}
+
+root.ParamixCore = { paraLayers, faceFirst, facePoses, layersMove, EYE_V2, smaDetect, smaLoad, eyeFirst, eyeRelGet, shiftEyes, textClean, textGet, textApply, textTablesOf, TXT_ENC,
   fieldSets, charTable, FIELD_NAMES,
   ASSET_BASE, EDITIONS, GROUP_PARTS, GROUP_SHEET_W, GROUP_SHEET_H,
-  arc2Parse, arc2Files, arc2Build, arc2Checksum, packSplit, packJoin, spriteHeader, spriteDecode, spriteEncode, spriteBlank, partOptions,
+  arc2Parse, arc2Files, arc2Build, arc2Checksum, packSplit, packJoin, spriteHeader, spriteDecode, spriteEncode, spriteBlank, spriteTiny, partOptions, launcherKeep, launcherChanges, isLauncher,
   rleEncode, rleDecode, quantize, findGroups, findEgg, openRom, buildRom, verifyRom,
   sheetLayout, sheetFromSubs, subsFromSheet, groupSheet, groupFromSheet, emptyImage, sameImage, crop,
   dimLoad, dimCharParts, dimEggSubs, dimCharPartsWithEyes, dimGuessEye, eyeRectAt, eyeVariants, setEyeOffset, hideEyes, dimEyePreset, DIM_EYE_PRESETS, place, numberImage, zipBuild, zipRead, crc32,

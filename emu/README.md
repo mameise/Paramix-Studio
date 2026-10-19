@@ -103,6 +103,10 @@ PRAM and restarts, like `start` does with its own program. The menu starts
 further programs through it. Since 1.6.6 it reads from the uncached flash
 (r0 + 0x50011000): the cached window shows only 1 MB. Build the menu launcher
 with the same line plus `-DFELD=1 -DFELD_SRC=0x6789EF01 -DAUTO=0x66666661`.
+Since 1.6.8 the menu launcher also has the entry `launch` at +0x20 (start the
+menu), keeps the menu address at +0x28 and has at +0x2C the entry for the start
+device's trampolines (menu once the Paradise has a save, otherwise the original
+handler in r12).
 
 License: GNU GPL version 3 (see `LICENSE`).
 
@@ -114,3 +118,27 @@ times within about 0.1 s of guest time is run by the interpreter only, for
 about 5 s, then it gets another chance. Before, Connect to a Plus Color on the
 iD L (code at 0xC00 next to its data) caused thousands of flushes per second
 and the emulator stood still on the device. Build switch `JIT_WHOT`.
+
+## 4U NFC chip and the clock (1.6.8)
+
+The 4U and 4U+ firmware polls its PN512 NFC chip over the IR UART all the time (about 4000 bytes per
+second to 0x300B10). The Paradise has no such chip, so every poll ran into a timeout and the menus needed
+two presses. `tc_periph.c` now answers like an idle PN512 (register writes acknowledged, commands done at
+once, empty FIFO). On for device kinds 3 and 4; PMXC flags bit 2 switches it off (Studio: "4U: emulate the
+NFC chip").
+
+The guest's real-time clock counted in guest cycles. When the guest changed its clock (fast clock to
+32768 Hz, for example the iD L when its display goes off) the part of a second already counted at the fast
+clock counted as many seconds at the slow one: the clock jumped by minutes. With `RTC_MS` (build.sh) the
+seconds and the 1 s / 1 min / 1 h interrupts follow the real milliseconds of the main loop
+(`periph_rtc_ms`); only the 1/64 s interrupt stays in cycles. `clock_sync` keeps the comparison with the
+Paradise's crystal: missing seconds are added, a guest clock ahead skips one ms in 16.
+
+## Pictures and the Paradise's clock from the menu (1.6.8)
+
+`LCD_QUIET`: the screen is updated only when the guest has written nothing to its LCD for 2 ms (at most every
+40 ms, at the latest after 120 ms), so a picture is never shown half drawn.
+
+The Paramix menu uses the Paradise's SRAM, where the Paradise keeps its clock. It looks the clock up at its own
+start and leaves it in the mailbox at 0x20000FC0 (`paraclock.h`: `para_mailbox_put`, `para_mailbox`); a
+program started from the menu takes it from there when its own search finds nothing.

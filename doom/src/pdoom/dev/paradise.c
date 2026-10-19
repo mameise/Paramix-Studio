@@ -9,6 +9,13 @@
 #include "pwm_audio.h"
 #include "nrf.h"
 #include "keyboard.h"
+#ifdef PARA_BACK
+/* 1.6.8: the Paradise does not live while DOOM runs (see paraback.h); in the program memory, not the window */
+#define PARA_ATTR __attribute__((section(".pram_text")))
+#define PB_ATTR __attribute__((section(".pram_text")))
+#include "../../../../emu/src/emu/paraclock.h"
+#include "../../../../emu/src/emu/paraback.h"
+#endif
 
 #define PRAMF __attribute__((section(".pram_text"), noinline))
 static volatile unsigned int g_stage, g_fl_words;
@@ -281,6 +288,12 @@ PRAMF void plat_leave(void){
   __asm__ volatile("cpsid i");
   SYST_CSR=0;
   REG(0x20000FF8u)=0;
+#ifdef PMXL_BACK
+  REG(0x20000FFCu)=0x4C584D50u;   /* 1.6.8 "PMXL": back on purpose, the autostart stays off (as the emulators) */
+#endif
+#ifdef PARA_BACK
+  para_back_fix(g_fb);
+#endif
   hw_bl_pwm_off();
   for(u32 t=0; hw_buttons() && t<20000000u; t++) if((t & 0xFFFFu)==0) hw_wdt_feed();
   XIP_BASE_REG=0x60011000u; XIP_CTRL_REG=3u;
@@ -577,6 +590,9 @@ extern u32 __r20_load, __r20_start, __r20_end, __r20b_start, __r20b_end;
 extern void D_DoomMain(void); extern void Z_Init(void); extern void InitGlobals(void);
 __attribute__((section(".pram_text"), noinline, used)) void Reset_Handler(void){
   __asm__ volatile("cpsid i");
+#ifdef PARA_BACK
+  { u32 cnt=REG(0x45000304u), t=para_clock(cnt, 0, 0x1F000u, 0, 0); if(!t) t=para_mailbox(cnt); para_leave_mark(cnt, t); }
+#endif
   REG(0xE000ED14u) &= ~(1u<<3);   /* v0.2.3: UNALIGN_TRP off (plain LDR/STR may be unaligned) */
 #ifdef UA_FIX
   REG(0xE000ED24u) |= (1u<<18);    /* UsageFault on its own (vector 6) */

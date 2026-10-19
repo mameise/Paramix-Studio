@@ -5,6 +5,9 @@
 #include "../../../emu/src/emu/hw.h"
 #include "../../../emu/src/emu/flash.h"
 #include "../../../emu/src/emu/paraclock.h"
+#ifdef PARA_BACK
+#include "../../../emu/src/emu/paraback.h"
+#endif
 #include "../core/t7.h"
 #include "../core/t7_sound.h"
 #include "t7app.h"
@@ -85,12 +88,32 @@ static void leave(int save)
   }
   t7_eeprom_flush(); eeprom_store(EEPROM, g_sec);   /* the pet's own save always */
   app_store();                                       /* settings and the clock note (for the next time setting) */
+#ifdef PARA_BACK
+  para_back_fix(g_sec);                              /* 1.6.8: the Paradise skips the time spent here */
+#endif
   hw_bl_pwm_off();
   for (u32 t = 0; hw_buttons() && t < 20000000u; t++) if ((t & 0xFFFFu) == 0) hw_wdt_feed();
   XIP_BASE_REG = 0x60011000u; XIP_CTRL_REG = 3u;
   hw_back_to_paradise();
 }
 static void drop_session(void) { if (!flash_isff(SESSION, 0x1000u)) flash_erase4k(SESSION); }
+#ifdef SESS_AUTO
+#ifndef SESS_T1
+#define SESS_T1 600000u    /* screen dark: 10 minutes after the last time at the earliest */
+#define SESS_T2 1800000u   /* otherwise every 30 minutes */
+#endif
+/* 1.6.8: the run state now and then, without leaving (battery empty or out while playing): when the screen goes
+ * dark (10 minutes after the last time at the earliest), otherwise every 30 minutes after 10 s without a key */
+static uint32_t g_sess_ms;
+static void sess_auto(uint32_t now)
+{
+  hw_tone(0);
+  uint32_t n = app_save(g_sec, sizeof g_sec);
+  if (n) { for (uint32_t i = n; i < 0x1000u; i++) g_sec[i] = 0xFF; flash_update4k(SESSION, g_sec); }
+  t7_eeprom_flush(); if (eeprom_dirty()) eeprom_store(EEPROM, g_sec);
+  g_sess_ms = now;
+}
+#endif
 
 static void prog(int done, int total) { hw_wdt_feed(); app_text_screen(app_lang() ? "Catching up" : "Zeit holt auf", 0, done, total); }
 
@@ -100,6 +123,10 @@ void Reset_Handler(void)
   __asm__ volatile("cpsid i");
   /* the Paradise's clock, before its SRAM is overwritten (the stack is in the top 4 KB) */
   uint32_t cnt = REG(0x45000304u), para = para_clock(cnt, 0, 0x1F000u, 0, 0);
+  if (!para) para = para_mailbox(cnt);   /* 1.6.8: started from the menu */
+#ifdef PARA_BACK
+  para_leave_mark(cnt, para);            /* 1.6.8: the Paradise does not live meanwhile */
+#endif
   __asm__ volatile("" ::: "memory");
   for (u32 *p = &__bss_start; p < &__bss_end; p++) *p = 0;
   { extern u32 __data_start, __data_end, __data_load;
@@ -127,6 +154,11 @@ void Reset_Handler(void)
     for (u32 i = 0; i < 0x1000u; i++) g_sec[i] = s[i]; }
   if (app_load(g_sec, sizeof g_sec, &saved)) {
     restored = 1;
+#ifdef SESS_ONCE
+    /* 1.6.8: the session is used once. Power gone without leaving (battery out): the next start begins from the
+     * toy's own save (EEPROM, written every minute) instead of an old session that would win over it */
+    drop_session();
+#endif
     if (!app_clock_hard(plat_rtc())) app_catchup(plat_rtc(), prog);
   }
   app_render(1);
@@ -185,10 +217,17 @@ void Reset_Handler(void)
     /* 1.6.6: dimmed after the dim time, dark after the off time (both from the menu, without a key; the game runs on) */
     if (bl && !app_menu_open()) {
       uint32_t idle = now - last_in;
-      if (app_off_ms() && idle > app_off_ms()) { bl = 0; if (dimmed) app_dim(0); dimmed = 0; hw_backlight(0); }
+      if (app_off_ms() && idle > app_off_ms()) { bl = 0; if (dimmed) app_dim(0); dimmed = 0; hw_backlight(0);
+#ifdef SESS_AUTO
+        if (now - g_sess_ms > SESS_T1) sess_auto(now);
+#endif
+      }
       else if (!dimmed && app_dim_ms() && idle > app_dim_ms()) { dimmed = 1;
         app_dim(app_dim_pct()); }                                         /* darker colours: the backlight PWM had no effect */
     }
+#ifdef SESS_AUTO
+    if (now - g_sess_ms > SESS_T2 && now - last_in > 10000u && !app_menu_open()) sess_auto(now);
+#endif
     /* the pet's save: write it once things are quiet (1 minute after the last key) */
     if (b) quiet_since = now;
     if (now - quiet_since > 60000u) { t7_eeprom_flush(); if (eeprom_dirty()) { hw_tone(0); eeprom_store(EEPROM, g_sec); } quiet_since = now; }

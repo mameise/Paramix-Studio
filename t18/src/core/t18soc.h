@@ -49,6 +49,7 @@ int tg18_flash_dirty(tg18_t *t);
 void tg18_flash_clean(tg18_t *t);
 
 int tg18_power(tg18_t *t);
+void tg18_set_rtc_cb(tg18_t *t, void (*cb)(void *t));   /* 1.6.8: firmware loaded the battery RTC */
 void tg18_set_addrs(tg18_t *t, uint32_t idle_addr, uint32_t softrtc, uint32_t dma_tab);
 void tg18_get_addrs(tg18_t *t, uint32_t *out3);
 void tg18_set_param_addr(tg18_t *t, uint32_t a);

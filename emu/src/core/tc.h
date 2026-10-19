@@ -10,7 +10,10 @@
 #define TC_INIT __attribute__((section(".initcode"), noinline))
 /* at the very end: writes the fixed routines to the start of the area */
 #define TC_INIT_LAST __attribute__((section(".initcode_z"), noinline))
+/* 1.6.8: rarely run code, small (0x20000000 is only 4 KB, mirrored; the SRAM is full) */
+#define TC_SRAM __attribute__((noinline, minsize))
 #else
+#define TC_SRAM
 #define TC_INIT
 #define TC_INIT_LAST
 #endif
@@ -37,6 +40,7 @@ typedef struct DeviceProfile {
     uint32_t osc3_hz;
     uint8_t  ir_gpio_rx_bit;
     bool     ir_gpio;
+    bool     nfc_pn512;   /* 4U/4U+: the PN512 NFC chip answers on the IR UART (1.6.8) */
 } DeviceProfile;
 
 #define A0RAM_MAX   0x00008000u
@@ -168,6 +172,8 @@ void periph_write32(Emu *e, uint32_t a, uint32_t v);
 void periph_tick(Emu *e, uint32_t cycles);
 uint32_t periph_next(Emu *e);
 void periph_rtc_advance(Emu *e, uint32_t n);
+void periph_rtc_ms(Emu *e);
+extern uint32_t g_tc_rtc_wr;   /* writes of the guest to its clock registers (1.6.8) */
 void periph_rtc_set(Emu *e, uint32_t t);   /* local time, seconds since 1970 */
 void periph_buttons(Emu *e, uint8_t mask);
 void periph_init(Emu *e);

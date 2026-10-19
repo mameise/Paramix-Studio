@@ -24,8 +24,8 @@ firmware is part of this repository.
     direct, the rest goes to the SoC. `t2enc.h` encodes the instructions.
   - `t18soc.c`: the SoC (timers, interrupts, RTC, SPI flash, DMA, LCD, tone).
 - `src/app`: the Paradise side (`main.c`): screen, keys, tone, flash writes of
-  the firmware (two 4 KB sectors held in RAM, blocks the firmware writes come
-  from spare blocks), session, clock note.
+  the firmware (two 4 KB sectors held in RAM; empty blocks the firmware writes
+  get 4 KB sectors from the spare blocks, `T18_SEC_SPARE`), session, clock note.
 - `host/ref.c`: the core on the PC as the reference (script commands wait,
   press, hash, shot, sram, flash, armprof, acnt).
 - `test`: `m3main.c` with `m3run.py` runs the core with the translator in
@@ -76,7 +76,7 @@ about 60 % speed, for tests on the device).
 | Offset | What |
 | --- | --- |
 | 0x0A0000 | program (copied to PRAM on start) |
-| 0x0C0000 | block map as it is now ("T8MP": spares in use) |
+| 0x0C0000 | block map as it is now ("T8MP": spares in use; at +0x144 "T8SS": the sector table of `T18_SEC_SPARE`) |
 | 0x0C1000 | clock note ("T8NT": seconds counter and game time when leaving) |
 | 0x0C2000 | session ("T8SS": CPU and SoC state, then the 128 KB SRAM) |
 | 0x0F0000 | the code part of the program (`t18x.bin`, up to 64 KB) |
@@ -88,6 +88,45 @@ about 60 % speed, for tests on the device).
 sh src/app/build.sh            # arm-none-eabi-gcc; writes t18.bin and t18x.bin
 KEEPELF=1 sh src/app/build.sh  # keeps src/app/t18.elf for devt18.py
 ```
+
+## Speed switches (1.6.8)
+
+build.sh sets them (REL). Each one keeps the results bit for bit as the reference (checked without T18_OVERSHOOT):
+- T18_IO_FAST: the device registers the firmware polls most (timer control, buttons, interrupt vector and mask) are
+  read straight from the translator's slow path, without io_rd in the flash window.
+- T18_SPCHK_MOD: only blocks that move sp check it at their start (push, pop, add/sub sp; add/mov sp, rX is left
+  to the interpreter).
+- T18_TIERUP: SysTick notes the interrupted pc in the code buffer; a block hit three times while it uses the shared
+  check routine is translated again with the checks inline.
+- T18_IDLE_CAP, T18_IDLE_DISARM, T18_IDLE_PASS: idle tries away from the known idle pc stop after 256 steps; the
+  known idle pc is given up after 32 failed tries in a row; once tried in a run it no longer stops the translated code.
+- T18_XRET: a conditional return from an exception (ldmcc ..., {..., pc}^) no longer splits the interrupt handler.
+
+- T18_CLOCK_AFTER: when the firmware sets its battery clock (first setup), the Paradise's time is applied again
+  500 ms later.
+- T18_RADIO: the Bluetooth module of the Meets/On (SPI 0xC0080000, chip select GPIO 0xC0000064 bit 12) answers
+  like the real one without a phone (register 0x0A boot/patch/running, register 0x08 bytes waiting, setup
+  answers, module memory reads, HCI Command Complete). Without it the camera (item box, Special) stayed at READY?
+  and took no key. About 300 bytes in the SoC struct, outside the saved state.
+
+- T18_TONE_Q: the tone in real time. Tone changes are queued with the game time and played on the Paradise's
+  clock 300 ms after the first of a sequence; below 100 % a melody keeps its tempo (late by more than 200 ms:
+  timing starts anew).
+- T18_IDLE_MEMO: the last skippable idle round at the known idle pc is kept with every value it read (memory and
+  registers that hold still); the same start and the same values now skip it without stepping (living room:
+  ~900 rounds a second were single-stepped). The guest flash counts as one value (t18_flash_gen).
+- T18_IDLE_BACKOFF=13: tries away from the idle pc back off up to 2000 << 13 master ticks after failing.
+- T18_JH_PROBE=16: the block table searches 16 slots (with 8, busy keys pushed each other out before they got hot
+  and were interpreted every time).
+- T18_JT_MUL: multiplicative hash for the indirect jump cache (the old one put 4 of the 10 busiest return
+  addresses of the egg scene into one set).
+- test45 T18_SEC_SPARE: spares by the 4 KB sector for empty guest blocks (tables in the Paradise RAM, saved as "T8SS" in
+  the map sector). With 6 spare blocks the old way lost the 7th block the firmware writes (photo, diary).
+- test44: RM_N (48) and W_LOG (32, was 64) can be set with -D; TQ_N 32. With 64 the build no longer fit the hole.
+  Code that runs before the flash window is set up (Reset_Handler up to hw_init) must stay in the PRAM;
+  build.sh checks it.
+M3 (Minstr per guest second, plus uncached flash reads at 96 each): egg 121.7 -> 98.7, call 84.5 -> 80.5,
+living room 75.8 -> 55.6. Exact as before (suite 20 of 20, without T18_OVERSHOOT).
 
 ## Tests
 

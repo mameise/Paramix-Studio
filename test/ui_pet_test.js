@@ -1,0 +1,30 @@
+// Change a Paradise save in the browser (local only): node test/ui_pet_test.js <rom.bin> <save.tamasave> <out_dir>
+const { chromium } = require('playwright');
+const fs = require('fs'), path = require('path');
+const SV = require('../src/saves.js');
+(async () => {
+  const [rom, save, out] = process.argv.slice(2);
+  fs.mkdirSync(out, { recursive: true });
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('file://' + path.resolve(__dirname, '../dist/ParamixStudio.html'));
+  await page.setInputFiles('#fileRom', rom);
+  await page.waitForSelector('#work.on', { timeout: 60000 });
+  await page.click('.tab[data-tab="save"]');
+  await page.setInputFiles('#filePet', save);
+  await page.waitForSelector('#petRow:not([hidden])');
+  console.log('status:', await page.textContent('#petStat'));
+  const opts = await page.$$eval('#petChar option', (o) => o.map((x) => x.value + '=' + x.textContent));
+  console.log('options', opts.length, opts.slice(0, 4).join(' | '), '...', opts.slice(-2).join(' | '));
+  const adult = opts.find((x) => x.startsWith('4019:5'));
+  await page.selectOption('#petChar', adult.split('=')[0]);
+  await page.selectOption('#petLevel', '6');
+  await page.check('#petCare');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnPetSave')]);
+  const p = out + '/' + dl.suggestedFilename(); await dl.saveAs(p);
+  const s = SV.paraDecode(new Uint8Array(fs.readFileSync(p)));
+  console.log('result', JSON.stringify(SV.paraPet(s, 6)), await page.textContent('#petStat'));
+  console.log('errors:', errors);
+  await browser.close();
+})();

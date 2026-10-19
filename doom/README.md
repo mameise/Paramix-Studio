@@ -43,3 +43,6 @@ The results are byte-identical to the files shipped here.
 
 License: GNU GPL version 2 or later for DOOM (`LICENSE-GPL-2.0`), GNU GPL
 version 2 for MCUDoomWadUtil.
+
+Leaving DOOM (1.6.8, switch `-DPMXL_BACK` in `dev/build_dev.sh`) writes "PMXL" to the mailbox word 0x20000FFC like the
+emulators, so the autostart of the stub keeps the Paradise after DOOM was left on purpose.

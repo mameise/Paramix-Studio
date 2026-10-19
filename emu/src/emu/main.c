@@ -3,9 +3,14 @@
  * Long press on the wheel: save state and return to the Paradise. */
 #include "hw.h"
 #include "ask.h"
+#include "flash.h"
 #include "../core/tc.h"
 #include "state.h"
+#define PARA_ATTR __attribute__((section(".initcode")))
 #include "paraclock.h"
+#ifdef PARA_BACK
+#include "paraback.h"
+#endif
 uint32_t jit_used(void);
 
 /* Settings, filled in by the ROM builder (magic "PMXC"). */
@@ -39,6 +44,8 @@ __attribute__((section(".stats"), used)) static volatile u32 g_st[16];   /* meas
 
 /* ---- Time: SysTick as millisecond counter ---- */
 static volatile u32 g_ms;
+static u32 g_run_ms, g_hold_ms;           /* see clock_sync */
+
 #define SYST_CSR REG(0xE000E010u)
 #define SYST_RVR REG(0xE000E014u)
 #define SYST_CVR REG(0xE000E018u)
@@ -264,6 +271,9 @@ static void leave_go(int save){
   g_st[15]=0x1EA1;
   for(;;) hw_wdt_feed();
 #endif
+#ifdef PARA_BACK
+  para_back_fix((uint8_t *)g_gram);       /* 1.6.8: the Paradise skips the time spent here */
+#endif
   /* Only restart once the wheel is released: otherwise the Paradise sees a
    * pressed button while booting. Screen off as a sign that the save is done. */
 #ifdef BL_SLEEP
@@ -398,6 +408,27 @@ extern uint32_t jit_st_flush, jit_st_blocks;
 extern u32 st_n_evict;
 static u32 g_n_gflash;                    /* counter: guest save written to flash */
 static u32 g_btn_ms;                      /* last key (GFLUSH_IDLE) */
+#ifdef HW_OPTS
+static u32 g_scr_ms; static int g_scr_dark;   /* 1.6.8: screen off after (Studio), off now */
+static const u16 OPT_SM[8]={0,10,20,30,60,120,300,600};   /* screen off after, seconds */
+static void opt_apply(u32 f){ g_hw_vol=(0x0312u>>(((f>>16)&3u)*4u))&15u; g_hw_dim=(f>>18)&3u; g_scr_ms=OPT_SM[(f>>20)&7u]*1000u;
+#ifdef BL_PWM
+  hw_bl_set(opt_light_pct(f));   /* 1.6.8: the light, not the colours */
+#endif
+}
+#ifdef OPT_MENU
+/* 1.6.8: settings changed on the device (wheel short), in the last sector of the save area: magic, the Studio's
+ * bits when they were changed, the bits, check. The Studio's bits win again once they are changed there. */
+#define OPT_SEC (g_cfg.save_off+0x4F000u)
+#define OPT_MAGIC 0x4F584D50u   /* "PMXO" */
+static u32 g_opt, g_optsec[4];
+static u32 opt_studio(void){ return (g_cfg.version>=4u ? g_cfg.flags : 0u) & 0xF7F0000u; }
+static void opt_load(void){ u32 *s=g_optsec; flash_read(OPT_SEC, s, 16);
+  g_opt = (s[0]==OPT_MAGIC && s[1]==opt_studio() && s[3]==(s[0]^s[1]^s[2]) && !(s[2]&~0xF7F0000u)) ? s[2] : opt_studio(); }
+static void opt_store(void){ u32 *s=g_optsec; s[0]=OPT_MAGIC; s[1]=opt_studio(); s[2]=g_opt; s[3]=s[0]^s[1]^s[2];
+  hw_tone(0); flash_prog4k(OPT_SEC, s); }   /* the DMA takes 4 KB from here: only the first 16 bytes count */
+#endif
+#endif
 /* Measure the size of the RAM at 0x20000000 (v0.8.15): read and write from 0x20001000 in 2 KB steps.
  * A bus fault on read is caught in the fault handler (g_probe); that marks the end.
  * Result in KB (0x20000000 up to the first missing step), at most 64. */
@@ -481,11 +512,43 @@ static void pram_wtest(void){
 #endif
 
 extern u32 __bss_start, __bss_end, __ram_end;
+/* v0.9.3: keep the guest clock on the Paradise's own seconds counter. g_run_ms: ms the guest ran, plus the
+ * dropped ones already added in the main loop (1.6.8). Called every 1024 ms. */
+__attribute__((noinline, minsize)) static void clock_sync(Emu *e){
+  u32 run_ms = g_run_ms;
+  static u32 r0, m0, have; static s32 owe;
+  u32 r = REG(0x45000304u);
+#ifndef CLOCK_DOUBLE
+  if(REG(0x45000200u) & 7u) have=0;   /* 1.6.8 (Sonix SDK): 0x45000304 counts RTC periods, seconds only with timeout 0 (1 s) */
+  else
+#endif
+  if(!have){ r0=r; m0=run_ms; have=1; }
+  else if(r - r0 >= 30u){
+    u32 dr = r - r0, dm = run_ms - m0;
+    if(dr <= dm/1000u + 600u && dm/1000u <= dr + 5u){      /* plausible: no jump of the counter */
+      owe += (s32)(dr*1000u) - (s32)dm;
+      if(owe >= 1000){ u32 n=(u32)owe/1000u; periph_rtc_advance(e, n); owe -= (s32)(n*1000u); }
+#ifndef CLOCK_DOUBLE
+      /* 1.6.8: tick fast (the core clock comes from the internal RC, up to 2 %): the guest clock ran ahead.
+       * Hold the guest back for the extra time, 1 ms in 16, instead of letting it run fast for good. */
+      if(owe <= -1000){ u32 n=(u32)(-owe)/1000u; g_hold_ms += n*1000u; owe += (s32)(n*1000u); }
+      if(g_hold_ms > 60000u) g_hold_ms = 60000u;
+#else
+      if(owe < -2000) owe = -2000;                            /* tick fast: nothing to take back */
+#endif
+    }
+    r0=r; m0=run_ms;
+  }
+}
 void Reset_Handler(void){
   __asm__ volatile("cpsid i");
   u32 swf=0, swk=0, swn=0;
   /* the Paradise's clock, before its SRAM is overwritten (the stack is in the top 4 KB) */
   u32 pcnt=REG(0x45000304u), para=para_clock(pcnt, 0, 0x1F000u, 0, 0);
+  if(!para) para=para_mailbox(pcnt);   /* 1.6.8: started from the menu */
+#ifdef PARA_BACK
+  para_leave_mark(pcnt, para);         /* 1.6.8: the Paradise does not live meanwhile */
+#endif
   __asm__ volatile("" ::: "memory");
 #ifndef NOSRAMWATCH
   swn=sram_watch(&swf, &swk);
@@ -548,6 +611,16 @@ void Reset_Handler(void){
   /* device: 0 Plus Color (4 MB), 1 iD L, 2 P's, 3 4U+, 4 4U (all 8 MB, same map as the iD L; the 4U runs at 30 MHz) */
   if(g_cfg.device>=1){ tc_profile_idl(&e->dev); if(g_cfg.device>=3) e->dev.osc3_hz=30000000u; }
   else tc_profile_plus_color(&e->dev);
+  /* 1.6.8: 4U/4U+ get an answering NFC chip (flags bit 2 switches it off again) */
+  if(g_cfg.device>=3u && g_cfg.device<=4u && !(g_cfg.flags & 4u)) e->dev.nfc_pn512=true;
+#ifdef HW_OPTS
+  /* 1.6.8: volume (bits 16-17: 0 normal, 1 quiet, 2 loud, 3 off), brightness (18-19), screen off after (20-23) */
+#ifdef OPT_MENU
+  opt_load(); opt_apply(g_opt);
+#else
+  opt_apply(g_cfg.version>=4u ? g_cfg.flags : 0u);
+#endif
+#endif
   tc_init(e, 0, g_gram, g_pool, NSLOT);
   tc_ovl_evict = st_evict; tc_big_erase = st_big_erase; st_init(&g_sc, g_pool);
 #ifdef OVL_RAM20
@@ -560,6 +633,9 @@ void Reset_Handler(void){
   { u32 pause=0;
     if(st_load(e, &g_sc, g_gram, &pause)){
       g_restored=1+pause;
+#ifdef SESS_ONCE
+      st_drop(&g_sc);   /* 1.6.8: used once; power gone without leaving: next start from the Tama's own save */
+#endif
       /* reset pointers: everything that points into this run */
       e->lcd.gram=g_gram;
       for(int i=0;i<OVL_SLOTS;i++){ e->ovl.base[i]=0xFFFFFFFFu; e->ovl.mem[i]= i<NSLOT ? g_pool+(u32)i*OVL_SIZE : 0; }
@@ -605,6 +681,7 @@ void Reset_Handler(void){
   __asm__ volatile("cpsie i");
   g_stage=6; diag(e,0);
   u32 emu_ms=g_ms, last_push=g_ms, wheel_ms=0, dropped=0, idle=0, busy_ms=0;
+  g_btn_ms=g_ms;
   for(;;){
     hw_wdt_feed();
 #ifndef CLEAN
@@ -618,6 +695,9 @@ void Reset_Handler(void){
     if((s32)(now-emu_ms) > 100){                                  /* too far behind: drop time */
       u32 d=now-emu_ms-100; dropped += d; emu_ms = now-100;
       { static u32 lost; lost += d; if(lost>=1000u){ periph_rtc_advance(e, lost/1000u); lost%=1000u; } }   /* guest clock stays correct anyway */
+#ifndef CLOCK_DOUBLE
+      g_run_ms += d;   /* 1.6.8: those ms are paid already, the comparison with the seconds counter below must not add them a second time */
+#endif
     }
     if(emu_ms == now){                     /* caught up: sleep until the next tick */
       idle += SYST_CVR;
@@ -630,6 +710,9 @@ void Reset_Handler(void){
         else { u32 m=g_ms; if((SYST_CSR & 0x10000u) && g_ms==m) g_ms++; } }
       continue;
     }
+#if !defined(CLOCK_DOUBLE) && !defined(RTC_MS)
+    if(g_hold_ms && (emu_ms & 15u)==0u){ g_hold_ms--; emu_ms++; continue; }   /* guest clock ahead: one ms off */
+#endif
     /* one millisecond of guest time */
     u32 mhz = e->cmu.mclk_hz ? e->cmu.mclk_hz : e->dev.osc3_hz;
     /* v0.9.3: carry the rest of the division. With the 32768 Hz clock (the guest sleeping)
@@ -652,24 +735,22 @@ void Reset_Handler(void){
       for(;;){ hw_wdt_feed(); if(hw_buttons()&BTN_WHEEL) leave_nosave(); }
     }
     emu_ms++; busy_ms++;
+#ifdef RTC_MS
+    /* 1.6.8: the guest's clock counts real milliseconds (not guest cycles). Guest clock ahead of the
+     * Paradise's crystal (g_hold_ms from clock_sync): one ms in 16 is not counted. */
+    if(g_hold_ms && (emu_ms & 15u)==0u) g_hold_ms--; else periph_rtc_ms(e);
+#endif
     /* v0.9.3: keep the guest clock on the Paradise's own seconds counter (crystal). If the
      * millisecond tick runs slow, or busy scenes (shop, flash writes) make the emulator drop
      * time, the missing seconds are added to the guest clock. */
-    static u32 run_ms; run_ms++;          /* ms the guest really ran (dropped ms not counted) */
-    if((run_ms & 1023u)==0u){
-      static u32 r0, m0, have; static s32 owe;
-      u32 r = REG(0x45000304u);
-      if(!have){ r0=r; m0=run_ms; have=1; }
-      else if(r - r0 >= 30u){
-        u32 dr = r - r0, dm = run_ms - m0;
-        if(dr <= dm/1000u + 600u && dm/1000u <= dr + 5u){      /* plausible: no jump of the counter */
-          owe += (s32)(dr*1000u) - (s32)dm;
-          if(owe >= 1000){ u32 n=(u32)owe/1000u; periph_rtc_advance(e, n); owe -= (s32)(n*1000u); }
-          if(owe < -2000) owe = -2000;                            /* tick fast: nothing to take back */
-        }
-        r0=r; m0=run_ms;
-      }
-    }
+    if(((++g_run_ms) & 1023u)==0u) clock_sync(e);
+#ifndef RTC_KEEP_GUEST
+    /* 1.6.8: with the clock taken from the Paradise, a time the game sets itself (its first setup, after a reset)
+     * is replaced by the Paradise's time once the game has not touched its clock for 2 s */
+    { static u32 wr0, wr_ms;
+      if(g_tc_rtc_wr!=wr0){ wr0=g_tc_rtc_wr; wr_ms=emu_ms?emu_ms:1; }
+      else if(wr_ms && emu_ms-wr_ms>2000u){ wr_ms=0; if(para_hard()) periph_rtc_set(e, g_para + (REG(0x45000304u) - g_para_cnt)); } }
+#endif
     /* Guest save into the Paradise flash: writing briefly stalls everything.
      * So only once nothing has been written for 3 s AND the screen has been still
      * for a moment (no game running), at the latest after 2 minutes. */
@@ -710,6 +791,12 @@ void Reset_Handler(void){
       if(!t0) t0=now?now:1;
       if(wk==0){ if(g_restored && !g_bl && !b && now-t0>1000u) { wk=1; wk_ms=now; } else if(now-t0>8000u) wk=2; }
       if(wk==1){ if(now-wk_ms<150u) b|=BTN_C; else wk=2; } }
+#ifdef HW_OPTS
+    /* screen off after a while without a key (set in the Studio): the first key only wakes it */
+    { static int swallow;
+      if(g_scr_dark && b){ g_scr_dark=0; swallow=1; g_btn_ms=now; }
+      if(swallow){ if(b) b=0; else swallow=0; } }
+#endif
     periph_buttons(e,(uint8_t)(b&7));
     if(b) g_btn_ms=now;
     /* v0.9.2: wheel within the first 3 s after resuming a saved session: throw the session away
@@ -721,13 +808,26 @@ void Reset_Handler(void){
         g_restored=0; b=0; e->lcd.dx0=0; e->lcd.dy0=0; e->lcd.dx1=127; e->lcd.dy1=59; LCD_ALL(); } }
     #ifndef NOWHEEL
     if(b&BTN_WHEEL){ if(!wheel_ms) wheel_ms=now?now:1; else if(now-wheel_ms>1500) leave(); }
-#if defined(CLEAN) && !defined(MESS)
+#if defined(OPT_MENU)
+    /* 1.6.8: wheel short: settings (the game stands still meanwhile) */
+    else { if(wheel_ms && now-wheel_ms<1000u){ u32 n=hw_opts_menu(g_opt, (int)(g_cfg.flags & 1u));
+        if(n!=g_opt){ g_opt=n; opt_apply(n); opt_store(); }
+        g_scr_dark=0; g_btn_ms=g_ms; e->lcd.dx0=0; e->lcd.dy0=0; e->lcd.dx1=127; e->lcd.dy1=127; LCD_ALL(); } wheel_ms=0; }
+#elif defined(CLEAN) && !defined(MESS)
     else wheel_ms=0;
 #else
     else { if(wheel_ms && now-wheel_ms<1000u){ g_ovl^=1u; if(!g_ovl){ e->lcd.dx0=0; e->lcd.dy0=0; e->lcd.dx1=127; e->lcd.dy1=59; LCD_ALL(); } } wheel_ms=0; }
 #endif
 #endif
-#ifdef LCD_SKIP
+#ifdef LCD_QUIET
+    /* 1.6.8: only show finished pictures. The guest draws a picture in one burst of LCD writes; push once it
+     * has written nothing for 2 ms (at most every 40 ms, at the latest after 120 ms), not in the middle of a
+     * burst (the picture was seen building up from the top). */
+    static u32 lw_last, lw_quiet;
+    { u32 lw=(u32)e->lcd_writes; if(lw!=lw_last){ lw_last=lw; lw_quiet=0; } else if(lw_quiet<1000u) lw_quiet++; }
+    if(emu_ms-last_push >= (((s32)(g_ms-emu_ms) > 20) ? 80u : 40u) && (lw_quiet>=2u || emu_ms-last_push>=120u)){ last_push=emu_ms;
+      push_dirty(e); }
+#elif defined(LCD_SKIP)
     /* v0.8.19: if emulation lags behind (more than 20 ms), only one frame every 80 ms instead of every 40 ms */
     if(emu_ms-last_push >= (((s32)(g_ms-emu_ms) > 20) ? 80u : 40u)){ last_push=emu_ms;
 #if defined(CLEAN) && !defined(MESS)
@@ -796,9 +896,26 @@ void Reset_Handler(void){
           const u16 *g=&g_gram[0][0]; for(u32 i=0;i<GRAM_W*GRAM_H;i++) if(g[i]!=z){ black=0; break; } }
         if(black) on=0; }
 #endif
+#ifdef HW_OPTS
+      if(g_scr_ms && now-g_btn_ms>g_scr_ms) g_scr_dark=1;
+      if(g_scr_dark) on=0;
+#endif
       if(on){ dark=0; if(!bl){ bl=1; hw_backlight(1); e->lcd.dx0=0; e->lcd.dy0=0; e->lcd.dx1=127; e->lcd.dy1=127; LCD_ALL(); } }
       else if(bl && ++dark>500u){ bl=0; hw_backlight(0); }
       g_bl=bl; }
+#ifdef SESS_AUTO
+#ifndef SESS_T1
+#define SESS_T1 600000u    /* screen dark: 10 minutes after the last time at the earliest */
+#define SESS_T2 1800000u   /* otherwise every 30 minutes */
+#endif
+    /* 1.6.8: the run state now and then, without leaving (battery empty or out while playing): when the screen
+     * goes dark (10 minutes after the last time at the earliest), otherwise every 30 minutes after 10 s without
+     * a key. st_save writes the guest flash back first (its slots are free then) */
+    { static u32 last; static int bl0=1;
+      int went=bl0 && !g_bl; bl0=g_bl;
+      if(((went && now-last>SESS_T1) || (now-last>SESS_T2 && now-g_btn_ms>10000u)) && !e->flash_busy && !e->flash_state){
+        hw_tone(0); st_save(e, &g_sc, g_gram); last=now; } }
+#endif
     { volatile u32* st=g_st; st[0]=0x53544154u; st[1]=now; st[2]=(u32)e->cycles; st[3]=(u32)(e->cycles>>32);
       st[4]=e->cmu.mclk_hz; st[5]=e->flash_lost_writes; st[6]=e->pc; st[7]=e->halted; st[8]=jit_used();
       st[9]=emu_ms; st[10]=dropped; st[11]=idle; st[12]=busy_ms; st[13]=g_restored; }

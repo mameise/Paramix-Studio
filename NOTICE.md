@@ -80,3 +80,8 @@ trademarks belong to their respective owners and are only named to describe
 what this project works with. This project is not affiliated with, endorsed or
 sponsored by them. It contains no firmware,
 ROM, WAD or game graphics of theirs; you need your own devices and files.
+
+- **TamaLIB** by Jean-Christophe Rona, https://github.com/jcrona/tamalib,
+  GNU GPL version 2 or later (copy in `v1/src/core/LICENSE_tamalib`). V1Emu
+  (`v1/src/core`) is TamaLIB with small changes for the Paradise (decode table,
+  state as bytes, names of the hardware functions).

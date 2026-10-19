@@ -2,7 +2,7 @@
 # Build DOOM for the Paradise: pram.bin (into program memory, loaded by the stub) and xip.bin (flash window)
 set -e
 cd "$(dirname "$0")/.."
-CF="-mcpu=cortex-m3 -mthumb -O2 -ffunction-sections -fdata-sections -IDoom/include -Iplat -Idev -w -DPARADISE -DPARADISE_DEV -DPDOOM_W=128 -DPDOOM_H=128 -DMAX_STATIC_ZONE=${ZONE:-57344} -DCACHE_ALL_COLORMAP_TO_RAM=1 -DXIP_FLUSH -DFRAME_ROW -DFAST_LCD -DLCD_FASTCLK -DTONE_FIX -DBL_SLEEP -DNO_STACK_SWITCH -DSINGLE_FB -DUA_FIX -DCHG_WITH_C -DMUS_PLAY -DSND_TOGGLE -DCLEAN -DSTBAR_LUMP -DKEYMAP $XCF"
+CF="-mcpu=cortex-m3 -mthumb -O2 -ffunction-sections -fdata-sections -IDoom/include -Iplat -Idev -w -DPARADISE -DPARADISE_DEV -DPDOOM_W=128 -DPDOOM_H=128 -DMAX_STATIC_ZONE=${ZONE:-57344} -DCACHE_ALL_COLORMAP_TO_RAM=1 -DXIP_FLUSH -DFRAME_ROW -DFAST_LCD -DLCD_FASTCLK -DTONE_FIX -DBL_SLEEP -DNO_STACK_SWITCH -DSINGLE_FB -DUA_FIX -DCHG_WITH_C -DMUS_PLAY -DSND_TOGGLE -DCLEAN -DSTBAR_LUMP -DKEYMAP -DPMXL_BACK -DPARA_BACK $XCF"
 mkdir -p dev/obj; rm -f dev/obj/*.o
 for f in Doom/source/*.c plat/printf.c dev/paradise.c dev/glue.c dev/hw.c dev/flash.c dev/libc_extra.c; do
   [ -f $f ] || continue

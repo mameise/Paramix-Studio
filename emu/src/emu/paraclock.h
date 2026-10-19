@@ -8,6 +8,9 @@
 #ifndef PARACLOCK_H
 #define PARACLOCK_H
 #include <stdint.h>
+#ifndef PARA_ATTR
+#define PARA_ATTR   /* TamaEmu: start-up code only (its translator takes the space afterwards) */
+#endif
 
 /* days since 1970-01-01 */
 static inline int32_t para_days(int32_t y, int32_t m, int32_t d)
@@ -19,7 +22,7 @@ static inline int32_t para_days(int32_t y, int32_t m, int32_t d)
 /* Search [lo, hi) (byte offsets in the SRAM at 0x18000000) for the clock, skip [skip_lo, skip_hi).
  * Returns local time as seconds since 1970 (0 = not found). cnt: the seconds counter now. Must not
  * use anything but registers and the stack: it runs before the emulator sets up its memory. */
-__attribute__((noinline, unused)) static uint32_t para_clock(uint32_t cnt, uint32_t lo, uint32_t hi, uint32_t skip_lo, uint32_t skip_hi)
+__attribute__((noinline, unused)) PARA_ATTR static uint32_t para_clock(uint32_t cnt, uint32_t lo, uint32_t hi, uint32_t skip_lo, uint32_t skip_hi)
 {
   const volatile uint16_t *h = (const volatile uint16_t *)0x18000000u;
   uint32_t best = 0, best_lag = 600;
@@ -42,5 +45,22 @@ __attribute__((noinline, unused)) static uint32_t para_clock(uint32_t cnt, uint3
     }
   }
   return best;
+}
+/* 1.6.8: the Paramix menu runs before a program and uses the SRAM itself, so it looks the clock up at
+ * its own start and leaves it in the mailbox (0x20000FC0: "PCLK", time, counter, ~time). A program
+ * started from the menu takes it from there when its own search finds nothing. One day at most. */
+#define PARA_MB ((volatile uint32_t *)0x20000FC0u)
+#define PARA_MB_MAGIC 0x4B4C4350u
+__attribute__((noinline, unused)) PARA_ATTR static uint32_t para_mailbox(uint32_t cnt)
+{
+  volatile uint32_t *m = PARA_MB;
+  if (m[0] != PARA_MB_MAGIC || m[3] != ~m[1] || !m[1] || cnt - m[2] > 86400u) return 0;
+  return m[1] + (cnt - m[2]);
+}
+__attribute__((noinline, unused)) static void para_mailbox_put(uint32_t t, uint32_t cnt)
+{
+  volatile uint32_t *m = PARA_MB;
+  if (!t) return;
+  m[1] = t; m[2] = cnt; m[3] = ~t; m[0] = PARA_MB_MAGIC;
 }
 #endif

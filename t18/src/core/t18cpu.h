@@ -54,6 +54,7 @@ struct arm7 {
     int attn;               /* irq_line | fiq_line | halted, after every device access */
     uint32_t *jtab;         /* translator: return cache (pc, code) x 256 */
     uint32_t jsave;         /* translator: scratch word */
+    uint32_t jsplo;         /* translator: host address of the lowest guest sp blocks may use (1.6.8) */
     /* idle loops: skip whole rounds of a loop that changes nothing */
     uint64_t idle_next;     /* next check (master ticks) */
     uint32_t idle_fail;

@@ -27,7 +27,16 @@ extern T7Set g_set;
 static inline uint32_t t7_t_ms(int i) { static const uint32_t t[T7_T_N] = { 10000u, 20000u, 30000u, 60000u, 120000u, 300000u, 600000u }; return t[i % T7_T_N]; }
 static inline uint32_t app_dim_ms(void) { return g_set.light >= T7_T_N ? 0u : t7_t_ms(g_set.light); }
 static inline uint32_t app_off_ms(void) { return g_set.r2 ? t7_t_ms(g_set.r2 - 1) : 0u; }
+#ifdef BL_PWM
+/* 1.6.8 (test45): layout 3. r0 = dim level 1..50 % (10 steps), r1 bits 4..7 = the light in general:
+ * 0 = 100 %, 1..10 = 5, 10, 20 .. 90 %. Dimmed is never brighter than the light in general. */
+#define T7_DIM_N 10
+#define T7_BL_N 11
+static inline int app_bl_pct(void) { static const uint8_t p[T7_BL_N] = { 100, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90 }; return p[((g_set.r1 >> 4) & 15) % T7_BL_N]; }
+static inline int app_dim_pct(void) { static const uint8_t p[T7_DIM_N] = { 1, 2, 3, 5, 10, 15, 20, 30, 40, 50 }; int d = p[g_set.r0 % T7_DIM_N], b = app_bl_pct(); return d < b ? d : b; }
+#else
 static inline int app_dim_pct(void) { static const uint8_t p[5] = { 1, 5, 10, 25, 50 }; return p[g_set.r0 % 5]; }
+#endif
 void app_dim(int pct);
 int app_bell(void);                                       /* 1 = the bell icon is on (the pet calls) */
 #define T7_STORE_LEN 64u

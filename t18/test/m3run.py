@@ -24,9 +24,11 @@ UNC = [0]
 LASTC = [(0, 0, 0, 0)]
 if os.environ.get('UNCOUNT', '1') == '1':
     UNB = collections.Counter() if os.environ.get('UNBLK') else None
+    UNPC = collections.Counter() if os.environ.get('UNCPC') else None
     def _unc(uc, acc, addr, size, val, ud):
         UNC[0] += 1
         if UNB is not None: UNB[(addr >> 16) & 0xFF] += 1
+        if UNPC is not None: UNPC[(uc.reg_read(UC_ARM_REG_PC), size)] += 1
     u.hook_add(UC_HOOK_MEM_READ, _unc, begin=0x60000000, end=0x60FFFFFF)
 PRAM_BAD = [0]
 def pram_wr(uc, acc, addr, size, val, ud):
@@ -62,10 +64,16 @@ def crash(e):
         print(nm, hex(u.reg_read(r)), end='  ')
     print()
     md = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_THUMB | capstone.CS_MODE_MCLASS)
-    jc = syms.get('JC', 0)
+    jc = syms.get('JC', syms.get('__jc_start', 0))
     for a in list(TR)[-12:]:
         print('block', hex(a), '(JC+%x)' % (a - jc) if jc <= a < jc + 0x10000 else '')
     last = [a for a in TR if jc <= a < jc + 0x10000]
+    if len(last) > 1 and os.environ.get('DEBUG2'):
+        a = last[-2] & ~1
+        for i in md.disasm(bytes(u.mem_read(a, 400)), a): print('  p', hex(i.address), i.mnemonic, i.op_str)
+        if 't18_hdbg' in syms: print('hdbg', ['%x' % x for x in struct.unpack('<8I', u.mem_read(syms['t18_hdbg'], 32))])
+        jf = syms.get('j_fill')
+        if jf: print('j_fill', ['%x' % x for x in struct.unpack('<2I', u.mem_read(jf, 8))], 'J', '%x' % struct.unpack('<I', u.mem_read(syms['J'], 4))[0], 'half', struct.unpack('<I', u.mem_read(syms['j_half'], 4))[0] if 'j_half' in syms else '?')
     if last:
         a = last[-1] & ~1
         code = bytes(u.mem_read(a, 160))
@@ -88,6 +96,35 @@ def vfail(uc, intno, ud):
     for i in list(md.disasm(src, a))[:40]: print('   ', hex(i.address), i.mnemonic, i.op_str)
     sys.exit(2)
 u.hook_add(UC_HOOK_INTR, vfail)
+FNCNT = collections.Counter()
+if os.environ.get('FNCOUNT'):
+    for nm in os.environ['FNCOUNT'].split(','):
+        def _fc(uc, a, sz, ud, nm=nm): FNCNT[nm] += 1
+        u.hook_add(UC_HOOK_CODE, _fc, begin=syms[nm] & ~1, end=syms[nm] & ~1)
+KSEQ = [] if os.environ.get('KSEQ') else None
+if KSEQ is not None:
+    def _ks(uc, a, sz, ud):
+        if len(KSEQ) < 3000000: KSEQ.append(uc.reg_read(UC_ARM_REG_R11))
+    u.hook_add(UC_HOOK_CODE, _ks, begin=syms['j_ind_key'] & ~1, end=syms['j_ind_key'] & ~1)
+CHKR = collections.Counter() if os.environ.get('CHKREG') else None
+CHKK = collections.Counter()
+if CHKR is not None:
+    def _cr(uc, a, sz, nm):
+        r11 = uc.reg_read(UC_ARM_REG_R11); lr = uc.reg_read(UC_ARM_REG_LR)
+        info = struct.unpack('<H', bytes(uc.mem_read((lr & ~1), 2)))[0]
+        o = (r11 - 0xF8000000) & 0xFFFFFFFF
+        reg = 'sram' if o < 0x20000 and not (0xE600 <= o < 0x14400) else 'hole' if o < 0x20000 else 'flash' if 0x20000000 <= r11 < 0x20800000 else 'io%x' % (r11 >> 20)
+        CHKR[(nm, reg, 'L' if info & 0x80 else 'S')] += 1
+        if os.environ.get('CHKKEY'): k = struct.unpack('<HH', bytes(uc.mem_read((lr & ~1) + 4, 4))); CHKK[k[0] | k[1] << 16] += 1
+    for nm in ('j_chk0','j_chk1','j_chk2','j_chkf0','j_chkf1','j_chkf2'):
+        u.hook_add(UC_HOOK_CODE, _cr, nm, begin=syms[nm] & ~1, end=syms[nm] & ~1)
+JSH = collections.Counter() if os.environ.get('JSLOWH') else None
+if JSH is not None:
+    def _js(uc, a, sz, ud):
+        r11 = uc.reg_read(UC_ARM_REG_R11); lr = uc.reg_read(UC_ARM_REG_LR)
+        info = struct.unpack('<I', bytes(uc.mem_read((lr & ~1) - 0 + 0, 4)))[0] if False else 0
+        JSH[(r11 & ~0xFF)] += 1
+    u.hook_add(UC_HOOK_CODE, _js, begin=syms['j_slow'] & ~1, end=syms['j_slow'] & ~1)
 if os.environ.get('JTRACE'):
     _tf = open(os.environ['JTRACE'], 'w'); _tend = int(os.environ.get('JTEND', '400000'))
     def _jt(uc, a, sz, ud):
@@ -129,6 +166,8 @@ def psamp_report():
     tot = sum(agg.values()) or 1
     print('   profile: ' + ', '.join('%s %d%%' % (f, c * 100 // tot) for f, c in sorted(agg.items(), key=lambda x: -x[1])[:14]))
     PSAMP.clear()
+TUS = (syms['__jc_start'], syms['__jc_end'], syms['t18_tu_pc']) if 't18_tu_pc' in syms and '__jc_end' in syms else None
+if os.environ.get('TUK'): K = int(os.environ['TUK'])
 def run_until_idle():
     global pc, total
     n = 0; e0 = EXACT[0]
@@ -136,6 +175,7 @@ def run_until_idle():
         try: u.emu_start(pc, 0xFFFFFFFF, count=K)
         except UcError as e: crash(e)
         pc = u.reg_read(UC_ARM_REG_PC) | 1; n += K
+        if TUS is not None and TUS[0] <= (pc & ~1) < TUS[1]: u.mem_write(TUS[2], struct.pack('<I', pc))
         if PSAMP is not None: PSAMP[pc & ~1] = PSAMP.get(pc & ~1, 0) + 1
         # idle when spinning and spin counter grows
         if u.reg_read(UC_ARM_REG_PC) & ~1 in spin_pcs and u.reg_read(UC_ARM_REG_R3) > 1000:
@@ -161,6 +201,8 @@ for l in open(script):
         ms = float(p[1]); ex = cmd(1, int(ms * 1000)); ms_total += ms; host_total += ex
         if os.environ.get('IDLELOG'): print(' '.join('%x' % x for x in struct.unpack('<64I', bytes(u.mem_read(syms['t18_idle_log'], 256)))))
         psamp_report()
+        if CHKR is not None: print('   chk: ' + ', '.join('%s/%s/%s %d' % (k[0],k[1],k[2],v) for k, v in CHKR.most_common(14))); CHKR.clear()
+        if os.environ.get('CHKKEY'): print('   keys: ' + ' '.join('%08x:%d' % kv for kv in CHKK.most_common(24))); CHKK.clear()
         if 't18_kstat' in syms:
             kb = struct.unpack('<40I', bytes(u.mem_read(syms['t18_kstat'], 160)))
             nm = ['COPY','HI','LDRPC','MEM','SPMEM','ADDPC','ADDSP','SPADJ','PUSH','POP','LDM','STM','BCC','B','BL','?','-','?','begin','end+exits']
@@ -180,6 +222,10 @@ for l in open(script):
                 if nm in syms:
                     w = struct.unpack('<%dI' % int(n), bytes(u.mem_read(syms[nm], 4 * int(n)))); print('   ' + nm, ' '.join(str(x) for x in w)); u.mem_write(syms[nm], bytes(4 * int(n)))
         unc = UNC[0]; UNC[0] = 0
+        if os.environ.get('UNCPC') and os.environ.get('UNCOUNT', '1') == '1':
+            agg = collections.Counter()
+            for (a, sz), c in UNPC.items(): agg[(_fname(a & ~1), sz)] += c
+            print('   unc by fn: ' + ' '.join('%s/%d:%d' % (k[0], k[1], v) for k, v in agg.most_common(12))); UNPC.clear()
         if os.environ.get('UNBLK') and os.environ.get('UNCOUNT', '1') == '1':
             print('   blocks ' + ' '.join('%02x:%d' % kv for kv in UNB.most_common(30))); UNB.clear()
         print('   uncached reads %d  (+%.1f Minstr/s at 96 each) bytes %d' % (unc, unc * 96 / ms / 1000, struct.unpack('<I', bytes(u.mem_read(syms['t18_jit_bytes'], 4)))[0]))
@@ -197,6 +243,15 @@ for l in open(script):
     elif p[0] == 'stat':
         cmd(4)
         print('ginstr %d bytes %d (%.1f/instr) ' % (rd(13), rd(14), rd(14) / max(1, rd(13))), end=''); print('blocks %d entries %d stuck %d flushes %d slow %d links %d lookups %d used %d | interp thumb %d arm %d' % (rd(1), rd(2), rd(3), rd(4), rd(5), rd(6), rd(11), rd(12), rd(7), rd(10)))
+    elif p[0] == 'loadst':
+        b = open(p[1], 'rb').read(); n = len(b) - 0x20000
+        u.mem_write(0x60FC0000, b); cmd(7, n)
+        if rd(2) & 0x80000000: print('loadst failed', rd(2)); sys.exit(3)
+    elif p[0] == 'shot':
+        src = rd(1); o = src - 0xF8000000
+        if 0 <= o < 0x20000 and not (0xE600 <= o < 0x14400):
+            open(p[1], 'wb').write(bytes(u.mem_read(0x18000000 + o, 128 * 128 * 2)))
+        else: print('shot: picture at', hex(src))
     elif p[0] == 'time':
         cmd(5, *[int(x) for x in p[1:7]])
     elif p[0] == 'verify':
@@ -211,18 +266,27 @@ for l in open(script):
             q = l2.split()
             if len(q) == 4 and q[2] in 'tTwW': syms_s.append((int(q[0], 16), int(q[1], 16), q[3]))
         syms_s.sort(); starts = [x[0] for x in syms_s]
-        jc = syms.get('JC', 0); jcsz = int(os.environ.get('JCSZ', '32768'))
+        jc = syms.get('JC', syms.get('__jc_start', 0)); jcsz = int(os.environ.get('JCSZ', str(syms['__jc_end'] - jc if '__jc_end' in syms else 32768)))
         cnt = collections.Counter(); gpc = collections.Counter(); jpc = collections.Counter()
+        PFN = os.environ.get('PROFFN'); fpc = collections.Counter()
+        LASTF = collections.deque(maxlen=6); WHY = collections.Counter(); WPC = int(os.environ.get('WHYPC', '0'), 16)
         def hcode(uc, a, sz, ud):
-            if jc <= a < jc + jcsz: cnt['<JIT code>'] += 1; jpc[a] += 1; return
+            if jc <= a < jc + jcsz:
+                cnt['<JIT code>'] += 1; jpc[a] += 1
+                if WPC and (not LASTF or LASTF[-1] != 'JIT'): LASTF.append('JIT')
+                return
             i = bisect.bisect_right(starts, a) - 1
-            cnt[syms_s[i][2] if i >= 0 and a < syms_s[i][0] + syms_s[i][1] + 4 else '?'] += 1
+            nm = syms_s[i][2] if i >= 0 and a < syms_s[i][0] + syms_s[i][1] + 4 else '?'
+            cnt[nm] += 1
+            if nm == PFN: fpc[a] += 1
+            if WPC and (not LASTF or LASTF[-1] != nm): LASTF.append(nm)
         def hjt(uc, a, sz, ud):
             c = uc.reg_read(UC_ARM_REG_R0); g = struct.unpack('<I', uc.mem_read(c + 60, 4))[0]; gpc[g] += 1
-            if g == int(os.environ.get('WATCHPC', '0'), 16) and gpc[g] < 4:
+            if WPC and (g & ~1) == (WPC & ~1): WHY[' > '.join(list(LASTF)[-5:])] += 1
+            if g == int(os.environ.get('WATCHPC', '0'), 16) and gpc[g] < int(os.environ.get('WATCHN', '4')):
                 v = struct.unpack('<17I', uc.mem_read(c, 68)); x = struct.unpack('<QQIiii', uc.mem_read(c + 184, 32))
-                print('  at %08x cpsr %08x cyc %d mult %d irq %d fiq %d halt %d r12 %08x' % (g, v[16], x[0], x[2], x[3], x[4], x[5], v[12]))
-                jh = syms['JH']
+                print('  at %08x cpsr %08x cyc %d mult %d irq %d fiq %d halt %d r12 %08x lr %08x r3 %08x' % (g, v[16], x[0], x[2], x[3], x[4], x[5], v[12], v[14], v[3]))
+                jh = syms.get('JH', syms.get('JHa', 0))
                 for i in range(1024):
                     k, off, mc, hot, none, hot2 = struct.unpack('<IHHBBB', u.mem_read(jh + 12 * i, 11)); code = syms['JC'] + 2 * (off - 1) if off else 0
                     if k == g: print('  entry code %x maxcyc %d hot %d none %d' % (code, mc, hot, none))
@@ -241,20 +305,41 @@ for l in open(script):
             # show the hottest 160 bytes around
             code = bytes(u.mem_read(a0 - 64, 224))
             for ins in md.disasm(code, a0 - 64): print('   %6d %x %s %s' % (jpc.get(ins.address, 0), ins.address, ins.mnemonic, ins.op_str))
+        if PFN:
+            md2 = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_THUMB | capstone.CS_MODE_MCLASS)
+            fs = [x for x in syms_s if x[2] == PFN][0]
+            code = bytes(u.mem_read(fs[0], fs[1]))
+            for ins in md2.disasm(code, fs[0]):
+                if fpc.get(ins.address, 0) * 2000 > sum(fpc.values()): print('   F %7d %x %s %s' % (fpc[ins.address], ins.address, ins.mnemonic, ins.op_str))
+        for k, v in WHY.most_common(6): print('  why %6d %s' % (v, k))
         print('  dispatcher entries by guest pc:')
-        for k, v in gpc.most_common(15): print('   %08x %d' % (k, v))
+        for k, v in gpc.most_common(int(os.environ.get('PROFN', '15'))): print('   %08x %d' % (k, v))
 print('total %.1f s guest, %.0f M host instr, %.1f Minstr per guest second' % (ms_total / 1000, host_total / 1e6, host_total / ms_total / 1000))
 if os.environ.get('JKEYS'):
     lo, hi = [int(x, 16) for x in os.environ['JKEYS'].split('-')]
-    jh = syms['JH']
-    for i in range(int(os.environ.get("JHN","1024"))):
-        k, off, mc, hot, none = struct.unpack('<IHHBB', u.mem_read(jh + 12 * i, 10)); code = syms['JC'] + 2 * (off - 1) if off else 0
+    jn = int(os.environ.get("JHN","1024"))
+    jadr = [syms['JH'] + 12 * i for i in range(jn)] if 'JH' in syms else [syms['JHa'] + 12 * i for i in range(jn // 2)] + [int(os.environ.get('JHB', '0x20000100'), 16) + 12 * i for i in range(jn // 2)]
+    jcs = syms.get('JC', syms.get('__jc_start'))
+    for i in range(jn):
+        k, off, mc, hot, none = struct.unpack('<IHHBB', u.mem_read(jadr[i], 10)); code = jcs + 2 * (off - 1) if off else 0
         if lo <= k < hi:
             print('key %08x code %x maxcyc %d hot %d none %d' % (k, code, mc, hot, none))
             if code and os.environ.get('JDIS'):
                 import capstone
                 md = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_THUMB)
                 for ins in list(md.disasm(bytes(u.mem_read(code, 120)), code))[:int(os.environ['JDIS'])]: print('    %x %s %s' % (ins.address, ins.mnemonic, ins.op_str))
+if os.environ.get('BLKDUMP'):
+    import capstone
+    md = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_THUMB)
+    lo, hi = [int(x, 16) for x in os.environ['BLKDUMP'].split('-')]
+    p = syms['__jc_start']; jend = struct.unpack('<I', bytes(u.mem_read(syms['J'], 4)))[0]
+    tot = {}
+    while p + 8 <= jend:
+        k0, k1, gl, hs = struct.unpack('<HHHH', bytes(u.mem_read(p, 8))); key = k0 | k1 << 16; code = p + 8
+        if lo <= key < hi:
+            print('block %08x guest %d hw, host %d bytes at %x' % (key, gl, 2 * hs, code))
+            for ins in md.disasm(bytes(u.mem_read(code, 2 * hs)), code): print('    %x %s %s' % (ins.address, ins.mnemonic, ins.op_str))
+        p = code + 2 * hs
 if os.environ.get('JDUMP'):
     import capstone
     want = int(os.environ['JDUMP'], 16); jh = syms['JH']
@@ -264,3 +349,32 @@ if os.environ.get('JDUMP'):
             print('block %08x code %08x maxcyc %d' % (k, code, mc))
             md = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_THUMB)
             for ins in md.disasm(bytes(u.mem_read(code, 200)), code): print('   ', hex(ins.address), ins.mnemonic, ins.op_str)
+if os.environ.get('GDIS'):
+    import capstone
+    for it in os.environ['GDIS'].split(','):
+        a, n, m = it.split(':'); a = int(a, 16); n = int(n, 16)
+        md = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_THUMB if m == 't' else capstone.CS_MODE_ARM)
+        src = bytes(u.mem_read(0x18000000 + (a - 0xF8000000), n)) if a >= 0xF8000000 else bytes(u.mem_read(0x60000000 + (a - 0x20000000), n))
+        for ins in md.disasm(src, a): print('   ', hex(ins.address), ins.mnemonic, ins.op_str)
+if os.environ.get('SRAMDUMP'): open(os.environ['SRAMDUMP'], 'wb').write(bytes(u.mem_read(0x18000000, 0x20000)))
+if os.environ.get('LKDBG'):
+    v = struct.unpack('<1536I', bytes(u.mem_read(0x20008000, 6144)))
+    rows = sorted([(v[i + 2], v[i], v[i + 1]) for i in range(0, 1536, 3) if v[i]], reverse=True)
+    for c, k, r in rows[:int(os.environ['LKDBG'])]: print('lk %08x r%d %d' % (k, r, c))
+if os.environ.get('IPCH'):
+    v = struct.unpack('<2048I', bytes(u.mem_read(0x20008000, 8192)))
+    rows = sorted([(v[i + 1], v[i]) for i in range(0, 2048, 2) if v[i + 1]], reverse=True)
+    for c, pc in rows[:int(os.environ['IPCH'])]: print('ipc %08x %d' % (pc, c))
+if os.environ.get('TRYPCS'):
+    v = struct.unpack('<%dI' % (1024 * 3), bytes(u.mem_read(0x20004000, 1024 * 12)))
+    names = ['calls', 'stuck', 'sp', 'seq', 'noblock', 'none', 'budget', 'entered', 'target']
+    rows = sorted([(v[i + 2], v[i], v[i + 1]) for i in range(0, len(v), 3) if v[i] and v[i + 1] != 0], reverse=True)
+    for c, pc, r in [x for x in rows if x[2] != 3 or os.environ.get('TRYSEQ')][:int(os.environ['TRYPCS'])]: print('trypc %08x %-8s %d' % (pc, names[r], c))
+
+if JSH is not None:
+    tot = sum(JSH.values()); print('j_slow entries', tot)
+    for k, v in JSH.most_common(20): print('  jslow %08x %d' % (k, v))
+
+if FNCNT: print('fncount', ' '.join('%s=%d' % kv for kv in FNCNT.items()))
+
+if KSEQ is not None: open(os.environ['KSEQ'], 'wb').write(struct.pack('<%dI' % len(KSEQ), *KSEQ))

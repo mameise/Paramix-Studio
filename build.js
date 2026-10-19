@@ -17,6 +17,10 @@ if (!fs.existsSync(eb) || !fs.existsSync(es)) throw new Error('emu/emu.bin oder 
   const t7 = __dirname + '/t7/t7.bin';
   if (!fs.existsSync(t7)) throw new Error('t7/t7.bin fehlt');
   emu = emu.replace('__T7_APP_B64__', fs.readFileSync(t7).toString('base64'));
+  // V1Emu: E0C6S46/48 program (source in v1/src, core TamaLIB). No ROM.
+  const v1 = __dirname + '/v1/v1.bin';
+  if (!fs.existsSync(v1)) throw new Error('v1/v1.bin fehlt');
+  emu = emu.replace('__V1_APP_B64__', fs.readFileSync(v1).toString('base64'));
   // T18Emu: TG18 program (source in t18/src). No firmware.
   const t18 = __dirname + '/t18/t18.bin';
   if (!fs.existsSync(t18)) throw new Error('t18/t18.bin fehlt');

@@ -15,7 +15,7 @@ SECTIONS {
     KEEP(*(.xipmagic))
     *(.xiptext*)
     *t18jit.o(.text.translate_thumb .text.translate_arm .text.t_decode .text.a_decode .text.emit_* .text.block_begin .text.block_end* .text.modimm_up .text.t2_* .text.get_reg .text.set_reg .text.flush .text.dp_operand* .text.a_shift* .text.cond_reads)
-    *t18soc.o(.text.tg18_init .text.soc_reset .text.tg18_save_state .text.tg18_load_state .text.tg18_state_size .text.tg18_set_time .text.tg18_get_time .text.tg18_advance_offline .text.reg_clear .text.tg18_set_addrs .text.tg18_get_addrs .text.tg18_set_present .text.days_from_civil .text.find_idle .text.tg18_struct_size)
+    *t18soc.o(.text.tg18_init .text.soc_reset .text.tg18_save_state .text.tg18_load_state .text.tg18_state_size .text.tg18_set_time .text.tg18_get_time .text.tg18_advance_offline .text.reg_clear .text.tg18_set_addrs .text.tg18_get_addrs .text.tg18_set_present .text.days_from_civil .text.find_idle .text.tg18_struct_size .text.tg18_sf_regp .text.tg18_sf_ctlp .text.tg18_sf_outp)
     *t18cpu.o(.text.arm7_init .text.arm7_reset .text.arm7_save .text.arm7_load .text.build_cond .text.t18_sram_clear)
     /* 1.6.6: rarely run, out of the PRAM for a bigger code buffer (T18_XIP_MORE) */
     XIPMORE
@@ -36,7 +36,7 @@ SECTIONS {
   .init : { KEEP(*(.initcode)) KEEP(*(.initdata*)) KEEP(*(.initcode_z)) . = ALIGN(4); } > PRAM
   __prog_end = .;
   __jc_start = ALIGN(__data_load, 4);
-  __jt_start = 0x10000 - 0x800;   /* the translator's table for indirect jumps (JT_BITS 8: 256 x 8 bytes) */
+  __jt_start = 0x10000 - JTSIZE;   /* the translator's table for indirect jumps (8 << JT_BITS bytes, build.sh) */
   __jc_end = __jt_start;
   .bss (NOLOAD) : { __bss_start = .; *(.bss*) *(COMMON) . = ALIGN(4); __bss_end = .; } > HOLE
   ASSERT(__prog_end <= 0xC000, "PRAM: too little room left for the translated code")

@@ -156,6 +156,7 @@ TC_INIT static void display_init(void){
   lcd_cmd(0x2a,pcas0,4); lcd_cmd(0x2b,pras0,4);
   lcd_cmd(0x11,0,0); MS(150);
 }
+static u32 g_pwm_mctrl;   /* 1.6.8 (test44, BL_MR3RST): MCTRL left at 0x400 for the dimmed light, see bl_apply */
 static void pwm2p(u32 mr1, u32 per, int first){
   if(first) REG(CT2+0x34)=0;
   REG(CT2+0x00)=0;
@@ -165,19 +166,42 @@ static void pwm2p(u32 mr1, u32 per, int first){
   REG(CT2+0x14)=0x400u;
   REG(CT2+0x24)=per;
   REG(CT2+0x1C)=mr1;
-  REG(CT2+0x14)=0;
+  REG(CT2+0x14)=g_pwm_mctrl;
   REG(CT2+0x34)=0x00200002u;
   REG(CT2+0x00)=2;
   REG(CT2+0x3C)=0x1Fu;
   REG(CT2+0x00)=1;
 }
 static void pwm2(u32 mr1, int first){ pwm2p(mr1, 0x17700u, first); }
+#ifdef BL_PWM
+/* 1.6.8 (test42): the light in percent, exactly as the Paradise firmware sets it. Traced in the Paradise
+ * emulator: its brightness setting (settings block byte 8, bits 0..2) only changes timer 2 MR1:
+ * 0x13EC0 / 0x10680 / 0xCE40 for 85 / 70 / 55 % of the period 0x17700, MR1 = period at the start (full).
+ * Same register sequence as pwm2. */
+static u32 g_bl_pct = 100u, g_bl_on = 1u;
+#ifdef BL_MR3RST
+/* 1.6.8 (test44): test42 had no effect on the device. With MCTRL 0 after the setup (as the firmware writes it)
+ * the counter never restarts at MR3: one period lasts 2^32 cycles (60 s), the output is the same level all the
+ * time, whatever MR1 is (also why the 1.6.6 tests showed nothing). MR3RST kept: a real 750 Hz PWM. The output
+ * goes high at the MR1 match; high is light (MR1 = 0 was always bright), so MR1 = the dark part of the period. */
+static void bl_apply(int first){ u32 p = g_bl_pct;
+  if(p >= 100u){ g_pwm_mctrl = 0u; pwm2(0x17700u, first); return; }   /* full: exactly as before */
+  g_pwm_mctrl = 0x400u; pwm2(0x17700u - 0x17700u * p / 100u, first); g_pwm_mctrl = 0u; }
+#else
+static void bl_apply(int first){ u32 p = g_bl_pct; pwm2(p >= 100u ? 0x17700u : (0x17700u * p / 100u ? 0x17700u * p / 100u : 1u), first); }
+#endif
+void hw_bl_set(u32 pct){ if(pct > 100u) pct = 100u; if(pct == g_bl_pct) return; g_bl_pct = pct; if(g_bl_on) bl_apply(0); }
+#endif
 TC_INIT static void backlight_on(void){
   REG(0x40007034u)=0;
   pwm2(0x17700u,1);
   REG(0x40009000u)=0x5AFA0000u; REG(0x40008000u)=0x5AFA0000u;     /* like FU */
   REG(0x40018034u)=0x15555155u; REG(0x40019034u)=0x55540140u;
+#ifdef BL_PWM
+  bl_apply(0);
+#else
   pwm2(0,0);
+#endif
   REG(CLK+0x20)=0x42u;
 }
 
@@ -189,10 +213,23 @@ TC_INIT static void backlight_on(void){
 /* v0.8.15: the counter runs periodically (MCTRL bit 10 = restart at MR3, like the backlight with 0x400).
  * Before, MCTRL ended up at 0: only a single pulse per call, so a click instead of a tone.
  * If only the pitch changes, only MR0/MR3 are updated (no restart, no click). */
+#ifdef HW_OPTS
+/* 1.6.8: volume and brightness set in the Studio (TamaEmu, T18Emu). Volume: pulse length (0 off, 1 quiet 1/128,
+ * 2 normal 1/32 as before, 3 loud 1/8 of the period). Brightness: the pixels darkened (0 = 100 %, 1 75, 2 50, 3 25 %). */
+u32 g_hw_vol = 2u, g_hw_dim = 0u;
+static const u8 VOL_SH[4] = { 5, 7, 5, 3 };
+#endif
 void hw_tone(u32 hz){
   static u32 on;
+#ifdef HW_OPTS
+  if(!g_hw_vol) hz = 0;
+#endif
   if(!hz){ REG(CT7+0x34)=0; REG(CT7+0x00)=0; on=0; return; }
+#ifdef HW_OPTS
+  u32 per = 72000000u / hz, mr0 = per - (per >> VOL_SH[g_hw_vol & 3u]);
+#else
   u32 per = 72000000u / hz, mr0 = per - per/32u;
+#endif
   if(on){ REG(CT7+0x24)=per; REG(CT7+0x18)=mr0; return; }
   REG(CT7+0x34)=0;
   REG(CT7+0x00)=2; REG(CT7+0x08)=0; REG(CT7+0x00)=0;
@@ -241,8 +278,22 @@ void hw_bl_test(u32 m, u32 pct){
  * MR1 values alone (v0.8.17) had no effect on the device. */
 void hw_backlight(int on){
   static int is_on=1;
+#ifndef WAKE_QUICK
+  /* 1.6.8: the panel needs 120 ms after SLPOUT; switched on earlier it showed white for a moment. Its picture is
+   * kept while it sleeps, so after the wait it shows the old picture, the light comes last. */
+#ifdef BL_PWM
+  if(on){ if(is_on) return; lcd_cmd(0x11,0,0); MS(125); hw_wdt_feed(); lcd_cmd(0x29,0,0); MS(20); g_bl_on=1u; bl_apply(1); is_on=1; }
+#else
+  if(on){ if(is_on) return; lcd_cmd(0x11,0,0); MS(125); hw_wdt_feed(); lcd_cmd(0x29,0,0); MS(20); pwm2(0u,1); is_on=1; }
+#endif
+#else
   if(on){ if(is_on) return; lcd_cmd(0x11,0,0); MS(10); lcd_cmd(0x29,0,0); pwm2(0u,1); is_on=1; }
-  else  { if(!is_on) return; REG(CT2+0x00)=0; REG(CT2+0x34)=0; lcd_cmd(0x28,0,0); lcd_cmd(0x10,0,0); is_on=0; }
+#endif
+  else  { if(!is_on) return; REG(CT2+0x00)=0; REG(CT2+0x34)=0; lcd_cmd(0x28,0,0); lcd_cmd(0x10,0,0); is_on=0;
+#ifdef BL_PWM
+    g_bl_on=0u;
+#endif
+  }
 }
 #elif defined(BL_OFFFIX)
 /* v0.8.17: duty 0 = full brightness. MR1 equal to the period (0x17700) never matches, so it stayed bright.
@@ -298,9 +349,22 @@ void hw_px_begin(u32 x0, u32 y0, u32 x1, u32 y1){
   LCD_DC(0); { u8 c=0x2c; spi_tx(&c,1); }
   LCD_DC(1);
 }
+#ifdef HW_OPTS
+__attribute__((noinline, minsize)) static u32 px_dim(u32 v, u32 d){ u32 q=(v>>2)&0x39E7u; return d==1u ? v-q : d==2u ? (v>>1)&0x7BEFu : q; }
+#endif
 void hw_px_row(const u16* r, u32 n){
   u8 b[16]; u32 k=0;
+#ifdef HW_OPTS
+#ifdef BL_PWM
+  u32 d=0;   /* the light is dimmed instead */
+#else
+  u32 d=g_hw_dim;
+#endif
+  #pragma clang loop unroll(disable)
+  for(u32 i=0;i<n;i++){ u32 v=r[i]; if(d) v=px_dim(v,d); b[k++]=(u8)(v>>8); b[k++]=(u8)v; if(k==16u){ spi_tx(b,16); k=0; } }
+#else
   for(u32 i=0;i<n;i++){ b[k++]=(u8)(r[i]>>8); b[k++]=(u8)r[i]; if(k==16u){ spi_tx(b,16); k=0; } }
+#endif
   if(k) spi_tx(b,k);
 }
 void hw_px_end(void){ LCD_DC(0); }

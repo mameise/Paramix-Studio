@@ -2,6 +2,27 @@
 
 Versions are listed newest first.
 
+## 1.6.8 (2026-10-19)
+
+- Start device: the Paradise as a device for programs only. After its own setup the PARAMIX menu comes up with the emulators and DOOM, a SETTINGS entry (sound, display time) and DOWNLOAD (starts the flash program for the PC). All game pictures go, about 5 MB more room; colour Tamas (TamaEmu) and a TG18 (T18Emu) run as further programs there.
+- V1Emu (new): the first Tamagotchis (P1, P2, Angel, Morino, Umino, Yasashii, Genjintchi, Tamaotchi) and Digimon V1/V2, from your own ROMs, about 88 KB each. Clock from the Paradise for P1, P2, Angel, Morino and Digimon; turning the wheel shakes the toy; Digimon and Yasashii turned the right way; own icons for Angel and Digimon. Digimon: its icons, its beeps (one-shot buzzer) and its keys (key interrupt) now work.
+- Emulator tab: one button for all emulators, every program with its row (▾: clock, start when switched on, figures, download slots), a star for the main program, DOOM in the list, each program once, a program that no longer fits is refused when chosen.
+- TamaEmu and T18Emu settings in the Studio and on the device (wheel short): volume, brightness 5 to 100 %, screen off after.
+- Light: all emulators now dim the backlight itself, not the colours. T7Emu and V1Emu: "Light" 5 to 100 % and "Dim to" 1 to 50 %.
+- Battery change: every emulator saves its run state by itself (screen dark, or every 30 minutes); a session is used once.
+- The Paradise no longer lives the time spent in a program at once when you come back (hunger, care misses): its "lived up to" date moves on by that time.
+- Save tab: Programs (back up and restore the save of every program) and Paradise (with the editor and, with several saves, the slot to export or write).
+- Names tab: rename fields, Tamas and items. Figure drawer: move the eyes and the mouth, per pose. Card tab: TamaSma cards too. Glacier and Tropical with six fields: all six names.
+- T18Emu: much faster (translator, idle detection, cached flash), melodies on the real clock, camera and diary on all nine firmwares, the clock after the game's own setup, the save data of the firmware by the 4 KB sector (a 7th block was lost before: the diary hung). Starts again after a test build put start code into the flash window.
+- TamaEmu: the 4U and 4U+ need one press per step (NFC chip answered), the iD L clock no longer runs fast with the screen off, only finished pictures, the clock after the game's own setup.
+- Settings of the start device and the clock from the Paradise also when started from the menu.
+- T18Emu is no longer marked as a test version.
+
+## 1.6.7 (2026-10-16)
+
+- More emulators (started from the menu): they never started on the device and went back to the Paradise. The cached flash window shows only 1 MB, the further programs lie higher up. The launcher now copies them from the uncached flash (stub_feld_tpl.bin rebuilt).
+- Writing with "Keep saves": Tropical and Glacier (and Land, Water, Sky) are the same firmware, only the active field differs. A device on Glacier with a ROM made from Tropical no longer refuses; the device keeps its save and its field, a note says so.
+
 ## 1.6.6 (2026-10-16)
 
 - T7Emu: new light settings. "Dim after" (10 s to 10 min or never), "Dim to" (1 % to 50 %, only when dimming) and "Screen off after" (never or a time, always longer than the dim time). Dimmed means darker colours (the backlight PWM had no effect on the device).
@@ -14,7 +35,6 @@ Versions are listed newest first.
 - TamaEmu: the reset question follows the language of the Studio.
 - T18Emu (experimental) a lot faster: the most read firmware blocks lie in a part of the Paradise flash that is read through the cache; blocks that are empty in the firmware are answered at once; a bigger buffer for translated code; the idle check runs from the fast memory. The screen only shows finished pictures. The last written part of the firmware's own save is written back after 3 seconds (before only when leaving).
 - T18Emu: the speed display and the code screens of the test builds are gone.
-- More emulators (started from the menu): they never started on the device and went back to the Paradise. The cached flash window shows only 1 MB, the further programs lie higher up. The launcher now copies them from the uncached flash (stub_feld_tpl.bin rebuilt).
 
 ## 1.6.5 (2026-10-15)
 

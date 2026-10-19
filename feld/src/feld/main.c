@@ -25,6 +25,12 @@
 #include "hw.h"
 #include "flash.h"
 #include "font.h"
+#ifndef HOST
+#include "../../../emu/src/emu/paraclock.h"
+#ifdef PARA_BACK
+#include "../../../emu/src/emu/paraback.h"
+#endif
+#endif
 
 #define FELD_MAGIC 0x444C4546u      /* "FELD" */
 #define SLOT_MAGIC 0x544C5346u      /* "FSLT" */
@@ -35,6 +41,10 @@
 #define SET_B 0xEFF000u
 #define F_FIELDS 1u
 #define F_BAG    2u
+#define F_TAMA   4u                 /* 1.6.8: TAMA menu (level, care, character) */
+#define F_SAVES  8u                 /* 1.6.8: the slots are saves (any field), not fields */
+#define F_LAUNCH 16u                /* 1.6.8: launcher ROM: the menu is the home screen (C stays, display off when idle) */
+#define SAVE_OFF 0xF06u             /* settings block: number of the active save + 1 (save mode) */
 
 #define APPS_MAX 6
 typedef struct { u16 off; u8 val; u8 pad; } Patch;
@@ -68,6 +78,14 @@ typedef struct {
   char name0[12];
   u32 napps;
   struct { u32 src; char name[12]; } apps[APPS_MAX];
+  /* from version 6 (1.6.8): TAMA menu. tama_off: the pet in the settings block (+4/+6 character,
+   * +0x10 sickness, +0x18 bits 2..4 stage, +0x1C hunger 0..6, +0x1D happiness 0..20), level_off:
+   * planet level (low nibble = level, high nibble = level already celebrated) */
+  u32 tama_off, level_off;
+  /* from version 7 (1.6.8): the flash app as a 64 KB image (start device: menu entry DOWNLOAD), 0 = none */
+  u32 dl_src;
+  /* from version 8 (1.6.8): six more programs (the small V1Emu ones fit many times) */
+  struct { u32 src; char name[12]; } apps2[6];
 } Cfg;
 
 #ifdef HOST
@@ -76,18 +94,18 @@ typedef struct {
 #define CFG_QUAL const
 #endif
 __attribute__((section(".pmxcfg"), used))
-volatile CFG_QUAL Cfg g_cfg = { FELD_MAGIC, 5, 0x830000u, 0x58000u, 3, 0xD4A000u, 0x1000000u, 0xD49000u, 0xB0000u,
+volatile CFG_QUAL Cfg g_cfg = { FELD_MAGIC, 8, 0x830000u, 0x58000u, 3, 0xD4A000u, 0x1000000u, 0xD49000u, 0xB0000u,
   F_FIELDS|F_BAG, 0x70169E2Cu, 1, 4, 3, {1,2,3,0}, {"LAND","WATER","SKY",""},
   {0x5647u, 0x2BDFu, 0x7E9Fu, 0xFD45u},
   {{8,0x11,0},{16,0xc0,0},{17,0xa8,0},{168,1,0},{576,0x3f,0},{577,0x1f,0},{1856,1,0}},
   {{{4,0x0c,0},{170,2,0},{439,0,0}}, {{4,4,0},{170,1,0},{439,1,0}}, {{4,4,0},{170,1,0},{439,2,0}}},
-  0xb4u, 0x240u, 0x740u, 0, 0, 439u, 0, 0, {0,0}, {"",""}, {0,0}, {{{0,0,0}}}, 0, 0, {0}, "", 0, {{0,""}} };
+  0xb4u, 0x240u, 0x740u, 0, 0, 439u, 0, 0, {0,0}, {"",""}, {0,0}, {{{0,0,0}}}, 0, 0, {0}, "", 0, {{0,""}}, 0, 0, 0 };
 #define XIP_DEC 0x11000u
 #include <stddef.h>
 _Static_assert(offsetof(Cfg,flags)==36 && offsetof(Cfg,id_c)==40 && offsetof(Cfg,nfields)==48 && offsetof(Cfg,field_name)==68
   && offsetof(Cfg,field_col)==116 && offsetof(Cfg,fac_common)==132 && offsetof(Cfg,fac_field)==196
   && offsetof(Cfg,money_off)==260 && offsetof(Cfg,cat_n)==276 && offsetof(Cfg,field_byte)==280 && offsetof(Cfg,six_off)==288 && offsetof(Cfg,field_name2)==300
-  && offsetof(Cfg,field_col2)==324 && offsetof(Cfg,fac_field2)==332 && offsetof(Cfg,slot_off2)==364 && offsetof(Cfg,six_map)==372 && sizeof(Cfg)==492 && offsetof(Cfg,name0)==380 && offsetof(Cfg,napps)==392 && offsetof(Cfg,apps)==396, "settings block layout");
+  && offsetof(Cfg,field_col2)==324 && offsetof(Cfg,fac_field2)==332 && offsetof(Cfg,slot_off2)==364 && offsetof(Cfg,six_map)==372 && sizeof(Cfg)==600 && offsetof(Cfg,dl_src)==500 && offsetof(Cfg,tama_off)==492 && offsetof(Cfg,name0)==380 && offsetof(Cfg,napps)==392 && offsetof(Cfg,apps)==396, "settings block layout");
 #define NF_MAX 6u
 
 /* Saved field (header page at the start of its slot). res[0] = POOL_MAGIC (1.2.12): the
@@ -95,6 +113,7 @@ _Static_assert(offsetof(Cfg,flags)==36 && offsetof(Cfg,id_c)==40 && offsetof(Cfg
  * the header pages), so one field can use the room the other fields do not need. Without
  * it (older menus) the data follows the header in the field's own slot. */
 #define POOL_MAGIC 0x4C4F4F50u      /* "POOL" */
+#define PEND_MAGIC 0x444E4550u      /* "PEND" in res[2]: switch from this field under way (1.6.8) */
 #define DPG_MAX 1024u
 typedef struct {
   u32 magic, field, npages, bytes, sum, res[3];
@@ -106,13 +125,13 @@ _Static_assert(sizeof(SlotHdr)<=4096u, "slot header fits one page");
 #define GPIO2 0x4001A000u
 
 static u16 g_fb[128*128];
-static u8  g_page[PAGE];             /* uncompressed page */
-static u8  g_cmp[PAGE+PAGE/8+16];    /* one compressed page */
-static u8  g_out[PAGE];              /* write buffer */
+static u8  g_page[PAGE] __attribute__((aligned(4)));             /* uncompressed page (1.6.8: all flash buffers word aligned, the flash DMA needs it: error 41) */
+static u8  g_cmp[PAGE+PAGE/8+16] __attribute__((aligned(4)));    /* one compressed page */
+static u8  g_out[PAGE] __attribute__((aligned(4)));              /* write buffer */
 static SlotHdr g_hdr;
 static u16 g_head[4096], g_prev[4096];
-static u8  g_ff[PAGE];               /* empty page: erase = write an empty page */
-static u8  g_set[PAGE];              /* settings block being edited */
+static u8  g_ff[PAGE] __attribute__((aligned(4)));               /* empty page: erase = write an empty page */
+static u8  g_set[PAGE] __attribute__((aligned(4)));              /* settings block being edited */
 
 #ifdef HOST
 #include "host.h"
@@ -289,17 +308,22 @@ static u32 cur_id(void){ return rd32(g_cfg.id_page); }
 static int field_index(u32 id){ for(u32 i=0;i<nfields();i++) if(fid(i) && fid(i)==id) return (int)i; return -1; }
 /* The active field is stored in the save (settings block), not in the ID:
  * verified on the emulator (fresh Land ROM with ID Water, field byte Land: egg in Land). */
-static int field_now(void){
-  flash_read(SET_A, g_page, PAGE);
-  u32 c=crc16arc(g_page,4,PAGE);
-  if((g_page[0]|(g_page[1]<<8))==c && (g_page[2]|(g_page[3]<<8))==(~c&0xFFFFu) && g_cfg.field_byte<PAGE){
-    u32 f=g_page[g_cfg.field_byte];
+static int set_ok(const u8 *p){ u32 c=crc16arc(p,4,PAGE); return (p[0]|(p[1]<<8))==c && (p[2]|(p[3]<<8))==(~c&0xFFFFu); }
+/* field of a settings block, -1 = unknown */
+static int field_of(const u8 *p){
+  if(set_ok(p) && g_cfg.field_byte<PAGE){
+    u32 f=p[g_cfg.field_byte];
     /* six fields: the set byte (0 or 1) picks the second three */
     if(g_cfg.six_off && g_cfg.six_off<PAGE && f<4u){
-      u32 m=g_cfg.six_map[(g_page[g_cfg.six_off]==1u ? 4u : 0u) + f];
+      u32 m=g_cfg.six_map[(p[g_cfg.six_off]==1u ? 4u : 0u) + f];
       if(m<nfields()) return (int)m;
     } else if(f<nfields()) return (int)f; }
-  return field_index(cur_id());
+  return -1;
+}
+static int field_now(void){
+  flash_read(SET_A, g_page, PAGE);
+  int f=field_of(g_page);
+  return f>=0 ? f : field_index(cur_id());
 }
 static u32 slot_base(u32 i){
   if(g_cfg.slot_off2 && g_cfg.slot_n1 && i>=g_cfg.slot_n1) return g_cfg.slot_off2 + (i-g_cfg.slot_n1)*g_cfg.slot_size;
@@ -330,7 +354,7 @@ static void slot_get(u32 i, u32 pos, u32 n, u8 *dst){
   }
 }
 /* Pool pages taken by the saved fields other than skip. */
-static u8 g_used[512];
+static u8 g_used[512] __attribute__((aligned(4)));
 static void pool_mark(u32 skip){
   for(u32 k=0;k<sizeof g_used;k++) g_used[k]=0;
   for(u32 j=0;j<g_cfg.nslots;j++){
@@ -399,7 +423,7 @@ static int stash(u32 fi){
     progress("CHECKING", tot+i+1u, tot*2u);
   }
   g_hdr.magic=SLOT_MAGIC; g_hdr.field=fi+1u; g_hdr.npages=np; g_hdr.bytes=by; g_hdr.sum=sum;
-  g_hdr.res[0]=POOL_MAGIC; g_hdr.res[1]=nd; g_hdr.res[2]=0;
+  g_hdr.res[0]=POOL_MAGIC; g_hdr.res[1]=nd; g_hdr.res[2]=PEND_MAGIC;
   { const u8 *h=(const u8*)&g_hdr; for(u32 k=0;k<PAGE;k++) g_out[k]= k<sizeof(g_hdr) ? h[k] : 0xFF; }
   flash_prog4k(b, g_out);
   if(!slot_valid(fi)) return 14;
@@ -443,6 +467,9 @@ static int restore(u32 fi, int fresh){
 /* ---------------------------------------------------------------- Screens */
 static void leave(void){
   rect(0,0,128,128,0); show();
+#ifdef PARA_BACK
+  para_back_fix(g_set);
+#endif
   hw_back_to_paradise();
 }
 static void error_screen(int code){
@@ -491,8 +518,8 @@ static void start_app(void){
   for(;;){}
 }
 /* All programs: 0 = the stub's own (if any), then the ones of the settings block (version 5) */
-static u32 g_napp, g_appsrc[APPS_MAX+1];
-static char g_appnm[APPS_MAX+1][13];
+static u32 g_napp, g_appsrc[APPS_MAX+9], g_dl, g_sx;   /* g_dl: index of DOWNLOAD + 1, g_sx: of SETTINGS + 1 (start device) */
+static char g_appnm[APPS_MAX+9][13];
 static void apps_detect(void){
   g_napp=0;
   if(g_app){
@@ -502,10 +529,25 @@ static void apps_detect(void){
   }
   /* the stub must have the entry at +0x0C (cpsid i; mov r4, r0) */
   if(g_cfg.version<5u || rd32(g_cfg.stub_off+0x0Cu)!=0x4604B672u) return;
-  for(u32 i=0;i<g_cfg.napps && i<APPS_MAX;i++){
-    u32 s=g_cfg.apps[i].src; if(s<0x10000000u || s>=0x11000000u) continue;
-    for(int k=0;k<12;k++){ g_appnm[g_napp][k]=g_cfg.apps[i].name[k]; } g_appnm[g_napp][12]=0;
+  for(u32 i=0;i<g_cfg.napps && i<APPS_MAX+(g_cfg.version>=8u ? 6u : 0u);i++){
+    const volatile char *nm = i<APPS_MAX ? g_cfg.apps[i].name : g_cfg.apps2[i-APPS_MAX].name;
+    u32 s= i<APPS_MAX ? g_cfg.apps[i].src : g_cfg.apps2[i-APPS_MAX].src; if(s<0x10000000u || s>=0x11000000u) continue;
+    for(int k=0;k<12;k++){ g_appnm[g_napp][k]=nm[k]; } g_appnm[g_napp][12]=0;
     g_appsrc[g_napp++]=s;
+  }
+  /* start device: our flash app as the last entry, so the PC can write the ROM again (the Paradise's own
+   * download screen is not reachable any more) */
+  g_dl=0; g_sx=0;
+#ifndef NO_LSET
+  /* start device (1.6.8): sound and display time, the Paradise's own settings screens are gone */
+  if(g_cfg.flags & 16u){
+    const char *d="SETTINGS"; int k=0; while(d[k]){ g_appnm[g_napp][k]=d[k]; k++; } g_appnm[g_napp][k]=0;
+    g_appsrc[g_napp++]=0; g_sx=g_napp;
+  }
+#endif
+  if((g_cfg.flags & 16u) && g_cfg.version>=7u && g_cfg.dl_src>=0x10000000u && g_cfg.dl_src<0x11000000u){
+    const char *d="DOWNLOAD"; int k=0; while(d[k]){ g_appnm[g_napp][k]=d[k]; k++; } g_appnm[g_napp][k]=0;
+    g_appsrc[g_napp++]=g_cfg.dl_src; g_dl=g_napp;
   }
 }
 static void start_app_i(u32 i){
@@ -519,7 +561,15 @@ static void start_app_i(u32 i){
 }
 
 /* Large menu entry: name in large text, state in small text below. */
+static int g_small;                   /* five entries: lower boxes, state at the right */
 static void big_entry(int y, int sel, const char *name, const char *st, u16 c, u16 stc){
+  if(g_small){
+    if(sel){ rect(3,y,125,y+22,c); rect(5,y+2,123,y+20,BG); }
+    text(9,y+4,name,c,2);
+    int w=text_w(st,1), x=121-w, nx=9+text_w(name,2)+4; if(x<nx) x=nx;
+    textn(x,y+8,st,(121-x)/6,stc,1);
+    return;
+  }
   if(sel){ rect(3,y,125,y+28,c); rect(5,y+2,123,y+26,BG); }
   text(9,y+4,name,c,2);
   text(9,y+19,st,stc,1);
@@ -527,18 +577,30 @@ static void big_entry(int y, int sel, const char *name, const char *st, u16 c, u
 
 /* ---------------------------------------------------------------- Fields */
 static int g_cur;                     /* index of the active field, -1 = not a field in the list */
-
-static void field_switch(u32 tgt, int has){
-  rect(0,0,128,128,BG); ctext(8,"PLEASE WAIT",WHITE,1); ctext(20,"DO NOT SWITCH OFF",GREY,1); show();
-  int e=stash((u32)g_cur);
-  if(e){ erase_page(slot_base((u32)g_cur)); error_screen(e); }
-  e=restore(tgt,!has);
-  if(e) error_screen(e);
-  if(fid(tgt)){ write_id(fid(tgt)); if(cur_id()!=fid(tgt)) error_screen(30); }
-  if(field_now()!=(int)tgt) error_screen(31);
-  erase_page(slot_base(tgt));
-  done_screen(fname(tgt), fcol(tgt));
+static int g_act;                     /* slot of the live save: field mode = g_cur, save mode = its save number */
+static int saves_mode(void){ return (g_cfg.flags & F_SAVES) && g_cfg.version>=6u && g_cfg.nslots>=2u; }
+/* save mode: the number of the live save goes into its settings block */
+static void act_mark(u32 j){
+  flash_read(SET_A, g_page, PAGE);
+  if(!set_ok(g_page) || g_page[SAVE_OFF]==j+1u) return;
+  g_page[SAVE_OFF]=(u8)(j+1u); stamp(g_page);
+  flash_prog4k(SET_A, g_page); flash_prog4k(SET_B, g_page);
 }
+/* Live save to slot g_act, then slot tgt (has) or a fresh start on field fld into the live area. */
+static void field_switch2(u32 tgt, int has, u32 fld){
+  rect(0,0,128,128,BG); ctext(8,"PLEASE WAIT",WHITE,1); ctext(20,"DO NOT SWITCH OFF",GREY,1); show();
+  int e=stash((u32)g_act);
+  if(e){ erase_page(slot_base((u32)g_act)); error_screen(e); }
+  e=restore(has ? tgt : fld,!has);
+  if(e) error_screen(e);
+  if(fid(fld)){ write_id(fid(fld)); if(cur_id()!=fid(fld)) error_screen(30); }
+  if(field_now()!=(int)fld) error_screen(31);
+  if(saves_mode()) act_mark(tgt);
+  { u32 b=slot_base((u32)g_act); flash_read(b, g_out, PAGE); g_out[28]=g_out[29]=g_out[30]=g_out[31]=0; flash_prog4k(b, g_out); }   /* switch done */
+  if(has) erase_page(slot_base(tgt));
+  done_screen(fname(fld), fcol(fld));
+}
+static void field_switch(u32 tgt, int has){ field_switch2(tgt, has, tgt); }
 static int field_confirm(u32 tgt, int has){
   rect(0,0,128,128,BG);
   ctext(14,"SWITCH TO",WHITE,1);
@@ -551,29 +613,57 @@ static int field_confirm(u32 tgt, int has){
   return yes_no();
 }
 static void big_entry(int y, int sel, const char *name, const char *st, u16 c, u16 stc);
-/* Program list (more than one program). Returns on C unless top. */
+static int launch_mode(void){ return (g_cfg.flags & F_LAUNCH) != 0u; }
+/* Launcher ROM: after g_idle_ms without a key the display goes dark until the next key (1.6.8).
+ * The time is kept in the Paradise's settings block at IDLE_OFF (0 = 2 minutes, else index + 1). */
+#define IDLE_OFF 0xF07u
+static const u32 g_idle_tab[5]={30000u,60000u,120000u,300000u,0u};
+static const char *const g_idle_nm[5]={"30 S","1 MIN","2 MIN","5 MIN","NEVER"};
+static u32 g_idle_t, g_idle_ms;
+static void lset_menu(void);
+static int idle_input(void){
+  int k=input();
+  if(k){ g_idle_t=g_ms; return k; }
+#ifndef HOST
+  if(launch_mode() && g_idle_ms && g_ms-g_idle_t>=g_idle_ms){
+    hw_backlight(0);
+    while(!input()){}
+    hw_backlight(1); wait_release(); g_idle_t=g_ms;
+    return -1;                        /* redraw */
+  }
+#endif
+  return 0;
+}
+/* Program list (more than one program, or the launcher's home screen). Returns on C unless top. */
 static void apps_menu(int top){
-  u32 n=g_napp, sel=0;
+  u32 n=g_napp, sel=0, first=0;   /* first: top row of the list (1.6.8: more than 8 entries scroll) */
+  g_idle_t=g_ms;
   for(;;){
     rect(0,0,128,128,BG);
     int y0 = n>=4u ? 1 : 12;
-    if(n<4u) ctext(2,"PROGRAMS",WHITE,1);
-    for(u32 i=0;i<n;i++){
+    if(n<4u) ctext(2, launch_mode() ? "PARAMIX" : "PROGRAMS",WHITE,1);
+    if(n>8u){ if(sel<first) first=sel; if(sel>=first+8u) first=sel-7u; } else first=0;
+    for(u32 i=first;i<n && i<first+(n>8u?8u:n);i++){
+      int sx = g_sx && i+1u==g_sx;
+      u16 c = (g_dl && i+1u==g_dl) || sx ? GREY : ORANGE;
       if(n>4u){
-        int y=2+(int)i*16;
-        if(i==sel){ rect(1,y,127,y+15,ORANGE); rect(2,y+1,126,y+14,BG); }
-        text(5,y+4,g_appnm[i],ORANGE,1);
-        text(123-text_w("START",1),y+4,"START",GREY,1);
-      } else big_entry(y0+(int)i*29, i==sel, g_appnm[i], "START", ORANGE, GREY);
+        int dy = n>7u ? 14 : 16, y=2+(int)(i-first)*dy;
+        if(i==sel){ rect(1,y,127,y+dy-1,c); rect(2,y+1,126,y+dy-2,BG); }
+        text(5,y+(dy-8)/2+1,g_appnm[i],c,1);
+        const char *st = sx ? "OPEN" : "START";
+        text(123-text_w(st,1),y+(dy-8)/2+1,st,GREY,1);
+      } else big_entry(y0+(int)i*29, i==sel, g_appnm[i], g_dl && i+1u==g_dl ? "PC FLASH" : sx ? "SOUND, DISPLAY" : "START", c, GREY);
     }
-    ctext(119,"B OK   C BACK",GREY,1);
+    ctext(119, top && launch_mode() ? "B START" : "B OK   C BACK",GREY,1);
+    if(n>8u){ char sc[8]; u32 a=sel+1u; int k=0; if(a>=10u) sc[k++]=(char)('0'+a/10u); sc[k++]=(char)('0'+a%10u); sc[k++]='/'; if(n>=10u) sc[k++]=(char)('0'+n/10u); sc[k++]=(char)('0'+n%10u); sc[k]=0; text(123-text_w(sc,1),119,sc,GREY,1); }
     show(); wait_release();
     for(;;){
-      int k=input();
+      int k=idle_input();
+      if(k<0) break;
       if(k==1){ sel=(u32)((int)sel + (g_step>0?1:-1) + (int)n) % n; break; }
       if(k==K_A){ sel=(sel+1u)%n; break; }
-      if(k==K_BACK){ if(top) leave(); return; }
-      if(k==K_OK) start_app_i(sel);
+      if(k==K_BACK){ if(top && launch_mode()) continue; if(top) leave(); return; }
+      if(k==K_OK){ if(g_sx && sel+1u==g_sx){ lset_menu(); g_idle_t=g_ms; break; } start_app_i(sel); }
     }
   }
 }
@@ -640,6 +730,52 @@ static void set_write(const char *what){
   flash_prog4k(SET_B, g_set);
   if(!flash_same(SET_A,g_set,PAGE) || !flash_same(SET_B,g_set,PAGE)) error_screen(40);
   done_screen(what, GOLD);
+}
+/* Start device settings (1.6.8): sound level of the Paradise (settings byte 8, bits 3..4: 0 off .. 3 loud,
+ * found with the sound screen of the firmware) and the display time of this menu. */
+#define SND_OFF 8u
+static void lset_load(void){
+  g_idle_ms=120000u;
+  if(set_load()==1) return;
+  u32 v=g_set[IDLE_OFF]; if(v>=1u && v<=5u) g_idle_ms=g_idle_tab[v-1u];
+}
+static void lset_menu(void){
+  int e=set_load();
+  if(e==1 || e==2){ set_check_msg(); return; }
+  static const char *const snd_nm[4]={"OFF","LOW","MEDIUM","LOUD"};
+  u32 snd=(g_set[SND_OFF]>>3)&3u, snd0=snd;
+  u32 idl=g_set[IDLE_OFF]; idl = idl>=1u && idl<=5u ? idl-1u : 2u; u32 idl0=idl;
+  u32 sel=0;
+  for(;;){
+    rect(0,0,128,128,BG);
+    ctext(2,"SETTINGS",WHITE,1);
+    big_entry(16, sel==0u, "SOUND", snd_nm[snd], ORANGE, WHITE);
+    big_entry(45, sel==1u, "DISPLAY", g_idle_nm[idl], ORANGE, WHITE);
+    text(9,74,"SOUND: THE PARADISE",GREY,1);
+    text(9,84,"DISPLAY: THIS MENU,",GREY,1);
+    text(9,94,"DARK WITHOUT A KEY",GREY,1);
+    ctext(108,"B CHANGE",GREY,1);
+    ctext(119,"C SAVE AND BACK",GREY,1);
+    show(); wait_release();
+    for(;;){
+      int k=input();
+      if(k==1 || k==K_A){ sel^=1u; break; }
+      if(k==K_OK){ if(sel==0u) snd=(snd+1u)&3u; else idl=(idl+1u)%5u; break; }
+      if(k==K_BACK){
+        if(snd!=snd0 || idl!=idl0){
+          g_set[SND_OFF]=(u8)((g_set[SND_OFF]&~0x18u)|(snd<<3));
+          g_set[IDLE_OFF]=(u8)(idl+1u);
+          rect(0,0,128,128,BG); ctext(40,"SAVING",WHITE,1); ctext(54,"DO NOT SWITCH OFF",GREY,1); show();
+          stamp(g_set);
+          flash_prog4k(SET_A, g_set);
+          flash_prog4k(SET_B, g_set);
+          if(!flash_same(SET_A,g_set,PAGE) || !flash_same(SET_B,g_set,PAGE)) error_screen(41);
+          g_idle_ms=g_idle_tab[idl];
+        }
+        return;
+      }
+    }
+  }
 }
 static u32 money_get(void){ u32 o=g_cfg.money_off; return g_set[o]|(g_set[o+1]<<8)|(g_set[o+2]<<16)|((u32)g_set[o+3]<<24); }
 static void money_put(u32 v){ u32 o=g_cfg.money_off; g_set[o]=(u8)v; g_set[o+1]=(u8)(v>>8); g_set[o+2]=(u8)(v>>16); g_set[o+3]=(u8)(v>>24); }
@@ -945,30 +1081,241 @@ static void points_menu(void){
   }
 }
 
+/* ---------------------------------------------------------------- TAMA (1.6.8) */
+/* Characters come with the catalog (fixed byte 2): +6 stage (3 kid, 4 young, 5 adult), +7 field index + 1 (0 = none). */
+static int tama_ok(void){ return (g_cfg.flags & F_TAMA) && g_cfg.version>=6u && g_cfg.tama_off && g_cfg.tama_off+0x20u<PAGE && g_cfg.level_off && g_cfg.level_off<PAGE; }
+static u32 lv_get(void){ return g_set[g_cfg.level_off] & 15u; }
+static u32 t_id(void){ u32 o=g_cfg.tama_off+4u; return g_set[o]|(g_set[o+1]<<8); }
+static u32 t_stage(void){ return (g_set[g_cfg.tama_off+0x18u]>>2)&7u; }
+static const char *stage_name(u32 st){ switch(st){ case 1: return "EGG"; case 2: return "BABY"; case 3: return "KID"; case 4: return "YOUNG"; case 5: return "ADULT"; default: return "?"; } }
+static u16 g_chr[256]; static u32 g_chrn;
+static void chr_build(u32 st){ g_chrn=0; for(u32 k=0;k<g_cfg.cat_n && g_chrn<256u;k++){ u32 o=g_cfg.cat_off+8u+28u*k; if(fl(o+2)[0]==2u && fl(o+6)[0]==st) g_chr[g_chrn++]=(u16)k; } }
+static void chr_name(u32 k, char *out){ u32 o=g_cfg.cat_off+8u+28u*k, n=fl(o+3)[0]; if(n>20u) n=20u; for(u32 i=0;i<n;i++) out[i]=(char)fl(o+8u+i)[0]; out[n]=0; }
+static int chr_row(u32 i, char *name, char *right, u16 *col){
+  u32 k=g_chr[i], o=g_cfg.cat_off+8u+28u*k; chr_name(k,name);
+  u32 f=fl(o+7)[0]; const char *fn=""; if(f && f-1u<nfields()){ fn=fname(f-1u); *col=fcol(f-1u); }
+  int q=0; while(fn[q] && q<3){ right[q]=fn[q]; q++; } right[q]=0;
+  if(rd16(o)==t_id()) *col=GOLD;
+  return 0;
+}
+/* the pet's own file (pages of the save with the character in the header): character there too */
+static u32 tama_files(u32 old, u32 nw){
+  u32 n=0;
+  for(u32 a=g_cfg.user_start; a+PAGE<=g_cfg.user_end && a<SET_A; a+=PAGE){
+    if(rd32(a+8u)!=1u || rd16(a+14u)!=old) continue;
+    flash_read(a, g_page, PAGE);
+    g_page[14]=(u8)nw; g_page[15]=(u8)(nw>>8);
+    if((g_page[12]|(g_page[13]<<8))==old){ g_page[12]=(u8)nw; g_page[13]=(u8)(nw>>8); }
+    if((g_page[0x10A]|(g_page[0x10B]<<8))==old){ g_page[0x10A]=(u8)nw; g_page[0x10B]=(u8)(nw>>8); }
+    flash_prog4k(a, g_page); n++;
+  }
+  return n;
+}
+static void chr_pick(void){
+  static const u8 st_list[3]={3,4,5}; u32 si=t_stage()>=3u && t_stage()<=5u ? t_stage()-3u : 2u;
+  u32 sel=0, top=0;
+  chr_build(st_list[si]);
+  for(;;){
+    if(!g_chrn){ message("NO CHARACTERS","IN THIS ROM",""); return; }
+    if(sel>=g_chrn) sel=g_chrn-1u;
+    if(sel<top) top=sel; if(sel>=top+10u) top=sel-9u;
+    char t[24]; const char *a="TAMA: "; int k=0; while(a[k]){ t[k]=a[k]; k++; } const char *b=stage_name(st_list[si]); int j=0; while(b[j]) t[k++]=b[j++]; t[k]=0;
+    list_draw(t, g_chrn, sel, top, chr_row, "A STAGE  B OK  C BACK");
+    wait_release();
+    for(;;){
+      int c=input();
+      if(c==1){ int s=(int)sel+g_step; if(s<0) s=0; if(s>=(int)g_chrn) s=(int)g_chrn-1; sel=(u32)s; break; }
+      if(c==K_A){ si=(si+1u)%3u; chr_build(st_list[si]); sel=0; top=0; break; }
+      if(c==K_BACK) return;
+      if(c==K_OK){
+        u32 kk=g_chr[sel], o=g_cfg.cat_off+8u+28u*kk, nw=rd16(o), st=fl(o+6)[0], old=t_id();
+        char nm[24]; chr_name(kk,nm);
+        rect(0,0,128,128,BG); ctext(24,"YOUR TAMA BECOMES",WHITE,1); ctext(42,nm,GOLD,1); ctext(54,stage_name(st),GREY,1);
+        ctext(76,"THE TAMA RESTARTS",GREY,1); ctext(96,"B = YES",WHITE,1); ctext(108,"C = NO",GREY,1); show();
+        if(!yes_no()) break;
+        u32 to=g_cfg.tama_off;
+        g_set[to+4]=(u8)nw; g_set[to+5]=(u8)(nw>>8); g_set[to+6]=(u8)nw; g_set[to+7]=(u8)(nw>>8);
+        g_set[to+0x18u]=(u8)((g_set[to+0x18u]&~0x1Cu)|((st&7u)<<2));
+        if(old && old!=nw) tama_files(old, nw);
+        set_write("TAMA CHANGED");
+        return;
+      }
+    }
+  }
+}
+static void level_edit(void){
+  u32 v=lv_get(), old=v;
+  for(;;){
+    rect(0,0,128,128,BG); ctext(10,"PLANET LEVEL",GOLD,1);
+    char s[4]; utoa_(v,s); ctext(40,s,WHITE,4);
+    ctext(80,"WHEEL: LEVEL",GREY,1); ctext(94,"B OK   C BACK",GREY,1); show(); wait_release();
+    for(;;){
+      int k=input();
+      if(k==1){ int nv=(int)v+(g_step>0?1:-1); if(nv<0) nv=0; if(nv>10) nv=10; v=(u32)nv; break; }
+      if(k==K_A){ v=v>=10u?0u:v+1u; break; }
+      if(k==K_BACK) return;
+      if(k==K_OK){
+        if(v==old) return;
+        u32 o=g_cfg.level_off, b=g_set[o];
+        /* up: the game celebrates the new level itself; down: nothing to celebrate */
+        g_set[o]=(u8)(v>old ? ((b&0xF0u)|v) : ((v<<4)|v));
+        set_write("LEVEL SAVED");
+        return;
+      }
+    }
+  }
+}
+static void care_full(void){
+  rect(0,0,128,128,BG); ctext(24,"FULL CARE:",WHITE,1); ctext(40,"FED, HAPPY, HEALTHY",GOLD,1);
+  ctext(70,"THE TAMA RESTARTS",GREY,1); ctext(92,"B = YES",WHITE,1); ctext(106,"C = NO",GREY,1); show();
+  if(!yes_no()) return;
+  u32 to=g_cfg.tama_off;
+  g_set[to+0x1Cu]=6u; g_set[to+0x1Du]=20u; g_set[to+0x10u]=0u;
+  set_write("TAMA CARED FOR");
+}
+static void big_entry(int y, int sel, const char *name, const char *st, u16 c, u16 stc);
+static void tama_menu(void){
+  if(set_check_msg()) return;
+  u32 sel=0;
+  for(;;){
+    rect(0,0,128,128,BG); ctext(2,"TAMA",WHITE,1);
+    char st[24], nm[24]; nm[0]=0;
+    utoa_(lv_get(),st); big_entry(12,sel==0,"LEVEL",st,GOLD,GREY);
+    { u32 id=t_id(); int k=cat_find(id); if(k>=0 && fl(g_cfg.cat_off+8u+28u*(u32)k+2u)[0]==2u) chr_name((u32)k,nm); else utoa_(id,nm); }
+    big_entry(41,sel==1,"CHANGE",nm,PINK,GREY);
+    { u32 to=g_cfg.tama_off; char *p=st; const char *a="FOOD "; while(*a) *p++=*a++; utoa_(g_set[to+0x1Cu],p); while(*p) p++; a=" JOY "; while(*a) *p++=*a++; utoa_(g_set[to+0x1Du],p); while(*p) p++; if(g_set[to+0x10u]){ a=" SICK"; while(*a) *p++=*a++; } *p=0; }
+    big_entry(70,sel==2,"CARE",st,ORANGE,GREY);
+    ctext(119,"B OK   C BACK",GREY,1);
+    show(); wait_release();
+    for(;;){
+      int k=input();
+      if(k==1){ sel=(u32)((int)sel+(g_step>0?1:-1)+3)%3u; break; }
+      if(k==K_A){ sel=(sel+1u)%3u; break; }
+      if(k==K_BACK) return;
+      if(k==K_OK){ if(sel==0) level_edit(); else if(sel==1) chr_pick(); else care_full(); break; }
+    }
+  }
+}
+
+/* ---------------------------------------------------------------- Saves (1.6.8) */
+/* settings block of the save in slot i (unpacked into out). 0 = ok */
+static int slot_set(u32 i, u8 *out){
+  if(!slot_valid(i)) return 1;
+  u32 b=slot_base(i), np=rd32(b+8), pos=0;
+  for(u32 k=0;k<np;k++){
+    u32 pg=rd16(b+32u+k*4u), n=rd16(b+34u+k*4u);
+    if(pg==(SET_A>>12)){ slot_get(i,pos,n,g_cmp); return lz_unpack(g_cmp,n,out) ? 2 : 0; }
+    pos+=n;
+  }
+  return 3;
+}
+static int g_sfld[NF_MAX]; static char g_snm[NF_MAX][16];
+/* field and Tama name of each save */
+static void saves_scan(void){
+  for(u32 i=0;i<g_cfg.nslots && i<NF_MAX;i++){
+    g_sfld[i]=-1; g_snm[i][0]=0;
+    int live=(int)i==g_act;
+    if(live) flash_read(SET_A, g_out, PAGE); else if(slot_set(i, g_out)) continue;
+    g_sfld[i]=field_of(g_out);
+    if(g_sfld[i]<0) g_sfld[i]=live ? g_cur : -1;
+    if(g_cfg.tama_off && g_cfg.tama_off+8u<PAGE && set_ok(g_out)){
+      u32 id=g_out[g_cfg.tama_off+4u]|(g_out[g_cfg.tama_off+5u]<<8); int k=cat_find(id);
+      if(k>=0 && fl(g_cfg.cat_off+8u+28u*(u32)k+2u)[0]==2u){ char t[24]; chr_name((u32)k,t); t[15]=0; for(int q=0;q<16;q++){ g_snm[i][q]=t[q]; if(!t[q]) break; } }
+    }
+  }
+}
+static u32 field_pick(void){                 /* field for a new game, 0xFF = back */
+  u32 nf=nfields(), sel=0;
+  for(;;){
+    rect(0,0,128,128,BG); ctext(2,"START ON FIELD",WHITE,1);
+    for(u32 i=0;i<nf;i++){ int y=14+(int)i*16; if(i==sel){ rect(1,y,127,y+15,fcol(i)); rect(2,y+1,126,y+14,BG); } text(5,y+4,fname(i),fcol(i),1); }
+    ctext(119,"B OK   C BACK",GREY,1); show(); wait_release();
+    for(;;){ int k=input();
+      if(k==1){ sel=(u32)((int)sel+(g_step>0?1:-1)+(int)nf)%nf; break; }
+      if(k==K_A){ sel=(sel+1u)%nf; break; }
+      if(k==K_BACK) return 0xFFu;
+      if(k==K_OK) return sel; }
+  }
+}
+static void saves_menu(int with_app, int top){
+  saves_scan();
+  u32 ns=g_cfg.nslots>NF_MAX?NF_MAX:g_cfg.nslots;
+  u32 na = with_app ? (g_napp>1u ? 1u : g_napp) : 0u, n=ns+na, sel = na ? ns : (u32)g_act;
+  for(;;){
+    rect(0,0,128,128,BG);
+    if(n<=4u) ctext(2, top ? "PARAMIX" : "SAVES", WHITE,1);
+    for(u32 i=0;i<n;i++){
+      char nm[12], st[24]; u16 c=ORANGE, stc=GREY;
+      if(i<ns){
+        const char *a="SAVE "; int k=0; while(a[k]){ nm[k]=a[k]; k++; } nm[k++]=(char)('1'+i); nm[k]=0;
+        int f=g_sfld[i]; char *p=st;
+        if((int)i!=g_act && !slot_valid(i)){ const char *e="EMPTY"; while(*e) *p++=*e++; c=GREY; }
+        else if(n>4u && g_snm[i][0]){ for(int q=0;g_snm[i][q];q++) *p++=g_snm[i][q]; if(f>=0) c=fcol((u32)f); }   /* compact: the Tama, field by colour */
+        else { const char *e=f>=0 ? fname((u32)f) : "?"; while(*e) *p++=*e++; if(g_snm[i][0]){ *p++=' '; for(int q=0;g_snm[i][q];q++) *p++=g_snm[i][q]; } if(f>=0) c=fcol((u32)f); }
+        *p=0; if((int)i==g_act) stc=WHITE;
+      } else { const char *e=g_napp>1u ? "PROGRAMS" : g_appnm[0]; int k=0; while(e[k] && k<11){ nm[k]=e[k]; k++; } nm[k]=0; e=g_napp>1u?"CHOOSE":"START"; int q=0; while(e[q]){ st[q]=e[q]; q++; } st[q]=0; }
+      if(n>4u){
+        int y=2+(int)i*16;
+        if(i==sel){ rect(1,y,127,y+15,c); rect(2,y+1,126,y+14,BG); }
+        text(5,y+4,nm,c,1); int w=text_w(st,1); int x=123-w; if(x<48) x=48; textn(x,y+4,st,(124-x)/6,stc,1);
+      } else big_entry((n<4u?12:1)+(int)i*29, i==sel, nm, st, c, stc);
+    }
+    ctext(119,"B OK   C BACK",GREY,1);
+    show(); wait_release();
+    for(;;){
+      int k=input();
+      if(k==1){ sel=(u32)((int)sel + (g_step>0?1:-1) + (int)n) % n; break; }
+      if(k==K_A){ sel=(sel+1u)%n; break; }
+      if(k==K_BACK){ if(top) leave(); return; }
+      if(k==K_OK){
+        if(sel>=ns){ if(g_napp>1u) apps_menu(0); else start_app_i(0); break; }
+        if((int)sel==g_act){ if(top) leave(); return; }
+        int has=slot_valid(sel); u32 fld;
+        if(has){ fld=(u32)g_sfld[sel]; if(g_sfld[sel]<0){ message("SAVE","UNREADABLE",""); break; } }
+        else { fld=field_pick(); if(fld==0xFFu) break; }
+        rect(0,0,128,128,BG);
+        char t[8]="SAVE "; t[5]=(char)('1'+sel); t[6]=0;
+        ctext(14, has ? "LOAD" : "NEW GAME IN", WHITE,1); ctext(28,t,WHITE,2);
+        ctext(52,fname(fld),fcol(fld),1); if(has && g_snm[sel][0]) ctext(64,g_snm[sel],GREY,1);
+        ctext(80,"YOUR GAME IS KEPT",GREY,1);
+        ctext(96,"B = YES",WHITE,1); ctext(108,"C = NO",GREY,1); show();
+        if(yes_no()) field_switch2(sel, has, fld);
+        break;
+      }
+    }
+  }
+}
+
 /* ---------------------------------------------------------------- Main menu */
 static void main_menu(void){
   int fields = (g_cfg.flags & F_FIELDS) && g_cur>=0 && g_cfg.nfields>=2u;
-  u32 kinds[4], n=0;                   /* 0 field, 1 items, 2 Tamapoints, 3 program */
+  u32 kinds[5], n=0;                   /* 0 field, 1 items, 2 Tamapoints, 3 program, 4 Tama */
   if(fields) kinds[n++]=0;
-  kinds[n++]=1; kinds[n++]=2;
+  if(g_cfg.flags & F_BAG){ kinds[n++]=1; kinds[n++]=2; }
+  if(tama_ok()) kinds[n++]=4;
   if(g_napp) kinds[n++]=3;
   u32 sel = g_napp ? n-1u : 0u;
   for(;;){
     int ok=set_load()==0;
     rect(0,0,128,128,BG);
-    int y0 = n>=4u ? 1 : 12;
+    int y0 = n>=4u ? 1 : 12, dy = n>=5u ? 23 : 29;
     if(n<4u) ctext(2,"PARAMIX",WHITE,1);
+    g_small = n>=5u;
     for(u32 i=0;i<n;i++){
-      int y=y0+(int)i*29; char st[16];
+      int y=y0+(int)i*dy; char st[24];
       switch(kinds[i]){
-        case 0: big_entry(y,i==sel,"FIELD",fname((u32)g_cur),fcol((u32)g_cur),WHITE); break;
+        case 0: if(saves_mode()){ const char *a="SAVE "; int q=0; while(a[q]){ st[q]=a[q]; q++; } st[q++]=(char)('1'+g_act); st[q++]=' '; a=fname((u32)g_cur); while(*a && q<22) st[q++]=*a++; st[q]=0; big_entry(y,i==sel,"SAVES",st,fcol((u32)g_cur),WHITE); }
+                else big_entry(y,i==sel,"FIELD",fname((u32)g_cur),fcol((u32)g_cur),WHITE); break;
         case 1: { u32 c=0; if(ok){ u32 L=list_len(); for(u32 j=0;j<L;j++) if(!cat_fixed(list_id(j))) c++; utoa_(c,st); int k=slen(st); const char *a=" IN BAG"; for(int q=0;a[q];q++) st[k++]=a[q]; st[k]=0; } else { st[0]='-'; st[1]=0; }
                   big_entry(y,i==sel,"ITEMS",st,PINK,GREY); } break;
         case 2: if(ok) utoa_(money_get(),st); else { st[0]='-'; st[1]=0; }
                 big_entry(y,i==sel,"POINTS",st,GOLD,GREY); break;
+        case 4: { int k=cat_find(t_id()); if(ok && k>=0 && fl(g_cfg.cat_off+8u+28u*(u32)k+2u)[0]==2u) chr_name((u32)k,st); else if(ok) utoa_(t_id(),st); else { st[0]='-'; st[1]=0; }
+                  big_entry(y,i==sel,"TAMA",st,RGB(120,220,120),GREY); } break;
         default: big_entry(y,i==sel,g_napp>1u ? "PROGRAMS" : g_appnm[0],g_napp>1u ? "CHOOSE" : "START",ORANGE,GREY); break;
       }
     }
+    g_small = 0;
     ctext(119,"B OK   C BACK",GREY,1);
     show(); wait_release();
     for(;;){
@@ -977,7 +1324,7 @@ static void main_menu(void){
       if(k==K_A){ sel=(sel+1u)%n; break; }
       if(k==K_BACK) leave();
       if(k==K_OK){
-        switch(kinds[sel]){ case 0: field_menu(0,0); break; case 1: items_menu(); break; case 2: points_menu(); break; default: if(g_napp>1u) apps_menu(0); else start_app_i(0); }
+        switch(kinds[sel]){ case 0: if(saves_mode()) saves_menu(0,0); else field_menu(0,0); break; case 1: items_menu(); break; case 2: points_menu(); break; case 4: tama_menu(); break; default: if(g_napp>1u) apps_menu(0); else start_app_i(0); }
         break;
       }
     }
@@ -994,8 +1341,29 @@ static void run(void){
   apps_detect();
   g_cur = field_now();
   int fields = (g_cfg.flags & F_FIELDS) && g_cur>=0 && g_cfg.nfields>=2u;
+  g_act=g_cur;
+  if(fields && saves_mode()){
+    /* the live save's number: from its settings block, else (menus before 1.6.8, or a save that never
+     * met this menu) the field's slot if it is free, else the first free slot */
+    flash_read(SET_A, g_page, PAGE);
+    u32 v=set_ok(g_page) ? g_page[SAVE_OFF] : 0u;
+    if(v>=1u && v<=g_cfg.nslots) g_act=(int)v-1;
+    else {
+      if((u32)g_act>=g_cfg.nslots || slot_valid((u32)g_act)){ g_act=0; for(u32 j=0;j<g_cfg.nslots;j++) if(!slot_valid(j)){ g_act=(int)j; break; } }
+      if(!slot_valid((u32)g_act)) act_mark((u32)g_act);
+    }
+  }
+  /* the game itself moved the Tama to this field (1.6.8): an older save of the field is still stored */
+  if(fields && !saves_mode() && slot_valid((u32)g_cur) && rd32(slot_base((u32)g_cur)+28u)!=PEND_MAGIC){
+    rect(0,0,128,128,BG);
+    ctext(10,"THE TAMA MOVED TO",WHITE,1); ctext(22,fname((u32)g_cur),fcol((u32)g_cur),1); ctext(34,"IN THE GAME",WHITE,1);
+    ctext(52,"AN OLDER SAVE OF",GREY,1); ctext(64,fname((u32)g_cur),fcol((u32)g_cur),1); ctext(76,"IS STILL STORED",GREY,1);
+    ctext(96,"B = DELETE IT",WHITE,1); ctext(108,"C = KEEP IT",GREY,1);
+    show();
+    if(yes_no()) erase_page(slot_base((u32)g_cur));
+  }
   /* interrupted switch? */
-  if(fields && slot_valid((u32)g_cur)){
+  else if(fields && slot_valid((u32)g_act) && (!saves_mode() || rd32(slot_base((u32)g_act)+28u)==PEND_MAGIC)){
     rect(0,0,128,128,BG);
     ctext(14,"SWITCH WAS",RED,1); ctext(26,"INTERRUPTED",RED,1);
     ctext(48,"RESTORE SAVE OF",WHITE,1); ctext(60,fname((u32)g_cur),fcol((u32)g_cur),1); ctext(72,"?",WHITE,1);
@@ -1003,11 +1371,16 @@ static void run(void){
     show();
     if(!yes_no()) leave();
     rect(0,0,128,128,BG); show();
-    int e=restore((u32)g_cur,0); if(e) error_screen(e);
-    erase_page(slot_base((u32)g_cur)); done_screen(fname((u32)g_cur), fcol((u32)g_cur));
+    int e=restore((u32)g_act,0); if(e) error_screen(e);
+    erase_page(slot_base((u32)g_act)); g_cur=field_now(); if(g_cur<0) g_cur=0; done_screen(fname((u32)g_cur), fcol((u32)g_cur));
   }
-  if(g_cfg.flags & F_BAG) main_menu();
-  if(fields) field_menu(1,1);
+  if(launch_mode()){
+    lset_load();
+    while(!g_napp) message("NO PROGRAMS","IN THIS ROM","");
+    apps_menu(1);
+  }
+  if(g_cfg.flags & (F_BAG|F_TAMA)) main_menu();
+  if(fields){ if(saves_mode()) saves_menu(1,1); else field_menu(1,1); }
   if(g_napp>1u) apps_menu(1);
   if(g_napp) start_app_i(0);
   leave();
@@ -1024,6 +1397,14 @@ void host_main(void){
 extern u32 __bss_start, __bss_end;
 void Reset_Handler(void){
   __asm__ volatile("cpsid i");
+  /* 1.6.8: the Paradise's clock for the programs started from here (their own search finds nothing once
+   * the menu has used the SRAM) */
+  { u32 cnt=REG(0x45000304u), t=para_clock(cnt, 0, 0x1F000u, 0, 0); para_mailbox_put(t, cnt);
+#ifdef PARA_BACK
+    para_leave_mark(cnt, t);   /* the Paradise does not live while the menu and its programs run */
+#endif
+  }
+  __asm__ volatile("" ::: "memory");
   for(u32* p=&__bss_start; p<&__bss_end; p++) *p=0;
   for(u32 i=0;i<PAGE;i++) g_ff[i]=0xFF;
   hw_init();

@@ -69,6 +69,23 @@ function paraEncode(pages, edition, clock, now = Math.floor(Date.now() / 1000)) 
   w32(out, o, TRAILER); w32(out, o + 4, edition); w32(out, o + 8, region(edition)[0]); w32(out, o + 12, region(edition)[1]);
   return out;
 }
+/** Write a decoded save back as it was (time stamp, clock, registers kept). */
+function paraWrite(save, edition) {
+  const regs = save.regs || [], list = [...save.pages.keys()].sort((x, y) => x - y);
+  const size = 36 + 8 * regs.length + 4 + list.reduce((n, a) => n + 8 + save.pages.get(a).length, 0) + 16;
+  const out = new Uint8Array(size);
+  for (let i = 0; i < 8; i++) out[i] = MAGIC.charCodeAt(i);
+  w32(out, 8, VERSION);
+  w32(out, 12, save.stamp % 4294967296); w32(out, 16, Math.floor(save.stamp / 4294967296));
+  w32(out, 20, save.counter); w32(out, 24, save.alarm); w32(out, 28, save.status); w32(out, 32, regs.length);
+  let o = 36;
+  for (const [k, v] of regs) { w32(out, o, k); w32(out, o + 4, v); o += 8; }
+  w32(out, o, list.length); o += 4;
+  for (const a of list) { const d = save.pages.get(a); w32(out, o, a / PAGE); w32(out, o + 4, d.length); out.set(d, o + 8); o += 8 + d.length; }
+  const ed = edition || save.edition;
+  w32(out, o, TRAILER); w32(out, o + 4, ed); w32(out, o + 8, region(ed)[0]); w32(out, o + 12, region(ed)[1]);
+  return out;
+}
 /** Read a .tamasave (format 3). Throws on anything else. */
 function paraDecode(b) {
   if (b.length < 40 || String.fromCharCode(...b.subarray(0, 8)) !== MAGIC) throw new Error('not a Paradise save (.tamasave)');
@@ -116,6 +133,44 @@ function paraCheck(save, edition) {
 function paraClock(save, now = Math.floor(Date.now() / 1000)) {
   if (!save.counter || !save.stamp) return null;
   return (save.counter + Math.max(0, now - save.stamp)) >>> 0;
+}
+
+// ---------------------------------------------------------------- change a Paradise save (1.6.8)
+// The pet in the settings block: +4/+6 character, +0x10 sickness, +0x18 bits 2..4 stage, +0x1C hunger 0..6,
+// +0x1D happiness 0..20. Planet level: low nibble = level, high nibble = level already celebrated.
+const PET = { gen1: { tama: 0x104, level: 0x7C }, jade: { tama: 0x108, level: 0x7C }, gen3: { tama: 0x114, level: 0x88 } };
+function paraSettings(save) { for (const a of [SET_A, SET_B]) { const p = save.pages.get(a); if (p && p.length === PAGE && settingsOk(p)) return p; } return null; }
+/** What the save says about the pet: { level, id, stage, hunger, happy, sick } or null. */
+function paraPet(save, edition) {
+  const p = paraSettings(save), o = PET[family(edition)]; if (!p || !o) return null;
+  const t = o.tama;
+  return { level: p[o.level] & 15, id: u16(p, t + 4), stage: (p[t + 0x18] >> 2) & 7, hunger: p[t + 0x1C], happy: p[t + 0x1D], sick: p[t + 0x10] };
+}
+/**
+ * Changed copy of the save. ch: { level, id, stage, care } (each optional). A new character goes
+ * into the settings block and into the pet's own file (pages with the old character in the header).
+ */
+function paraPetSet(save, edition, ch) {
+  const p0 = paraSettings(save), o = PET[family(edition)];
+  if (!p0 || !o) throw new Error('the save has no settings block');
+  const t = o.tama, p = p0.slice(), pages = new Map(save.pages);
+  const old = u16(p, t + 4);
+  if (ch.level !== undefined) { const v = Math.max(0, Math.min(10, ch.level | 0)), now = p[o.level] & 15; p[o.level] = v > now ? (p[o.level] & 0xF0) | v : (v << 4) | v; }
+  if (ch.id) {
+    p[t + 4] = ch.id & 255; p[t + 5] = ch.id >> 8; p[t + 6] = ch.id & 255; p[t + 7] = ch.id >> 8;
+    if (ch.stage) p[t + 0x18] = (p[t + 0x18] & ~0x1C) | ((ch.stage & 7) << 2);
+    if (old && old !== ch.id) for (const [a, d] of save.pages) {
+      if (a === SET_A || a === SET_B || d.length !== PAGE || u32(d, 8) !== 1 || u16(d, 14) !== old) continue;
+      const n = d.slice(); n[14] = ch.id & 255; n[15] = ch.id >> 8;
+      if (u16(n, 12) === old) { n[12] = ch.id & 255; n[13] = ch.id >> 8; }
+      if (u16(n, 0x10A) === old) { n[0x10A] = ch.id & 255; n[0x10B] = ch.id >> 8; }
+      pages.set(a, n);
+    }
+  }
+  if (ch.care) { p[t + 0x1C] = 6; p[t + 0x1D] = 20; p[t + 0x10] = 0; }
+  const c = crc16arc(p, 4, PAGE); p[0] = c & 255; p[1] = c >> 8; p[2] = ~c & 255; p[3] = (~c >> 8) & 255;
+  pages.set(SET_A, p); pages.set(SET_B, p.slice());
+  return Object.assign({}, save, { pages });
 }
 
 // ---------------------------------------------------------------- TamaEmu
@@ -196,6 +251,6 @@ function t7SaveIn(img, save, base = 0xC0000) {
   return out;
 }
 
-root.ParamixSaves = { t7SaveOut, t7SaveIn, t7SaveCheck, T7_EE, idPage, region, family, settingsOk, crc16arc, paraFromImage, paraEncode, paraDecode, paraCheck, paraClock, emuCfg, emuGuestAsync, KINDS };
+root.ParamixSaves = { paraPet, paraPetSet, paraWrite, t7SaveOut, t7SaveIn, t7SaveCheck, T7_EE, idPage, region, family, settingsOk, crc16arc, paraFromImage, paraEncode, paraDecode, paraCheck, paraClock, emuCfg, emuGuestAsync, KINDS };
 if (typeof module !== 'undefined') module.exports = root.ParamixSaves;
 })(typeof window !== 'undefined' ? window : globalThis);

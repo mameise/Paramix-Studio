@@ -31,7 +31,7 @@ static unsigned g_why[8];
 extern uint32_t t18_w_bad_addr;
 void t18_idle_dbg(int why, uint32_t p0, arm7_t *c, const uint32_t *r0) {
     g_why[why]++;
-    if (c->cycles > 16000000000ull && (g_why[why] % 300) == 1) {
+    if (c->cycles > 1000000ull && (g_why[why] % 20) == 1) {
         fprintf(stderr, "why %d p0 %08x now %08x bad %08x:", why, p0, c->r[15], t18_w_bad_addr);
         for (int i = 0; i < 16; i++) if (c->r[i] != r0[i]) fprintf(stderr, " r%d %x->%x", i, r0[i], c->r[i]);
         fprintf(stderr, "\n");
@@ -130,6 +130,16 @@ int main(int argc, char **argv)
             }
             for (int n = 0; n < 25; n++) { int b = 0; for (int i = 1; i < 65536; i++) if (av[i] > av[b]) b = i; if (!av[b]) break; printf("%08x %c %u\n", ak[b] & ~1u, ak[b] & 1 ? 'W' : 'R', av[b]); av[b] = 0; }
 #endif
+        } else if (!strcmp(cmd, "savest")) {
+            /* state, then the guest's SRAM (128 KB): for the M3 test bed (loadst) */
+            uint32_t n = tg18_state_size(T); uint8_t *b = malloc(n); tg18_save_state(T, b, n);
+            FILE *o = fopen(a, "wb"); fwrite(b, 1, n, o); for (uint32_t q = 0; q < T18_SRAM_SIZE; q++) fputc(*t18_sram_rp(q), o); fclose(o); free(b);
+        } else if (!strcmp(cmd, "loadst")) {
+            FILE *i = fopen(a, "rb"); uint32_t n = tg18_state_size(T); uint8_t *b = malloc(n + T18_SRAM_SIZE);
+            size_t got = fread(b, 1, n + T18_SRAM_SIZE, i); fclose(i);
+            if (got != n + T18_SRAM_SIZE || tg18_load_state(T, b, n) < 0) { fprintf(stderr, "loadst failed\n"); return 1; }
+            for (uint32_t q = 0; q < T18_SRAM_SIZE; q += 4) { uint32_t w; memcpy(&w, b + n + q, 4); t18_sram_wr(q, w, 4); }
+            free(b);
         } else if (!strcmp(cmd, "flash")) {
             FILE *o = fopen(a, "wb"); fwrite(g_flash, 1, 0x800000, o); fclose(o);
         } else if (!strcmp(cmd, "sram")) {

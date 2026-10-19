@@ -36,7 +36,7 @@ KEEPELF=1 sh src/app/build.sh   # keeps src/app/t7.elf for the profiler
 | 0x0A0000 | program (copied to PRAM on start) |
 | 0x0C0000 | session (state of the running emulator, "T7SS") |
 | 0x0C1000 | EEPROM of the Tama-Go, two slots of 8 KB ("T7EE", sequence, page mask, checksum, then 4 KB) |
-| 0x0C5000 | settings from the menu ("T7S2", 16 bytes) and at +32 the clock note ("T7CK": seconds counter, game time, month and day when leaving) |
+| 0x0C5000 | settings from the menu ("T7S2", 16 bytes; layout 3 in r1 bits 0..3: light in bits 4..7, dim level in r0) and at +32 the clock note ("T7CK": seconds counter, game time, month and day when leaving) |
 | 0x940000 | Tama-Go ROM (640 KB) or Tamagotchi Friends ROM (768 KB) |
 | behind it, up to 0xD40000 | figure ROMs, trailing empty bytes cut, each on a 4 KB boundary |
 

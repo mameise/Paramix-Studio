@@ -115,6 +115,31 @@ img, canvas { image-rendering: pixelated; }
 .helpkeys td { padding: 3px 12px 3px 0; vertical-align: top; }
 .helpkeys td:first-child { font-weight: 700; white-space: nowrap; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-bottom: 10px; }
+.proglist { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 10px; }
+.prow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 10px; border: 2px solid var(--line); border-radius: 10px; }
+.prow.main { border-color: var(--sky); }
+.prow.gone .pname { text-decoration: line-through; color: var(--soft); }
+.prow .pname { font-weight: 600; min-width: 110px; }
+.prow .ptag { font-size: 12px; color: var(--soft); flex: 1; }
+.prow .pinfo { cursor: help; }
+.prow .ptog { min-width: 28px; }
+.prow .pstar { font-size: 15px; line-height: 1; color: var(--soft); }
+.prow .pstar.on { color: #e8a100; opacity: 1; }
+.prow .pstar:disabled:not(.on) { opacity: .35; }
+.nlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px 16px; }
+.nlist label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.nlist label span { flex: 0 0 120px; color: var(--soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nlist input { flex: 1; min-width: 0; text-transform: uppercase; }
+.nlist input.chg { border-color: var(--pink); }
+.eyerow { display: flex; gap: 12px; align-items: flex-start; margin: 8px 0; }
+.facecol { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.posebar { justify-content: center; align-items: center; gap: 6px; }
+.posebar .on { background: var(--ink); color: var(--panel); }
+.eyerow canvas { width: 192px; height: 192px; image-rendering: pixelated; background: #fff; border: 1px solid var(--line); border-radius: 6px; flex: 0 0 auto; }
+.savesec { font-size: 14px; margin: 16px 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+.savesec:first-child { margin-top: 2px; }
+.pdet { margin: -4px 0 4px 14px; padding: 8px 10px; border-left: 3px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.pdet .tools { margin: 0; }
 .chip { border-radius: 999px; padding: 2px 10px; font-size: 13px; border: 2px solid var(--line); color: var(--soft); }
 .chip b { color: var(--ink); }
 .chip.new { border-color: var(--pink); }
@@ -149,6 +174,7 @@ img, canvas { image-rendering: pixelated; }
 .tile canvas { max-width: 100%; max-height: 100%; }
 .tile .cap { font-size: 12px; color: var(--soft); padding: 3px 0 4px; }
 .tile .cap b { color: var(--ink); }
+.tile.locked { opacity: .55; }
 .tile.changed::after { content: ""; position: absolute; top: 6px; right: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--pink); }
 
 /* detail drawer */
@@ -290,6 +316,7 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" data-tab="figs" aria-selected="true" data-t="tabFigs"></button>
       <button class="tab" role="tab" data-tab="all" aria-selected="false" data-t="tabAll"></button>
+      <button class="tab" role="tab" data-tab="names" aria-selected="false" data-t="tabNames"></button>
       <button class="tab" role="tab" data-tab="dim" aria-selected="false" data-t="tabDim"></button>
       <button class="tab" role="tab" data-tab="emu" aria-selected="false" data-t="tabEmu"></button>
       <button class="tab" role="tab" data-tab="doom" aria-selected="false" data-t="tabDoom"></button>
@@ -328,22 +355,24 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <div class="tools">
         <button class="btn small" id="btnEmu" data-t="emuPick"></button>
         <button class="btn small" id="btnEmuOff" data-t="emuOff" hidden></button>
+        <button class="btn small" id="btnEmuUndo" data-t="emuUndo" hidden></button>
         <button class="btn small" id="btnT7Fig" data-t="t7FigPick" hidden></button>
         <span class="hint" data-t="emuHint"></span>
       </div>
+      <div class="proglist" id="appsList"></div>
       <p class="emustat" id="emuStat"></p>
       <div class="chips" id="t7Figs" hidden></div>
       <div class="tools" id="emuAutoRow" hidden><label class="check"><input type="checkbox" id="emuAuto"> <span data-t="emuAuto"></span></label> <span class="hint" data-t="emuAutoHint"></span></div>
       <div class="tools" id="emuClockRow" hidden><label class="check"><input type="checkbox" id="emuClock" checked> <span data-t="emuClock"></span></label> <span class="hint" data-t="emuClockHint"></span></div>
-      <div id="appsBox">
+      <div class="tools" id="emuNfcRow" hidden><label class="check"><input type="checkbox" id="emuNfc" checked> <span data-t="emuNfc"></span></label> <span class="hint" data-t="emuNfcHint"></span></div>
+      <div id="appsBox" hidden>
         <div class="tools">
           <button class="btn small" id="btnApp" data-t="appPick"></button>
           <span class="hint" data-t="appHint"></span>
         </div>
-        <div class="chips" id="appsList"></div>
       </div>
       <div id="emuDlc" hidden>
-        <div class="tools">
+        <div class="tools" hidden>
           <button class="btn small" id="btnDlc" data-t="dlcPick"></button>
           <span class="hint" data-t="dlcHint"></span>
         </div>
@@ -375,27 +404,61 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
         <p class="hint" id="keysStat"></p>
       </div>
     </div>
+    <div class="pane" id="pane-names" hidden>
+      <p class="hint" data-t="namesHint"></p>
+      <h3 class="savesec" data-t="namesFields"></h3>
+      <div class="nlist" id="namesFields"></div>
+      <h3 class="savesec" data-t="namesChars"></h3>
+      <div class="nlist" id="namesChars"></div>
+      <h3 class="savesec" data-t="namesItems"></h3>
+      <div class="tools"><input type="search" id="namesFind"> <button class="btn small" id="namesUndo" data-t="namesUndo"></button></div>
+      <div class="nlist" id="namesItems"></div>
+    </div>
     <div class="pane" id="pane-save" hidden>
+      <h3 class="savesec" data-t="saveSecProg"></h3>
       <div class="tools" id="saveForRow" hidden>
         <b class="lbl" data-t="saveFor"></b>
         <select id="saveFor"></select>
       </div>
       <div class="tools">
-        <b class="lbl" data-t="saveOutT"></b>
-        <button class="btn small" id="btnParaOut" data-t="saveParaOut"></button>
-        <button class="btn small" id="btnEmuOut" data-t="saveEmuOut"></button>
-      </div>
-      <div class="tools">
-        <b class="lbl" data-t="saveInT"></b>
-        <button class="btn small" id="btnParaIn" data-t="saveParaOut"></button>
-        <button class="btn small" id="btnEmuIn" data-t="saveEmuOut"></button>
+        <button class="btn small" id="btnEmuOut"></button>
+        <button class="btn small" id="btnEmuIn"></button>
       </div>
       <p class="emustat" id="saveStat"></p>
+      <h3 class="savesec" data-t="saveSecPara"></h3>
+      <div class="tools" id="paraSlotRow" hidden>
+        <b class="lbl" data-t="saveSlotL"></b>
+        <select id="paraSlot"></select>
+      </div>
+      <div class="tools">
+        <button class="btn small" id="btnParaOut" data-t="saveParaOutB"></button>
+        <button class="btn small" id="btnParaIn" data-t="saveParaInB"></button>
+      </div>
+      <p class="hint" data-t="saveParaInfo"></p>
+      <div class="tools">
+        <b class="lbl" data-t="petT"></b>
+        <button class="btn small" id="btnPetOpen" data-t="petOpen"></button>
+        <button class="btn small" id="btnPetRom" data-t="petRom"></button>
+        <input type="file" id="filePet" accept=".tamasave" hidden>
+      </div>
+      <div class="tools" id="petRow" hidden>
+        <label><span data-t="petLevel"></span> <select id="petLevel"></select></label>
+        <label><span data-t="petChar"></span> <select id="petChar"></select></label>
+        <label class="check"><input type="checkbox" id="petCare"> <span data-t="petCare"></span></label>
+        <button class="btn small" id="btnPetSave" data-t="petSave"></button>
+        <button class="btn small" id="btnPetClose" data-t="petClose"></button>
+      </div>
+      <p class="emustat" id="petStat"></p>
     </div>
     <div class="pane" id="pane-feld" hidden>
       <div class="tools">
+        <label class="check"><input type="checkbox" id="launchOn"> <span data-t="launchOn"></span></label>
+        <span class="hint" data-t="launchHint"></span>
+      </div>
+      <div class="tools">
         <label class="check"><input type="checkbox" id="feldOn"> <span data-t="feldOn"></span></label>
         <label class="check"><input type="checkbox" id="bagOn"> <span data-t="bagOn"></span></label>
+        <label class="check"><input type="checkbox" id="tamaOn"> <span data-t="tamaOn"></span></label>
         <span class="hint" data-t="feldHint"></span>
       </div>
       <div class="tools" id="sixRow" hidden>
@@ -406,6 +469,7 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       </div>
       <div class="tools" id="sixPlanetRow" hidden>
         <label class="check"><input type="checkbox" id="sixPlanet" checked> <span data-t="sixPlanet"></span></label>
+        <label class="check"><input type="checkbox" id="sixMenu" checked> <span data-t="sixMenu"></span></label>
       </div>
       <p class="emustat" id="feldStat"></p>
     </div>
@@ -423,6 +487,21 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <span class="zoom"><button class="btn small" data-z="1">1×</button><button class="btn small" data-z="2">2×</button><button class="btn small" data-z="3">3×</button></span>
     </div>
     <div class="sheetwrap"><canvas id="dCanvas"></canvas></div>
+    <div class="eyerow" id="dEyes" hidden>
+      <div class="facecol">
+        <canvas id="dEyeCv" width="64" height="64"></canvas>
+        <div class="tools posebar"><button class="btn small" id="dPosePrev">◀</button><span id="dPoseNr"></span><button class="btn small" id="dPoseNext">▶</button></div>
+        <div class="tools posebar"><button class="btn small" id="dFaceBig" data-t="faceBig"></button><button class="btn small" id="dFaceSmall" data-t="faceSmall"></button></div>
+      </div>
+      <div>
+        <b data-t="eyeMvT"></b>
+        <div class="tools"><button class="btn small" data-eye="-1,0">←</button><button class="btn small" data-eye="1,0">→</button><button class="btn small" data-eye="0,-1">↑</button><button class="btn small" data-eye="0,1">↓</button><button class="btn small" id="dEyeReset">↺</button> <span id="dEyeVal"></span></div>
+        <div id="dMouthRow"><b data-t="mouthMvT"></b>
+        <div class="tools"><button class="btn small" data-mouth="-1,0">←</button><button class="btn small" data-mouth="1,0">→</button><button class="btn small" data-mouth="0,-1">↑</button><button class="btn small" data-mouth="0,1">↓</button><button class="btn small" id="dMouthReset">↺</button> <span id="dMouthVal"></span></div></div>
+        <label class="check"><input type="checkbox" id="dPoseOnly"> <span data-t="poseOnly"></span></label>
+        <p class="hint" id="dFaceHint"></p>
+      </div>
+    </div>
     <ul class="meta" id="dMeta"></ul>
   </div>
 </aside>

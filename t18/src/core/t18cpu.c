@@ -51,7 +51,7 @@ uint8_t *(*t18_hole_new)(void);
 void (*t18_hole_free)(void);
 int t18_oom;
 const uint8_t *t18_fblk[128];      /* guest flash 0x20000000 in 64 KB blocks, 0 = erased */
-static const uint32_t t18_zero_pg[T18_HOLE_PG / 4];
+const uint32_t t18_zero_pg[T18_HOLE_PG / 4];   /* 1.6.8: also read by j_chk (CHK_HOLE) */
 const uint8_t *t18_sram_rp(uint32_t o) {
     if (!t18_hole(o)) return t18_sram + o;
     const uint8_t *p = t18_hole_pg[(o - T18_HOLE_LO) / T18_HOLE_PG];
@@ -114,28 +114,35 @@ void t18_acnt(uint32_t a, uint32_t pc, int wr);
 #else
 #define ACNT(a, w) do { } while (0)
 #endif
+#ifdef T18_IDLE_MEMO
+static void w_rlog(uint32_t a, uint32_t n, const uint8_t *m);
+static void rm_add(uint32_t a, uint32_t n, uint32_t v);
+#define RLOG(c, a, n, m) do { if (__builtin_expect((c)->watch, 0)) w_rlog(a, n, m); } while (0)
+#else
+#define RLOG(c, a, n, m) do { } while (0)
+#endif
 static inline uint32_t rd32(arm7_t *c, uint32_t a) {
     ACNT(a, 0);
     const uint8_t *m = mp_r(a & ~3u, 4); uint32_t v;
-    if (m) memcpy(&v, m, 4); else { v = c->rd(c->ctx, a & ~3u, 4); c->attn = c->irq_line | c->fiq_line | c->halted; }
+    if (m) { RLOG(c, a & ~3u, 4, m); memcpy(&v, m, 4); } else { v = c->rd(c->ctx, a & ~3u, 4); c->attn = c->irq_line | c->fiq_line | c->halted; }
     uint32_t rot = (a & 3) * 8;
     return rot ? (v >> rot) | (v << (32 - rot)) : v;
 }
 static inline uint32_t rd32a(arm7_t *c, uint32_t a) {
     const uint8_t *m = mp_r(a & ~3u, 4); uint32_t v;
-    if (m) { memcpy(&v, m, 4); return v; }
+    if (m) { RLOG(c, a & ~3u, 4, m); memcpy(&v, m, 4); return v; }
     v = c->rd(c->ctx, a & ~3u, 4); c->attn = c->irq_line | c->fiq_line | c->halted; return v;
 }
 static inline uint32_t rd16(arm7_t *c, uint32_t a) {
     ACNT(a, 0);
     const uint8_t *m = mp_r(a & ~1u, 2);
-    if (m) { uint16_t v; memcpy(&v, m, 2); return v; }
+    if (m) { RLOG(c, a & ~1u, 2, m); uint16_t v; memcpy(&v, m, 2); return v; }
     uint32_t v = c->rd(c->ctx, a & ~1u, 2) & 0xFFFF; c->attn = c->irq_line | c->fiq_line | c->halted; return v;
 }
 static inline uint32_t rd8(arm7_t *c, uint32_t a) {
     ACNT(a, 0);
     const uint8_t *m = mp_r(a, 1);
-    if (m) return *m;
+    if (m) { RLOG(c, a, 1, m); return *m; }
     uint32_t v = c->rd(c->ctx, a, 1) & 0xFF; c->attn = c->irq_line | c->fiq_line | c->halted; return v;
 }
 static inline void wr32(arm7_t *c, uint32_t a, uint32_t v) {
@@ -790,8 +797,19 @@ int t18_idle_on = T18_IDLE_DEFAULT;
 uint32_t t18_idle_cnt[4];   /* tries at the idle pc / elsewhere, master cycles stepped in them */
 #endif
 int t18_jit_off;                     /* 1: interpreter only (for tests) */
-#define W_LOG 64
+#ifdef T18_IDLE_PASS
+uint64_t t18_run_tgt;               /* target of the current run (t18_jit_link: idle pc tried in this run) */
+#endif
+#ifndef W_LOG
+#define W_LOG 32   /* test43 fix: 64 did not fit the hole any more; 32 measured the same */
+#endif
+#ifdef T18_IDLE_DEEP
+/* 1.6.8 test: also longer loops (the main loop of the pet screens, about 1200 instructions a round, calls
+ * included); the round ends at the first return to the start pc with the same registers */
+#define W_MAXI T18_IDLE_DEEP
+#else
 #define W_MAXI 600
+#endif
 static uint32_t w_off[W_LOG], w_old[W_LOG]; static int w_n, w_bad;
 uint32_t t18_w_bad_addr;
 static arm7_rd_fn w_rd0; static arm7_wr_fn w_wr0; static arm7_t *w_c;
@@ -803,9 +821,36 @@ static void watch_log(uint32_t o) {
 }
 static uint32_t w_rd(void *ctx, uint32_t a, int size) {
     if (!w_c->io_stable || !w_c->io_stable(ctx, a)) { w_bad = 1; t18_w_bad_addr = a; }
+#ifdef T18_IDLE_MEMO
+    { uint32_t v = w_rd0(ctx, a, size); rm_add(a, (uint32_t)size | 0x10u, v); return v; }
+#else
     return w_rd0(ctx, a, size);
+#endif
 }
 static void w_wr(void *ctx, uint32_t a, uint32_t v, int size) { w_bad = 1; t18_w_bad_addr = a | 1; w_wr0(ctx, a, v, size); }
+#ifdef T18_IDLE_MEMO
+/* 1.6.8 (test43): the last idle round that could be skipped, with every value it read (memory and the
+ * registers that hold still). In the living room the round was stepped through again ~900 times a second
+ * (single steps, a quarter of the time). Same start (pc, registers) and the same values to read now means
+ * the same round: it is skipped without stepping. Reads of what the round wrote itself do not match and
+ * only cost the memo. */
+#ifndef RM_N
+#define RM_N 48
+#endif
+static uint32_t rm_a[RM_N], rm_v[RM_N]; static uint8_t rm_n8[RM_N]; static int rm_n, rm_over;   /* rm_over also: not logging in this try */
+static uint32_t rm_pc, rm_cpsr, rm_r[16], rm_round, rm_ok, rm_mult, rm_fgen;
+extern uint32_t t18_flash_gen;
+static void rm_add(uint32_t a, uint32_t n, uint32_t v) {
+    if (rm_over) return;
+    for (int i = 0; i < rm_n; i++) if (rm_a[i] == a && rm_n8[i] == n) return;
+    if (rm_n == RM_N) { rm_over = 1; return; }
+    rm_a[rm_n] = a; rm_n8[rm_n] = (uint8_t)n; rm_v[rm_n] = v; rm_n++;
+}
+static void w_rlog(uint32_t a, uint32_t n, const uint8_t *m) {
+    if (rm_over || a - 0x20000000u < 0x800000u) return;  /* the flash: checked as a whole (t18_flash_gen) */
+    uint32_t v = 0; memcpy(&v, m, n); rm_add(a, n, v);
+}
+#endif
 #ifdef T18_JIT
 void t18_jit_idle_pc(arm7_t *c, uint32_t pc);
 #endif
@@ -817,9 +862,38 @@ static void idle_try(arm7_t *c, uint64_t target) {
     extern uint32_t t18_idle_cnt[4]; t18_idle_cnt[at_pc ? 0 : 1]++; uint64_t ic_c0 = c->cycles;
 #endif
     memcpy(r0, c->r, sizeof r0);
+#ifdef T18_IDLE_MEMO
+    if (rm_ok && rm_pc == p0 && rm_cpsr == cpsr0 && rm_mult == c->cyc_mult && rm_fgen == t18_flash_gen
+        && !memcmp(rm_r, r0, sizeof r0) && c->cycles < target
+        && (target - c->cycles) / rm_round >= 1u) {
+        int same = 1;
+        for (int i = 0; i < rm_n && same; i++) {
+            uint32_t v = 0, n = rm_n8[i] & 7u;
+            if (rm_n8[i] & 0x10u) v = c->rd(c->ctx, rm_a[i], (int)n);      /* a register that holds still */
+            else { const uint8_t *m = mp_r(rm_a[i], n); if (!m) { same = 0; break; } memcpy(&v, m, n); }
+            if (v != rm_v[i]) same = 0;
+        }
+        if (same && !c->attn) {
+            uint64_t k = (target - c->cycles) / rm_round;
+            c->cycles += k * rm_round; c->idle_cycles += k * rm_round; c->idle_skipped += k * rm_round;
+            c->idle_win = target; c->idle_fail = 0; c->idle_next = c->cycles + 400000u;
+            return;
+        }
+    }
+    rm_n = 0; rm_over = !at_pc;                         /* only rounds at the known idle pc are kept */
+#endif
     w_n = 0; w_bad = 0; w_c = c; w_rd0 = c->rd; w_wr0 = c->wr;
     c->rd = w_rd; c->wr = w_wr; c->watch = 1;
-    for (int n = 0; n < W_MAXI && !c->attn && c->cycles < target && !w_bad; n++) {
+#ifdef T18_IDLE_CAP
+    /* 1.6.8: a try away from the known idle pc stops after T18_IDLE_CAP instructions (every idle round found in
+     * the test scripts had fewer than 128; the egg and call scenes tried 600 single steps about 50 times a second
+     * without ever finding one) */
+    extern int t18_new_off;
+    int wmax = at_pc || t18_new_off ? W_MAXI : T18_IDLE_CAP;
+#else
+    int wmax = W_MAXI;
+#endif
+    for (int n = 0; n < wmax && !c->attn && c->cycles < target && !w_bad; n++) {
 #ifdef T18_IDLE_RUN
         /* test14: one instruction through arm7_run (in the PRAM) instead of arm7_step (in the flash window:
          * on the device a quarter of the time while the pet calls) */
@@ -830,11 +904,19 @@ static void idle_try(arm7_t *c, uint64_t target) {
 #ifdef T18_IDLE_DBG
         { extern unsigned long long t18_idle_steps; t18_idle_steps++; }
 #endif
+#ifdef T18_IDLE_DEEP
+        if (c->r[15] == p0 && c->cpsr == cpsr0 && !memcmp(c->r, r0, sizeof r0)) { ok = 1; break; }
+#else
         if (c->r[15] == p0) { ok = 1; break; }
+#endif
     }
     c->rd = w_rd0; c->wr = w_wr0; c->watch = 0;
     if (ok && !w_bad && c->cpsr == cpsr0 && !memcmp(c->r, r0, sizeof r0) && c->cycles > start) {
-        for (int i = 0; i < w_n; i++) if (memcmp(&w_old[i], t18_sram_rp(w_off[i]), 4)) { ok = 0; break; }
+        for (int i = 0; i < w_n; i++) if (memcmp(&w_old[i], t18_sram_rp(w_off[i]), 4)) { ok = 0;
+#ifdef T18_IDLE_DBG
+            t18_w_bad_addr = 0xF8000000u + w_off[i];
+#endif
+            break; }
     } else ok = 0;
 #ifdef T18_IDLE_DBG
     { extern void t18_idle_dbg(int why, uint32_t p0, arm7_t *c, const uint32_t *r0);
@@ -844,6 +926,19 @@ static void idle_try(arm7_t *c, uint64_t target) {
     t18_idle_cnt[at_pc ? 2 : 3] += (uint32_t)(c->cycles - ic_c0);
 #endif
     c->idle_win = target;                               /* idle_pc: once per run */
+#if defined(T18_IDLE_DISARM) && defined(T18_JIT)
+    /* 1.6.8: the known idle pc stays a stop for the translated code (no links into it), also while the
+     * firmware is busy there (the pet calling: 7000 trips through the dispatcher a second). After
+     * T18_IDLE_DISARM failed tries in a row it is given up; the tries elsewhere find it again when it is idle. */
+    { static uint32_t pcfail;
+      if (ok) pcfail = 0;
+      else if (at_pc && !c->attn && c->cycles < target && ++pcfail >= T18_IDLE_DISARM && !t18_new_off) { pcfail = 0; c->idle_pc = 0; t18_jit_idle_pc(c, 0); } }
+#endif
+#ifdef T18_IDLE_MEMO
+    rm_ok = 0;
+    if (ok && !rm_over && c->cycles - start < 0x7FFFFFFFu) { rm_ok = 1; rm_pc = p0; rm_cpsr = cpsr0; memcpy(rm_r, r0, sizeof r0); rm_round = (uint32_t)(c->cycles - start);
+        rm_mult = c->cyc_mult; rm_fgen = t18_flash_gen; }
+#endif
     if (ok) {
         uint64_t round = c->cycles - start, k = c->cycles < target ? (target - c->cycles) / round : 0;
         c->cycles += k * round; c->idle_cycles += k * round; c->idle_skipped += k * round;
@@ -869,6 +964,10 @@ static void idle_try(arm7_t *c, uint64_t target) {
         }
     }
 }
+#ifdef T18_PROF_GPC
+/* test: the interpreter's code lies between these (exec_arm, arm7_run with exec_thumb; checked in the map) */
+const uintptr_t t18_interp_lo = (uintptr_t)exec_arm, t18_interp_hi = (uintptr_t)idle_try;
+#endif
 static inline int idle_due(arm7_t *c, uint64_t target) {
     if (!t18_idle_on || c->attn) return 0;
 #ifdef T18_IDLE_RUN
@@ -886,6 +985,7 @@ int64_t arm7_run(arm7_t *c, uint64_t target) {
 #ifdef T18_JIT
     uint64_t jt_until = 0;
 #endif
+
     while (c->cycles < target) {
         if (__builtin_expect(c->attn, 0)) {
             if (c->fiq_line && !(c->cpsr & ARM7_F)) {
@@ -907,23 +1007,42 @@ int64_t arm7_run(arm7_t *c, uint64_t target) {
         if (!t18_jit_off && c->cycles >= jt_until) {
 #endif
             uint64_t t = !t18_idle_on || c->idle_next <= c->cycles || target < c->idle_next ? target : c->idle_next;
+#ifdef T18_SEQ_FAST
+            extern uint32_t t18_jseq, t18_jstuck;
+            uint32_t pcs = c->r[15];
+            if (pcs == t18_jseq && pcs != t18_jstuck) t18_jseq = pcs + ((c->cpsr & ARM7_T) ? 2u : 4u);
+            else
+#endif
+            {
+#ifdef T18_IDLE_PASS
+            { extern uint64_t t18_run_tgt; t18_run_tgt = target; }
+#endif
             int r = t18_jit_try(c, t);
             if (r == 1) continue;
             if (r == 2) jt_until = t;                   /* too little left for a block: interpret up to there */
+            }
         }
 #endif
         uint32_t pc = c->r[15];
         c->last_pc = pc;
         int cyc;
-#ifdef T18_JIT
+#if defined(T18_JIT) && !defined(T18_NO_INTERP_CNT)
         t18_interp[(c->cpsr & ARM7_T) ? 0 : 1]++;
+#endif
+#ifdef T18_IPC_HIST   /* test only: which guest pcs the interpreter runs (pc, count) x 1024 at 0x20008000 */
+        { volatile uint32_t *h = (volatile uint32_t *)0x20008000u + 2u * ((pc >> 1) & 1023u);
+          if (h[0] == pc) h[1]++; else if (!h[1] || --h[1] == 0) { h[0] = pc; h[1] = 1; } }
 #endif
 #ifdef T18_PROF
         t18_prof(pc, c->cpsr & ARM7_T);
 #endif
         if (c->cpsr & ARM7_T) { c->r[15] = pc + 2; cyc = exec_thumb(c, rd16(c, pc)); }
         else { c->r[15] = pc + 4; cyc = exec_arm(c, rd32a(c, pc)); }
+#ifdef T18_CYC32
+        c->cycles += (uint32_t)cyc * c->cyc_mult;      /* 1.6.8: 32-bit product (cyc is small) */
+#else
         c->cycles += (uint64_t)cyc * c->cyc_mult;
+#endif
     }
     return (int64_t)(c->cycles - start);
 }

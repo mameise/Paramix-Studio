@@ -1,0 +1,64 @@
+// 1.6.8: names of fields, Tamas and items (tab Names), saved into the text tables and the menu.
+// node test/ui_names_test.js <paradise.bin> <out_dir>
+const { chromium } = require('playwright');
+const fs = require('fs'), path = require('path');
+const C = require('../src/core.js'), F = require('../src/feld.js');
+(async () => {
+  const [rom, out, six] = process.argv.slice(2);
+  fs.mkdirSync(out, { recursive: true });
+  let bad = 0; const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) bad++; };
+  const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
+  const errors = []; p.on('pageerror', (e) => errors.push(e.message));
+  await p.addInitScript(() => { try { localStorage.setItem('paramix-lang', 'de'); } catch (e) {} });
+  await p.goto('file://' + path.resolve(__dirname, '../dist/ParamixStudio.html'));
+  const load = async (f) => { await p.setInputFiles('#fileRom', f); await p.waitForSelector('#work.on', { timeout: 60000 }); await p.waitForTimeout(2000); };
+  const set = async (box, label, v) => { const l = p.locator('#' + box + ' label').filter({ has: p.locator('span', { hasText: new RegExp('^' + label + '$') }) }).first(); await l.locator('input').fill(v); await l.locator('input').dispatchEvent('change'); await p.waitForTimeout(200); };
+  await load(rom);
+  await p.click('.tab[data-tab="names"]');
+  const nf = await p.$$eval('#namesFields input', (l) => l.length), nc = await p.$$eval('#namesChars input', (l) => l.length), ni = await p.$$eval('#namesItems input', (l) => l.length);
+  ok(nf === 3 && nc > 20 && ni > 200, 'lists: fields ' + nf + ', tamas ' + nc + ', items ' + ni);
+  await set('namesFields', 'LAND', 'Wiese');
+  await set('namesChars', 'LAND KID', 'Wiesenkind');
+  await p.fill('#namesFind', 'MILK'); await p.waitForTimeout(300);
+  ok(await p.$$eval('#namesItems input', (l) => l.length) >= 1, 'search MILK');
+  await set('namesItems', 'MILK', 'Milch 2!');
+  await p.fill('#namesFind', ''); await p.waitForTimeout(300);
+  ok(/Namen/.test(await p.textContent('#plan')), 'plan shows the names');
+  await p.click('.tab[data-tab="feld"]'); if (!(await p.isChecked('#feldOn'))) await p.click('#feldOn'); if (!(await p.isChecked('#bagOn'))) await p.click('#bagOn'); await p.waitForTimeout(300);
+  const [dl] = await Promise.all([p.waitForEvent('download', { timeout: 300000 }), p.click('#btnSave')]);
+  const f = out + '/names.bin'; await dl.saveAs(f);
+  const r = new Uint8Array(fs.readFileSync(f));
+  ok(C.textGet(r, 14) === 'WIESE' && C.textGet(r, 64) === 'WIESE' && C.textGet(r, 15) === 'WATER', 'field texts ' + C.textGet(r, 14) + ' ' + C.textGet(r, 64));
+  ok(F.characters(r).some((c) => c.name === 'WIESENKIND'), 'tama name in the text table');
+  ok(F.itemCatalog(r).some((c) => c.name === 'MILCH 2!'), 'item name');
+  const x = C.textTablesOf(r); ok(x.tabs.length === 9, 'nine tables');
+  const fe = { stub: new Uint8Array(fs.readFileSync(__dirname + '/../feld/stub_feld_tpl.bin')) }, ff = F.feldFind(r, fe.stub);
+  const nm = ff ? String.fromCharCode(...r.subarray(ff.off + 0x140 + 68, ff.off + 0x140 + 68 + 5)) : '';
+  ok(nm === 'WIESE', 'menu shows the field name (' + nm + ')');
+  await load(f); await p.click('.tab[data-tab="names"]');
+  ok(await p.$$eval('#namesFields span', (l) => l.map((s) => s.textContent).join(',')) === 'WIESE,WATER,SKY', 'loaded again: new names');
+  if (six) {   // Glacier or Tropical with six fields: the names of the extra fields can be changed too
+    await load(six); await p.click('.tab[data-tab="names"]');
+    ok(await p.$$eval('#namesFields input', (l) => l.length) === 3, 'six: three fields before');
+    await p.setInputFiles('#fileSix', rom); await p.waitForTimeout(500);
+    const sp = await p.$$eval('#namesFields span', (l) => l.map((s) => s.textContent).join(','));
+    ok(sp === 'TROPICAL,ICE,FOREST,LAND,WATER,SKY', 'six: six fields ' + sp);
+    await set('namesFields', 'WATER', 'Meer');
+    const [d2] = await Promise.all([p.waitForEvent('download', { timeout: 300000 }), p.click('#btnSave')]);
+    const f2 = out + '/names6.bin'; await d2.saveAs(f2);
+    const r2 = new Uint8Array(fs.readFileSync(f2));
+    ok(C.textGet(r2, 65) === 'MEER' && C.textGet(r2, 15) === 'ICE', 'six: text 65 ' + C.textGet(r2, 65));
+    const fe2 = { stub: new Uint8Array(fs.readFileSync(__dirname + '/../feld/stub_feld_tpl.bin')) }, g2 = F.feldFind(r2, fe2.stub);
+    const n5 = g2 ? String.fromCharCode(...r2.subarray(g2.off + 0x140 + 300, g2.off + 0x140 + 304)) : '';
+    ok(n5 === 'MEER', 'six: menu shows the new name (' + n5 + ')');
+    await load(f2); await p.click('.tab[data-tab="all"]'); await p.waitForTimeout(500);
+    const lk = await p.$$eval('#gridAll .tile.locked', (l) => l.map((x) => +x.dataset.idx));
+    ok(lk.length === 21, 'six: added field pictures shown and locked (' + lk.length + ')');
+    await p.click('#gridAll .tile[data-idx="' + lk[0] + '"]'); await p.waitForTimeout(300);
+    ok(await p.isDisabled('#dUp'), 'six: no upload for them'); await p.click('#dClose');
+    await p.click('#gridAll .tile[data-idx="5"]'); await p.waitForTimeout(300);
+    ok(!(await p.isDisabled('#dUp')), 'six: other sprites still open'); await p.click('#dClose');
+  }
+  ok(!errors.length, 'no page errors ' + errors.join('; '));
+  await b.close(); console.log(bad ? bad + ' FAILED' : 'all good'); process.exit(bad ? 1 : 0);
+})();

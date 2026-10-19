@@ -76,6 +76,25 @@ start_src:
   add r4, r4, #0x50000000
   add r4, r4, #0x11000
   b.w realstart
+@ 1.6.8: launcher ROM ("only a start device for programs"): the Studio points the handlers of every
+@ scene after the setup (home, events, care ...) here, so the menu starts instead of the Paradise game.
+  .org 0x20
+  .global launch
+  .thumb_func
+launch:
+  cpsid i
+  ldr r4, feld_src
+  b.w realstart
+  .align 2
+feld_src: .word FELD_SRC
+@ 1.6.8: entry for the start device's trampolines (r12 = the scene's original handler): the menu starts
+@ only once the Paradise has a save (settings block 0xEFE000 stamped, date set), otherwise the original
+@ handler runs, so a setup after "reset" can finish in the Paradise itself.
+  .org 0x2C
+  .global lcheck_e
+  .thumb_func
+lcheck_e:
+  b.w lcheck
 #else
   b.w realstart
   .ltorg
@@ -178,7 +197,7 @@ check:
   uxth r0, r3
   cmp r0, #LIMIT
   blo 6f
-  ldr r4, =FELD_SRC
+  ldr.w r4, feld_src
   cmp r4, #0
   beq start
   cpsid i
@@ -187,6 +206,37 @@ check:
   movs r3, #0
   str r3, [r2]
 6:
+  pop {r0-r3, r12, lr}
+  bx r12
+  .ltorg
+#endif
+
+#if defined(HOOKS) && defined(FELD)
+  .thumb_func
+lcheck:
+  push {r0-r3, r12, lr}
+  ldr r0, =0x60EFE000      @ settings block, uncached flash
+  ldrh r1, [r0, #0]
+  ldrh r2, [r0, #2]
+  mvns r2, r2
+  uxth r2, r2
+  cmp r1, r2               @ stamp: CRC and its inverse
+  bne 1f
+  ldrh r1, [r0, #0x1C]     @ year 2020..2099
+  movw r2, #2020
+  cmp r1, r2
+  blo 1f
+  movw r2, #2099
+  cmp r1, r2
+  bhi 1f
+  ldrh r1, [r0, #0x1E]     @ month 1..12
+  subs r1, #1
+  cmp r1, #12
+  bhs 1f
+  cpsid i
+  ldr.w r4, feld_src
+  b realstart
+1:
   pop {r0-r3, r12, lr}
   bx r12
   .ltorg

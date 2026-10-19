@@ -31,3 +31,12 @@ and scenes are copied from the user's own Land, Water or Sky ROM; the cells
 of the rain pictures that the clear ones do not share lie from 0xF00000
 (header "SIXB"). Jade Forest already holds Sky and gets only the tables.
 Nothing of any ROM is part of this repository.
+
+Game field menu (version 6, option bit 1 at 0x20): the firmware's own menu
+(planet, zoom in, A, "Fields") lists every field of both sets from planet
+level 4 and keeps the Tama. Hooks at 0x830 (`six_fbuild`, `six_fcmp`,
+`six_fset`, `six_fprev`); the Studio fills the addresses at 0x800 and
+patches the list builder call, the reads of the list, the preview loader
+calls and three immediates (count and index moved in the menu object).
+An adult gets the three slots of its own set.
+

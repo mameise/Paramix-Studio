@@ -42,6 +42,11 @@ static void mb_wait(void) {
     __asm__ volatile("bl mb_spin" : "+r"(r0), "+r"(r2), "+r"(r3) : : "r1", "lr", "memory", "cc");
     g_seq = g_mb[9];
 }
+#ifdef T18_CLOCK_AFTER
+/* test: like the app, the time given with "time" is put back when the firmware loads its RTC */
+static int g_tm[6]; uint32_t g_cb_n; static int g_pend;   /* like the app: 0.5 s later (the firmware sets its day counter after the RTC) */
+static void clock_after(void *t) { (void)t; g_cb_n++; if (g_tm[0]) g_pend = 1; }
+#endif
 static uint32_t fnv(const uint8_t *p, uint32_t n, uint32_t h) { for (uint32_t i = 0; i < n; i++) h = (h ^ p[i]) * 16777619u; return h; }
 int main(void)
 {
@@ -63,7 +68,14 @@ int main(void)
     for (;;) {
         mb_wait();
         switch (g_mb[0]) {
-        case 1: tg18_run_us(T, g_mb[1]); break;
+        case 1:
+#ifdef T18_CLOCK_AFTER
+            for (uint32_t us = g_mb[1]; us; ) { uint32_t k = us > 50000u ? 50000u : us; tg18_run_us(T, k); us -= k;
+                if (g_pend && ++g_pend > 11) { g_pend = 0; tg18_set_time(T, g_tm[0], g_tm[1], g_tm[2], g_tm[3], g_tm[4], g_tm[5]); } }
+#else
+            tg18_run_us(T, g_mb[1]);
+#endif
+            break;
         case 2: tg18_set_buttons(T, (int)g_mb[1]); break;
         case 4: {
 #ifdef T18_JIT
@@ -78,7 +90,17 @@ int main(void)
 #ifdef T18_JIT_VERIFY
         case 6: { extern int t18_verify_on; t18_verify_on = 1; break; }
 #endif
-        case 5: tg18_set_time(T, (int)g_mb[1], (int)g_mb[2], (int)g_mb[3], (int)g_mb[4], (int)g_mb[5], (int)g_mb[6]); break;
+        case 7: {                    /* load state + SRAM put by the driver at 0x61000000 - 0x40000 (g_mb[1] = state length) */
+            const uint8_t *b = (const uint8_t *)0x60FC0000u; uint32_t n = g_mb[1];
+            g_mb[2] = (uint32_t)tg18_load_state(T, b, n);
+            for (uint32_t q = 0; q < T18_SRAM_SIZE; q += 4) t18_sram_wr(q, *(const uint32_t *)(b + n + q), 4);
+            break; }
+        case 5: tg18_set_time(T, (int)g_mb[1], (int)g_mb[2], (int)g_mb[3], (int)g_mb[4], (int)g_mb[5], (int)g_mb[6]);
+#ifdef T18_CLOCK_AFTER
+            for (int i = 0; i < 6; i++) g_tm[i] = (int)g_mb[1 + i];
+            tg18_set_rtc_cb(T, clock_after);
+#endif
+            break;
         }
         if (g_mb[0] != 4) { g_mb[1] = g_pic_src; g_mb[6] = g_pics; }
     }

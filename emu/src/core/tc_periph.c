@@ -57,8 +57,61 @@ static void cmu_write32(Emu *e, uint32_t a, uint32_t v)
 
 static void itc_scan(Emu *e);
 
+/* ---- PN512 NFC chip of the 4U/4U+ (1.6.8) --------------------------------------------------
+ * The 4U firmware talks to its PN512 over the IR UART (0x300B10 TX, 0x300B11 RX) all the time: it
+ * wakes the chip, arms field detection and waits for answers. Without a chip every read ran into
+ * a long spin timeout, the firmware hardly ever went idle and buttons felt slow (two presses).
+ * Like tamaemu's pn512.c, without radio: a register file, commands finish at once, every write is
+ * acknowledged with its address, a read returns the register. Not saved with the session (the chip
+ * powers up again). */
+#define IR_TRIG (IR_BASE + 5u)
+static struct { uint8_t reg[0x40], q[16], fifo_n, q_n, wr, tx; } g_pn;
+static const uint8_t pn_init[] = { 0x01, 0x20, 0x11, 0x3F, 0x14, 0x80, 0x15, 0x40, 0x18, 0x84, 0x19, 0x4D, 0x1F, 0xEB, 0x26, 0x48, 0x27, 0x88, 0x37, 0x82 };
+TC_SRAM static void pn_host_byte(Emu *e, uint8_t b)
+{
+    (void)e;
+    uint8_t *r = g_pn.reg, a = g_pn.wr & 0x3F, v;
+    if (!r[0x37]) for (unsigned i = 0; i < sizeof pn_init; i += 2) r[pn_init[i]] = pn_init[i + 1];   /* power up */
+    if (g_pn.wr) {                                      /* register write, acknowledged with the address */
+        g_pn.wr = 0; v = b;
+        if (a == 0x01) {                                /* Command: everything finishes at once */
+            uint8_t c = v & 0x0F;
+            if (c == 0x0F) { r[0x37] = 0; g_pn.fifo_n = 0; }               /* SoftReset: power-up values again */
+            else r[1] = (uint8_t)((v & 0x30) | ((c == 0x0C || c == 0x08 || c == 0x0D) ? c : 0));
+            if (c == 0x03) r[5] |= 0x04;                /* CalcCRC done */
+            if (c == 0x04) r[4] |= 0x50;                /* Transmit: Tx, Idle */
+        } else if (a == 0x04 || a == 0x05) { if (v & 0x80) r[a] |= v & 0x7F; else r[a] &= (uint8_t)~v; }
+        else if (a == 0x09) { if (g_pn.fifo_n < 64) g_pn.fifo_n++; }
+        else if (a == 0x0A) { if (v & 0x80) g_pn.fifo_n = 0; }
+        else if (a == 0x0C) { if (v & 0x40) r[4] |= 0x01; if (v & 0x20) g_pn.fifo_n = 10; r[a] = v & 0x1F; }
+        else if (a < 0x06 || a > 0x08) r[a] = v;
+    } else if (b & 0x80) {                              /* register read */
+        a = b & 0x3F; v = r[a];
+        if (a == 0x09) { v = (uint8_t)(0xF0 ^ g_pn.fifo_n); if (g_pn.fifo_n) g_pn.fifo_n--; }   /* FIFO: some ID bytes */
+        else if (a == 0x0A) v = g_pn.fifo_n;
+        else if (a == 0x07) v = 0x60;
+        else if (a == 0x08) v = ((r[1] & 0x0F) == 0x0C || (r[1] & 0x0F) == 0x08) ? 0x05 : 0x00;
+        a = v;
+    } else { g_pn.wr = (uint8_t)(0x40 | b); return; }
+    if (g_pn.q_n < sizeof g_pn.q) g_pn.q[g_pn.q_n++] = a;
+    g_pn.tx = 1;
+}
+TC_SRAM static void pn_tick(Emu *e)
+{
+    uint8_t f = 0;
+    if (g_pn.tx) { g_pn.tx = 0; f = 0x20; }                                       /* TX done */
+    if (g_pn.q_n && IOB(IR_TRIG) && !(IOB(IR_STAT) & 0x01u)) {                    /* next answer byte, RX */
+        IOB(IR_RXDATA) = g_pn.q[0]; g_pn.q_n--;
+        for (unsigned i = 0; i < g_pn.q_n; i++) g_pn.q[i] = g_pn.q[i + 1];
+        IOB(IR_STAT) |= 0x01u; f |= 0x10;
+    }
+    if (f) { IOB(0x300286) |= f; itc_scan(e); }
+}
+
+uint32_t g_tc_rtc_wr;
 void periph_write32(Emu *e, uint32_t a, uint32_t v)
 {
+    if (a >= 0x301910 && a <= 0x30192B) g_tc_rtc_wr++;
     if (a - CMU_BASE <= 0x24) { cmu_write32(e, a, v); return; }
     if (a == 0x301900) { if (v & 1) IOB(0x301900) &= (uint8_t)~1u; return; }
     ioram_w32(e, a, v);
@@ -79,6 +132,9 @@ void periph_write8(Emu *e, uint32_t a, uint8_t v)
 #ifdef IOLOG
     if (g_iolog) printf("IO %.4f %06x <- %02x pc=%08x\n", (double)e->cycles / e->dev.osc3_hz, a, v, e->pc);
 #endif
+#ifndef NO_PN
+    if (e->dev.nfc_pn512 && a == IR_BASE) { e->ioram[a - e->dev.io_base] = v; pn_host_byte(e, v); return; }
+#endif
     if (a - CMU_BASE <= 0x27) {
         uint32_t word = a & ~3u;
         uint32_t cur = ioram_r32(e, word);
@@ -89,6 +145,7 @@ void periph_write8(Emu *e, uint32_t a, uint8_t v)
     if (a >= 0x300280 && a <= 0x30028F) { e->ioram[a - e->dev.io_base] &= (uint8_t)~v; itc_scan(e); return; }
     if (a == 0x3002A9) { e->ioram[a - e->dev.io_base] &= (uint8_t)~v; itc_scan(e); return; }
     if (a == 0x301900) { if (v & 1) e->ioram[a - e->dev.io_base] &= (uint8_t)~1u; return; }
+    if (a >= 0x301910 && a <= 0x30192B) g_tc_rtc_wr++;   /* 1.6.8: the game sets its clock (main.c puts the Paradise's time back) */
     if (a == 0x300544 && (v & 0x06)) {     /* battery measurement: immediate, healthy */
         e->ioram[a - e->dev.io_base] = v;
         IOB(0x300540) = 0x50; IOB(0x300541) = 0x03;
@@ -226,8 +283,14 @@ static uint8_t bcd_inc(uint8_t v, uint8_t wrap_after)
 }
 static const uint8_t month_days[13] = {0,0x31,0x28,0x31,0x30,0x31,0x30,0x31,0x31,0x30,0x31,0x30,0x31};
 
+#ifdef HOST
+uint32_t g_host_rtc_secs;
+#endif
 static void rtc_count_second(Emu *e)
 {
+#ifdef HOST
+    g_host_rtc_secs++;
+#endif
     uint8_t v = bcd_inc(IOB(0x301910), 0x59);
     IOB(0x301910) = (v == 0xFF) ? 0 : v; if (v != 0xFF) return;
     v = bcd_inc(IOB(0x301914), 0x59);
@@ -284,13 +347,24 @@ void periph_rtc_advance(Emu *e, uint32_t n)
 static void rtc_tick(Emu *e, uint32_t cycles)
 {
     uint32_t hz = mclk(e);
+#ifdef RTC_MS
+    /* 1.6.8: seconds and the 1 s / 1 min / 1 h interrupt come from periph_rtc_ms (real milliseconds of the
+     * main loop). Counted in guest cycles they went wrong whenever the guest changed its clock: a part of a
+     * second at 18 MHz counted as minutes at 16 kHz (iD L: clock jumped when its display went off). */
+    uint32_t sel = (IOB(0x301904) >> 2) & 3;
+    if (sel) return;
+#else
     if (!(IOB(0x301908) & 2) && !(IOB(0x30190C) & 1)) {
         e->rtc_cyc += cycles;
         while (e->rtc_cyc >= hz) { e->rtc_cyc -= hz; rtc_count_second(e); }
     }
     uint32_t sel = (IOB(0x301904) >> 2) & 3;
+#endif
     uint64_t p = sel == 0 ? hz / 64 : sel == 1 ? hz : sel == 2 ? (uint64_t)hz * 60 : (uint64_t)hz * 3600;
     e->rtc_irq_cyc += cycles;
+#ifdef RTC_MS
+    if (e->rtc_irq_cyc >= 2u * (uint32_t)p) e->rtc_irq_cyc = (uint32_t)p;   /* clock switched down: no burst */
+#endif
     if (e->rtc_irq_cyc >= p) {
         e->rtc_irq_cyc -= (uint32_t)(p > 0xFFFFFFFFu ? 0xFFFFFFFFu : p);
         IOB(0x301900) |= 1;
@@ -298,9 +372,29 @@ static void rtc_tick(Emu *e, uint32_t cycles)
     }
 }
 
+#ifdef RTC_MS
+/* one real millisecond (called by the main loop for every guest ms) */
+void periph_rtc_ms(Emu *e)
+{
+    if (!(IOB(0x301908) & 2) && !(IOB(0x30190C) & 1)) {
+        if (++e->rtc_cyc >= 1000u) { e->rtc_cyc = 0; rtc_count_second(e); }
+    }
+    uint32_t sel = (IOB(0x301904) >> 2) & 3;
+    if (!sel) return;
+    uint32_t p = sel == 1 ? 1000u : sel == 2 ? 60000u : 3600000u;
+    if (++e->rtc_irq_cyc >= p) {
+        e->rtc_irq_cyc = 0;
+        IOB(0x301900) |= 1;
+        if (IOB(0x301904) & 1) { IOB(0x300287) |= 4; itc_scan(e); }
+    }
+}
+#endif
 void periph_tick(Emu *e, uint32_t cycles)
 {
     rtc_tick(e, cycles);
+#ifndef NO_PN
+    if (e->dev.nfc_pn512) pn_tick(e);
+#endif
     for (int x = 0; x < 6; x++) {
         uint8_t c = IOB(0x300780 + (uint32_t)x * 8 + 6);
         if (!(c & 1)) continue;
@@ -321,7 +415,11 @@ uint32_t periph_next(Emu *e)
 {
     uint64_t best = 0xFFFFFFFFu;
     uint32_t hz = mclk(e);
-    if ((IOB(0x301904) & 1) && (IOB(0x300277) & 4)) {
+    if ((IOB(0x301904) & 1) && (IOB(0x300277) & 4)
+#ifdef RTC_MS
+        && !((IOB(0x301904) >> 2) & 3)
+#endif
+        ) {
         uint32_t sel = (IOB(0x301904) >> 2) & 3;
         uint64_t p = sel == 0 ? hz / 64 : sel == 1 ? hz : sel == 2 ? (uint64_t)hz * 60 : (uint64_t)hz * 3600;
         if (p > e->rtc_irq_cyc && p - e->rtc_irq_cyc < best) best = p - e->rtc_irq_cyc;

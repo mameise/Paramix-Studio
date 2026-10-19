@@ -147,9 +147,13 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
   ok(r.written === 1 && r.kept === 1 && mem[0x200000] === 0x42 && mem[0xEFE001] === 1, 'flash: only changes, save kept');
   r = await dev.write(img, { onlyChanged: true, keep: null }, null);
   ok(r.written === 1 && mem[0xEFE001] === 0, 'flash: without keep the save is written');
-  const other = new Uint8Array(img); other[0xD49000] = 2; let e2 = '';
+  const other = new Uint8Array(img); other[0xD49000] = 4; let e2 = '';
   try { await dev.write(other, { onlyChanged: true, keep }, null); } catch (e) { e2 = e.code || e.message; console.log('   (' + e2 + ')'); }
   ok(e2 === 'otherEd', 'flash: other edition refused with keep');
+  // 1.6.6: same firmware (Land on the device, Water in the ROM): save and the device's ID page stay
+  const fam = new Uint8Array(img); fam[0xD49000] = 2; fam[0x200001] = 0x43;
+  r = await dev.write(fam, { onlyChanged: true, keep }, null);
+  ok(mem[0xD49000] === 1 && mem[0x200001] === 0x43 && (r.notes || []).some((n) => n.code === 'noteEdKept'), 'flash: same family (Land device, Water ROM): device keeps its edition and save');
   // field slots: same layout is kept, another layout gets the stored fields moved over
   {
     const fs4 = require('fs');

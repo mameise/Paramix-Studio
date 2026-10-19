@@ -29,6 +29,9 @@ ok(S.sixApply(six, land, blob) === six, 'second run changes nothing');
 // firmware patches point into the helper page
 const tgt = (o) => { const h1 = six[o] | six[o + 1] << 8, h2 = six[o + 2] | six[o + 3] << 8; return h1 >> 11 === 0x1E && (h2 >> 14) >= 2; };
 ok(tgt(0x1BEAC) && tgt(0x20ED2) && tgt(0x20FBC) && tgt(0x20D62), 'branches into the helper');
+ok(info.fieldMenu && tgt(0x11000 + 0x265E2) && tgt(0x11000 + 0x41690) && tgt(0x11000 + 0x416B8) && tgt(0x11000 + 0x414EC) && six[0x11000 + 0x41496 + 2] === 0x53, 'game field menu hooked');
+{ const nm = S.sixApply(six, land, blob, { fieldMenu: false }), ni = S.sixInfo(nm);
+  ok(ni && !ni.fieldMenu && nm[0x11000 + 0x41690] === 0x90 && nm[0x11000 + 0x41496 + 2] === 0x4F, 'switch off: game field menu as before'); }
 ok(u32(six, 0xF00000) === 0x42584953, 'rain pictures in region B');
 { const moved = C.buildRom(C.openRom(six), new Map(), null).rom; ok(Buffer.compare(Buffer.from(S.sixFix(moved)), Buffer.from(six)) === 0, 'sixFix after a rebuild gives the same ROM'); }
 for (let i = 0; i < 12; i++) { const d = C.spriteDecode(ctx.entries[info.sprites + i]); if (d.subs[0].w !== 512) { ok(false, 'picture ' + i); break; } }
@@ -51,6 +54,9 @@ if (process.argv[4]) {
   ok(Buffer.compare(Buffer.from(j4.subarray(0x111000, 0xD49000)), Buffer.from(jade.subarray(0x111000, 0xD49000))) === 0, 'Jade: archive untouched');
   const jm = F.feldApply(j4, { fields: true, bag: true }, [], emb, E);
   ok(F.fieldNames(jm).join() === 'Land,Water,Forest,Sky', 'Jade menu: ' + F.fieldNames(jm).join(', '));
+  ok(S.sixInfo(j4).fieldMenu, 'Jade: field menu flag');
+  { const jt = (o) => { const h1 = j4[o] | j4[o + 1] << 8, h2 = j4[o + 2] | j4[o + 3] << 8; return h1 >> 11 === 0x1E && (h2 >> 14) >= 2; };
+    ok(jt(0x11000 + 0x2262C) && jt(0x11000 + 0x3C470) && jt(0x11000 + 0x3C498) && jt(0x11000 + 0x3C2E0) && j4[0x11000 + 0x3C29E + 2] === 0x4F, 'Jade: game field menu hooked'); }
   ok(Buffer.compare(Buffer.from(S.sixStrip(j4)), Buffer.from(jade)) === 0, 'Jade: strip gives the original');
 }
 console.log(bad ? bad + ' WRONG' : 'all good');

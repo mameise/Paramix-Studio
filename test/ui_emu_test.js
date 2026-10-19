@@ -20,6 +20,7 @@ const fs = require('fs'), path = require('path');
   if (process.env.DLC) {
     await page.setInputFiles('#fileDlc', process.env.DLC.split(','));
     await page.waitForTimeout(800);
+    await page.click('#appsList .prow .ptog'); await page.waitForTimeout(300);   // 1.6.8: the slots open with ▾ in the row
     console.log('Stores:', await page.evaluate(() => [...document.querySelectorAll('.dlcbox')].map(b => b.innerText.replace(/\n/g, ' | '))));
     // remove the first removable entry, then count again
     await page.click('.dlcrow button');

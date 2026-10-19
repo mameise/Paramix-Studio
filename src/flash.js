@@ -73,6 +73,8 @@ const MSG = {
   noteNoFit: 'field {f} does not fit into the new slot and is not kept',
   noteMoved: 'field {f} moved to the new slot',
   noteDropped: 'the new ROM has no field menu, stored fields on the device are dropped',
+  noteEdKept: 'the device is {d}, the new ROM is {r}: same firmware, the device keeps its save and its field ({d})',
+  noteSaveMoved: 'save of {n} taken along',
   noteEmu: 'TamaEmu firmware chosen again, the emulator starts fresh. For an update just open the ROM and save it',
 };
 function fill(m, p) { if (p) for (const k of Object.keys(p)) m = m.split('{' + k + '}').join(p[k]); return m; }
@@ -425,12 +427,19 @@ function keepPlan(F, E, menu, opts = {}) {
   return async (dev, img, changed) => {
     const ed = F.edition(img);
     if (!ed) throw fe('unknownEd');
-    if (dev.info.edition !== ed.id) throw fe('otherEd', { d: dev.info.name, r: EDITIONS[ed.id] || ed.id });
+    // 1.6.6: Land/Water/Sky and Tropical/Glacier are the same firmware; the edition ID page only follows the
+    // active field. Within such a family the device's ID page and save stay (so the device keeps its field).
+    const fam = (id) => (F.familyOf ? F.familyOf(id) : null);
+    const sameFam = dev.info.edition !== ed.id && fam(dev.info.edition) && fam(dev.info.edition) === fam(ed.id);
+    if (dev.info.edition !== ed.id && !sameFam) throw fe('otherEd', { d: dev.info.name, r: EDITIONS[ed.id] || ed.id });
     const image = new Uint8Array(img), notes = [];
+    if (sameFam) notes.push(note('noteEdKept', { d: dev.info.name, r: EDITIONS[ed.id] || ed.id }));
     // the device's program area (stub, menu, apps), only the sectors that differ
     const view = new Uint8Array(img);
     for (const s of changed) if (s >= 0x90000 && s < 0x110000) view.set(await dev.read(s, SECTOR), s);
-    const ranges = [[ed.profile.idPage + SECTOR, F.isSix && F.isSix(img) ? 0xF00000 : FLASH_SIZE]];   // six fields keep pictures from 0xF00000
+    // six fields keep pictures from 0xF00000; a start device (1.6.8) may have programs there (the Paradise never writes there)
+    const launchImg = !!(menu && F.isLaunch && F.isLaunch(img, menu.stub));
+    const ranges = [[ed.profile.idPage + (sameFam ? 0 : SECTOR), (F.isSix && F.isSix(img)) || launchImg ? 0xF00000 : FLASH_SIZE]];
     // field slots
     const fi = menu && F.feldFind(img, menu.stub), fd = menu && F.feldFind(view, menu.stub);
     if (fd && (fd.flags & 1)) {
@@ -458,10 +467,12 @@ function keepPlan(F, E, menu, opts = {}) {
         for (let i = 0; i < fi.nslots; i++) for (let a = at(fi, i); a < at(fi, i) + fi.slotSize; a += SECTOR) if (crc32(image, a, SECTOR) !== crc32(img, a, SECTOR)) changed.add(a);
       } else notes.push(note('noteDropped'));
     }
+    const guestR = [];   // 1.6.8: TamaEmu firmware areas; sectors the Studio changed there (download items) come from the image
+    const mine = opts.mine || null;
     // TamaEmu: settings block at 0x0A0140 (guest size and block map decide the layout)
     const kind = F.appKind(img), dkind = F.appKind(view);
     const T7 = 0x37584D50, t7i = u32(img, 0xA0140) === T7, t7d = u32(view, 0xA0140) === T7;
-    const T18 = 0x38584D50, t18i = u32(img, 0xA0140) === T18, t18d = u32(view, 0xA0140) === T18;
+    const T18 = 0x38584D50, t18i = u32(img, 0xA0140) === T18, t18d = u32(view, 0xA0140) === T18, PMXC_ = 0x43584D50, t18keepX = [];
     if (t7i && t7d) {
       // T7Emu (1.4.0): the pet's EEPROM stays as long as the V7 ROM is the same, the session also needs the same figures
       const ro = u32(img, 0xA0148), rl = u32(img, 0xA014C);
@@ -472,7 +483,13 @@ function keepPlan(F, E, menu, opts = {}) {
         ranges.push([0xC1000, 0xC6000]);   // EEPROM slots and the settings
         if (view.subarray(0xA0148, 0xA0140 + 24 + 16 * 24).every((v, i) => v === img[0xA0148 + i])) ranges.push([0xC0000, 0xC1000]);
       } else notes.push(note('noteEmu'));
-    } else if (kind === 2 && dkind === 2 && !t7i && !t7d && !t18i && !t18d) {
+    } else if (u32(img, 0xA0140) === 0x31584D50 && u32(view, 0xA0140) === 0x31584D50) {
+      // V1Emu as the main program (1.6.8): session and settings stay with the same ROM at the same place
+      const ro = u32(img, 0xA0148), rl = u32(img, 0xA014C), so = u32(img, 0xA0150);
+      let same = [0x148, 0x14C, 0x150].every((k) => u32(view, 0xA0000 + k) === u32(img, 0xA0000 + k));
+      for (let x = ro & ~0xFFF; same && x < ro + rl; x += SECTOR) if (changed.has(x)) same = false;
+      if (same) ranges.push([so, so + 0x2000]); else { ranges.push([so + 0x1000, so + 0x2000]); notes.push(note('noteEmu')); }
+    } else if (kind === 2 && dkind === 2 && !t7i && !t7d && !t18i && !t18d && u32(img, 0xA0140) !== 0x31584D50 && u32(view, 0xA0140) !== 0x31584D50) {
       // same firmware layout (offset, size, save area, device, block map); the program version may differ
       const same = view.subarray(0xA0148, 0xA0140 + 24 + 128).every((v, i) => v === img[0xA0148 + i]);
       if (same && !opts.emuChanged) {
@@ -480,17 +497,56 @@ function keepPlan(F, E, menu, opts = {}) {
         // with the packed firmware also the spare pages behind it (item stores, since v0.9.2)
         const end = u32(img, 0xA0144) >= 3 ? Math.min(u32(img, 0xA0140 + 152), 0xD48000) : gOff + gLen;
         ranges.push([0xC0000, 0x110000], [gOff, Math.max((gOff + gLen + 0xFFF) & ~0xFFF, end)]);
+        guestR.push([gOff, Math.max((gOff + gLen + 0xFFF) & ~0xFFF, end)]);
       } else notes.push(note('noteEmu'));
     }
     if (kind === 1 && dkind === 1) ranges.push([0x10E000, 0x110000]);
     // more programs of the menu (1.6.0): a save stays when the device has the same program at the same
     // place with the same ROM
+    const xT18 = [];   // T18Emu as a further program (start device, 1.6.8): its blocks, like the main one's below
     if (menu && F.feldApps) {
       const ai = F.feldApps(img, menu.stub).apps, ad = F.feldApps(view, menu.stub).apps;
       for (const [ix, a] of ai.entries()) {
-        if (!ad.some((d) => d.src === a.src)) continue;
         const off = a.src - 0x10000000 + 0x11000;
+        const mag = u32(img, off + 0x140);
+        if (mag === T18) {
+          const c = off + 0x140, ns = Math.min(u32(img, c + 12), 64), bl = [];
+          for (let i = 0; i < 128; i++) { const b = img[c + 16 + 2 * i] | (img[c + 17 + 2 * i] << 8); if (b !== 0xFFFF) bl.push(b); }
+          for (let i = 0; i < ns; i++) bl.push(img[c + 272 + 2 * i] | (img[c + 273 + 2 * i] << 8));
+          if (img[c + 400] & 4) bl.push(0xFD, 0xFE);
+          xT18.push(...bl);
+          if (!ad.some((d) => d.src === a.src)) continue;
+          const dv = changed.has(off) ? await dev.read(off, SECTOR) : img.subarray(off, off + SECTOR);
+          if (u32(dv, 0x140) === T18 && dv.subarray(0x140 + 8, 0x140 + 400).every((v, i) => v === img[c + 8 + i]) && !opts.emuChanged) {
+            const so = u32(img, c + 8); ranges.push([so, so + 0x24000]);
+            for (let i = 0; i < ns; i++) { const b = img[c + 272 + 2 * i] | (img[c + 273 + 2 * i] << 8); t18keepX.push([b << 16, (b + 1) << 16]); }
+          } else notes.push(note('noteEmu'));
+          continue;
+        }
+        if (!ad.some((d) => d.src === a.src)) continue;
         const dv = changed.has(off) ? await dev.read(off, SECTOR) : img.subarray(off, off + SECTOR);
+        if (mag === PMXC_ && u32(img, off + 0x144) >= 3) {
+          // TamaEmu as a further program: run state and spare pages stay with the same firmware layout
+          const same = u32(dv, 0x140) === PMXC_ && dv.subarray(0x148, 0x140 + 156).every((v, i) => v === img[off + 0x148 + i]);   // the flags (+156: clock, NFC) may change
+          const gOff = u32(img, off + 0x148), gLen = u32(img, off + 0x14C), so = u32(img, off + 0x150), se = u32(img, off + 0x140 + 152);
+          let sameFw = same;
+          if (mine && same) {
+            // 1.6.8: the same firmware when its code blocks (reset vector) are untouched by the Studio; the rest of
+            // its flash (its own writes) stays from the device, except what the Studio changed (download items)
+            const rv = u32(img, off + 0x140 + 20) === 0 ? 0 : 0x40;
+            for (const b of [rv, rv + 1]) { const k = img[off + 0x140 + 24 + b]; if (k === 0xFF) continue; const kk = k === 0xFE ? b : k; for (let x = gOff + (kk << 16); sameFw && x < gOff + ((kk + 1) << 16); x += SECTOR) if (mine.has(x) && changed.has(x)) sameFw = false; }
+            if (sameFw) { ranges.push([gOff, gOff + gLen]); guestR.push([gOff, gOff + gLen]); }
+          } else for (let x = gOff; sameFw && x < gOff + gLen; x += SECTOR) if (changed.has(x)) sameFw = false;
+          if (sameFw) ranges.push([so, so + 0x50000], [(gOff + gLen + 0xFFF) & ~0xFFF, se]); else notes.push(note('noteEmu'));
+          continue;
+        }
+        if (mag === 0x31584D50) {   // V1Emu (1.6.8): the session stays with the same ROM at the same place
+          const sameV = [0x140, 0x148, 0x14C, 0x150].every((k) => u32(dv, k) === u32(img, off + k));
+          const ro = u32(img, off + 0x148), rl = u32(img, off + 0x14C), so = u32(img, off + 0x150);
+          let sameRom = sameV; for (let x = ro & ~0xFFF; sameRom && x < ro + rl; x += SECTOR) if (changed.has(x)) sameRom = false;
+          if (sameRom) ranges.push([so, so + 0x2000]); else { ranges.push([so + 0x1000, so + 0x2000]); notes.push(note('noteEmu')); }   // session, settings
+          continue;
+        }
         const same = [0x140, 0x148, 0x14C, 0x150].every((k) => u32(dv, k) === u32(img, off + k)) && u32(img, off + 0x140) === T7;
         if (!same) continue;
         const ro = u32(img, off + 0x148), rl = u32(img, off + 0x14C), so = u32(img, off + 0x150);
@@ -503,7 +559,7 @@ function keepPlan(F, E, menu, opts = {}) {
     // T18Emu (1.5.0): firmware blocks come from the image (they may lie in areas that are kept
     // otherwise); its save (map, clock note, session at 0x0C0000 and the spare blocks the firmware
     // wrote) stays when the block map is the same
-    const t18blocks = [], t18keep = [];
+    const t18blocks = xT18.slice(), t18keep = t18keepX;
     if (t18i) {
       const c = 0xA0140, ns = Math.min(u32(img, c + 12), 64);
       for (let i = 0; i < 128; i++) { const b = img[c + 16 + 2 * i] | (img[c + 17 + 2 * i] << 8); if (b !== 0xFFFF) t18blocks.push(b); }
@@ -525,11 +581,49 @@ function keepPlan(F, E, menu, opts = {}) {
       for (let i = 0; i < ns; i++) { const b = view[c + 272 + 2 * i] | (view[c + 273 + 2 * i] << 8); if (b < 0x100) t18old.push(b); }
       if (view[c + 400] & 4) t18old.push(0xFD, 0xFE);
     }
+    // 1.6.8: saves that moved (main program <-> menu, other place in the menu): T7Emu and V1Emu by their ROM.
+    // The device's save of the same ROM is copied to the program's new save area.
+    if (menu && F.feldApps && opts.moveSaves !== false) {
+      const T7M = 0x37584D50, V1M = 0x31584D50;
+      const progs = async (b, rd, apps) => {
+        const out = [], one = async (base, cfgOf) => {
+          const c = await cfgOf(base); const m = u32(c, 0x140);
+          if (m !== T7M && m !== V1M) return;
+          const isMain = base === 0xA0000, so = u32(c, 0x150);
+          out.push({ kind: m, romOff: u32(c, 0x148), romLen: u32(c, 0x14C), saveOff: so, saveLen: m === V1M ? 0x2000 : (isMain ? 0x6000 : 0x6000), base });
+        };
+        await one(0xA0000, async (o) => rd(o, SECTOR));
+        for (const a of apps) await one(a.src - 0x10000000 + 0x11000, async (o) => rd(o, SECTOR));
+        return out;
+      };
+      const imgRd = async (o, n) => img.subarray(o, o + n);
+      const devRd = async (o, n) => (changed.has(o) ? dev.read(o, n) : img.subarray(o, o + n));
+      try {
+        const ip = await progs(img, imgRd, F.feldApps(img, menu.stub).apps), dp = await progs(view, devRd, F.feldApps(view, menu.stub).apps);
+        const covered = (a) => ranges.some(([x, y]) => a >= x && a < y);
+        for (const p of ip) {
+          if (covered(p.saveOff)) continue;
+          const want = crc32(img, p.romOff, p.romLen);
+          for (const d of dp) {
+            if (d.kind !== p.kind || d.romLen !== p.romLen || (d.base === p.base && d.saveOff === p.saveOff)) continue;
+            const dc = dev.crc ? await dev.crc(d.romOff, d.romLen) : crc32(await dev.read(d.romOff, d.romLen), 0, d.romLen);
+            if (dc !== want) continue;
+            const len = Math.min(p.saveLen, d.saveLen), data = await dev.read(d.saveOff, len);
+            image.set(data, p.saveOff);
+            for (let s = p.saveOff; s < p.saveOff + len; s += SECTOR) changed.add(s);
+            notes.push(note('noteSaveMoved', { n: p.kind === V1M ? 'V1Emu' : 'T7Emu' }));
+            break;
+          }
+        }
+      } catch (e) { /* only an extra; the normal plan stands */ }
+    }
     // take the device's copy of every protected sector that differs
     const prot = new Set();
     for (const [a, b] of ranges) for (let s = a & ~0xFFF; s < b; s += SECTOR) prot.add(s);
     for (const b of t18blocks.concat(t18old)) for (let s = b << 16; s < (b + 1) << 16; s += SECTOR) prot.delete(s);
     for (const [a, b] of t18keep) for (let s = a; s < b; s += SECTOR) prot.add(s);
+    if (mine) for (const [a, b] of guestR) for (let s = a & ~0xFFF; s < b; s += SECTOR) if (mine.has(s)) prot.delete(s);
+    for (const [a, b] of opts.fresh || []) for (let s = a & ~0xFFF; s < b; s += SECTOR) prot.delete(s);   // 1.6.8: imported saves
     let kept = 0;
     for (const s of prot) if (changed.has(s)) { image.set(await dev.read(s, SECTOR), s); kept++; }
     const protectedSectors = [...prot].filter((s) => changed.has(s));

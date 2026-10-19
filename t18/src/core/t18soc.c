@@ -5,6 +5,7 @@
  * Author: mameise */
 #include "t18soc.h"
 #include <string.h>
+uint32_t t18_flash_gen;   /* 1.6.8: counts flash writes (the idle memo of t18cpu.c) */
 #define memcpy __builtin_memcpy     /* small copies inline (also in freestanding builds) */
 #ifndef PARADISE
 #include <stdlib.h>
@@ -96,6 +97,14 @@ struct tg18 {
 #ifndef PARADISE
 #endif
     uint8_t spi_rx[8]; int spi_rxn;
+#ifdef T18_RADIO
+    /* 1.6.8: the Bluetooth module of the Meets/On, small (see radio_xfer): queue to the firmware with
+       message ends, the message being received, three small module memory areas */
+    uint8_t rq[128]; uint16_t rq_h, rq_t; uint16_t rq_end[12]; uint8_t rq_eh, rq_et;
+    uint8_t rtr[36]; uint8_t rmsg[80]; uint16_t rntr, rnmsg;
+    uint8_t rans[2], rzust, rfetch, racn, rstage, rsetup, rlast, rcs;
+    uint8_t rmem[16];
+#endif
     uint32_t clock_mult;     /* game clock speed (1 = real time), not saved */
     /* finished-picture tracking: the firmware composes straight into the buffer
        the panel scans, top to bottom, over several refreshes. The panel only gets
@@ -126,7 +135,8 @@ struct tg18 {
 #define tlog(...) do { } while (0)
 
 #define REG_EMPTY 1u           /* register addresses are word aligned, so 1 marks a free slot */
-static void reg_clear(tg18_t *t) { for (int k = 0; k < REG_N; k++) { t->regs[k].a = REG_EMPTY; t->regs[k].v = 0; } t->nreg = 0; }
+static uint32_t *sfw_p, *sfc_p;  /* 0xC0150008, 0xC0150000 in the register table, for tg18_sf_put / _ctl */
+static void reg_clear(tg18_t *t) { sfw_p = 0; sfc_p = 0; for (int k = 0; k < REG_N; k++) { t->regs[k].a = REG_EMPTY; t->regs[k].v = 0; } t->nreg = 0; }
 static inline uint32_t reg_hash(uint32_t a) { return (a * 0x9E3779B1u) >> 24; }   /* REG_N = 256 */
 static uint32_t *reg(tg18_t *t, uint32_t a) {
     a &= ~3u;
@@ -165,7 +175,7 @@ static void sf_cs(tg18_t *t, int on) {
         else if ((s->cmd == 0x20 || s->cmd == 0x52 || s->cmd == 0xD8) && s->state >= 4 && s->wel) {
             uint32_t sz = s->cmd == 0x20 ? 0x1000 : s->cmd == 0x52 ? 0x8000 : 0x10000;
             uint32_t a = s->addr & ~(sz - 1) & (TG18_FLASH_SIZE - 1);
-            t18_flash_erase(a, sz); t->flash_dirty = 1; s->wel = 0;
+            t18_flash_erase(a, sz); t->flash_dirty = 1; s->wel = 0; t18_flash_gen++;
             if (t->trace) tlog(t, "SF erase %06x %x", a, sz);
         } else if ((s->cmd == 0x60 || s->cmd == 0xC7) && s->wel) {
             /* chip erase - refuse to wipe firmware: only allowed in emulator? ignore */
@@ -198,7 +208,7 @@ static uint8_t sf_xfer(tg18_t *t, uint8_t b) {
             out = t18_flash_rd(s->addr & (TG18_FLASH_SIZE - 1)); s->addr++;
         } else if (s->cmd == 0x02 && s->wel) {
             uint32_t a = s->addr & (TG18_FLASH_SIZE - 1);
-            t18_flash_prog(a, b); t->flash_dirty = 1;
+            t18_flash_prog(a, b); t->flash_dirty = 1; t18_flash_gen++;
             s->addr = (s->addr & ~0xFFu) | ((s->addr + 1) & 0xFF);
         }
         break;
@@ -440,6 +450,8 @@ static void rtc_half_event(tg18_t *t) {
 static uint64_t rtcm_counter(tg18_t *t) {
     return (uint64_t)(t->rtcm_off + (int64_t)ticks32k(t, t->cpu.cycles)) & 0xFFFFFFFFFFFFull;
 }
+/* 1.6.8: called when the firmware loads the battery RTC (its clock setting); outside tg18_t, which goes into the session */
+static void (*g_rtc_set_cb)(void *t);
 static uint8_t rtcm_read(tg18_t *t, uint8_t a) {
     if (a >= 0x30 && a <= 0x35) return (uint8_t)(rtcm_counter(t) >> ((a - 0x30) * 8));
     if (a == 0x00) return t->rtcm[0] & ~0x10;      /* never busy */
@@ -456,6 +468,7 @@ static void rtcm_write(tg18_t *t, uint8_t a, uint8_t v) {
             for (int i = 5; i >= 0; i--) val = (val << 8) | t->rtcm_load[i];
             t->rtcm_off = (int64_t)val - (int64_t)ticks32k(t, t->cpu.cycles);
             if (t->trace) tlog(t, "RTCM set counter %llx", (unsigned long long)val);
+            if (g_rtc_set_cb) g_rtc_set_cb(t);
         }
     }
 }
@@ -866,6 +879,22 @@ static uint32_t io_rd(void *ctx, uint32_t a, int size) {
     return v;
 }
 
+#ifdef T18_IO_FAST
+/* 1.6.8: device registers the firmware polls most (timer control, buttons, interrupt vector and mask), word
+ * reads straight from the translator's slow path (in the PRAM, without io_rd in the flash window). The same
+ * value as io_rd gives; 1 = done. */
+int tg18_io_fast(void *ctx, uint32_t a, uint32_t *v) {
+    tg18_t *t = (tg18_t *)ctx;
+    if (t->trace) return 0;
+    if (a - 0xC0020000u < 0xC0u) { if ((a & 0x1Fu) == 0x10u) return 0; *v = reg_get(t, a); return 1; }   /* timers, not the count */
+    switch (a) {
+    case 0xD0100028: *v = intc_vec(t, 0); return 1;
+    case 0xC0000020: *v = (R(0xC0000020) & ~0xE0u) | ((t->buttons & 1) ? 0x20 : 0) | ((t->buttons & 2) ? 0x40 : 0) | ((t->buttons & 4) ? 0x80 : 0); return 1;
+    case 0xC0000040: case 0xD0100038: *v = reg_get(t, a); return 1;
+    }
+    return 0;
+}
+#endif
 /* 1.6.6: the SPI flash registers in a word access, straight from the translator's slow path (the firmware
  * reads its pictures byte by byte through them, about 20000 a second on the pet screen). Same as io_rd /
  * io_wr for these registers. 1 = done. */
@@ -889,6 +918,25 @@ int tg18_sf_fast(void *ctx, uint32_t a, uint32_t *v, int wr) {
     }
     *p = old; return 0;
 }
+uint32_t *tg18_sf_regp(void *ctx) { return reg((tg18_t *)ctx, 0xC0150004u); }
+uint8_t *tg18_sf_outp(void *ctx) { return &((tg18_t *)ctx)->sf.out; }
+/* 1.6.8: a word store to 0xC0150008 (send a byte, the answer comes into sf.out), from j_slow */
+void tg18_sf_put(void *ctx, uint32_t v)
+{
+    tg18_t *t = (tg18_t *)ctx;
+    if (!sfw_p) sfw_p = reg(t, 0xC0150008u);
+    *sfw_p = v;
+    t->sf.out = sf_xfer(t, (uint8_t)v);
+}
+/* ... and to 0xC0150000 (bit 6: chip select) */
+void tg18_sf_ctl(void *ctx, uint32_t v)
+{
+    tg18_t *t = (tg18_t *)ctx;
+    if (!sfc_p) sfc_p = reg(t, 0xC0150000u);
+    uint32_t old = *sfc_p; *sfc_p = v;
+    if ((v ^ old) & 0x40) sf_cs(t, (v >> 6) & 1);
+}
+uint32_t *tg18_sf_ctlp(void *ctx) { return reg((tg18_t *)ctx, 0xC0150000u); }
 /* for the idle skip: 1 when reading a gives the same value (and changes nothing) until the next event */
 static int io_stable(void *ctx, uint32_t a) {
     (void)ctx;
@@ -903,6 +951,110 @@ static int io_stable(void *ctx, uint32_t a) {
     if (a >= 0xC0020000u && a < 0xC00200C0u && (a & 0x1F) == 0x10) return 0;   /* timer counters */
     return 1;
 }
+#ifdef T18_RADIO
+/* ---------------- Bluetooth module (SPI 0xC0080000, chip select GPIO 0xC0000064 bit 12) ----------------
+ * 1.6.8: the Paradise has none. Without answers the camera (item box, Special) stayed at READY? and took
+ * no key. This answers like the module (behaviour as measured for the T18Emu app, model as in PiEmu
+ * radio.c): register 0x0A 0x8040 (boot ROM), 0x8000 (patch vector set), 0x8400 (running); register 0x08
+ * bytes waiting; 0x60|n fetches; 0xA0|len sends. Messages: 22 data (ack 26 22 00), 25 setup (21 sub len ..,
+ * after 3E also 26 FF 11), 56 memory read (57 ..), 55 memory write, 01 HCI (Command Complete). No phone. */
+static void rq_push(tg18_t *t, const uint8_t *d, int n)
+{
+    if (n <= 0 || (uint8_t)(t->rq_et - t->rq_eh) >= 12u) return;
+    if ((int)(uint16_t)(t->rq_t - t->rq_h) + n > 128) return;
+    for (int i = 0; i < n; i++) t->rq[(t->rq_t++) & 127u] = d[i];
+    t->rq_end[t->rq_et++ % 12u] = t->rq_t;
+}
+static int rq_empty(tg18_t *t) { return t->rq_h == t->rq_t; }
+static int rq_to_end(tg18_t *t)
+{
+    while (t->rq_eh != t->rq_et && (int16_t)(t->rq_end[t->rq_eh % 12u] - t->rq_h) <= 0) t->rq_eh++;
+    return t->rq_eh != t->rq_et ? (uint16_t)(t->rq_end[t->rq_eh % 12u] - t->rq_h) : (uint16_t)(t->rq_t - t->rq_h);
+}
+/* module memory: 0xA50000F8 and 0xA50024B8 (8 bytes each, start FF FF); the rest reads 0 */
+static uint8_t *rmem_at(tg18_t *t, uint32_t a, uint32_t n)
+{
+    if (a >= 0xA50000F8u && a + n <= 0xA5000100u) return t->rmem + (a - 0xA50000F8u);
+    if (a >= 0xA50024B8u && a + n <= 0xA50024C0u) return t->rmem + 8 + (a - 0xA50024B8u);
+    return 0;
+}
+static uint32_t rd32le(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
+static void radio_msg(tg18_t *t, const uint8_t *p, int n)
+{
+    if (n < 2) return;
+    switch (p[0]) {
+    case 0x22: { static const uint8_t ack[3] = {0x26, 0x22, 0x00}; rq_push(t, ack, 3); break; }
+    case 0x25: {
+        uint8_t a[35]; int pay = n - 2 > 32 ? 32 : n - 2;
+        a[0] = 0x21; a[1] = p[1]; a[2] = (uint8_t)pay; memcpy(a + 3, p + 2, (size_t)pay); rq_push(t, a, 3 + pay);
+        if ((p[1] == 0x38 && t->rlast != 0x31) || p[1] == 0x5F) { t->rsetup = 0; t->racn = 0; t->rstage = 0; }
+        if (p[1] == 0x40) t->rsetup = 1;
+        t->rlast = p[1];
+        if (p[1] == 0x3E) { static const uint8_t m[3] = {0x26, 0xFF, 0x11}; rq_push(t, m, 3); }
+        break;
+    }
+    case 0x56:
+        if (n >= 6) {
+            uint32_t a = rd32le(p + 2), cnt = p[1] > 52 ? 52u : p[1];
+            uint8_t o[60]; const uint8_t *m = rmem_at(t, a, cnt);
+            o[0] = 0x57; o[1] = (uint8_t)((cnt + 3) / 4); o[2] = 0; o[3] = 0; memcpy(o + 4, p + 2, 4);
+            if (m) memcpy(o + 8, m, cnt); else memset(o + 8, 0, cnt);
+            rq_push(t, o, (int)(8 + cnt));
+        }
+        break;
+    case 0x55:
+        if (n >= 8) {
+            uint32_t a = rd32le(p + 4); uint8_t *m = n > 8 ? rmem_at(t, a, (uint32_t)(n - 8)) : 0;
+            if (m) memcpy(m, p + 8, (size_t)(n - 8));
+            if (a == 0x00201F80u && n >= 12) { if (rd32le(p + 8)) t->rstage = 1; else if (t->rstage == 1) t->rstage = 2; }
+        }
+        break;
+    case 0x01:
+        if (n >= 3) {
+            uint8_t e[9]; int k = 7;
+            e[0] = 0x04; e[1] = 0x0E; e[2] = 4; e[3] = 0x01; e[4] = p[1]; e[5] = p[2]; e[6] = 0x00;
+            if (p[1] == 0x1F && p[2] == 0x20) { e[7] = 0; e[8] = 0; e[2] = 6; k = 9; }
+            rq_push(t, e, k);
+        }
+        break;
+    }
+}
+static void radio_select(tg18_t *t, int sel)
+{
+    if (!sel && t->rntr > 1 && (t->rtr[0] & 0xE0) == 0xA0) {
+        int n = t->rntr - 1 > (int)sizeof t->rtr - 1 ? (int)sizeof t->rtr - 1 : t->rntr - 1;
+        if (t->rnmsg > 600) t->rnmsg = 0;
+        /* only the first 80 bytes are kept (data for a phone is not needed), the length counts all */
+        for (int i = 0; i < n; i++) if (t->rnmsg + i < (int)sizeof t->rmsg) t->rmsg[t->rnmsg + i] = t->rtr[1 + i];
+        t->rnmsg = (uint16_t)(t->rnmsg + n);
+        int need = t->rnmsg;
+        if (t->rmsg[0] == 0x55 && t->rnmsg >= 2) need = 8 + t->rmsg[1] * 4;
+        else if (t->rmsg[0] == 0x22 && t->rnmsg >= 2) need = 2 + t->rmsg[1];
+        if (t->rnmsg >= need) { radio_msg(t, t->rmsg, t->rnmsg > (int)sizeof t->rmsg ? (int)sizeof t->rmsg : t->rnmsg); t->rnmsg = 0; }
+    }
+    t->rntr = 0; t->rzust = 0; t->rfetch = 0;
+}
+static uint8_t radio_xfer(tg18_t *t, uint8_t b)
+{
+    if (t->rntr < sizeof t->rtr) t->rtr[t->rntr] = b;
+    t->rntr++;
+    if (t->rfetch) { t->rfetch--; return rq_empty(t) ? 0 : t->rq[(t->rq_h++) & 127u]; }
+    if (t->rntr == 1) {
+        if (b == 0xAC && t->racn < 255) t->racn++;
+        if ((b & 0xE0) == 0x60) { t->rfetch = b & 0x1F; return 0; }
+        if (b & 1) {
+            uint8_t r = (uint8_t)(b - 1); uint16_t w = 0;
+            if (r == 0x0A) w = t->racn >= 4 || t->rstage == 2 ? 0x8400 : t->rstage == 1 ? 0x8000 : 0x8040;
+            else if (r == 0x08 && !rq_empty(t)) { int k = rq_to_end(t); w = (uint16_t)((k > 31 ? 31 : k) << 6); }
+            t->rans[0] = (uint8_t)(w >> 8); t->rans[1] = (uint8_t)w; t->rzust = 1;
+        }
+        return 0;
+    }
+    if (t->rzust == 1) { t->rzust = 2; return t->rans[0]; }
+    if (t->rzust == 2) { t->rzust = 0; return t->rans[1]; }
+    return 0;
+}
+#endif
 static void io_wr(void *ctx, uint32_t a, uint32_t v, int size) {
     tg18_t *t = (tg18_t *)ctx;
     if (!is_io(a)) {
@@ -926,10 +1078,17 @@ static void io_wr(void *ctx, uint32_t a, uint32_t v, int size) {
     case 0xC0060000: ur_tx(t, (uint8_t)v); break;
     case 0xC0060008: ur_tx_sched(t); ur_irq(t); break;
     case 0xC0080008: {
+#ifdef T18_RADIO
+        uint8_t in = t->rcs ? radio_xfer(t, (uint8_t)v) : 0x00;
+#else
         uint8_t in = 0x00;   /* Bluetooth module: not on the Paradise */
+#endif
         if (t->spi_rxn < 8) t->spi_rx[t->spi_rxn++] = in;
         break;
     }
+#ifdef T18_RADIO
+    case 0xC0000064: { uint8_t sel = (*p & 0x1000u) == 0; if (sel != t->rcs) { t->rcs = sel; radio_select(t, sel); } break; }
+#endif
     case 0xC009000C:
         if (v & 1) rtcm_write(t, (uint8_t)R(0xC0090004), (uint8_t)R(0xC0090008));
         else if (v & 2) R(0xC0090014) = rtcm_read(t, (uint8_t)R(0xC0090004));
@@ -1009,6 +1168,9 @@ static uint32_t find_idle(const uint8_t *rom, uint32_t len) { (void)rom; (void)l
  * The SRAM (t18_sram) and the flash map (t18_fblk) are set up by the platform. */
 void tg18_init(tg18_t *t, const uint8_t *rom, uint32_t len) {
     memset(t, 0, sizeof *t);
+#ifdef T18_RADIO
+    t->rmem[0] = t->rmem[1] = t->rmem[8] = t->rmem[9] = 0xFF;
+#endif
     reg_clear(t);
     arm7_init(&t->cpu);
     t->cpu.ctx = t; t->cpu.rd = io_rd; t->cpu.wr = io_wr; t->cpu.io_stable = io_stable;
@@ -1235,6 +1397,7 @@ void tg18_advance_offline(tg18_t *t, int64_t seconds) {
 }
 int tg18_power(tg18_t *t) { return t->power; }
 /* addresses tg18_init finds in the firmware, when the platform found them before (no scan) */
+void tg18_set_rtc_cb(tg18_t *t, void (*cb)(void *t)) { (void)t; g_rtc_set_cb = cb; }
 void tg18_set_addrs(tg18_t *t, uint32_t idle_addr, uint32_t softrtc, uint32_t dma_tab) { t->idle_addr = idle_addr; t->softrtc = softrtc; t->dma_tab = dma_tab; }
 void tg18_get_addrs(tg18_t *t, uint32_t *out3) { out3[0] = t->idle_addr; out3[1] = t->softrtc; out3[2] = t->dma_tab; }
 void tg18_set_param_addr(tg18_t *t, uint32_t a) { t->param_addr = a; }

@@ -15,6 +15,10 @@
 #include "../../../emu/src/emu/ask.h"
 #include "../../../emu/src/emu/flash.h"
 #include "../../../emu/src/emu/paraclock.h"
+#ifdef PARA_BACK
+#define PB_ATTR __attribute__((section(".xiptext")))   /* 1.6.8: only when leaving; the PRAM is for translated code (para_leave_mark stays in the PRAM: it runs before the window is set up) */
+#include "../../../emu/src/emu/paraback.h"
+#endif
 #include "../core/t18soc.h"
 #include "t18app.h"
 #include <string.h>
@@ -26,6 +30,9 @@ __attribute__((section(".pmxcfg"), used))
 volatile const T18Cfg g_cfg = { .magic = T18_MAGIC, .version = 1, .save_off = 0xC0000u };
 
 #define SAVE (g_cfg.save_off)
+#ifdef HW_OPTS
+static uint32_t g_scr_ms, g_key_ms; static int g_scr_dark;   /* 1.6.8: screen off after (Studio) */
+#endif
 #define XIP_BASE_REG REG(0x4002F004u)
 #define XIP_CTRL_REG REG(0x4002F000u)
 
@@ -42,10 +49,17 @@ static volatile uint32_t g_ms;
 #define g_pb ((volatile uint16_t *)0x20000400u)
 #define PB_N 1090u
 static volatile uint32_t g_pflag, g_pn, g_ppres, g_pwait;
+#ifdef T18_PROF_GPC
+static uint32_t g_tg[3600 / 4];                /* (defined again below) */
+#endif
 __attribute__((used)) void systick_c(uint32_t *fr)
 {
   g_ms++;
   uint32_t pc = fr[6], i;
+#ifdef T18_TIERUP
+  { extern volatile uint32_t t18_tu_pc; extern uint32_t __jc_start[], __jc_end[];
+    if (pc - (uint32_t)__jc_start < (uint32_t)__jc_end - (uint32_t)__jc_start) t18_tu_pc = pc; }
+#endif
 #ifndef T18_PROF_LITE
   if (pc < 0x10000u) i = pc >> 6; else if (pc - 0x100DF000u < 0x10000u) i = 1024u + ((pc - 0x100DF000u) >> 10); else if (pc - 0x18000000u < 0x20000u) i = 1088u; else i = 1089u;
   if (g_pb[i] < 0xFFFFu) g_pb[i]++;
@@ -53,15 +67,47 @@ __attribute__((used)) void systick_c(uint32_t *fr)
   /* test13: coarse PC buckets in the Paradise's RAM: 0 code buffer, 1..32 PRAM in 2 KB, 33..48 flash
    * window in 4 KB, 49 SRAM, 50 rest */
   { extern uint16_t __jc_start[], __jc_end[];
+#ifdef T18_PROF_PC_LO
+    /* test15: fine buckets of 128 bytes from T18_PROF_PC_LO (48 of them), 48 code buffer, 49 other PRAM, 50 rest */
+    if (pc >= (uint32_t)__jc_start && pc < (uint32_t)__jc_end) i = 48;
+#ifndef T18_PROF_PC_SH
+#define T18_PROF_PC_SH 7
+#endif
+    else if (pc - T18_PROF_PC_LO < (48u << T18_PROF_PC_SH)) i = (pc - T18_PROF_PC_LO) >> T18_PROF_PC_SH;
+    else if (pc < 0x10000u) i = 49u; else i = 50u;
+#else
     if (pc >= (uint32_t)__jc_start && pc < (uint32_t)__jc_end) i = 0;
     else if (pc < 0x10000u) i = 1u + (pc >> 11);
     else if (pc - 0x100DF000u < 0x10000u) i = 33u + ((pc - 0x100DF000u) >> 12);
     else if (pc - 0x18000000u < 0x20000u) i = 49u; else i = 50u;
-    ((volatile uint32_t *)T18_PROF_PC)[i]++; }
+#endif
+    ((volatile uint32_t *)T18_PROF_PC)[i]++;
+#ifdef T18_PROF_GPC
+    /* 1.6.8 test: while the interpreter runs (exec_arm .. idle_try), which guest code (64-byte regions, 6 places) */
+    extern const uintptr_t t18_interp_lo, t18_interp_hi;
+    if (pc - (t18_interp_lo & ~1u) < t18_interp_hi - t18_interp_lo) {
+      volatile uint32_t *gp = (volatile uint32_t *)0x20000FD0u;
+      uint32_t g = (((arm7_t *)tg18_cpu((tg18_t *)g_tg))->last_pc & ~0x3Fu) | 1u;
+      int k, m = 0;
+      for (k = 0; k < 6; k++) { if (gp[2 * k] == g) { gp[2 * k + 1]++; break; } if (gp[2 * k + 1] < gp[2 * m + 1]) m = k; }
+      if (k == 6) { gp[2 * m] = g; gp[2 * m + 1] = 1; }
+    }
+#endif
+  }
 #else
   (void)pc; (void)i;
 #endif
   g_pn++; if (g_pflag & 1u) g_ppres++; if (g_pflag & 2u) g_pwait++;
+}
+__attribute__((naked)) void SysTick_Handler(void) { __asm__ volatile("tst lr, #4\n ite eq\n mrseq r0, msp\n mrsne r0, psp\n b systick_c\n"); }
+#elif defined(T18_TIERUP)
+/* 1.6.8: the interrupted pc, when it lies in the code buffer, marks a hot block (t18jit.c, tu_note) */
+extern volatile uint32_t t18_tu_pc; extern uint32_t __jc_start[], __jc_end[];
+__attribute__((used)) void systick_c(uint32_t *fr)
+{
+  g_ms++;
+  uint32_t pc = fr[6];
+  if (pc - (uint32_t)__jc_start < (uint32_t)__jc_end - (uint32_t)__jc_start) t18_tu_pc = pc;
 }
 __attribute__((naked)) void SysTick_Handler(void) { __asm__ volatile("tst lr, #4\n ite eq\n mrseq r0, msp\n mrsne r0, psp\n b systick_c\n"); }
 #else
@@ -141,7 +187,10 @@ static void rows_draw(uint32_t code, const uint32_t *v, int n)
   hw_px_end();
   hw_backlight(1);
 }
-__attribute__((noreturn)) static void fatal_rows(uint32_t code, const uint32_t *v, int n)
+#ifdef PARA_BACK
+static uint8_t c_buf[0x1000] __attribute__((aligned(4)));
+#endif
+__attribute__((noreturn, section(".xiptext"), noinline)) static void fatal_rows(uint32_t code, const uint32_t *v, int n)
 {
   __asm__ volatile("cpsid i");
   hw_tone(0);
@@ -157,6 +206,9 @@ __attribute__((noreturn)) static void fatal_rows(uint32_t code, const uint32_t *
 #endif
   REG(0x20000FF8u) = 0;
   REG(0x20000FFCu) = 0x4C584D50u;               /* "PMXL": the autostart stays off */
+#ifdef PARA_BACK
+  para_back_fix(c_buf);
+#endif
   for (u32 t = 0; hw_buttons() && t < 20000000u; t++) if ((t & 0xFFFFu) == 0) hw_wdt_feed();
   XIP_BASE_REG = 0x60011000u; XIP_CTRL_REG = 3u;
   hw_back_to_paradise();
@@ -224,9 +276,58 @@ static const uint8_t *blk_xip(uint32_t b)
 #endif
   return (const uint8_t *)(0x60000000u + phys);
 }
+#ifdef T18_SEC_SPARE
+/* 1.6.8 (test45): spares by the 4 KB sector. A typical install has only 6 spare blocks, but the firmware writes
+ * a few sectors in many empty blocks (first start 5 blocks, a photo and the diary 2 more): the 7th block was lost
+ * and opening the diary hung (white picture). Now an empty guest block gets single sectors from a pool: pool
+ * sector k = spare block k >> 4, sector k & 15 (spare blocks already used whole are skipped). Tables in the
+ * Paradise's RAM (no room in the hole): s_idx[guest block] = row + 1, row[sector] = pool sector + 1. Saved in the
+ * map sector behind the block map ("T8SS"). */
+#define S_IDX ((uint8_t *)0x20000010u)            /* 128 bytes, to 0x20000090 */
+#define S_ROWS 19u
+static uint8_t *s_row(uint32_t r) { return (uint8_t *)(r < 7u ? 0x20000090u + 16u * r : 0x20000F00u + 16u * (r - 7u)); }
+#define S_MAGIC 0x53533854u                        /* "T8SS" */
+#define S_OFF (4u + 256u + T18_SPARE_MAX)          /* in the map sector, behind magic, block map, spares in use */
+/* Paradise flash of a guest sector, 0 = none */
+static uint32_t s_phys(uint32_t sec)
+{
+  uint32_t i = S_IDX[(sec >> 16) & 127u];
+  if (!i) return 0;
+  uint32_t k = s_row(i - 1u)[(sec >> 12) & 15u];
+  if (!k) return 0;
+  k--;
+  return ((uint32_t)g_cfg.spare[k >> 4] << 16) | ((k & 15u) << 12);
+}
+static uint32_t s_lost;
+/* a pool sector for the guest sector (0 = none left) */
+static uint32_t s_alloc(uint32_t sec)
+{
+  uint32_t b = (sec >> 16) & 127u, i = S_IDX[b];
+  if (!i) {
+    for (i = 1; i <= S_ROWS; i++) { int fr = 1; for (uint32_t q = 0; q < 128u && fr; q++) if (S_IDX[q] == i) fr = 0; if (fr) break; }
+    if (i > S_ROWS) return 0;
+    memset(s_row(i - 1u), 0, 16); S_IDX[b] = (uint8_t)i;
+  }
+  uint32_t n = g_cfg.nspare < T18_SPARE_MAX ? g_cfg.nspare : T18_SPARE_MAX;
+  for (uint32_t k = 0; k < n * 16u && k < 254u; k++) {
+    if (g_spare_used[k >> 4]) continue;
+    int fr = 1;
+    for (uint32_t r = 0; r < S_ROWS && fr; r++) { int on = 0; for (uint32_t q = 0; q < 128u; q++) if (S_IDX[q] == r + 1u) { on = 1; break; }
+      if (on) for (uint32_t j = 0; j < 16u; j++) if (s_row(r)[j] == k + 1u) { fr = 0; break; } }
+    if (!fr) continue;
+    s_row(i - 1u)[(sec >> 12) & 15u] = (uint8_t)(k + 1u);
+    return ((uint32_t)g_cfg.spare[k >> 4] << 16) | ((k & 15u) << 12);
+  }
+  return 0;
+}
+#endif
 #ifdef T18_FF_FAST
 extern uint8_t t18_fff[128];
+#ifdef T18_SEC_SPARE
+#define FFF_SET(b) (t18_fff[b] = (uint8_t)(g_map[b] == 0xFFFFu && !S_IDX[b] && c_sec >> 16 != (b)))
+#else
 #define FFF_SET(b) (t18_fff[b] = (uint8_t)(g_map[b] == 0xFFFFu && c_sec >> 16 != (b)))
+#endif
 #else
 #define FFF_SET(b) ((void)0)
 #endif
@@ -241,6 +342,10 @@ COLD static void map_save(uint8_t *s)                 /* s: 4 KB to build the se
   memset(s, 0xFF, 0x1000);
   uint32_t m = 0x504D3854u; memcpy(s, &m, 4);
   memcpy(s + 4, g_map, sizeof g_map); memcpy(s + 4 + sizeof g_map, g_spare_used, sizeof g_spare_used);
+#ifdef T18_SEC_SPARE
+  { uint32_t sm = S_MAGIC; memcpy(s + S_OFF, &sm, 4); memcpy(s + S_OFF + 4, S_IDX, 128);
+    for (uint32_t r = 0; r < S_ROWS; r++) memcpy(s + S_OFF + 132u + 16u * r, s_row(r), 16); }
+#endif
   hw_tone(0);
   flash_put(SAVE + T18_MAP_SEC, s);
   g_t18st[3]++;
@@ -252,7 +357,17 @@ COLD static void map_load(void)
   if (m == 0x504D3854u) {
     for (uint32_t i = 0; i < sizeof g_map; i++) ((uint8_t *)g_map)[i] = p[4 + i];
     for (uint32_t i = 0; i < sizeof g_spare_used; i++) g_spare_used[i] = p[4 + sizeof g_map + i];
+#ifdef T18_SEC_SPARE
+    memset(S_IDX, 0, 128); for (uint32_t r = 0; r < S_ROWS; r++) memset(s_row(r), 0, 16);
+    if (p[S_OFF] == 0x54u && p[S_OFF + 1] == 0x38u && p[S_OFF + 2] == 0x53u && p[S_OFF + 3] == 0x53u) {
+      for (uint32_t i = 0; i < 128u; i++) { uint8_t v = p[S_OFF + 4 + i]; S_IDX[i] = v <= S_ROWS ? v : 0; }
+      for (uint32_t r = 0; r < S_ROWS; r++) for (uint32_t j = 0; j < 16u; j++) s_row(r)[j] = p[S_OFF + 132u + 16u * r + j];
+    }
+#endif
   } else {
+#ifdef T18_SEC_SPARE
+    memset(S_IDX, 0, 128); for (uint32_t r = 0; r < S_ROWS; r++) memset(s_row(r), 0, 16);
+#endif
     for (int i = 0; i < 128; i++) g_map[i] = g_cfg.map[i];
     memset(g_spare_used, 0, sizeof g_spare_used);
   }
@@ -384,11 +499,26 @@ COLD static void c_write_back(void)
   uint32_t sec = c_sec, b = sec >> 16;
   int fresh = 0;
   if (g_map[b] == 0xFFFFu) {
+#ifdef T18_SEC_SPARE
+    uint32_t sp = s_phys(sec);
+    if (!sp) {
+      int ff = 1; for (int k = 0; k < 0x1000 && ff; k++) if (c_buf[k] != 0xFF) ff = 0;
+      if (ff) { c_dirty = 0; return; }
+      sp = s_alloc(sec);
+      if (!sp) { g_t18st[5]++; s_lost++; c_dirty = 0; return; }   /* no room: the write is lost */
+      hw_tone(0); flash_put(sp, c_buf); c_dirty = 0; g_t18st[2]++;
+      map_save(c_buf); flash_read(sp, c_buf, 0x1000);              /* the buffer is the scratch for the map sector */
+      return;
+    }
+    hw_tone(0); flash_put(sp, c_buf); c_dirty = 0; g_t18st[2]++;
+    return;
+#else
     int ff = 1; for (int k = 0; k < 0x1000 && ff; k++) if (c_buf[k] != 0xFF) ff = 0;
     if (ff) { c_dirty = 0; return; }
     int k = 0; while (k < (int)g_cfg.nspare && k < T18_SPARE_MAX && g_spare_used[k]) k++;
     if (k >= (int)g_cfg.nspare || k >= T18_SPARE_MAX) { g_t18st[5]++; c_dirty = 0; return; }   /* no room: the write is lost */
     g_spare_used[k] = 1; g_map[b] = g_cfg.spare[k]; fresh = 1;
+#endif
   }
   uint32_t phys = ((uint32_t)g_map[b] << 16) | (sec & 0xFFFFu);
   g_wblk[b] = 1;                                  /* from now on uncached (fblk_set when the buffer goes) */
@@ -405,6 +535,9 @@ COLD static void c_get(uint32_t sec)
   c_sec = sec; c_dirty = 0;
   const uint8_t *x = blk_xip(sec >> 16);
   if (x) flash_read(((uint32_t)g_map[sec >> 16] << 16) | (sec & 0xFFFFu), c_buf, 0x1000);
+#ifdef T18_SEC_SPARE
+  else if (s_phys(sec)) flash_read(s_phys(sec), c_buf, 0x1000);
+#endif
   else memset(c_buf, 0xFF, 0x1000);
   if (old != 0xFFFFFFFFu) fblk_set(old >> 16);
   fblk_set(sec >> 16);
@@ -422,6 +555,9 @@ uint8_t t18_flash_rd(uint32_t a)
   a &= 0x7FFFFFu;
   if (c_sec == (a & ~0xFFFu)) return c_buf[a & 0xFFFu];
   const uint8_t *x = blk_xip(a >> 16);
+#ifdef T18_SEC_SPARE
+  if (!x && S_IDX[a >> 16]) { uint32_t sp = s_phys(a); return sp ? *(const volatile uint8_t *)(0x60000000u + sp + (a & 0xFFFu)) : 0xFF; }
+#endif
   return x ? ((const volatile uint8_t *)x)[a & 0xFFFFu] : 0xFF;
 }
 #ifdef T18_FLUSH_IDLE
@@ -442,6 +578,9 @@ COLD void t18_flash_erase(uint32_t a, uint32_t size)
   a &= 0x7FFFFFu; CW_NOTE();
   for (uint32_t s = a & ~0xFFFu; s < a + size; s += 0x1000u) {
     if (c_sec == s) { memset(c_buf, 0xFF, 0x1000); c_dirty = 1; continue; }
+#ifdef T18_SEC_SPARE
+    if (g_map[s >> 16] == 0xFFFFu) { uint32_t sp = s_phys(s); if (sp && !flash_isff(sp, 0x1000u)) { hw_tone(0); flash_erase4k(sp); g_t18st[2]++; } continue; }
+#endif
     if (g_map[s >> 16] == 0xFFFFu) continue;
     uint32_t phys = ((uint32_t)g_map[s >> 16] << 16) | (s & 0xFFFFu);
     if (!flash_isff(phys, 0x1000u)) { hw_tone(0); flash_erase4k(phys); g_t18st[2]++; if (!g_wblk[s >> 16]) { g_wblk[s >> 16] = 1; fblk_set(s >> 16); } }
@@ -535,19 +674,38 @@ COLD static void prof_tick(void)
   }
 #else
   { extern uint32_t t18_jit_fr[4], t18_interp[2]; extern uint32_t t18_jit_used(void); static uint32_t i0; uint32_t in = t18_interp[0] + t18_interp[1];
-    v[6] = bcd((in - i0) / 5000u); i0 = in; v[7] = bcd(t18_jit_fr[0]); v[8] = bcd(t18_jit_fr[1]); v[9] = bcd(t18_jit_used() / 1024u); v[10] = bcd(g_pn); }
+    v[6] = bcd((in - i0) / 5000u); i0 = in; v[7] = bcd(t18_jit_fr[0]); v[8] = bcd(t18_jit_fr[1]); v[9] = bcd(t18_jit_used() / 1024u); v[10] = bcd(g_pn);
+#ifdef T18_PROF_COMPACT
+    { extern uint32_t t18_jit_compact(void); extern int t18_new_off; v[10] = t18_jit_compact() | (t18_new_off ? 0x10u : 0u); }   /* test3: 1 = compact loads/stores; test9: 1x = C held */
+#endif
+    }
 #ifdef T18_PROF_PC
   /* test13: the 3 biggest PC buckets apart from the code buffer (start address, per mille); v15 = code buffer */
   { volatile uint32_t *h = (volatile uint32_t *)T18_PROF_PC; static const uint8_t at[6] = { 1, 2, 11, 12, 13, 14 };
+#ifdef T18_PROF_PC_LO
+    v[15] = bcd(h[48] * 1000u / n);
+    for (int t = 0; t < 3; t++) {
+      int m = -1; uint32_t mv = 0;
+      for (int i = 0; i < 51; i++) if (i != 48 && h[i] > mv) { mv = h[i]; m = i; }
+      v[at[2 * t]] = m < 0 ? 0 : m < 48 ? T18_PROF_PC_LO + ((uint32_t)m << T18_PROF_PC_SH) : m == 49 ? 0x0000FFFFu : 0xFFFFFFFFu;
+#else
     v[15] = bcd(h[0] * 1000u / n);
     for (int t = 0; t < 3; t++) {
       int m = -1; uint32_t mv = 0;
       for (int i = 1; i < 51; i++) if (h[i] > mv) { mv = h[i]; m = i; }
       v[at[2 * t]] = m < 0 ? 0 : m <= 32 ? (uint32_t)(m - 1) << 11 : m <= 48 ? 0x100DF000u + ((uint32_t)(m - 33) << 12) : m == 49 ? 0x18000000u : 0xFFFFFFFFu;
+#endif
       v[at[2 * t + 1]] = bcd(mv * 1000u / n);
       if (m >= 0) h[m] = 0;
     }
-    for (int i = 0; i < 51; i++) h[i] = 0; }
+    for (int i = 0; i < 51; i++) h[i] = 0;
+#ifdef T18_PROF_GPC
+    { volatile uint32_t *gp = (volatile uint32_t *)0x20000FD0u; int a = -1, b = -1;
+      for (int k = 0; k < 6; k++) { if (a < 0 || gp[2 * k + 1] > gp[2 * a + 1]) { b = a; a = k; } else if (b < 0 || gp[2 * k + 1] > gp[2 * b + 1]) b = k; }
+      v[7] = gp[2 * a] & ~1u; v[8] = bcd(gp[2 * a + 1] * 1000u / n); v[10] = gp[2 * b] & ~1u;
+      for (int k = 0; k < 12; k++) gp[k] = 0; }
+#endif
+  }
 #endif
 #if defined(T18_SLOW_HIST) && defined(T18_SLOW_HIST_AT)
   /* test11: the 3 most used 256-byte pages of the slow path (address, bit 0 = load) and their count per s */
@@ -649,6 +807,22 @@ COLD static void set_time_secs(int64_t s)
   int64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100), mp = (5 * doy + 2) / 153, d = doy - (153 * mp + 2) / 5 + 1, m = mp + (mp < 10 ? 3 : -9);
   tg18_set_time(T, (int)(y + (m <= 2)), (int)m, (int)d, (int)(rem / 3600), (int)(rem / 60 % 60), (int)(rem % 60));
 }
+#ifdef T18_CLOCK_AFTER
+/* 1.6.8: a new game asks for date and time first and then loads the battery RTC with them, over the Paradise's time
+ * set at the start. With "clock from the Paradise" on, the Paradise's time is put back right then (the game keeps
+ * its date through the day counter, which tg18_set_time moves along). */
+static uint32_t g_clk_pend;              /* g_ms + 500 when the Paradise's time is due again (0 = not) */
+static void clock_after_set(void *t)
+{
+  (void)t;
+  /* half a second later: right after the RTC the firmware sets its own day counter from the date it was given */
+  if ((g_cfg.flags & T18F_CLOCK) && g_para) g_clk_pend = (g_ms + 500u) | 1u;
+}
+static void clock_after_poll(void)
+{
+  if (g_clk_pend && (int32_t)(g_ms - g_clk_pend) >= 0) { g_clk_pend = 0; set_time_secs((int64_t)g_para + (int64_t)(rtc_now() - g_para_cnt)); }
+}
+#endif
 #define SESS_MAGIC 0x53533854u
 COLD static uint32_t sess_sum(void)
 {
@@ -675,6 +849,65 @@ COLD static void session_save(void)
   h[0] = SESS_MAGIC; h[1] = n; h[2] = sess_sum(); h[3] = rtc_now();
   flash_put(SAVE + T18_SESS_SEC, c_buf);   /* header last: a half written session stays invalid */
 }
+#ifdef SESS_AUTO
+#ifndef SESS_T1
+#define SESS_T1 600000u    /* screen dark: 10 minutes after the last time at the earliest */
+#define SESS_T2 1800000u   /* otherwise every 30 minutes */
+#endif
+static uint32_t g_sess_ms, g_sess_key;
+#endif
+#ifdef HW_OPTS
+static const uint16_t OPT_SM[8] = { 0, 10, 20, 30, 60, 120, 300, 600 };   /* screen off after, seconds */
+#ifdef T18_TONE_Q
+/* 1.6.8 (test43): the tone in real time. The game plays its melodies in game time; below 100 % (a call is
+ * busy) they dragged. Tone changes are queued with the game time and played on the real clock, 300 ms after
+ * the first one of a sequence: up to that much falling behind the melody keeps its tempo. Late by more than
+ * 200 ms anyway: the timing starts anew from there (no notes squeezed together). */
+#define TQ_N 32u   /* a power of two; 32 changes are more than 300 ms of any melody */
+#define TQ_LAT 300u
+static uint32_t tq_t[TQ_N]; static uint16_t tq_hz[TQ_N]; static uint32_t tq_h, tq_w, g_gms, tq_g0, tq_r0, tq_on, tq_cur, tq_quiet;
+static void tq_put(uint32_t hz) { if (tq_w - tq_h >= TQ_N) tq_h++; tq_t[tq_w % TQ_N] = g_gms; tq_hz[tq_w % TQ_N] = (uint16_t)(hz > 0xFFFFu ? 0xFFFFu : hz); tq_w++; }
+static void tq_pump(void)
+{
+  uint32_t now = g_ms;
+  if (tq_h == tq_w) { if (tq_on && !tq_cur && now - tq_quiet > 1000u) tq_on = 0; return; }
+  if (!tq_on) { tq_on = 1; tq_g0 = tq_t[tq_h % TQ_N]; tq_r0 = now + TQ_LAT; }
+  while (tq_h != tq_w) {
+    uint32_t i = tq_h % TQ_N, due = tq_r0 + (tq_t[i] - tq_g0);
+    int32_t late = (int32_t)(now - due);
+    if (late < 0) break;
+    if (late > 200) { tq_g0 = tq_t[i]; tq_r0 = now; }
+    tq_cur = tq_hz[i]; hw_tone(tq_cur); if (!tq_cur) tq_quiet = now; tq_h++;
+  }
+}
+#endif
+COLD static void opt_apply(uint32_t f) { g_hw_vol = (0x0312u >> (((f >> 16) & 3u) * 4u)) & 15u; g_hw_dim = (f >> 18) & 3u; g_scr_ms = OPT_SM[(f >> 20) & 7u] * 1000u;
+#ifdef BL_PWM
+  hw_bl_set(opt_light_pct(f));   /* 1.6.8: the light, not the colours */
+#endif
+}
+#ifdef OPT_MENU
+/* 1.6.8: settings changed on the device (wheel short), in the free sector behind the session: magic, the Studio's
+ * bits when they were changed, the bits, check. The Studio's bits win again once they are changed there. */
+#define OPT_SEC (SAVE + 0x23000u)
+#define OPT_MAGIC 0x4F584D50u   /* "PMXO" */
+static uint32_t g_opt;
+COLD static uint32_t opt_studio(void) { return g_cfg.flags & 0xF7F0000u; }
+COLD static void opt_load(void)
+{
+  const volatile uint32_t *s = (const volatile uint32_t *)XIP_PTR(OPT_SEC);
+  uint32_t a = s[0], b = s[1], c = s[2], d = s[3];
+  g_opt = (a == OPT_MAGIC && b == opt_studio() && d == (a ^ b ^ c) && !(c & ~0xF7F0000u)) ? c : opt_studio();
+}
+COLD static void opt_store(void)
+{
+  c_release(); hw_tone(0);
+  uint32_t *h = (uint32_t *)c_buf; memset(c_buf, 0xFF, 0x1000);
+  h[0] = OPT_MAGIC; h[1] = opt_studio(); h[2] = g_opt; h[3] = h[0] ^ h[1] ^ h[2];
+  flash_put(OPT_SEC, c_buf);
+}
+#endif
+#endif
 COLD static void session_drop(void) { if (!flash_isff(SAVE + T18_SESS_SEC, 16)) flash_erase4k(SAVE + T18_SESS_SEC); }
 COLD static int session_load(uint32_t *saved_rtc)
 {
@@ -702,6 +935,9 @@ COLD static void leave(int save)
   REG(0x20000FFCu) = 0x4C584D50u;        /* "PMXL": back on purpose, the autostart stays off */
   c_release();
   if (save) { note_save(); session_save(); }
+#ifdef PARA_BACK
+  para_back_fix(c_buf);                  /* 1.6.8: the Paradise skips the time spent here */
+#endif
   hw_bl_pwm_off();
   for (u32 t = 0; hw_buttons() && t < 20000000u; t++) if ((t & 0xFFFFu) == 0) hw_wdt_feed();
   XIP_BASE_REG = 0x60011000u; XIP_CTRL_REG = 3u;
@@ -722,14 +958,35 @@ COLD static int app_start(void)
     for (u32 t = 0; t < 2000000u; t++) if ((t & 0xFFFFu) == 0) hw_wdt_feed(); }
 #endif
   g_stage = 3;
+#ifdef T18_TEST_KEYS
+  /* test builds only (1.6.8): a key held from the start of the Paradise menu would switch these on by mistake */
   t18_jit_off = (hw_buttons() & BTN_B) != 0;          /* B held at the start: no translator (test) */
+  { extern int t18_new_off; t18_new_off = (hw_buttons() & BTN_C) != 0; }   /* C held: 1.6.8 changes off (test) */
+#ifdef OPT_MENU
+  g_ovl = 1;                                          /* the wheel opens the settings: speed always shown */
+#endif
+#endif
   if (tg18_struct_size() > sizeof g_tg) fatal(5, tg18_struct_size());
   tg18_init(T, 0, 0);
   tg18_set_addrs(T, g_cfg.idle_addr, g_cfg.softrtc, g_cfg.dma_tab);
+#ifdef HW_OPTS
+  /* 1.6.8: volume (bits 16-17: 0 normal, 1 quiet, 2 loud, 3 off), brightness (18-19), screen off after (20-22) */
+#ifdef OPT_MENU
+  opt_load(); opt_apply(g_opt);
+#else
+  opt_apply(g_cfg.flags);
+#endif
+#endif
   tg18_set_present(T, on_present, 0);
   g_stage = 4;
 
+#ifdef T18_CLOCK_AFTER
+  tg18_set_rtc_cb(T, clock_after_set);   /* 1.6.8: the game's own clock setting does not overwrite the Paradise's time */
+#endif
   uint32_t saved_rtc = 0, restored = (uint32_t)session_load(&saved_rtc);
+#ifdef SESS_ONCE
+  if (restored) session_drop();   /* 1.6.8: used once; power gone without leaving: next start from the toy's own save */
+#endif
   g_stage = 5;
   uint32_t now_rtc = rtc_now();
   if ((g_cfg.flags & T18F_CLOCK) && g_para) {
@@ -751,6 +1008,9 @@ COLD static int app_start(void)
 static void main_loop(int restored)
 {
   uint32_t emu_ms = g_ms, t_start = g_ms, wheel_ms = 0, last_pres = 0, sp_t = g_ms, sp_emu = 0;
+#ifdef HW_OPTS
+  g_key_ms = g_ms;
+#endif
   int bl = -1, lock = 1;
   g_stage = 7;
   for (;;) {
@@ -765,14 +1025,30 @@ static void main_loop(int restored)
       }
       if (!wheel_ms) wheel_ms = now ? now : 1;
       else if (now - wheel_ms > 1500u) leave(1);
-#ifdef T18_PROF_OVL
+#ifdef OPT_MENU
+    } else if (wheel_ms) {           /* 1.6.8: wheel short: settings (the game stands still meanwhile) */
+      if (now - wheel_ms < 1000u) { uint32_t n = hw_opts_menu(g_opt, (g_cfg.flags & T18F_EN) != 0);
+        if (n != g_opt) { g_opt = n; opt_apply(n); opt_store(); }
+        g_scr_dark = 0; g_key_ms = g_ms; lock = 1; present(1); }
+      wheel_ms = 0; }
+#elif defined(T18_PROF_OVL)
     } else if (wheel_ms) { if (now - wheel_ms < 1000u) { g_ovl = (g_ovl + 1) % 3; if (g_ovl == 2) prof_show(); else present(1); } wheel_ms = 0; }
 #elif defined(T18_NO_SPEED)
     } else if (wheel_ms) { wheel_ms = 0; }        /* release: no speed display */
 #else
     } else if (wheel_ms) { if (now - wheel_ms < 1000u) { g_ovl = !g_ovl; present(1); } wheel_ms = 0; }
 #endif
+#ifdef HW_OPTS
+    /* screen off after a while without a key (set in the Studio): the first key only wakes it */
+    { static int swallow;
+      if (b) { if (g_scr_dark) { g_scr_dark = 0; swallow = 1; } g_key_ms = now; }
+      if (swallow) { if (b) b = 0; else swallow = 0; }
+      if (g_scr_ms && now - g_key_ms > g_scr_ms) g_scr_dark = 1; }
+#endif
     tg18_set_buttons(T, (int)(b & 7u));
+#ifdef T18_CLOCK_AFTER
+    clock_after_poll();
+#endif
     /* emulate the time that passed in steps of 4 ms; far behind: drop time (the clock stays right) */
     if ((int32_t)(now - emu_ms) > 250) {
       static uint32_t lost;
@@ -783,6 +1059,9 @@ static void main_loop(int restored)
     while ((int32_t)(now - emu_ms) >= 4 && g_ms - t0 < 40u) {
       tg18_run_us(T, 4000);
       emu_ms += 4; g_t18st[0] += 4; sp_emu += 4;
+#ifdef T18_TONE_Q
+      g_gms += 4;
+#endif
 #ifdef T18_PRESENT_IDLE
 #ifndef T18_PRESENT_MAXMS
 #define T18_PRESENT_MAXMS 1500u
@@ -812,8 +1091,16 @@ static void main_loop(int restored)
 #endif
       static uint32_t hz_now;
       uint32_t hz = tg18_tone_hz(T);
+#ifdef T18_TONE_Q
+      if (hz != hz_now) { hz_now = hz; tq_put(hz); }
+      tq_pump();
+#else
       if (hz != hz_now) { hz_now = hz; hw_tone(hz); }
+#endif
     }
+#ifdef T18_TONE_Q
+    tq_pump();
+#endif
 #ifdef T18_FLUSH_IDLE
     /* the guest's last written sector stayed in the buffer until leaving: lost when the power went */
     if (c_dirty && g_ms - g_cw_ms > 3000u) c_write_back();
@@ -821,7 +1108,20 @@ static void main_loop(int restored)
     if (t18_oom) fatal(2, g_pool_n);                    /* the guest's bytes in the hole need more pages */
     if (__stack_bottom != 0x5354414Bu) fatal(3, 0);     /* stack ran into the data */
     int on = tg18_power(T) && tg18_backlight(T) > 0;
-    if (on != bl) { bl = on; g_lcd_on = on; hw_backlight(on); if (on) present(1); }
+#ifdef HW_OPTS
+    if (g_scr_dark) on = 0;
+#endif
+    if (on != bl) { bl = on; g_lcd_on = on; hw_backlight(on); if (on) present(1);
+#ifdef SESS_AUTO
+      if (!on && now - g_sess_ms > SESS_T1) { note_save(); session_save(); g_sess_ms = now; }
+#endif
+    }
+#ifdef SESS_AUTO
+    /* 1.6.8: the run state now and then, without leaving (battery empty or out while playing): when the screen goes
+     * dark (10 minutes after the last time at the earliest), otherwise every 30 minutes after 10 s without a key */
+    if (b) g_sess_key = now;
+    if (now - g_sess_ms > SESS_T2 && now - g_sess_key > 10000u) { note_save(); session_save(); g_sess_ms = now; }
+#endif
 #ifdef T18_PRESENT_LATE
     if (on && g_pres_n != last_pres && now - t0 < 1000u) { last_pres = g_pres_n; present(0); }
 #else
@@ -873,6 +1173,10 @@ void Reset_Handler(void)
   /* the Paradise's clock, before anything of it is overwritten (the hole is ours from now on) */
   uint32_t cnt = REG(0x45000304u);
   uint32_t para = para_clock(cnt, 0, T18_SRAM_SIZE, T18_HOLE_LO, T18_HOLE_HI);
+  if (!para) para = para_mailbox(cnt);   /* 1.6.8: started from the menu */
+#ifdef PARA_BACK
+  para_leave_mark(cnt, para);            /* 1.6.8: the Paradise does not live meanwhile */
+#endif
   __asm__ volatile("" ::: "memory");
   for (u32 *p = &__bss_start; p < &__bss_end; p++) *p = 0;
   { extern u32 __data_start, __data_end, __data_load;
@@ -889,6 +1193,9 @@ void Reset_Handler(void)
 #endif
 #ifdef T18_PROF_PC
   for (u32 i = 0; i < 51u; i++) REG(T18_PROF_PC + 4u * i) = 0;
+#ifdef T18_PROF_GPC
+  for (u32 i = 0; i < 12u; i++) REG(0x20000FD0u + 4u * i) = 0;
+#endif
 #endif
   REG(0xE000ED14u) &= ~((1u << 3) | (1u << 4));      /* no trap on unaligned access or division by 0 */
   __asm__ volatile("dsb\n isb" ::: "memory");
