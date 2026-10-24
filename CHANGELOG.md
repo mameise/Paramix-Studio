@@ -2,6 +2,15 @@
 
 Versions are listed newest first.
 
+## 1.6.11 (2026-10-24)
+
+- Master System: your own Master System games in the Paramix menu, with sound.
+- Game Boy and Master System with their own part in "Your new ROM".
+- Better use of free room in a start device.
+- Fix: removing the main program in a start device damaged Tama Meets. A damaged Tama Meets is now shown.
+- Fix: Tama Meets as main program reported too little room.
+- Fix: V3Emu clock was sometimes not set.
+
 ## 1.6.10 (2026-10-24)
 
 - Wolfenstein 3D: shareware or full version from your own game files, in the Paramix menu. Save and continue.

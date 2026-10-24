@@ -1493,7 +1493,7 @@ void Reset_Handler(void){
   /* 1.6.8: the Paradise's clock for the programs started from here (their own search finds nothing once
    * the menu has used the SRAM) */
   { u32 cnt=REG(0x45000304u), t=para_clock(cnt, 0, 0x1F000u, 0, 0);
-#ifdef PARA_FLASH
+#if defined(PARA_FLASH) && !defined(PARA_FLASH_LATE)
     if(!t && !para_mailbox(cnt)) t=para_flash(cnt);   /* 1.6.9 test37: the base in the Paradise's settings page */
 #endif
     para_mailbox_put(t, cnt);
@@ -1505,6 +1505,11 @@ void Reset_Handler(void){
   for(u32* p=&__bss_start; p<&__bss_end; p++) *p=0;
   for(u32 i=0;i<PAGE;i++) g_ff[i]=0xFF;
   hw_init();
+#ifdef PARA_FLASH_LATE
+  /* 1.6.10 test2: the flash can only be read after hw_init (after the reset the window shows nothing): so the base
+   * in the Paradise's settings page is read here, when neither the SRAM nor the mailbox gave the time */
+  if(!para_mailbox(REG(0x45000304u))){ u32 c2=REG(0x45000304u), t2=para_flash(c2); if(t2) para_mailbox_put(t2, c2); }
+#endif
   run();
   for(;;){}
 }

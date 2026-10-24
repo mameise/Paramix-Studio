@@ -17,6 +17,7 @@
 !v3/v3.bin
 !gb/gb.bin
 !wolf/wolf.bin
+!sms/sms.bin
 *.wad
 *.WAD
 *.jpg
@@ -38,3 +39,7 @@ Thumbs.db
 
 wolf/src/host/wolfhost
 wolf/src/dev/obj/
+*.sms
+*.SMS
+*.gg
+*.ppm

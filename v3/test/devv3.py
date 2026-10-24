@@ -18,7 +18,11 @@ APPOFF = int(os.environ.get('APPOFF', '0xA0000'), 16)   # program image (1.6.0: 
 u.mem_map(0, 0x10000); u.mem_write(0, bytes(fl[APPOFF:APPOFF + 0x10000]))
 u.mem_map(0x18000000, 0x20000); u.mem_map(0x20000000, 0x1000)
 u.mem_map(0x10000000, 0x100000)
-u.mem_map(0x60000000, 0x1000000); u.mem_write(0x60000000, bytes(fl))
+u.mem_map(0x60000000, 0x1000000)
+if len(fl) < 0x1000000: fl += b'\xff' * (0x1000000 - len(fl))
+# FLASHGATE=1: as on the device after the reset, the window shows nothing useful until hw_init
+if os.environ.get('FLASHGATE'): u.mem_write(0x60000000, b'\x40' * 0x1000000)
+else: u.mem_write(0x60000000, bytes(fl))
 u.mem_map(0x40000000, 0x100000); u.mem_map(0x45000000, 0x1000); u.mem_map(0xE000E000, 0x1000); u.mem_map(0xE0001000, 0x1000)   # DWT (CYCCNT reads 0 here)
 u.mem_write(0x4000B014, struct.pack('<I', 0x60))   # 1.6.9 T7_LINK: UART1 LSR, sender empty (nothing received)
 cfg = APPOFF + 0x140
@@ -61,8 +65,11 @@ def h_erase(uc, *a):
     uc.mem_write(0x60000000 + a, b'\xff' * 0x1000); fl[a:a + 0x1000] = b'\xff' * 0x1000; ret(uc)
 def h_back(uc, *a): state['back'] = 1; uc.emu_stop()
 def h_nop(uc, *a): ret(uc)
+def h_init(uc, *a):
+    if os.environ.get('FLASHGATE') and not state.get('gate'): uc.mem_write(0x60000000, bytes(fl)); state['gate'] = 1
+    ret(uc)
 H = {'hw_px_begin': h_begin, 'hw_px_row': h_row, 'hw_px_end': h_nop, 'hw_tone': h_tone, 'hw_buttons': h_btn,
-     'flash_prog4k': h_prog, 'flash_erase4k': h_erase, 'hw_back_to_paradise': h_back, 'hw_init': h_nop,
+     'flash_prog4k': h_prog, 'flash_erase4k': h_erase, 'hw_back_to_paradise': h_back, 'hw_init': h_init,
      'hw_backlight': h_nop, 'hw_bl_pwm_off': h_nop, 'hw_wdt_feed': h_nop}
 for n, f in H.items():
     a = syms[n] & ~1

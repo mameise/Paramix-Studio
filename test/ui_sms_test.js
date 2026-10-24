@@ -1,0 +1,57 @@
+// 1.6.10 test2: tab Master System: two games into the menu, keys changed, saved, read back; the program at its place.
+// node test/ui_sms_test.js <paradise.bin> <game1.sms> <game2.sms> <out_dir>
+const { chromium } = require('playwright');
+const fs = require('fs'), path = require('path');
+const E = require('../src/emu.js'), F = require('../src/feld.js');
+(async () => {
+  const [rom, g1, g2, out] = process.argv.slice(2);
+  fs.mkdirSync(out, { recursive: true });
+  const fe = { stub: new Uint8Array(fs.readFileSync(__dirname + '/../feld/stub_feld_tpl.bin')) }, app = fs.readFileSync(__dirname + '/../sms/sms.bin');
+  let bad = 0; const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) bad++; };
+  const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
+  const errors = []; p.on('pageerror', (e) => errors.push(e.message));
+  await p.addInitScript(() => { try { localStorage.setItem('paramix-lang', 'de'); } catch (e) {} });
+  await p.goto('file://' + path.resolve(__dirname, '../dist/ParamixStudio.html'));
+  await p.setInputFiles('#fileRom', rom); await p.waitForSelector('#work.on', { timeout: 60000 });
+  await p.click('.tab[data-tab="feld"]'); await p.click('#bagOn'); await p.waitForTimeout(800);
+  await p.click('.tab[data-tab="sms"]');
+  ok(await p.evaluate(() => !document.getElementById('pane-sms').hidden), 'tab Master System shown');
+  ok(await p.evaluate(() => document.querySelectorAll('#smsKeyGrid select').length === 9 && document.getElementById('smsInv').checked), 'nine key lines, wheel reversed by default');
+  fs.writeFileSync(out + '/bad.bin', Buffer.alloc(0x8000, 1));
+  await p.setInputFiles('#fileSms', out + '/bad.bin'); await p.waitForTimeout(400);
+  ok(/kein Master-System-Spiel/.test(await p.evaluate(() => document.getElementById('toast').textContent)), 'bad file refused');
+  const gg = Buffer.alloc(0x8000, 0); gg.write('TMR SEGA', 0x7FF0); gg[0x7FFF] = 0x6C; fs.writeFileSync(out + '/x.gg', gg);
+  await p.setInputFiles('#fileSms', out + '/x.gg'); await p.waitForTimeout(400);
+  ok(/Game-Gear/.test(await p.evaluate(() => document.getElementById('toast').textContent)), 'Game Gear refused');
+  await p.setInputFiles('#fileSms', [g1, g2]);
+  for (let i = 0; i < 60 && (await p.evaluate(() => document.querySelectorAll('#smsList .dlcrow').length)) < 2; i++) await p.waitForTimeout(500);
+  const names = await p.evaluate(() => document.getElementById('smsList').innerText);
+  const t1 = E.smsTitle(path.basename(g1)), t2 = E.smsTitle(path.basename(g2));
+  ok(names.includes(t1) && names.includes(t2), 'both games listed (' + t1 + ', ' + t2 + ')');
+  { const plan = (await p.evaluate(() => document.getElementById('plan').innerText)).replace(/\s+/g, ' ');
+    ok(/Master System ALEX KIDD SHINO, CASTLE ILLUSION · neu/.test(plan) && /Master System 0\.75 MB/.test(plan) && !/Emulatoren ALEX/.test(plan), 'own chip and own part of the flash bar: ' + plan.slice(0, 300)); }
+  await p.evaluate(() => { const s = document.querySelectorAll('#smsKeyGrid select')[1]; s.value = '32'; s.dispatchEvent(new Event('change')); });
+  await p.waitForTimeout(200);
+  ok(/Nicht belegt: Knopf 1/.test(await p.evaluate(() => document.getElementById('smsKeysStat').textContent)), 'note: button 1 not assigned');
+  const dlp = p.waitForEvent('download', { timeout: 120000 }); await p.click('#btnSave');
+  const dl = await dlp; const r1 = out + '/' + dl.suggestedFilename(); await dl.saveAs(r1);
+  const img = new Uint8Array(fs.readFileSync(r1));
+  const xs = E.appsRead(img, F.feldApps(img, fe.stub).apps).filter((y) => y.kind === 'sms');
+  ok(xs.length === 2, 'two Master System games in the menu');
+  const x = xs.find((y) => y.title === t1);
+  ok(!!x && Buffer.from(x.rom).equals(fs.readFileSync(g1)), 'the game as given');
+  ok(x && x.keys[1] === 32 && x.keys[0] === 4 && x.keys[2] === 8 && x.keys[3] === 32 && x.keys[6] === 64 && x.inv, 'keys and wheel direction in the settings block');
+  ok(x && Buffer.from(img.subarray(x.off + 0x300, x.off + app.length)).equals(app.subarray(0x300)), 'SMSEmu program in place');
+  ok(x && x.saveOff === x.off + 0x10000 && img.subarray(x.saveOff, x.saveOff + 0x10000).every((v) => v === 0xFF), 'empty save area behind the program');
+  fs.writeFileSync(out + '/sms_off.txt', String(x ? x.off : 0));
+  await p.setInputFiles('#fileRom', r1); await p.waitForTimeout(3000);
+  await p.click('.tab[data-tab="sms"]');
+  const back = await p.evaluate(() => document.getElementById('smsList').innerText);
+  ok(back.includes(t1) && back.includes(t2), 'read back: games listed');
+  ok(await p.evaluate(() => document.querySelectorAll('#smsKeyGrid select')[1].value === '32' && document.getElementById('smsInv').checked), 'read back: keys');
+  ok(/Master System sind Marken von SEGA/.test(await p.evaluate(() => document.querySelector('footer').innerText)), 'trademarks in the footer');
+  await p.screenshot({ path: out + '/sms_tab.png', fullPage: false });
+  ok(!errors.length, 'no page errors ' + errors.join('; '));
+  await b.close();
+  console.log(bad ? 'FAIL ' + bad : 'all good');
+})();

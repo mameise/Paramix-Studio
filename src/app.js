@@ -27,9 +27,9 @@ const T = {
     f1t: 'Bleibt bei dir', f1: 'Das ROM wird nirgends hochgeladen. Alles läuft in diesem Browserfenster, auch ohne Internet.',
     f2t: 'Nichts Fremdes dabei', f2: 'Paramix Studio enthält kein ROM, keine Firmware und keine WAD. Alles kommt von deinen eigenen Geräten und Dateien.',
     f3t: 'Geprüft', f3: 'Prüfsummen werden neu gerechnet, geänderte Bilder vor dem Speichern noch einmal gelesen und jeder geschriebene Sektor auf dem Gerät gegengelesen.',
-    planTitle: 'Dein neues ROM', planFig: 'Figuren', planEmu: 'Emulator', planEmus: 'Emulatoren', planDoom: 'DOOM', planWolf: 'Wolfenstein 3D', planMenu: 'Menü', planApps: 'Weitere Emulatoren',
+    planTitle: 'Dein neues ROM', planFig: 'Figuren', planEmu: 'Emulator', planEmus: 'Emulatoren', planDoom: 'DOOM', planWolf: 'Wolfenstein 3D', planGb: 'Game Boy', planSms: 'Master System', planMenu: 'Menü', planApps: 'Weitere Emulatoren',
     stNone: 'nicht dabei', stKeep: 'bleibt', stNew: 'neu', stDel: 'wird entfernt', stChanged: '{n} geändert', stSame: 'unverändert',
-    segFw: 'Firmware und Figuren', segEmu: 'Emulator', segDoom: 'DOOM', segWolf: 'Wolfenstein 3D', segSlots: 'Spielstände der Felder', segSave: 'Spielstand', segFree: 'frei',
+    segFw: 'Firmware und Figuren', segEmu: 'Emulator', segDoom: 'DOOM', segWolf: 'Wolfenstein 3D', segGb: 'Game Boy', segSms: 'Master System', segSlots: 'Spielstände der Felder', segSave: 'Spielstand', segFree: 'frei',
     ruleBoth: 'Emulator oder DOOM: es passt nur eines von beiden ins ROM. Das Menü passt zu beidem.',
     ruleNoRoom: 'In dieser Ausgabe ist kein Platz für Emulator und DOOM (die Figuren-Daten sind grösser). Das Menü geht.',
     emuVsDoom: 'Achtung: DOOM ist gewählt oder eingebaut. Mit einer Firmware hier fällt DOOM weg.',
@@ -44,7 +44,7 @@ const T = {
     devNoSerial: 'Dieser Browser kann nicht mit dem Dongle reden. Bitte Chrome oder Edge am Computer verwenden.', devNone: 'Nicht verbunden.',
     devOn: 'Verbunden: {ed}, {mb} MB{l}', devLoaded: ', Flash-App geladen', devReady: 'Bereit.', devNeedRom: 'Zum Schreiben zuerst ein ROM öffnen (oder auslesen).',
     visTitle: 'Besuch simulieren (Paradise)', visStart: 'Starten', visStop: 'Beenden',
-    visHint: 'Das Studio spielt ein zweites Paradise. Dongle an die Kontakte, das Paradise läuft normal.\n1. Edition wählen, Starten, Dongle wählen.\n2. Am Paradise: Planet-Menü, VERBINDUNG, PLAYDATE, dann B.\nGeheime Charaktere: im Jugendalter zwei andere Farben besuchen.\nOben "Verbinden" ist nur fürs ROM, für den Besuch nicht drücken.',
+    visHint: 'Das Studio spielt ein zweites Paradise. Dongle an die Kontakte, das Paradise läuft normal.\n1. Edition wählen, Starten, Dongle wählen.\n2. Am Paradise: Planet-Menü, VERBINDUNG, PLAYDATE, dann B.\nOben "Verbinden" ist nur fürs ROM, für den Besuch nicht drücken.',
     visWait: 'Bereit als {ed}. Am Paradise PLAYDATE wählen und B drücken.', visRun: 'Verbunden, Daten werden getauscht…', visPlay: 'Die beiden spielen…',
     visDone: 'Besuch fertig ({ed}). Für den nächsten wieder B am Paradise.', visErr: 'Abgebrochen: {e}. Am Paradise nochmals B.', visBadKey: 'Das Paradise versteht die Daten nicht.',
     phload: 'Flash-App laden', phread: 'Auslesen', phcompare: 'Vergleichen', phwrite: 'Schreiben', phcheck: 'Prüfen', phprepare: 'Vorbereiten',
@@ -73,7 +73,7 @@ const T = {
     feldNo: 'Feldwahl geht mit Land, Water, Sky (untereinander) und Tropical, Glacier (untereinander).', feldMissing: 'In dieser Ausgabe fehlt das Menü.',
     feldCur: 'Aktives Feld: {f}.', feldList: 'Wählbar: {s}.', feldStored: 'Gespeichert: {s}.', feldFail: 'Menü nicht eingebaut: {e}', feldUnknown: 'Ausgabe nicht erkannt.',
     tabWolf: 'Wolf3D', wolfPick: 'Spieldateien wählen', wolfHint: 'Alle Dateien von Wolfenstein 3D zusammen wählen: Shareware (.WL1) oder Vollversion (.WL6). Das Spiel kommt ins Paramix-Menü.', wolfNone: 'Noch keine Spieldateien gewählt.', wolfShare: 'Shareware', wolfFull: 'Vollversion', wolfEps: '{n} Episoden', wolfEp1: '1 Episode', wolfBad: 'Wolfenstein 3D: {e}', wolfNoMain: 'Wolfenstein 3D nur im Menü', wolfTurn: 'Drehen pro Radstufe', wolfFixed: 'Fest: A+C Menü, Rad 2 s speichern und zurück ins Paradise.', wolfOne: 'Es gibt nur ein Wolfenstein 3D im Menü, das neue ersetzt das alte.',
-    tabGb: 'Game Boy', gbNoMain: 'Game Boy nur im Menü', gbPick: 'Spiele wählen (.gb)', gbHint: 'Die Spiele kommen ins Paramix-Menü. Am Gerät: A+B+C zusammen öffnet die Einstellungen (dort auch Select und Ton), Rad 2 s halten führt zurück.', gbNone2: 'Noch kein Spiel gewählt.', gbKeysTitle: 'Tasten', gbKeysDef: 'Standard', gbKeysMiss: 'Nicht belegt: {n}', gbNone: '–', gbRight: 'Rechts', gbLeft: 'Links', gbUp: 'Hoch', gbDown: 'Runter', gbInA: 'Taste A', gbInB: 'Taste B', gbInC: 'Taste C', gbInWp: 'Rad drücken', gbInWu: 'Rad hoch', gbInWd: 'Rad runter', gbInAC: 'A + C', gbInBC: 'B + C', gbInAB: 'A + B', gbBad: '{f}: kein Game-Boy-Spiel', gbColor: '{f}: nur für Game Boy Color, das geht nicht', gbNeedRom: 'Zuerst ein ROM öffnen (oder vom Gerät lesen).',
+    tabGb: 'Game Boy', gbNoMain: 'Game Boy nur im Menü', gbPick: 'Spiele wählen (.gb)', gbHint: 'Die Spiele kommen ins Paramix-Menü. Am Gerät: A+B+C zusammen öffnet die Einstellungen (dort auch Select und Ton), Rad 2 s halten führt zurück.', gbNone2: 'Noch kein Spiel gewählt.', gbKeysTitle: 'Tasten', gbKeysDef: 'Standard', gbKeysMiss: 'Nicht belegt: {n}', gbNone: '–', gbRight: 'Rechts', gbLeft: 'Links', gbUp: 'Hoch', gbDown: 'Runter', gbInA: 'Taste A', gbInB: 'Taste B', gbInC: 'Taste C', gbInWp: 'Rad drücken', gbInWu: 'Rad hoch', gbInWd: 'Rad runter', gbInAC: 'A + C', gbInBC: 'B + C', gbInAB: 'A + B', gbBad: '{f}: kein Game-Boy-Spiel', gbColor: '{f}: nur für Game Boy Color, das geht nicht', gbNeedRom: 'Zuerst ein ROM öffnen (oder vom Gerät lesen).', t18Broken: 'Tama Meets ist beschädigt. Tama Meets entfernen und die Firmware neu hinzufügen, dann ohne "Spielstände behalten" schreiben.', t18Clash: 'das Hauptprogramm bräuchte den Platz von Tama Meets. Tama Meets zuerst entfernen.', tabSms: 'Master System', smsNoMain: 'Master System nur im Menü', smsPick: 'Spiele wählen (.sms)', smsHint: 'Die Spiele kommen ins Paramix-Menü. Am Gerät: A+B+C zusammen öffnet die Einstellungen (dort auch Pause und Ton), Rad 2 s halten führt zurück.', smsBad: '{f}: kein Master-System-Spiel', smsGG: '{f}: Game-Gear-Spiel, das geht nicht', smsB1: 'Knopf 1', smsB2: 'Knopf 2', smsPause: 'Pause',
     tabFigs: 'Figuren', tabAll: 'Alle Sprites', tabDim: 'Karte', tabEmu: 'Emulator', tabDoom: 'DOOM',
     doomPick: 'DOOM.WAD wählen', doomEp: 'Episode', doomMusic: 'Musik',
     doomHint: 'Baut DOOM ins ROM. Die WAD bringst du selbst mit, sie bleibt auf deinem Computer.',
@@ -103,10 +103,10 @@ const T = {
     working: 'Einen Moment …',
     dimNr: 'Nr.', stUpd: 'wird aktualisiert',
     disclaimer: 'Benutzung auf eigene Gefahr. Das Ändern und Beschreiben des Geräts kann es unbrauchbar machen oder Spielstände löschen. Lies vorher ein Backup aus und nutze das Tool nur, wenn du weisst, was du tust. Es gibt keine Garantie und keine Haftung für Schäden an Geräten oder Daten.',
-    trademarks: 'Tamagotchi ist eine Marke von BANDAI, DOOM eine Marke von id Software. Alle Marken gehören ihren jeweiligen Inhabern und werden nur genannt, um zu beschreiben, wofür das Tool gedacht ist. Kein offizielles Produkt, keine Verbindung zu diesen Firmen.',
+    trademarks: 'Tamagotchi und Digimon sind Marken von BANDAI. DOOM und Wolfenstein sind Marken von id Software (ZeniMax Media). Game Boy ist eine Marke von Nintendo, SEGA und Master System sind Marken von SEGA. Alle Marken, Spiele und Figuren gehören ihren jeweiligen Inhabern und werden nur genannt, um zu beschreiben, wofür das Tool gedacht ist. Kein offizielles Produkt, keine Verbindung zu diesen Firmen. Das Tool enthält keine Spiele, Firmware oder Spieldaten: du verwendest nur deine eigenen Dateien.',
     devWarn: 'Schreiben auf das Gerät geschieht auf eigene Gefahr und ohne Haftung. Vorher ein Backup auslesen und das Gerät während des Schreibens eingeschaltet lassen.',
     footer: 'Läuft lokal im Browser. Von mameise.',
-    edition: 'Edition', sprites: 'Sprites', figures: 'Figuren', changed: 'geändert', space: 'Platz',
+    edition: 'Edition', sprites: 'Sprites', figures: 'Figuren', changed: 'geändert', space: 'Platz für Figuren',
     figure: 'Figur', sprite: 'Sprite',
     mSize: 'Zelle {w}×{h}, {n} Bilder, Raster {iw}×{ih}', mColors: '{c}, Palettensätze: {p}',
     mDirect: 'Direktfarbe RGB565', mPal: '{n} Farben', mKeep: 'Mehrere Palettensätze (Farbvarianten): beim Hochladen werden die Originalfarben benutzt.',
@@ -143,9 +143,9 @@ const T = {
     f1t: 'Stays on your computer', f1: 'The ROM is never uploaded. Everything runs in this browser tab, even offline.',
     f2t: 'Nothing borrowed inside', f2: 'Paramix Studio contains no ROM, no firmware and no WAD. Everything comes from your own devices and files.',
     f3t: 'Checked', f3: 'Checksums are recalculated, changed images are read back before saving and every sector written to the device is verified.',
-    planTitle: 'Your new ROM', planFig: 'Characters', planEmu: 'Emulator', planEmus: 'Emulators', planDoom: 'DOOM', planWolf: 'Wolfenstein 3D', planMenu: 'Menu', planApps: 'More emulators',
+    planTitle: 'Your new ROM', planFig: 'Characters', planEmu: 'Emulator', planEmus: 'Emulators', planDoom: 'DOOM', planWolf: 'Wolfenstein 3D', planGb: 'Game Boy', planSms: 'Master System', planMenu: 'Menu', planApps: 'More emulators',
     stNone: 'not included', stKeep: 'stays', stNew: 'new', stDel: 'will be removed', stChanged: '{n} changed', stSame: 'unchanged',
-    segFw: 'Firmware and characters', segEmu: 'Emulator', segDoom: 'DOOM', segWolf: 'Wolfenstein 3D', segSlots: 'Field saves', segSave: 'Save', segFree: 'free',
+    segFw: 'Firmware and characters', segEmu: 'Emulator', segDoom: 'DOOM', segWolf: 'Wolfenstein 3D', segGb: 'Game Boy', segSms: 'Master System', segSlots: 'Field saves', segSave: 'Save', segFree: 'free',
     ruleBoth: 'Emulator or DOOM: only one of the two fits into the ROM. The menu works with both.',
     ruleNoRoom: 'This edition has no room for emulator and DOOM (its character data is larger). The menu works.',
     emuVsDoom: 'Note: DOOM is chosen or built in. Choosing a firmware here drops DOOM.',
@@ -160,7 +160,7 @@ const T = {
     devNoSerial: 'This browser cannot talk to the dongle. Please use Chrome or Edge on a computer.', devNone: 'Not connected.',
     devOn: 'Connected: {ed}, {mb} MB{l}', devLoaded: ', flash app loaded', devReady: 'Ready.', devNeedRom: 'To write, open a ROM first (or read one).',
     visTitle: 'Simulate a visit (Paradise)', visStart: 'Start', visStop: 'Stop',
-    visHint: 'The Studio plays a second Paradise. Dongle on the contacts, the Paradise runs normally.\n1. Choose the edition, Start, choose the dongle.\n2. On the Paradise: planet menu, CONNECTION, PLAYDATE, then B.\nSecret characters: visit two other colours at the young stage.\n"Connect" above is only for the ROM, do not press it for a visit.',
+    visHint: 'The Studio plays a second Paradise. Dongle on the contacts, the Paradise runs normally.\n1. Choose the edition, Start, choose the dongle.\n2. On the Paradise: planet menu, CONNECTION, PLAYDATE, then B.\n"Connect" above is only for the ROM, do not press it for a visit.',
     visWait: 'Ready as {ed}. On the Paradise choose PLAYDATE and press B.', visRun: 'Connected, exchanging data…', visPlay: 'The two are playing…',
     visDone: 'Visit done ({ed}). For the next one press B on the Paradise again.', visErr: 'Stopped: {e}. Press B on the Paradise again.', visBadKey: 'The Paradise does not understand the data.',
     phload: 'Loading flash app', phread: 'Reading', phcompare: 'Comparing', phwrite: 'Writing', phcheck: 'Checking', phprepare: 'Preparing',
@@ -179,7 +179,7 @@ const T = {
     feldNo: 'Field switch works with Land, Water, Sky (among each other) and Tropical, Glacier (among each other).', feldMissing: 'This build does not contain the menu.',
     feldCur: 'Active field: {f}.', feldList: 'Selectable: {s}.', feldStored: 'Saved: {s}.', feldFail: 'Menu not built in: {e}', feldUnknown: 'Edition not recognised.',
     tabWolf: 'Wolf3D', wolfPick: 'Choose game files', wolfHint: 'Choose all files of Wolfenstein 3D together: shareware (.WL1) or full version (.WL6). The game goes into the Paramix menu.', wolfNone: 'No game files chosen yet.', wolfShare: 'Shareware', wolfFull: 'Full version', wolfEps: '{n} episodes', wolfEp1: '1 episode', wolfBad: 'Wolfenstein 3D: {e}', wolfNoMain: 'Wolfenstein 3D only in the menu', wolfTurn: 'Turn per wheel step', wolfFixed: 'Fixed: A+C menu, wheel 2 s save and back to the Paradise.', wolfOne: 'There is only one Wolfenstein 3D in the menu, the new one replaces the old one.',
-    tabGb: 'Game Boy', gbNoMain: 'Game Boy only in the menu', gbPick: 'Choose games (.gb)', gbHint: 'The games go into the Paramix menu. On the device: A+B+C together opens the settings (also Select and sound), hold the wheel for 2 s to go back.', gbNone2: 'No game chosen yet.', gbKeysTitle: 'Keys', gbKeysDef: 'Default', gbKeysMiss: 'Not assigned: {n}', gbNone: '–', gbRight: 'Right', gbLeft: 'Left', gbUp: 'Up', gbDown: 'Down', gbInA: 'Key A', gbInB: 'Key B', gbInC: 'Key C', gbInWp: 'Wheel press', gbInWu: 'Wheel up', gbInWd: 'Wheel down', gbInAC: 'A + C', gbInBC: 'B + C', gbInAB: 'A + B', gbBad: '{f}: not a Game Boy game', gbColor: '{f}: Game Boy Color only, that does not work', gbNeedRom: 'Open a ROM first (or read it from the device).',
+    tabGb: 'Game Boy', gbNoMain: 'Game Boy only in the menu', gbPick: 'Choose games (.gb)', gbHint: 'The games go into the Paramix menu. On the device: A+B+C together opens the settings (also Select and sound), hold the wheel for 2 s to go back.', gbNone2: 'No game chosen yet.', gbKeysTitle: 'Keys', gbKeysDef: 'Default', gbKeysMiss: 'Not assigned: {n}', gbNone: '–', gbRight: 'Right', gbLeft: 'Left', gbUp: 'Up', gbDown: 'Down', gbInA: 'Key A', gbInB: 'Key B', gbInC: 'Key C', gbInWp: 'Wheel press', gbInWu: 'Wheel up', gbInWd: 'Wheel down', gbInAC: 'A + C', gbInBC: 'B + C', gbInAB: 'A + B', gbBad: '{f}: not a Game Boy game', gbColor: '{f}: Game Boy Color only, that does not work', gbNeedRom: 'Open a ROM first (or read it from the device).', t18Broken: 'Tama Meets is damaged. Remove Tama Meets and add the firmware again, then write without "Keep saves".', t18Clash: 'the main program would need the room of Tama Meets. Remove Tama Meets first.', tabSms: 'Master System', smsNoMain: 'Master System only in the menu', smsPick: 'Choose games (.sms)', smsHint: 'The games go into the Paramix menu. On the device: A+B+C together opens the settings (also Pause and sound), hold the wheel for 2 s to go back.', smsBad: '{f}: not a Master System game', smsGG: '{f}: Game Gear game, that does not work', smsB1: 'Button 1', smsB2: 'Button 2', smsPause: 'Pause',
     tabFigs: 'Characters', tabAll: 'All sprites', tabDim: 'Card', tabEmu: 'Emulator', tabDoom: 'DOOM',
     doomPick: 'Choose DOOM.WAD', doomEp: 'Episode', doomMusic: 'Music',
     doomHint: 'Builds DOOM into the ROM. Bring your own WAD, it stays on your computer.',
@@ -209,10 +209,10 @@ const T = {
     working: 'One moment …',
     dimNr: 'No.', stUpd: 'gets updated',
     disclaimer: 'Use at your own risk. Changing and writing the device can make it unusable or erase saves. Read a backup first and only use the tool if you know what you are doing. There is no warranty and no liability for damage to devices or data.',
-    trademarks: 'Tamagotchi is a trademark of BANDAI, DOOM is a trademark of id Software. All trademarks belong to their owners and are only named to describe what the tool is for. Not an official product, not affiliated with these companies.',
+    trademarks: 'Tamagotchi and Digimon are trademarks of BANDAI. DOOM and Wolfenstein are trademarks of id Software (ZeniMax Media). Game Boy is a trademark of Nintendo, SEGA and Master System are trademarks of SEGA. All trademarks, games and characters belong to their owners and are only named to describe what the tool is for. Not an official product, not affiliated with these companies. The tool contains no games, firmware or game data: you only use your own files.',
     devWarn: 'Writing to the device is at your own risk and without liability. Read a backup first and keep the device switched on while writing.',
     footer: 'Runs locally in your browser. By mameise.',
-    edition: 'Edition', sprites: 'Sprites', figures: 'Characters', changed: 'changed', space: 'Space',
+    edition: 'Edition', sprites: 'Sprites', figures: 'Characters', changed: 'changed', space: 'Room for characters',
     figure: 'Character', sprite: 'Sprite',
     mSize: 'Cell {w}×{h}, {n} images, grid {iw}×{ih}', mColors: '{c}, palette sets: {p}',
     mDirect: 'Direct colour RGB565', mPal: '{n} colours', mKeep: 'Several palette sets (colour variants): uploads use the original colours.',
@@ -409,9 +409,13 @@ async function loadRom(file) {
     state.feld = !!(f && (f.flags & F.F_FIELDS)); state.bag = !!(f && (f.flags & F.F_BAG)); state.tama = !!(f && (f.flags & F.F_TAMA)); state.saves = true;
     state.feldInit = state.feld; state.bagInit = state.bag; state.tamaInit = state.tama; state.savesInit = true;
     state.launch = !!(f && f.version >= 2 && (f.flags & F.F_LAUNCH)); state.launchInit = state.launch; state.launchMap = null;
-    state.extras = f ? E.appsRead(buf, F.feldApps(buf, fe.stub).apps).map((x) => x.kind === 'tama' ? { kind: 'tama', guest: x.guest, dev: x.dev, clock: x.clock, nfc: x.nfc, opt: x.opt } : x.kind === 't18' ? { kind: 't18', fw: x.fw, clock: x.clock, opt: x.opt, keepOff: x.off } : x.kind === 'v1' ? { kind: 'v1', rom: x.rom, clock: x.clock } : x.kind === 'gb' ? { kind: 'gb', rom: x.rom, keys: x.keys, inv: x.inv, save: x.save } : x.kind === 'wolf' ? { kind: 'wolf', pack: x.pack, keys: x.keys, save: x.save } : { rom: x.rom, figs: x.figs || [], clock: x.clock }) : []; state.extrasDirty = false;
+    state.extras = f ? E.appsRead(buf, F.feldApps(buf, fe.stub).apps).map((x) => x.kind === 'tama' ? { kind: 'tama', guest: x.guest, dev: x.dev, clock: x.clock, nfc: x.nfc, opt: x.opt } : x.kind === 't18' ? { kind: 't18', fw: x.fw, clock: x.clock, opt: x.opt, keepOff: x.off } : x.kind === 'v1' ? { kind: 'v1', rom: x.rom, clock: x.clock } : x.kind === 'gb' ? { kind: 'gb', rom: x.rom, keys: x.keys, inv: x.inv, save: x.save } : x.kind === 'sms' ? { kind: 'sms', rom: x.rom, title: x.title, keys: x.keys, inv: x.inv, save: x.save } : x.kind === 'wolf' ? { kind: 'wolf', pack: x.pack, keys: x.keys, save: x.save } : { rom: x.rom, figs: x.figs || [], clock: x.clock }) : []; state.extrasDirty = false;
     state.extrasUp = f ? extrasOld(buf, F.feldApps(buf, fe.stub).apps) : false;
-    state.wolfInit = state.extras.some((x) => x.kind === 'wolf'); state.wolfKeysDirty = false;   // 1.6.8: programs of an older Studio are renewed on save
+    state.wolfInit = state.extras.some((x) => x.kind === 'wolf'); state.wolfKeysDirty = false;
+    // test5: a T18Emu in the menu whose blocks were emptied (fault up to test4: main program removed in a start device)
+    state.t18Broken = state.extras.some((x) => { if (x.kind !== 't18' || x.keepOff === undefined) return false; const c = E.t18Cfg(buf, x.keepOff); if (!c) return false;
+      let n = 0; for (const b of c.map) if (b !== 0xFFFF && buf.subarray(b << 16, (b + 1) << 16).every((v) => v === 0xFF)) n++; return n >= 8; });
+    state.sig0 = { emu: groupSig('emu'), gb: groupSig('gb'), sms: groupSig('sms') };   // 1.6.10 test4: each tab its own chip   // 1.6.8: programs of an older Studio are renewed on save
     // 1.6.9 test13: start device with DOOM, the main program out of the menu's list and its autostart
     if (f && state.launch) { const fa = F.feldApps(buf, fe.stub);
       if (fa.v9) { state.emuAuto = !!fa.auto; const k = fa.mainSrc ? E.appsRead(buf, fa.apps).findIndex((x) => x.off === fa.mainSrc - 0x10000000 + 0x11000) : -1; state.mainPick = k >= 0 ? state.extras[k] || null : null; } }
@@ -547,7 +551,7 @@ function refreshTile(kind, idx) {
 }
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x === b)));
-  ['figs', 'all', 'names', 'dim', 'emu', 'doom', 'gb', 'wolf', 'feld', 'save'].forEach(k => $('pane-' + k).hidden = k !== b.dataset.tab);
+  ['figs', 'all', 'names', 'dim', 'emu', 'doom', 'gb', 'sms', 'wolf', 'feld', 'save'].forEach(k => $('pane-' + k).hidden = k !== b.dataset.tab);
 });
 
 // Options for a sprite that belongs to a character group (eyes keep their length,
@@ -942,9 +946,9 @@ function planEmus(emuOn, kind) {
   const v = [];
   if (mainNm) v.push([mainNm, !doomMain()]);   // with DOOM as the main program the emulator goes to the menu
   if (!em && kind === 2 && state.emuRemove) v.push([oldNm() + ' ' + t('stDel'), false]);
-  xs.filter((x) => x.kind !== 'wolf').forEach((x) => v.push([(v.length ? ', ' : '') + E.extraName(x), false]));
+  xs.filter((x) => !OWN_CHIP.has(x.kind)).forEach((x) => v.push([(v.length ? ', ' : '') + E.extraName(x), false]));
   if (!v.length) return [t('planEmus'), t('stNone'), 'off'];
-  const isNew = !!em || xs.some((x) => x.kind !== 'wolf' && x.fresh) || (!!state.extrasDirty && !xs.every((x) => x.kind === 'wolf')), upd = emuUpPending() || emuAutoDirty() || !!state.extrasUp, gone = !em && kind === 2 && state.emuRemove;
+  const isNew = !!em || xs.some((x) => !OWN_CHIP.has(x.kind) && x.fresh) || (!!state.extrasDirty && groupSig('emu') !== (state.sig0 || {}).emu), upd = emuUpPending() || emuAutoDirty() || !!state.extrasUp, gone = !em && kind === 2 && state.emuRemove;
   if (isNew || upd || !gone) v.push([' · ' + (isNew ? t('stNew') : upd ? t('stUpd') : t('stKeep')), false]);
   return [t('planEmus'), v, isNew || upd ? 'new' : gone ? 'del' : 'keep'];
 }
@@ -956,6 +960,18 @@ function planWolf() {
   const what = t(inf.shareware ? 'wolfShare' : 'wolfFull') + (inf.episodes > 1 ? ', ' + t('wolfEps', { n: inf.episodes }) : '');
   return [t('planWolf'), (x.fresh ? t('stNew') : state.wolfKeysDirty ? t('stUpd') : t('stKeep')) + ', ' + what, x.fresh || state.wolfKeysDirty ? 'new' : 'keep'];
 }
+/* 1.6.10 test4: Game Boy and Master System with their own chip and their own part of the flash bar */
+const OWN_CHIP = new Set(['wolf', 'gb', 'sms']);
+function groupKind(x) { return OWN_CHIP.has(x.kind) ? x.kind : 'emu'; }
+function groupSig(g) {
+  return JSON.stringify((state.extras || []).filter((x) => groupKind(x) === g).map((x) => [E.extraName(x), x.keys || null, !!x.inv, x.clock, x.nfc, x.opt]));
+}
+function planGroup(g, label) {
+  const xs = (state.extras || []).filter((x) => x.kind === g), sig0 = (state.sig0 || {})[g], was = !!sig0 && sig0 !== '[]';
+  if (!xs.length) return [label, was ? t('stDel') : t('stNone'), was ? 'del' : 'off'];
+  const isNew = xs.some((x) => x.fresh), upd = !isNew && groupSig(g) !== sig0;
+  return [label, xs.map((x) => E.extraName(x)).join(', ') + ' · ' + (isNew ? t('stNew') : upd ? t('stUpd') : t('stKeep')), isNew || upd ? 'new' : 'keep'];
+}
 const MB = (n) => (n / 1048576).toFixed(n < 1048576 ? 2 : 1).replace(/\.?0+$/, '') + ' MB';
 function renderPlan() {
   const el = $('plan'); if (!el || !state.ctx) return;
@@ -966,6 +982,8 @@ function renderPlan() {
   const chips = [
     [t('planFig'), state.changed.size ? t('stChanged', { n: state.changed.size }) : t('stSame'), state.changed.size ? 'new' : 'keep'],
     planEmus(emuOn, kind),
+    planGroup('gb', t('planGb')),
+    planGroup('sms', t('planSms')),
     planWolf(),
     [t('planDoom'), st(doomOn, !!state.doom, kind === 1, state.doom ? 'E' + $('doomEp').value + ($('doomMusic').checked ? ' + ' + t('doomMusic') : '') : ''), state.doom ? 'new' : doomOn ? 'keep' : kind === 1 ? 'del' : 'off'],
   ];
@@ -984,10 +1002,13 @@ function renderPlan() {
   else if (doomOn) doomSize = (rom[0x830000] | rom[0x830001] << 8 | rom[0x830002] << 16 | rom[0x830003] << 24) + (0xD48000 - 0xCA0000);
   if (state.emu) emuSize = state.emu.size || 0;
   else if (emuOn) { const c7 = E.t7Cfg(rom), c18 = E.t18Cfg(rom); if (c18) emuSize = c18.map.filter((b) => b !== 0xFFFF).length << 16; else if (c7) emuSize = c7.romLen + c7.figs.reduce((n, f) => n + f.len, 0); else { const o = 0xA0000 + 0x140 + 12; emuSize = rom[o] | rom[o + 1] << 8 | rom[o + 2] << 16 | rom[o + 3] << 24; } }
-  let wolfSize = 0;
-  for (const x of state.extras || []) if (x.kind === 'wolf') wolfSize += E.extraSize(x); else emuSize += E.extraSize(x);   // more emulators: program, save, data
+  const gs = { wolf: 0, gb: 0, sms: 0 };
+  for (const x of state.extras || []) if (OWN_CHIP.has(x.kind)) gs[x.kind] += E.extraSize(x); else emuSize += E.extraSize(x);   // more emulators: program, save, data
+  const wolfSize = gs.wolf;
   if (doomOn) segs.push(['doom', t('segDoom'), doomSize]);
-  if (emuOn || (state.extras || []).some((x) => x.kind !== 'wolf')) segs.push(['emu', t('segEmu'), emuSize]);
+  if (emuOn || (state.extras || []).some((x) => !OWN_CHIP.has(x.kind))) segs.push(['emu', t('segEmu'), emuSize]);
+  if (gs.gb) segs.push(['gb', t('segGb'), gs.gb]);
+  if (gs.sms) segs.push(['sms', t('segSms'), gs.sms]);
   if (wolfSize) segs.push(['wolf', t('segWolf'), wolfSize]);
   if (state.feld && !doomOn) { const ed = F.edition(rom); segs.push(['slots', t('segSlots'), ed ? ed.profile.names.length * 0x58000 : 0]); }
   const save = (state.launch ? 0xF00000 : end) - 0xD29000; segs.push(['save', t('segSave'), save]);   // start device: the MB behind the save is free for programs
@@ -1010,6 +1031,7 @@ function renderPlan() {
     const g = document.createElement('span'); g.innerHTML = '<i class="dot ' + k + '"></i>'; g.appendChild(document.createTextNode(l + ' ' + MB(n))); leg.appendChild(g);
   });
   el.appendChild(bar); el.appendChild(leg);
+  if (state.t18Broken && (state.extras || []).some((x) => x.kind === 't18' && x.keepOff !== undefined)) { const w = document.createElement('div'); w.className = 'rule warn'; w.textContent = t('t18Broken'); el.appendChild(w); }
   const r = document.createElement('div'); r.className = 'rule'; r.textContent = state.launch ? t('ruleLaunch') : appRoom() ? t('ruleBoth') : t('ruleNoRoom'); el.appendChild(r);
 }
 
@@ -1050,6 +1072,7 @@ function appRoom() { return !a0Free() || estimateEnd() <= 0x830000; }   // witho
 function renderEmu() {
   if (!state.ctx) return;
   renderGb();
+  renderSms();
   renderWolf();
   const has = emuInstalled();
   $('btnEmuOff').hidden = true; $('btnEmuUndo').hidden = true;   // 1.6.8: in the list of programs (×, ↺)
@@ -1472,11 +1495,11 @@ function renderApps() {
     if (big) b.push([t('dlcPick'), () => { state.dlcT = i; $('fileDlc').click(); }]);
     const xMain = lp && state.mainPick === x;
     if (lp) b.push(star(xMain, x));
-    else { const ok = !dm && canMain(x); b.push(['☆', ok ? () => busy(() => makeMain(i)) : null, t(ok ? 'progMakeMain' : x.kind === 'gb' ? 'gbNoMain' : x.kind === 'wolf' ? 'wolfNoMain' : dm ? 'progNoMainDoom' : 'progNoMain'), 'pstar', !ok]); }
+    else { const ok = !dm && canMain(x); b.push(['☆', ok ? () => busy(() => makeMain(i)) : null, t(ok ? 'progMakeMain' : x.kind === 'gb' ? 'gbNoMain' : x.kind === 'sms' ? 'smsNoMain' : x.kind === 'wolf' ? 'wolfNoMain' : dm ? 'progNoMainDoom' : 'progNoMain'), 'pstar', !ok]); }
     b.push(['×', () => { if (state.mainPick === x) { state.mainPick = null; state.mainDirty = true; } state.extras.splice(i, 1); state.extrasDirty = true; state.t7saveX = null; state.dlcT = 'main'; state.figT = 'main'; state.progOpen = new Set(); renderEmu(); }, t('progDel')]);
-    const det = ((x.kind === 'v1' && !E.v1Clock(x.rom)) || x.kind === 'gb' || x.kind === 'wolf') && !xMain ? null : (d) => {   // test37: the Game Boy has no clock
+    const det = ((x.kind === 'v1' && !E.v1Clock(x.rom)) || x.kind === 'gb' || x.kind === 'sms' || x.kind === 'wolf') && !xMain ? null : (d) => {   // test37: the Game Boy has no clock
       if (xMain) autoL(d);
-      if (!(x.kind === 'v1' && !E.v1Clock(x.rom)) && x.kind !== 'gb' && x.kind !== 'wolf') checkInto(d, t('emuClock'), t('emuClockHint'), x.clock !== false, (v) => { x.clock = v; state.extrasDirty = true; renderEmu(); });
+      if (!(x.kind === 'v1' && !E.v1Clock(x.rom)) && x.kind !== 'gb' && x.kind !== 'sms' && x.kind !== 'wolf') checkInto(d, t('emuClock'), t('emuClockHint'), x.clock !== false, (v) => { x.clock = v; state.extrasDirty = true; renderEmu(); });
       if (x.kind === 'tama' || x.kind === 't18') { x.opt = x.opt || { vol: 0, dim: 0, off: 0 }; optInto(d, x.opt, () => { state.extrasDirty = true; renderEmu(); }); }
       if (x.kind === 'tama' && (x.dev === '4u' || x.dev === '4u-plain')) checkInto(d, t('emuNfc'), t('emuNfcHint'), x.nfc !== false, (v) => { x.nfc = v; state.extrasDirty = true; renderEmu(); });
       if (go) { figsInto(d, i); t7GpInto(d, i); linkInto(d, 'pairHintT7'); }
@@ -1495,9 +1518,9 @@ function renderApps() {
 /* does a program in the menu come from an older Studio? (vectors and code differ from the program in this one) */
 function extrasOld(rom, apps) {
   try {
-    const progs = { t7: E.t7Embedded(), tama: E.embedded() && E.embedded().app, t18: E.t18Embedded(), v1: E.v1Embedded(), gb: E.gbEmbedded() };
+    const progs = { t7: E.t7Embedded(), tama: E.embedded() && E.embedded().app, t18: E.t18Embedded(), v1: E.v1Embedded(), gb: E.gbEmbedded(), sms: E.smsEmbedded() };
     for (const x of E.appsRead(rom, apps)) {
-      const k = E.extraKind(x), img = k === 't18' ? null : progs[k]; if (!img) continue;   // T18Emu: its image is patched all over
+      const k = E.extraKind(x), img = k === 't18' ? null : k === 'v1' && E.v3Detect(x.rom) ? E.v3Embedded() : progs[k]; if (!img) continue;   // T18Emu: its image is patched all over; test4: V3Emu against its own program
       const at = x.off, same = (a, z) => { for (let i = a; i < z; i++) if (rom[at + i] !== img[i]) return false; return true; };
       if (!same(0, 0x140) || !same(0x800, Math.min(img.length, 0x10000))) return true;
     }
@@ -1516,7 +1539,7 @@ function curMainX() {
   return null;
 }
 function canMain(x) {
-  if (x.kind === 'gb' || x.kind === 'wolf') return false;   // 1.6.9 test36: GBEmu only in the menu (and Wolf3D)
+  if (x.kind === 'gb' || x.kind === 'sms' || x.kind === 'wolf') return false;   // 1.6.9 test36: GBEmu only in the menu (and Wolf3D)
   // outside a start device only T7Emu goes to the menu, so the old main program must be a T7Emu (or none)
   if (state.launch) return true;
   if (!a0Free()) return false;   // test25: no main program at 0x0A0000 in this edition
@@ -1568,7 +1591,8 @@ async function roomMissing() {
 }
 async function addExtra(g, fname) {
   let x = null;
-  if (E.gbDetect(g)) { if (E.gbColorOnly(g)) { toast(t('gbColor', { f: fname }), true); return; } x = { kind: 'gb', rom: g, keys: gbKeysNow().slice(), inv: !!state.gbInv }; }   // 1.6.9 test36: GBEmu
+  if (E.gbDetect(g)) { if (E.gbColorOnly(g)) { toast(t('gbColor', { f: fname }), true); return; } x = { kind: 'gb', rom: g, keys: gbKeysNow().slice(), inv: state.gbInv !== false }; }   // 1.6.9 test36: GBEmu
+  else if (E.smsDetect(g, fname)) x = { kind: 'sms', rom: g, title: E.smsTitle(fname), keys: smsKeysNow().slice(), inv: state.smsInv !== false };   // 1.6.10 test2: SMSEmu
   else if (E.v1Detect(g)) x = { kind: 'v1', rom: g };   // 1.6.8: V1Emu (first Tamagotchis, Digital Monster)
   else if (E.t7Detect(g)) x = { rom: g };
   else if (E.t18Detect(g)) x = { kind: 't18', fw: g };
@@ -1678,7 +1702,8 @@ $('fileEmu').onchange = async (e) => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   const g = new Uint8Array(await f.arrayBuffer());
   // 1.6.8: one button for everything: the first program is the main one (A and C), every further one goes to the menu
-  if (E.gbDetect(g)) { await addExtra(g, f.name); renderGb(); return; }   // 1.6.9 test36: Game Boy games go to the menu
+  if (E.gbDetect(g)) { await addExtra(g, f.name); renderGb(); return; }
+  if (E.smsDetect(g, f.name)) { await addExtra(g, f.name); renderSms(); return; }   // 1.6.10 test2   // 1.6.9 test36: Game Boy games go to the menu
   if (state.emu || (emuInstalled() && !state.emuRemove) || (state.extras || []).length || (E.v1Detect(g) && doomMain()) || !a0Free()) { await addExtra(g, f.name); return; }   // test25: no room at 0x0A0000: the menu   // the first program stays the main one
   if (E.v1Detect(g)) { state.emu = { v1: true, dev: 'v1', rom: g, size: g.length + 0x2000 }; extrasDedupe(null); emuRemoveClear(); if (!state.launch) state.doom = null; renderDoom(); }
   else if (E.t18Detect(g)) {
@@ -1708,8 +1733,8 @@ function keySel(id, val, wheel) {
 /* 1.6.9 test36: tab Game Boy. The games go into the menu (GBEmu, kind 'gb' in state.extras); one key layout for all. */
 const GB_BTNS = [[0, 'gbNone'], [1, 'A'], [2, 'B'], [8, 'Start'], [4, 'Select'], [16, 'gbRight'], [32, 'gbLeft'], [64, 'gbUp'], [128, 'gbDown']];
 const GB_INS = ['gbInA', 'gbInB', 'gbInC', 'gbInWp', 'gbInWu', 'gbInWd', 'gbInAC', 'gbInBC', 'gbInAB'];
-function gbKeysNow() { if (!state.gbKeys) { const x = (state.extras || []).find((y) => y.kind === 'gb' && y.keys && y.keys.length === 9); state.gbKeys = x ? x.keys.slice() : E.GB_KEYS_DEFAULT.slice(); if (x) state.gbInv = !!x.inv; } return state.gbKeys; }
-function gbKeysApply() { for (const x of state.extras || []) if (x.kind === 'gb') { x.keys = state.gbKeys.slice(); x.inv = !!state.gbInv; } state.extrasDirty = true; }
+function gbKeysNow() { if (!state.gbKeys) { const x = (state.extras || []).find((y) => y.kind === 'gb' && y.keys && y.keys.length === 9); state.gbKeys = x ? x.keys.slice() : E.GB_KEYS_DEFAULT.slice(); state.gbInv = x ? !!x.inv : true; } return state.gbKeys; }   // 1.6.10 test1: wheel reversed by default
+function gbKeysApply() { for (const x of state.extras || []) if (x.kind === 'gb') { x.keys = state.gbKeys.slice(); x.inv = !!state.gbInv; } state.extrasDirty = true; renderPlan(); }
 function renderGb() {
   if (!$('gbList')) return;
   const xs = (state.extras || []).map((x, i) => [x, i]).filter(([x]) => x.kind === 'gb');
@@ -1747,7 +1772,50 @@ $('fileGb').onchange = async (e) => {
   renderGb();
 };
 $('gbInv').onchange = () => { gbKeysNow(); state.gbInv = $('gbInv').checked; gbKeysApply(); };
-$('btnGbKeysDef').onclick = () => { state.gbKeys = E.GB_KEYS_DEFAULT.slice(); state.gbInv = false; gbKeysApply(); renderGb(); };
+$('btnGbKeysDef').onclick = () => { state.gbKeys = E.GB_KEYS_DEFAULT.slice(); state.gbInv = true; gbKeysApply(); renderGb(); };
+/* 1.6.10 test2: tab Master System. As the Game Boy: the games go into the menu (SMSEmu, kind 'sms'); one key layout. */
+const SMS_BTNS = [[0, 'gbNone'], [16, 'smsB1'], [32, 'smsB2'], [64, 'smsPause'], [8, 'gbRight'], [4, 'gbLeft'], [1, 'gbUp'], [2, 'gbDown']];
+function smsKeysNow() { if (!state.smsKeys) { const x = (state.extras || []).find((y) => y.kind === 'sms' && y.keys && y.keys.length === 9); state.smsKeys = x ? x.keys.slice() : E.SMS_KEYS_DEFAULT.slice(); state.smsInv = x ? !!x.inv : true; } return state.smsKeys; }
+function smsKeysApply() { for (const x of state.extras || []) if (x.kind === 'sms') { x.keys = state.smsKeys.slice(); x.inv = !!state.smsInv; } state.extrasDirty = true; renderPlan(); }
+function renderSms() {
+  if (!$('smsList')) return;
+  const xs = (state.extras || []).map((x, i) => [x, i]).filter(([x]) => x.kind === 'sms');
+  const box = $('smsList'); box.innerHTML = '';
+  if (!xs.length) { const d = document.createElement('div'); d.className = 'hint'; d.textContent = t('gbNone2'); box.appendChild(d); }
+  for (const [x, i] of xs) {
+    const r = document.createElement('div'); r.className = 'dlcrow';
+    const n = document.createElement('span'); n.className = 'itemname'; n.textContent = E.extraName(x) + '  (' + (x.rom.length >> 10) + ' KB)';
+    const b = document.createElement('button'); b.className = 'btn small'; b.textContent = '×'; b.title = t('progDel');
+    b.onclick = () => { state.extras.splice(i, 1); state.extrasDirty = true; renderEmu(); };
+    r.append(n, b); box.appendChild(r);
+  }
+  if (xs.length && !menuWanted()) { const d = document.createElement('div'); d.className = 'hint'; d.textContent = t('appNeedMenu'); box.appendChild(d); }
+  const k = smsKeysNow(), g = $('smsKeyGrid'); g.innerHTML = '';
+  GB_INS.forEach((nm, i) => {
+    const l = document.createElement('label'); const sp = document.createElement('span'); sp.textContent = t(nm);
+    const sel = document.createElement('select');
+    for (const [v, tn] of SMS_BTNS) { const o = document.createElement('option'); o.value = String(v); o.textContent = t(tn); sel.appendChild(o); }
+    sel.value = String(SMS_BTNS.some(([v]) => v === k[i]) ? k[i] : 0);
+    sel.onchange = () => { state.smsKeys[i] = +sel.value; smsKeysApply(); renderSms(); };
+    l.append(sp, sel); g.appendChild(l);
+  });
+  $('smsInv').checked = !!state.smsInv;
+  const used = new Set(k.filter((v) => v)); const miss = [[16, t('smsB1')], [32, t('smsB2')]].filter(([v]) => !used.has(v)).map(([, n]) => n);
+  $('smsKeysStat').textContent = miss.length ? t('gbKeysMiss', { n: miss.join(', ') }) : '';
+}
+$('btnSms').onclick = () => { if (!state.ctx) { toast(t('gbNeedRom'), true); return; } $('fileSms').click(); };
+$('fileSms').onchange = async (e) => {
+  const files = [...e.target.files]; e.target.value = '';
+  for (const f of files) {
+    const g = new Uint8Array(await f.arrayBuffer());
+    if (E.smsGameGear(g)) { toast(t('smsGG', { f: f.name }), true); continue; }
+    if (!E.smsDetect(g, f.name)) { toast(t('smsBad', { f: f.name }), true); continue; }
+    await addExtra(g, f.name);
+  }
+  renderSms();
+};
+$('smsInv').onchange = () => { smsKeysNow(); state.smsInv = $('smsInv').checked; smsKeysApply(); };
+$('btnSmsKeysDef').onclick = () => { state.smsKeys = E.SMS_KEYS_DEFAULT.slice(); state.smsInv = true; smsKeysApply(); renderSms(); };
 /* 1.6.10 test1: tab Wolf3D. The user's game files become one pack (wolf.js) in the browser; Wolf3D goes into the menu
  * (kind 'wolf' in state.extras, only one). Keys like DOOM on the Paradise. */
 const W = window.ParamixWolf;
@@ -1978,6 +2046,18 @@ $('tamaOn').onchange = (e) => { state.tama = e.target.checked; renderFeld(); };
 
 /* Build the new ROM from the loaded one and everything chosen in the tabs.
    Returns { rom, name, res } or null (the reason is shown). same: nothing chosen. */
+/** test5: the flash of a further T18Emu that stays in place (its blocks, spares, program and save) */
+function keptT18Ranges(xs, rom) {
+  const r = [];
+  for (const x of xs) {
+    if (x.kind !== 't18' || x.keepOff === undefined) continue;
+    const c = E.t18Cfg(rom, x.keepOff); if (!c) continue;
+    for (const b of c.map.concat(c.spare)) if (b !== 0xFFFF) r.push([b << 16, (b + 1) << 16]);
+    r.push([x.keepOff, x.keepOff + 0x10000]);
+  }
+  return r;
+}
+const APPS_CLEAR_FIRST = true;
 async function composeRom() {
   const keysDirty = !state.doom && doomInstalled() && state.doomKeys && D.doomKeysGet(state.ctx.rom) && JSON.stringify(state.doomKeys) !== JSON.stringify(D.doomKeysGet(state.ctx.rom));
   const si0 = S6.sixInfo(state.ctx.rom), sixUp = !!si0 && (si0.version < S6.VERSION || !sixSame(si0)) && !S6.sixNeedsSource(state.ctx.rom);
@@ -2010,7 +2090,14 @@ async function composeRom() {
   if (state.texts && state.texts.size) { try { rom = C.textApply(rom, state.texts); } catch (e) { toast(t('tooBig', { e: em(e) }), true); return null; } }
   if (fe) rom = F.feldStrip(rom, { stub: fe.stub, oldStub: E.embedded() && E.embedded().stub }, E);
   // Emulator instead of installed DOOM: remove DOOM completely first (program part, WAD), then install the emulator
-  if (state.emu && doomInstalled() && !doomL) { try { rom = E.emuRemove(rom); } catch (e) { toast(t('emuFail', { e: em(e) }), true); return null; } }
+  // test5: a further T18Emu that stays where it is (start device) has blocks in the area the main program's removal
+  // empties (0x830000..0xD48000): they are put back; a new main program must not take them
+  // test6 APPS_CLEAR_FIRST: the further programs of the old ROM go before the main program is built in (they are
+  // placed again afterwards); before, a new main program (T18Emu needs 91 blocks) only saw the room they left
+  if (fe && APPS_CLEAR_FIRST) { const old = E.appsRead(state.ctx.rom, F.feldApps(state.ctx.rom, fe.stub).apps); if (old.length) rom = E.appsClear(rom, old.filter((o) => !extrasL.some((x) => x.kind === 't18' && x.keepOff === o.off))); }
+  const t18Keep = keptT18Ranges(extrasL, rom), t18Back = (r) => { for (const [a, b] of t18Keep) r.set(rom.subarray(a, b), a); return r; };
+  const romMain0 = rom;
+  if (state.emu && doomInstalled() && !doomL) { try { rom = t18Back(E.emuRemove(rom)); } catch (e) { toast(t('emuFail', { e: em(e) }), true); return null; } }
   if ((state.emu && !doomL) || state.emuRemove) {
     const emb = E.embedded();
     try {
@@ -2019,8 +2106,9 @@ async function composeRom() {
       else if (state.emu && state.emu.t7) { if (!emb || !E.t7Embedded()) throw new Error(t('emuMissing')); rom = E.t7Patch(rom, state.emu.rom, state.emu.figs, E.t7Embedded(), emb.stub, { lang }); }
       else if (state.emu && state.emu.t18) { if (!emb || !E.t18Embedded()) throw new Error(t('emuMissing')); rom = E.t18Patch(rom, state.emu.rom, E.t18Embedded(), emb.stub, { lang, launch: !!state.launch }).rom; }
       else if (state.emu) { if (!emb) throw new Error(t('emuMissing')); rom = E.emuPatch(rom, state.emu.guest, emb.app, emb.stub, { lang }).rom; }
-      else rom = E.emuRemove(rom);
+      else rom = t18Back(E.emuRemove(rom));
     } catch (e) { toast(t('emuFail', { e: em(e) }), true); return null; }
+    if (t18Keep.some(([a, b]) => rom.subarray(a, b).some((v, i) => v !== romMain0[a + i]))) { toast(t('emuFail', { e: t('t18Clash') }), true); return null; }
   }
   if (state.t7save && F.emuType(rom) === 't7' && !doomL) rom = SV.t7SaveIn(rom, state.t7save);
   if (state.saveIn && state.saveIn.key === 'm' && !doomL) {
@@ -2065,7 +2153,7 @@ async function composeRom() {
   if (S6.sixInfo(rom)) rom = S6.sixFix(rom);   // the archive may have moved: rain pictures point to 0xF00000
   // more emulators (1.6.0): the old blocks go, the list is placed again from the top of the emulator area
   let apps = [], appsLow = 0;
-  if (fe) { const old = E.appsRead(state.ctx.rom, F.feldApps(state.ctx.rom, fe.stub).apps); if (old.length) rom = E.appsClear(rom, old.filter((o) => !extrasL.some((x) => x.kind === 't18' && x.keepOff === o.off))); }   // test2: an installed T18Emu stays
+  if (fe && !APPS_CLEAR_FIRST) { const old = E.appsRead(state.ctx.rom, F.feldApps(state.ctx.rom, fe.stub).apps); if (old.length) rom = E.appsClear(rom, old.filter((o) => !extrasL.some((x) => x.kind === 't18' && x.keepOff === o.off))); }   // test2: an installed T18Emu stays
   let dl = 0;
   if (extrasL.length || state.launch) {
     if (!fe || !menuWanted()) { toast(t('appNeedMenu'), true); return null; }

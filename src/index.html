@@ -155,7 +155,7 @@ img, canvas { image-rendering: pixelated; }
 .chip.del { border-color: var(--warn); text-decoration: line-through; }
 .flash { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--line); }
 .seg { display: block; height: 100%; }
-.seg.fw, .dot.fw { background: #8a9bb8; } .seg.doom, .dot.doom { background: #d9480f; } .seg.emu, .dot.emu { background: var(--sky); } .seg.wolf, .dot.wolf { background: #6b8e23; }
+.seg.fw, .dot.fw { background: #8a9bb8; } .seg.doom, .dot.doom { background: #d9480f; } .seg.emu, .dot.emu { background: var(--sky); } .seg.wolf, .dot.wolf { background: #6b8e23; } .seg.gb, .dot.gb { background: #c9a227; } .seg.sms, .dot.sms { background: #0f8a7e; }
 .seg.slots, .dot.slots { background: var(--grass); } .seg.save, .dot.save { background: #b38be0; } .seg.free, .dot.free { background: transparent; }
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line); }
 .device { margin-bottom: 12px; }
@@ -222,6 +222,7 @@ select { border: 2px solid var(--line); border-radius: 10px; padding: 5px 8px; b
 .busy { position: fixed; inset: 0; z-index: 30; display: none; place-items: center; background: rgba(10, 20, 40, .25); }
 .busy.on { display: grid; }
 .busy div { background: var(--panel); padding: 16px 22px; border-radius: 14px; font-weight: 700; }
+.rule.warn { color: var(--warn); font-weight: 600; }
 footer { color: var(--soft); font-size: 12px; text-align: center; padding: 10px 16px 24px; }
 footer .legal { max-width: 760px; margin: 6px auto 0; }
 .devwarn { color: var(--warn); font-weight: 700; margin: 4px 0; }
@@ -340,6 +341,7 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <button class="tab" role="tab" data-tab="emu" aria-selected="false" data-t="tabEmu"></button>
       <button class="tab" role="tab" data-tab="doom" aria-selected="false" data-t="tabDoom"></button>
       <button class="tab" role="tab" data-tab="gb" aria-selected="false" data-t="tabGb"></button>
+      <button class="tab" role="tab" data-tab="sms" aria-selected="false" data-t="tabSms"></button>
       <button class="tab" role="tab" data-tab="wolf" aria-selected="false" data-t="tabWolf"></button>
       <button class="tab" role="tab" data-tab="feld" aria-selected="false" data-t="tabFeld"></button>
       <button class="tab" role="tab" data-tab="save" aria-selected="false" data-t="tabSave"></button>
@@ -440,6 +442,23 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
           <button class="btn small" id="btnGbKeysDef" data-t="gbKeysDef"></button>
         </div>
         <p class="hint" id="gbKeysStat"></p>
+      </div>
+    </div>
+    <div class="pane" id="pane-sms" hidden>
+      <div class="tools">
+        <button class="btn small" id="btnSms" data-t="smsPick"></button>
+        <input type="file" id="fileSms" hidden multiple accept=".sms,.SMS">
+        <span class="hint" data-t="smsHint"></span>
+      </div>
+      <div class="dlcbox" id="smsList"></div>
+      <div class="keys" id="smsKeys">
+        <h3 data-t="gbKeysTitle"></h3>
+        <div class="keygrid" id="smsKeyGrid"></div>
+        <div class="tools">
+          <label class="check"><input type="checkbox" id="smsInv"> <span data-t="kInv"></span></label>
+          <button class="btn small" id="btnSmsKeysDef" data-t="gbKeysDef"></button>
+        </div>
+        <p class="hint" id="smsKeysStat"></p>
       </div>
     </div>
     <div class="pane" id="pane-wolf" hidden>

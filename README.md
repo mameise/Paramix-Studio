@@ -385,6 +385,14 @@ per step to choose), wheel press doors and switches, hold C + wheel weapon, B tw
 holding the wheel for 2 s saves the game and goes back to the Paradise; "Continue" goes on at the next start.
 Game from Wolf4SDL (GPL), program and details: `wolf/`.
 
+### Master System (1.6.11)
+Tab "Master System": choose your own Sega Master System games (.sms; Game Gear games do not work). They go into the
+Paramix menu (switch the menu on in the tab "Menu"). The screen is shrunk from 256 x 192 to 128 x 96, nothing is cut
+off. The keys are set in the tab for all games (default: A left, C right, B button 1, wheel press button 2, wheel up
+and down, A+C Pause). On the device: A+B+C together opens the settings (with Pause and sound), holding the wheel for
+2 s saves and goes back. Battery saves of the games are kept. Sound: the buzzer plays the loudest tone channel.
+Own emulator (Z80, video chip, Sega mapper), program and details: `sms/`.
+
 ### Simulated visit for the Paradise itself (1.6.9)
 Under "Device" the Studio can play a second Paradise over the dongle, so one device is enough for a playdate.
 The Paradise runs its normal game (no flash app). "Connect" above is not needed for it.
@@ -623,12 +631,13 @@ Pages, Source "GitHub Actions" publishes the page as a website as well.
 | `doom/` | DOOM for the Paradise and the WAD converter (WebAssembly), with source in `doom/src` |
 | `feld/` | the on-device menu (field switch, items, Tamapoints), with source in `feld/src` |
 | `gb/` | GBEmu, the Game Boy emulator program for the Paradise (core Peanut-GB), with source in `gb/src` |
+| `sms/` | SMSEmu, the Master System emulator program for the Paradise, with source in `sms/src` |
 | `six/` | helper code for six fields on Tropical/Glacier, with source in `six/src` |
 | `flash/` | the flash app loaded for reading and writing over UART, with source in `flash/src` |
 | `test/` | tests (`visit_test.js`: the simulated visit with a test key) |
 
 Every shipped binary (`emu/emu.bin`, `t7/t7.bin`, `t18/t18.bin`, `emu/stub_tpl.bin`, `doom/*.bin`,
-`doom/mcuwad.wasm`, `gb/gb.bin`, `feld/*.bin`, `six/six.bin`, `flash/flashapp.bin`) is built from the source
+`doom/mcuwad.wasm`, `gb/gb.bin`, `sms/sms.bin`, `v1/v1.bin`, `v3/v3.bin`, `wolf/wolf.bin`, `feld/*.bin`, `six/six.bin`, `flash/flashapp.bin`) is built from the source
 next to it; the build commands are in the README of each folder.
 
 ## Credits and license

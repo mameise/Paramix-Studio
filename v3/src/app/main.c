@@ -475,7 +475,7 @@ void Reset_Handler(void)
   __asm__ volatile("cpsid i");
   u32 cnt = REG(0x45000304u), para = para_clock(cnt, 0, 0x1F000u, 0, 0);
   if (!para) para = para_mailbox(cnt);
-#ifdef PARA_FLASH
+#if defined(PARA_FLASH) && !defined(PARA_FLASH_LATE)
   if (!para) para = para_flash(cnt);   /* 1.6.9 test37 */
 #endif
 #ifdef PARA_BACK
@@ -491,6 +491,10 @@ void Reset_Handler(void)
 #endif
   hw_init();
   hw_tone(0);
+#if defined(V3_CLOCK) && defined(PARA_FLASH_LATE)
+  /* 1.6.10 test2: neither SRAM nor mailbox: the base in the Paradise's settings page (readable only after hw_init) */
+  if (!g_para_time) { u32 c2 = REG(0x45000304u), t2 = para_flash(c2); if (t2) { g_para_time = t2; g_para_cnt = c2; para_mailbox_put(t2, c2); } }
+#endif
   XIP_BASE_REG = 0x60000000u | g_cfg.rom_off;     /* the ROM in the cached window from 0x10000000 */
   XIP_CTRL_REG = 3u;
   v3_init((const u8 *)0x10000000u, g_cfg.rom_len);

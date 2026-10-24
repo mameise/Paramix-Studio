@@ -555,7 +555,7 @@ function keepPlan(F, E, menu, opts = {}) {
           if (sameFw) ranges.push([so, so + 0x50000], [(gOff + gLen + 0xFFF) & ~0xFFF, se]); else notes.push(note('noteEmu'));
           continue;
         }
-        if (mag === 0x47584D50) {   // GBEmu (1.6.9 test36): settings and cartridge RAM stay with the same game at the same place
+        if (mag === 0x47584D50 || mag === 0x53584D50) {   // GBEmu (1.6.9 test36), SMSEmu (1.6.10 test2): settings and cartridge RAM stay with the same game at the same place
           const sameG = [0x140, 0x148, 0x14C, 0x150].every((k) => u32(dv, k) === u32(img, off + k));
           const ro = u32(img, off + 0x148), rl = u32(img, off + 0x14C), so = u32(img, off + 0x150);
           let sameRom = sameG; for (let x = ro & ~0xFFF; sameRom && x < ro + rl; x += SECTOR) if (changed.has(x)) sameRom = false;

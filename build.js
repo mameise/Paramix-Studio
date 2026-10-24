@@ -29,6 +29,10 @@ if (!fs.existsSync(eb) || !fs.existsSync(es)) throw new Error('emu/emu.bin oder 
   const gbb = __dirname + '/gb/gb.bin';
   if (!fs.existsSync(gbb)) throw new Error('gb/gb.bin fehlt');
   emu = emu.replace('__GB_APP_B64__', fs.readFileSync(gbb).toString('base64'));
+  // SMSEmu (1.6.10 test2): Master System program (source in sms/src). No ROM.
+  const smb = __dirname + '/sms/sms.bin';
+  if (!fs.existsSync(smb)) throw new Error('sms/sms.bin fehlt');
+  emu = emu.replace('__SMS_APP_B64__', fs.readFileSync(smb).toString('base64'));
   // Wolf3D (1.6.10 test1): program (source in wolf/src, Wolf4SDL by id Software and others, GPL). No game data.
   const wb = __dirname + '/wolf/wolf.bin';
   if (!fs.existsSync(wb)) throw new Error('wolf/wolf.bin fehlt');
