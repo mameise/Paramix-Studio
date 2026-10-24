@@ -155,7 +155,7 @@ img, canvas { image-rendering: pixelated; }
 .chip.del { border-color: var(--warn); text-decoration: line-through; }
 .flash { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--line); }
 .seg { display: block; height: 100%; }
-.seg.fw, .dot.fw { background: #8a9bb8; } .seg.doom, .dot.doom { background: #d9480f; } .seg.emu, .dot.emu { background: var(--sky); }
+.seg.fw, .dot.fw { background: #8a9bb8; } .seg.doom, .dot.doom { background: #d9480f; } .seg.emu, .dot.emu { background: var(--sky); } .seg.wolf, .dot.wolf { background: #6b8e23; }
 .seg.slots, .dot.slots { background: var(--grass); } .seg.save, .dot.save { background: #b38be0; } .seg.free, .dot.free { background: transparent; }
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line); }
 .device { margin-bottom: 12px; }
@@ -340,6 +340,7 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <button class="tab" role="tab" data-tab="emu" aria-selected="false" data-t="tabEmu"></button>
       <button class="tab" role="tab" data-tab="doom" aria-selected="false" data-t="tabDoom"></button>
       <button class="tab" role="tab" data-tab="gb" aria-selected="false" data-t="tabGb"></button>
+      <button class="tab" role="tab" data-tab="wolf" aria-selected="false" data-t="tabWolf"></button>
       <button class="tab" role="tab" data-tab="feld" aria-selected="false" data-t="tabFeld"></button>
       <button class="tab" role="tab" data-tab="save" aria-selected="false" data-t="tabSave"></button>
     </div>
@@ -439,6 +440,32 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
           <button class="btn small" id="btnGbKeysDef" data-t="gbKeysDef"></button>
         </div>
         <p class="hint" id="gbKeysStat"></p>
+      </div>
+    </div>
+    <div class="pane" id="pane-wolf" hidden>
+      <div class="tools">
+        <button class="btn small" id="btnWolf" data-t="wolfPick"></button>
+        <input type="file" id="fileWolf" hidden multiple accept=".wl1,.wl6,.WL1,.WL6">
+        <span class="hint" data-t="wolfHint"></span>
+      </div>
+      <div class="dlcbox" id="wolfList"></div>
+      <div class="keys" id="wolfKeys">
+        <h3 data-t="keysTitle"></h3>
+        <div class="keygrid">
+          <label><span data-t="kFire"></span><select id="wkFire"></select></label>
+          <label><span data-t="kFwd"></span><select id="wkFwd"></select></label>
+          <label><span data-t="kBack"></span><select id="wkBack"></select></label>
+          <label><span data-t="kUse"></span><select id="wkUse"></select></label>
+          <label><span data-t="kMod"></span><select id="wkMod"></select></label>
+          <label><span data-t="wolfTurn"></span><select id="wkTurn"></select></label>
+        </div>
+        <div class="tools">
+          <label class="check"><input type="checkbox" id="wkRun"> <span data-t="kRun"></span></label>
+          <label class="check"><input type="checkbox" id="wkInv"> <span data-t="kInv"></span></label>
+          <button class="btn small" id="btnWolfKeysDef" data-t="gbKeysDef"></button>
+        </div>
+        <p class="hint" data-t="wolfFixed"></p>
+        <p class="hint" id="wolfKeysStat"></p>
       </div>
     </div>
     <div class="pane" id="pane-names" hidden>
@@ -569,6 +596,9 @@ __SAVES__
 </script>
 <script>
 __VISIT__
+</script>
+<script>
+__WOLF__
 </script>
 <script>
 __APP__

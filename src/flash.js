@@ -562,6 +562,13 @@ function keepPlan(F, E, menu, opts = {}) {
           if (sameRom) ranges.push([so, so + 0x9000]); else notes.push(note('noteEmu'));
           continue;
         }
+        if (mag === 0x57584D50) {   // Wolf3D (1.6.10 test1): settings and the saved game stay with the same pack at the same place
+          const sameW = [0x140, 0x148, 0x14C, 0x150].every((k) => u32(dv, k) === u32(img, off + k));
+          const ro = u32(img, off + 0x148), rl = u32(img, off + 0x14C), so = u32(img, off + 0x150);
+          let samePack = sameW; for (let x = ro & ~0xFFF; samePack && x < ro + rl; x += SECTOR) if (changed.has(x)) samePack = false;
+          if (samePack) ranges.push([so, so + 0x10000]); else notes.push(note('noteEmu'));
+          continue;
+        }
         if (mag === 0x31584D50) {   // V1Emu (1.6.8): the session stays with the same ROM at the same place
           const sameV = [0x140, 0x148, 0x14C, 0x150].every((k) => u32(dv, k) === u32(img, off + k));
           const ro = u32(img, off + 0x148), rl = u32(img, off + 0x14C), so = u32(img, off + 0x150);

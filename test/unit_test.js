@@ -202,6 +202,9 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
   const rg = new Uint8Array(rec); rg[0x4E] = 0x94; rg[0x50] = 0x5B; rg[0x51] = 0x01; let sg = 0; for (let i = 0; i < 0xFE; i++) sg += rg[i]; rg[0xFE] = sg >> 8 & 255; rg[0xFF] = sg & 255;
   ok(E.dlcRoute(E.dlcRecord(rg, 'ps'), 'ps').base === 0x710000 && E.dlcRoute(rg, '4u').base === 0x710000, 'dlc P\'s and 4U: game store');
 }).then(() => {
+  // 1.6.10 test1: the Wolf3D pack from made-up files (test/wolf_test.js)
+  const r = require('child_process').spawnSync(process.execPath, [__dirname + '/wolf_test.js'], { encoding: 'utf8' });
+  ok(r.status === 0, 'Wolf3D pack (wolf_test.js)' + (r.status ? ': ' + r.stdout.split('\n').filter((l) => l.startsWith('FAIL')).join('; ') : ''));
   console.log(fails ? fails + ' failed' : 'all good');
   process.exit(fails ? 1 : 0);
 });

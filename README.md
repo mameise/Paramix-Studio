@@ -375,6 +375,16 @@ down, A+C Start). On the device: A+B+C together opens the settings (with Select 
 saves and goes back. Battery saves of the games are kept. Sound: the Paradise's buzzer plays one tone at a time (the
 melody or the effect). Program and details: `gb/`.
 
+### Wolfenstein 3D (1.6.10)
+Tab "Wolf3D": choose all files of your own Wolfenstein 3D together, the shareware (.WL1, episode 1) or the full
+version (.WL6, six episodes), version 1.4. The Studio builds one data pack from them in the browser (nothing is sent
+anywhere) and the game goes into the Paramix menu (switch the menu on in the tab "Menu"). Screen: the view 128 x 96,
+below a status bar with face, health, ammo, keys, weapon, floor, lives and score. Sound: the game's PC speaker sounds
+on the buzzer (no music). Keys as DOOM on the Paradise, set in the tab: A fire, B forward, C back, wheel turns (degrees
+per step to choose), wheel press doors and switches, hold C + wheel weapon, B twice quickly run. Fixed: A+C menu,
+holding the wheel for 2 s saves the game and goes back to the Paradise; "Continue" goes on at the next start.
+Game from Wolf4SDL (GPL), program and details: `wolf/`.
+
 ### Simulated visit for the Paradise itself (1.6.9)
 Under "Device" the Studio can play a second Paradise over the dongle, so one device is enough for a playdate.
 The Paradise runs its normal game (no flash app). "Connect" above is not needed for it.

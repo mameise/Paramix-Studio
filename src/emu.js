@@ -504,6 +504,27 @@ function gbCfgWrite(a, c, x, romOff, saveOff, flags) {
   const nm = gbTitle(x.rom); a.fill(0, c + 24, c + 40); for (let i = 0; i < nm.length && i < 15; i++) a[c + 24 + i] = nm.charCodeAt(i);
   const k = (x.keys && x.keys.length === 9) ? x.keys : GB_KEYS_DEFAULT; a.fill(0, c + 40, c + 52); k.forEach((v, i) => { a[c + 40 + i] = v & 255; });
 }
+/* 1.6.10 test1 Wolfenstein 3D (Wolf4SDL, GPL): the data pack (wolf.js, built in the browser from the user's game
+ * files) first, then the program (128 KB: the PRAM part and the part it copies to RAM itself), then the save (64 KB:
+ * 4 KB settings, the saved game). Settings block "PMXW" at 0x140: magic, version, pack, its length, save, flags
+ * (bit 0 English, bit 1 wheel the other way round), name (16), keys fire, forward, back, use, hold key (masks A 1,
+ * B 2, C 4, wheel press 8), run with forward twice, degrees per wheel step, 0, then the program's own place. */
+const WOLF_APP_B64 = '__WOLF_APP_B64__';
+function wolfEmbedded() { return WOLF_APP_B64.startsWith('__') ? null : b64(WOLF_APP_B64); }
+const WOLF_MAGIC = 0x57584D50;   // "PMXW"
+const WOLF_KEYS_DEFAULT = { fire: 1, fwd: 2, back: 4, use: 8, mod: 4, run: true, invert: false, turn: 15 };
+function wolfPackOk(p) { return !!p && p.length > 64 && p[0] === 0x57 && p[1] === 0x33 && p[2] === 0x44 && p[3] === 0x50; }
+function wolfInfo(p) { return wolfPackOk(p) ? { shareware: !!(u32(p, 8) & 1), episodes: u32(p, 60), maps: u32(p, 28) } : null; }
+function wolfCfgWrite(a, c, x, packOff, saveOff, progOff, flags) {
+  const k = Object.assign({}, WOLF_KEYS_DEFAULT, x.keys || {});
+  w32(a, c + 4, 1); w32(a, c + 8, packOff); w32(a, c + 12, x.pack.length); w32(a, c + 16, saveOff); w32(a, c + 20, (flags & 1) | (k.invert ? 2 : 0));
+  const nm = 'WOLFENSTEIN 3D'; a.fill(0, c + 24, c + 40); for (let i = 0; i < nm.length; i++) a[c + 24 + i] = nm.charCodeAt(i);
+  a[c + 40] = k.fire; a[c + 41] = k.fwd; a[c + 42] = k.back; a[c + 43] = k.use; a[c + 44] = k.mod; a[c + 45] = k.run ? 1 : 0; a[c + 46] = k.turn; a[c + 47] = 0;
+  w32(a, c + 48, progOff);
+}
+function wolfKeysRead(rom, c) {
+  return { fire: rom[c + 40], fwd: rom[c + 41], back: rom[c + 42], use: rom[c + 43], mod: rom[c + 44], run: !!rom[c + 45], invert: !!(u32(rom, c + 20) & 2), turn: rom[c + 46] || 15 };
+}
 const V3_APP_B64 = '__V3_APP_B64__';
 function v3Embedded() { return V3_APP_B64.startsWith('__') ? null : b64(V3_APP_B64); }
 /** ROM of the Connection V3: 512 KB, the 6502 vectors (NMI, reset, IRQ) at 0x7FFA in the top half of the address space */
@@ -1175,13 +1196,14 @@ function tamaName(guest, dev) {
   if (dev === 'idl' && guest && guest.length >= 0x400004) { const n = IDL_NAMES[u32(guest, 0x400000)]; if (n) return n; }
   return TX_NAMES[dev] || 'TAMAEMU';
 }
-function extraName(x) { const k = extraKind(x); return k === 'tama' ? tamaName(x.guest, x.dev) : k === 't18' ? 'TAMA MEETS' : k === 'v1' ? v1Name(x.rom) : k === 'gb' ? gbTitle(x.rom) : t7XName(x.rom); }
+function extraName(x) { const k = extraKind(x); return k === 'tama' ? tamaName(x.guest, x.dev) : k === 't18' ? 'TAMA MEETS' : k === 'v1' ? v1Name(x.rom) : k === 'gb' ? gbTitle(x.rom) : k === 'wolf' ? 'WOLFENSTEIN 3D' : t7XName(x.rom); }
 /** Rough flash use of an extra (for the overview) */
 function extraSize(x) {
   const k = extraKind(x);
   if (k === 'tama') { try { return packGuest(x.guest, x.dev).blob.length + TX_SPARE + 0x10000 + TX_STATE; } catch (e) { return 0; } }
   if (k === 'v1') return v3Detect(x.rom) ? 0x92000 : 0x12000 + x.rom.length;
   if (k === 'gb') return ((x.rom.length + 0xFFFF) & ~0xFFFF) + 0x20000;
+  if (k === 'wolf') return ((x.pack.length + 0xFFFF) & ~0xFFFF) + 0x30000;
   if (k === 't18') { let n = 0; for (let i = 0; i < 128; i++) if (!isFF(x.fw, i << 16, 0x10000)) n++; return (n + T18_SPARE_WANT) * 0x10000 + 0x10000 + T18X_SAVE; }
   return 0x20000 + ((x.rom.length + 0xFFFF) & ~0xFFFF) + (x.figs || []).reduce((n, f) => n + ((f.data.length + 0xFFF) & ~0xFFF), 0);
 }
@@ -1230,7 +1252,7 @@ function appsPlace(rom, extras, app, opts = {}) {
     // 1.6.8: clock and NFC per program (x.clock / x.nfc), otherwise the common setting
     const clk = x.clock !== undefined ? x.clock !== false : opts.clock !== false, nfc = x.nfc !== undefined ? x.nfc !== false : opts.nfc !== false;
     const flags = (opts.lang === 'en' ? 1 : 0) | (clk ? 2 : 0) | (nfc ? 0 : 4) | optBits(x.opt);
-    if (k !== 't7' && k !== 'v1' && k !== 'gb' && !opts.launch) throw new Error(name + ': only in a start device');
+    if (k !== 't7' && k !== 'v1' && k !== 'gb' && k !== 'wolf' && !opts.launch) throw new Error(name + ': only in a start device');
     if (k === 't7') {
       if (!t7Detect(x.rom)) throw new Error('not a V7 ROM');
       if (!apps.t7) throw new Error('T7Emu missing');
@@ -1265,6 +1287,23 @@ function appsPlace(rom, extras, app, opts = {}) {
       out.set(a, po);
       if (x.save && x.save.length) { const sv = new Uint8Array(0x10000).fill(0xFF); sv.set(x.save.subarray(0, 0x10000)); out.set(sv, po + 0x10000); }
       else out.fill(0xFF, po + 0x10000, po + 0x20000);
+      list.push({ src: xip(po), name, off: po });
+      res.push([at, at + size]); if (!pl.hi) top = Math.min(top, at);
+    } else if (k === 'wolf') {
+      // 1.6.10 test1 Wolf3D: the pack first (64 KB aligned, the base of the cached window), then the program (128 KB), the save
+      const w = apps.wolf || wolfEmbedded(); if (!w) throw new Error('Wolf3D program missing');
+      if (!wolfPackOk(x.pack)) throw new Error('Wolf3D data missing');
+      if (w.length > 0x20000) throw new Error('Wolf3D program too big');
+      const pa = (x.pack.length + 0xFFFF) & ~0xFFFF, size = pa + 0x30000, pl = place(size, 0x10000), at = pl.at;
+      if (at < 0) throw noRoom(xi);
+      const a = new Uint8Array(0x20000).fill(0xFF); a.set(w);
+      const c = 0x140, po = at + pa;
+      if (u32(a, c) !== WOLF_MAGIC) throw new Error('settings block missing in the program');
+      wolfCfgWrite(a, c, x, at, po + 0x20000, po, flags);
+      out.fill(0xFF, at, at + pa); out.set(x.pack, at);
+      out.set(a, po);
+      if (x.save && x.save.length) { const sv = new Uint8Array(0x10000).fill(0xFF); sv.set(x.save.subarray(0, 0x10000)); out.set(sv, po + 0x20000); }
+      else out.fill(0xFF, po + 0x20000, po + 0x30000);
       list.push({ src: xip(po), name, off: po });
       res.push([at, at + size]); if (!pl.hi) top = Math.min(top, at);
     } else if (k === 'v1' && v3Detect(x.rom)) {
@@ -1385,6 +1424,7 @@ function extraCfg(rom, off) {
   if (m === T7_MAGIC) { const ro = u32(rom, off + 0x148), rl = u32(rom, off + 0x14C); return ro + rl <= rom.length ? { kind: 't7', romOff: ro, romLen: rl, saveOff: u32(rom, off + 0x150) } : null; }
   if (m === T18_MAGIC) return Object.assign({ kind: 't18' }, t18Cfg(rom, off));
   if (m === GB_MAGIC) { const ro = u32(rom, off + 0x148), rl = u32(rom, off + 0x14C); return ro + rl <= rom.length ? { kind: 'gb', romOff: ro, romLen: rl, saveOff: u32(rom, off + 0x150) } : null; }
+  if (m === WOLF_MAGIC) { const ro = u32(rom, off + 0x148), rl = u32(rom, off + 0x14C); return ro + rl <= rom.length ? { kind: 'wolf', romOff: ro, romLen: rl, saveOff: u32(rom, off + 0x150) } : null; }
   if (m === V1_MAGIC) { const ro = u32(rom, off + 0x148), rl = u32(rom, off + 0x14C); return ro + rl <= rom.length ? { kind: 'v1', romOff: ro, romLen: rl, saveOff: u32(rom, off + 0x150) } : null; }
   if (m === PMXC && u32(rom, off + 0x144) >= 3) {
     const gOff = u32(rom, off + 0x148), gLen = u32(rom, off + 0x14C), saveOff = u32(rom, off + 0x150), kind = u32(rom, off + 0x154);
@@ -1401,6 +1441,7 @@ function appsClear(rom, old) {
     if (c.kind === 't7') { let e = x.off + 0x20000 + ((c.romLen + 0xFFFF) & ~0xFFFF); const tc = t7Cfg(out, x.off); if (tc) for (const f of tc.figs) e = Math.max(e, (f.off + f.len + 0xFFF) & ~0xFFF); out.fill(0xFF, x.off, e); }
     else if (c.kind === 'v1') { out.fill(0xFF, x.off, x.off + 0x12000); out.fill(0xFF, c.romOff, c.romOff + ((c.romLen + 0xFFF) & ~0xFFF)); }   // 1.6.9: V3Emu has its ROM in front
     else if (c.kind === 'gb') { out.fill(0xFF, c.romOff, c.saveOff + 0x10000); }
+    else if (c.kind === 'wolf') { out.fill(0xFF, c.romOff, c.saveOff + 0x10000); }
     else if (c.kind === 'tama') { out.fill(0xFF, c.guestOff, c.spareEnd); out.fill(0xFF, x.off, x.off + 0x10000 + TX_STATE); }
     else if (c.kind === 't18') {
       for (const b of c.map.concat(c.spare)) if (b !== 0xFFFF) out.fill(0xFF, b << 16, (b + 1) << 16);
@@ -1421,6 +1462,7 @@ function appsRead(rom, apps) {
     if (c.kind === 't7') { const tc = t7Cfg(rom, off); out.push({ rom: rom.slice(c.romOff, c.romOff + c.romLen), figs: tc ? tc.figs.map((f) => ({ name: f.name, data: rom.slice(f.off, f.off + f.len) })) : [], name: e.name, off, saveOff: c.saveOff, clock: !tc || !!(tc.flags & 2) }); }
     else if (c.kind === 'v1') out.push({ kind: 'v1', rom: rom.slice(c.romOff, c.romOff + c.romLen), name: e.name, off, saveOff: c.saveOff, clock: (u32(rom, off + 0x140 + 20) & 16) ? !!(u32(rom, off + 0x140 + 20) & 2) : true });   // bit 4: the clock bit is meant (test26..28 lost it): else on
     else if (c.kind === 'gb') out.push({ kind: 'gb', rom: rom.slice(c.romOff, c.romOff + c.romLen), name: e.name, off, saveOff: c.saveOff, keys: Array.from(rom.subarray(off + 0x140 + 40, off + 0x140 + 49)), inv: !!(u32(rom, off + 0x140 + 20) & 2), save: rom.slice(c.saveOff, c.saveOff + 0x10000) });
+    else if (c.kind === 'wolf') out.push({ kind: 'wolf', pack: rom.slice(c.romOff, c.romOff + c.romLen), name: e.name, off, saveOff: c.saveOff, keys: wolfKeysRead(rom, off + 0x140), save: rom.slice(c.saveOff, c.saveOff + 0x10000) });
     else if (c.kind === 'tama') {
       const g = new Uint8Array(DEVICES[c.dev].size).fill(0xFF);
       for (let b = 0; b < (g.length >> 16); b++) { let k = c.map[b]; if (k === 0xFF) continue; if (k === 0xFE) k = b; g.set(rom.subarray(c.guestOff + (k << 16), c.guestOff + (k << 16) + 0x10000), b << 16); }
@@ -1483,6 +1525,6 @@ function embedded() {
   return { app: b64(EMU_APP_B64), stub: b64(EMU_STUB_B64) };
 }
 
-root.ParamixEmu = { gbEmbedded, gbDetect, gbColorOnly, gbTitle, GB_MAGIC, GB_KEYS_DEFAULT, emuOptGet, emuOptSet, v1Embedded, v3Embedded, v3Detect, v1Detect, v1Name, v1Clock, v1Patch, v1FromRom, v1Upgrade, V1_MAGIC, installApp, dlcStores, dlcRoute, dlcAdd, dlcFree, dlcSlots, dlcRecord, dlcPut, dlcName, emuDetect, sceneTable, packGuest, emuPatch, emuUpgrade, emuRemove, t7Embedded, t7Detect, t7Kind, appsPlace, appsRead, appsClear, appReserved, extraKind, extraName, extraSize, extraCfg, t7XName, T7X_SAVE, APPX_MAX, t7FigDetect, t7FigData, t7FigName, t7Cfg, t7FromRom, t7Room, t7Patch, t7Upgrade, t7Wall, T7_MAGIC, t18Embedded, t18Detect, t18FromRom, t18Items, t18ItemAdd, t18ItemDel, t18ItemCount, t18RoomReset, t18Points, t18iScan, t18RomWriteGuest, T18_ADULTS, t18AdultFind, t18PicMake, t18PicsWrite, t18PicsRead, t18PicRgba, t18Addrs, t18Cfg, t18Free, t18Low, t18Patch, t18Upgrade, t18Wall, t18ClockGet, t18ClockSet, emuClockGet, emuClockSet, tamaName, emuNfcGet, emuNfcSet, T18_MAGIC, T18_XIP_OFF, T18_SAVE_LEN, OPT_LV, autoGet, autoGetOld, autoSet, STUB_OFF, installedOrigs, embedded, DEVICES, GUEST_OFF, BIG_OFF };
+root.ParamixEmu = { wolfEmbedded, wolfInfo, wolfPackOk, WOLF_MAGIC, WOLF_KEYS_DEFAULT, gbEmbedded, gbDetect, gbColorOnly, gbTitle, GB_MAGIC, GB_KEYS_DEFAULT, emuOptGet, emuOptSet, v1Embedded, v3Embedded, v3Detect, v1Detect, v1Name, v1Clock, v1Patch, v1FromRom, v1Upgrade, V1_MAGIC, installApp, dlcStores, dlcRoute, dlcAdd, dlcFree, dlcSlots, dlcRecord, dlcPut, dlcName, emuDetect, sceneTable, packGuest, emuPatch, emuUpgrade, emuRemove, t7Embedded, t7Detect, t7Kind, appsPlace, appsRead, appsClear, appReserved, extraKind, extraName, extraSize, extraCfg, t7XName, T7X_SAVE, APPX_MAX, t7FigDetect, t7FigData, t7FigName, t7Cfg, t7FromRom, t7Room, t7Patch, t7Upgrade, t7Wall, T7_MAGIC, t18Embedded, t18Detect, t18FromRom, t18Items, t18ItemAdd, t18ItemDel, t18ItemCount, t18RoomReset, t18Points, t18iScan, t18RomWriteGuest, T18_ADULTS, t18AdultFind, t18PicMake, t18PicsWrite, t18PicsRead, t18PicRgba, t18Addrs, t18Cfg, t18Free, t18Low, t18Patch, t18Upgrade, t18Wall, t18ClockGet, t18ClockSet, emuClockGet, emuClockSet, tamaName, emuNfcGet, emuNfcSet, T18_MAGIC, T18_XIP_OFF, T18_SAVE_LEN, OPT_LV, autoGet, autoGetOld, autoSet, STUB_OFF, installedOrigs, embedded, DEVICES, GUEST_OFF, BIG_OFF };
 if (typeof module !== 'undefined') module.exports = root.ParamixEmu;
 })(typeof window !== 'undefined' ? window : globalThis);

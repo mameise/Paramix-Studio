@@ -16,6 +16,7 @@
 !v1/v1.bin
 !v3/v3.bin
 !gb/gb.bin
+!wolf/wolf.bin
 *.wad
 *.WAD
 *.jpg
@@ -34,3 +35,6 @@ node_modules/
 __pycache__/
 .DS_Store
 Thumbs.db
+
+wolf/src/host/wolfhost
+wolf/src/dev/obj/

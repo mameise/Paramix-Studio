@@ -29,6 +29,10 @@ if (!fs.existsSync(eb) || !fs.existsSync(es)) throw new Error('emu/emu.bin oder 
   const gbb = __dirname + '/gb/gb.bin';
   if (!fs.existsSync(gbb)) throw new Error('gb/gb.bin fehlt');
   emu = emu.replace('__GB_APP_B64__', fs.readFileSync(gbb).toString('base64'));
+  // Wolf3D (1.6.10 test1): program (source in wolf/src, Wolf4SDL by id Software and others, GPL). No game data.
+  const wb = __dirname + '/wolf/wolf.bin';
+  if (!fs.existsSync(wb)) throw new Error('wolf/wolf.bin fehlt');
+  emu = emu.replace('__WOLF_APP_B64__', fs.readFileSync(wb).toString('base64'));
   // T18Emu: TG18 program (source in t18/src). No firmware.
   const t18 = __dirname + '/t18/t18.bin';
   if (!fs.existsSync(t18)) throw new Error('t18/t18.bin fehlt');
@@ -74,6 +78,9 @@ let flash = fs.readFileSync(__dirname + '/src/flash.js', 'utf8');
 }
 const saves = fs.readFileSync(__dirname + '/src/saves.js', 'utf8');
 const visit = fs.readFileSync(__dirname + '/src/visit.js', 'utf8');
+const wolf = fs.readFileSync(__dirname + '/src/wolf.js', 'utf8');
+if (wolf.includes('</script')) throw new Error('script end tag inside source');
+new (require('vm').Script)(wolf, { filename: 'wolf.js' });
 if (visit.includes('</script')) throw new Error('script end tag inside source');
 new (require('vm').Script)(visit, { filename: 'visit.js' });
 if (saves.includes('</script')) throw new Error('script end tag inside source');
@@ -81,7 +88,7 @@ if (flash.includes('</script')) throw new Error('script end tag inside source');
 if (feld.includes('</script')) throw new Error('script end tag inside source');
 if (doom.includes('</script')) throw new Error('script end tag inside source');
 if (core.includes('</script') || app.includes('</script') || emu.includes('</script')) throw new Error('script end tag inside source');
-html = html.replace('__CORE__', () => core).replace('__EMU__', () => emu).replace('__DOOM__', () => doom).replace('__FELD__', () => feld).replace('__SIX__', () => six).replace('__FLASH__', () => flash).replace('__SAVES__', () => saves).replace('__VISIT__', () => visit).replace('__APP__', () => app).split('__VERSION__').join('v' + v);
+html = html.replace('__CORE__', () => core).replace('__EMU__', () => emu).replace('__DOOM__', () => doom).replace('__FELD__', () => feld).replace('__SIX__', () => six).replace('__FLASH__', () => flash).replace('__SAVES__', () => saves).replace('__VISIT__', () => visit).replace('__WOLF__', () => wolf).replace('__APP__', () => app).split('__VERSION__').join('v' + v);
 fs.mkdirSync(__dirname + '/dist', { recursive: true });
 fs.writeFileSync(__dirname + '/dist/ParamixStudio.html', html);
 fs.writeFileSync(__dirname + '/dist/index.html', html);

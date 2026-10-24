@@ -104,6 +104,20 @@ brings their own WAD; the Studio converts it in the browser.
   repository under the GNU GPL version 3.
 - No Game Boy game is in this repository.
 
+## Wolfenstein 3D (`wolf/`)
+
+- **Wolf4SDL** by Moritz "Ripper" Kroll and others, maintained by KS-Presto,
+  https://github.com/KS-Presto/Wolf4SDL (commit dc8b250), based on the
+  Wolfenstein 3D source code by **id Software** (1992). Wolf4SDL offers the
+  original source license (`wolf/src/w4/license-id.txt`) or the **GNU GPL
+  version 2 or later** (`wolf/src/w4/license-gpl.txt`); used here under the GPL.
+  John Carmack confirmed the GPL relicensing of the Wolfenstein 3D source.
+  The OPL emulators of Wolf4SDL (MAME license) are not used.
+- Taken: the game parts (`wolf/src/w4`, changes marked `PARAMIX`). New for the
+  Paradise (`wolf/src/pmx`, `wolf/src/dev`, `src/wolf.js`) by mameise; with the
+  rest of this repository under the GNU GPL version 3.
+- No game data of Wolfenstein 3D (maps, graphics, sounds) is in this repository.
+
 ## Formats and protocols
 
 - File formats of the Paradise flash (archive, sprites, scenes):
