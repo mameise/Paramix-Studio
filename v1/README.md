@@ -29,3 +29,26 @@ Build: `sh src/app/build.sh` (clang, ld.lld) -> `v1.bin`.
 
 Studio: `src/emu.js` (`v1Detect`, `v1Name`, `appsPlace` kind `v1`: program, session, settings, ROM at
 +0x12000, 4 KB aligned, preferably behind the Paradise's save from 0xF00000).
+
+- 1.6.8-test3 V1_CLK_CHECK: 2.5 s after the start (and after the clock was set by keys) hours and minutes of the toy are compared
+  with the Paradise's time; off by more than a minute: written again, three times at most. Bernd saw a resumed P2 with its old time.
+
+## Digimon battles between two Paradise (V1_LINK, 1.6.9)
+
+The Digimon talks over P20 (0xF62 bit 0) with IO_CTRL 0xF7D bit 2 as direction (output when set), open drain with
+pull-up: send at 0x0B06 (pre-low about 60 ms, start bit, 16 bits as in dmcomm's "V" timings), receive at 0x0B5B
+(only when the line is low at a main loop pass, about every 25 ms), both called from the main loop at 0x013E while
+the mode is 5/2 (RAM 0x09/0x0A). tamalib had no P ports: a read of 0xF62 gave 0 (line low). Now `cpu.c` gives the
+line as low when this toy drives it or the other one does (`v1_link_in`), and passes each change of its own drive
+with the CPU's time (`ref_ts`, cycles; the pacing time `g_vt` runs ahead when the CPU halts) to `v1_link_out`.
+`main.c` sends the edges as 'D' frames (level, time) over the contacts (`../emu/src/emu/plink.h`); the other side
+plays them back at their time plus an offset, set at the first edge after 30 ms quiet to now + 20 ms. The lengths
+of the pulses stay exact, the transport only shifts them.
+
+Checked on the PC (host runner with two cores and edges in lockstep): the packet of one toy has the dmcomm V timings
+(60 ms low, start 2.0/0.9 ms, bits 1.0/3.3 and 2.7/1.7 ms), the other one receives it and answers. With the test
+state (Botamon, mode set by hand) both end in リトライ; a real battle (two rookies) is not checked yet.
+
+V1_REGB: `cpu_v1_save`/`cpu_v1_load` named their buffer `b` like register B: the session kept the buffer's address
+instead of B, and loading set the pointer from it (same address on the Paradise, so it went unnoticed; B was 0
+after a resume). Now B is kept in the same 4 bytes; an older session (an address there) leaves B at 0 as before.

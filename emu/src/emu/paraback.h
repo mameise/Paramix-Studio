@@ -57,7 +57,13 @@ __attribute__((noinline, unused, minsize)) PB_ATTR static int para_back_fix(uint
   volatile uint32_t *m = PB_MB;
   if (m[0] != PB_MAGIC || m[3] != ~m[1] || !m[1]) return 0;
   uint32_t gap = PB_CNT - m[2], now = m[1] + gap;
+#ifdef PARA_MB_KEEP
+  /* test29: the time stays in the mailbox, moved to now. A start device goes back to the menu, not to the
+   * Paradise: the SRAM then holds no Paradise clock, and the next program started without a time. */
+  m[1] = now; m[2] = PB_CNT; m[3] = ~now;
+#else
   m[0] = 0;
+#endif
   if (gap < 60u || gap > 400u * 86400u) return 0;
   flash_read(0xEFE000u, b, 0x1000u);
   uint32_t c = pb_crc(b);

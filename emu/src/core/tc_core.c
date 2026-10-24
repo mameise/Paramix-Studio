@@ -55,7 +55,7 @@ TC_INIT void tc_init(Emu *e, const uint8_t *rom_xip, uint16_t (*gram)[GRAM_W], u
 
 uint32_t tc_halt_steps;
 /* ROM is contiguous from rom (fill the block tables). */
-void tc_rom_linear(Emu *e, const uint8_t *rom)
+TC_INIT __attribute__((minsize)) void tc_rom_linear(Emu *e, const uint8_t *rom)
 {
     for (uint32_t i = 0; i < 128; i++) {
         e->rom_src[i] = (i << 16) < e->dev.rom_size ? rom + (i << 16) : 0;

@@ -346,6 +346,20 @@ void cpu_sync_ref_timestamp(void)
 	ref_ts = g_hal->get_timestamp();
 }
 
+#ifdef V1_LINK
+/* Paramix 1.6.9: the contact of the Digimon (P20) to another Paradise. The platform passes the edges on with the
+ * toy's time (v1_link_out) and says whether the other toy drives the line low at a time (v1_link_in). */
+void v1_link_out(int low, u32_t t_us);
+int  v1_link_in(u32_t t_us);
+static u8_t v1_low_now;
+static int v1_local_low(void) { return (GET_IO_MEMORY(memory, REG_IO_CTRL) & 0x4) && !(GET_IO_MEMORY(memory, REG_P20_P23_IO_PORT) & 0x1); }
+static void v1_drive_update(void)
+{
+	u8_t l = (u8_t)v1_local_low();
+	if (l != v1_low_now) { v1_low_now = l; v1_link_out(l, (u32_t)ref_ts); }   /* the CPU's own time (cycles), not the pacing time */
+}
+static int v1_line_low(void) { return v1_local_low() || v1_link_in((u32_t)ref_ts); }
+#endif
 static u4_t get_io(u12_t n)
 {
 	u4_t tmp;
@@ -491,6 +505,16 @@ static u4_t get_io(u12_t n)
 			/* Prog timer clock selection */
 			break;
 
+#ifdef V1_LINK
+		case REG_P20_P23_IO_PORT:
+			/* Paramix 1.6.9: P20 is the Digimon's contact (open drain, pull-up): low when this toy drives it low
+			 * (IO_CTRL bit 2 output, P20 written 0) or the other one does (v1_link_in) */
+			return (GET_IO_MEMORY(memory, n) & 0xE) | (v1_line_low() ? 0 : 1);
+
+		case REG_IO_CTRL:
+			return GET_IO_MEMORY(memory, n);
+
+#endif
 		default:
 			g_hal->log(LOG_ERROR, "Read from unimplemented I/O 0x%03X - PC = 0x%04X\n", n, pc);
 	}
@@ -641,6 +665,13 @@ static void set_io(u12_t n, u4_t v)
 			/* Assume 256Hz, output disabled */
 			break;
 
+#ifdef V1_LINK
+		case REG_P20_P23_IO_PORT:
+		case REG_IO_CTRL:
+			v1_drive_update();
+			break;
+
+#endif
 		default:
 			g_hal->log(LOG_ERROR, "Write 0x%X to unimplemented I/O 0x%03X - PC = 0x%04X\n", v, n, pc);
 	}
@@ -2031,6 +2062,34 @@ int cpu_step(void)
 }
 
 /* ---- Paramix (mameise): the whole CPU state as bytes, for the session in the flash ---- */
+#ifdef V1_REGB
+/* 1.6.9: the buffer was called b like the register B, so OP(b) saved the buffer's address (4 bytes) and never the
+ * register, and on loading it set the buffer pointer from the stored bytes (on the Paradise the same address, so it
+ * went unnoticed; register B stayed 0 after a resume). Now the register goes into the same 4 bytes; an older session
+ * (an address there, not 0..15) leaves B at 0 as before. */
+#define V1_PUT(v) { for (u32_t k = 0; k < sizeof(v); k++) buf[n++] = ((const u8_t *)&(v))[k]; }
+#define V1_GET(v) { for (u32_t k = 0; k < sizeof(v); k++) ((u8_t *)&(v))[k] = buf[n++]; }
+#define V1_PUTB { u32_t t = b; V1_PUT(t) }
+#define V1_GETB { u32_t t; V1_GET(t) b = t < 16u ? (u4_t)t : 0; }
+#define V1_ALL(OP, OPB) OP(pc) OP(x) OP(y) OP(a) OPB OP(np) OP(sp) OP(flags) OP(tick_counter) \
+	OP(clk_timer_2hz_timestamp) OP(clk_timer_4hz_timestamp) OP(clk_timer_8hz_timestamp) OP(clk_timer_16hz_timestamp) \
+	OP(clk_timer_32hz_timestamp) OP(clk_timer_64hz_timestamp) OP(clk_timer_128hz_timestamp) OP(clk_timer_256hz_timestamp) \
+	OP(prog_timer_timestamp) OP(prog_timer_enabled) OP(prog_timer_data) OP(prog_timer_rld) OP(call_depth) \
+	OP(interrupts) OP(cpu_halted) OP(cpu_frequency) OP(scaled_cycle_accumulator) OP(inputs) OP(memory)
+#ifdef __arm__
+_Static_assert(sizeof(u8_t *) == 4, "the session keeps 4 bytes for register B");
+#endif
+u32_t cpu_v1_save(u8_t *buf)
+{
+	u32_t n = 0;
+	V1_ALL(V1_PUT, V1_PUTB)
+	return n;
+}
+void cpu_v1_load(const u8_t *buf)
+{
+	u32_t n = 0;
+	V1_ALL(V1_GET, V1_GETB)
+#else
 #define V1_PUT(v) { for (u32_t k = 0; k < sizeof(v); k++) b[n++] = ((const u8_t *)&(v))[k]; }
 #define V1_GET(v) { for (u32_t k = 0; k < sizeof(v); k++) ((u8_t *)&(v))[k] = b[n++]; }
 #define V1_ALL(OP) OP(pc) OP(x) OP(y) OP(a) OP(b) OP(np) OP(sp) OP(flags) OP(tick_counter) \
@@ -2048,6 +2107,7 @@ void cpu_v1_load(const u8_t *b)
 {
 	u32_t n = 0;
 	V1_ALL(V1_GET)
+#endif
 	next_pc = pc;
 	ref_ts = g_hal->get_timestamp();
 	cpu_refresh_hw();

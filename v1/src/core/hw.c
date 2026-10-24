@@ -50,8 +50,12 @@ void thw_release(void)
  * counting the segments each ROM writes). thw_digi is set by the program. */
 static const u8_t seg_pos_digi[40] = {40, 0, 1, 2, 3, 4, 5, 6, 7, 41, 42, 43, 8, 9, 10, 11, 12, 13, 14, 15, 31, 30, 29, 28, 27, 26, 25, 24, 44, 23, 22, 21, 20, 19, 18, 17, 16, 45, 46, 47};
 int thw_digi;
+/* test31: Yasashii drives segment n as column n (0..31), found on the PC by reading the segments of its status pages;
+ * with the P1 table the middle of the screen showed a black block and columns were lost. Set by the program. */
+int thw_direct;
 void thw_set_lcd_pin(u8_t seg, u8_t com, u8_t val)
 {
+	if (thw_direct) { if (seg < LCD_WIDTH) g_hal->set_lcd_matrix(seg, com, val); return; }
 	if (thw_digi) {
 		if (seg < 40 && seg_pos_digi[seg] < LCD_WIDTH) g_hal->set_lcd_matrix(seg_pos_digi[seg], com, val);
 		/* test46: Digimon's icons (found on the host): status, food, training, battle = seg 28, 37, 38, 39 com 15;

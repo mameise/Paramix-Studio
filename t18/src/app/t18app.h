@@ -18,6 +18,9 @@ typedef struct {
   uint32_t flags;                      /* T18F_* */
   uint32_t idle_addr, softrtc, dma_tab;   /* found by the Studio in the firmware (tg18_set_addrs) */
   uint32_t wall_cnt, wall_sod, wall_ymd;  /* written by the Studio on the device: seconds counter, local time, date */
+  uint32_t param_addr;                 /* 1.6.8 (test47): the game's Param block in the guest SRAM (0xF800....), 0 = unknown */
+  uint32_t adult_flags;                /* bit 0: Sanrio firmware (Flowertchi instead of Pompomtchi) */
+  uint32_t pic_off;                    /* pictures for grow up ("T8PI", the user's own, see src/emu.js), 0 = none */
 } T18Cfg;
 
 #define T18F_EN    1u                 /* English texts */

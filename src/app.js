@@ -34,7 +34,7 @@ const T = {
     ruleNoRoom: 'In dieser Ausgabe ist kein Platz für Emulator und DOOM (die Figuren-Daten sind grösser). Das Menü geht.',
     emuVsDoom: 'Achtung: DOOM ist gewählt oder eingebaut. Mit einer Firmware hier fällt DOOM weg.',
     doomVsEmu: 'Achtung: ein Emulator ist gewählt oder eingebaut. Mit einer WAD hier fällt der Emulator weg.',
-    noRoomApp: 'In dieser Ausgabe ist kein Platz dafür.',
+    noRoomApp: 'In dieser Ausgabe ist kein Platz dafür.', a0Menu: 'Diese Ausgabe hat keinen Platz für ein Hauptprogramm bei 0x0A0000: alle Programme kommen ins Menü. Der Stern wählt, was beim Einschalten startet.', a0MenuN: 'Diese Ausgabe hat keinen Platz für ein Hauptprogramm bei 0x0A0000. Tama-Go, Friends, die alten Tamas und das V3 kommen ins Menü (A und C, dafür im Tab Menü Feldwechsel oder Items einschalten). Farb-Tamas und TG18 gehen hier nur im Startgerät.', a0NoMain: '{f}: Farb-Tamas und TG18 gehen bei dieser Ausgabe nur im Startgerät (Tab Menü).',
     doomHas: 'In diesem ROM ist DOOM eingebaut.', doomOff: 'DOOM entfernen', doomGone: 'DOOM wird beim Speichern entfernt.',
     keysTitle: 'Tasten', kFire: 'Schiessen', kFwd: 'Vorwärts', kBack: 'Zurück', kUse: 'Benutzen', kMod: 'Waffe wechseln: halten + Rad',
     kWheel: 'Rad drücken', kRun: 'Laufen mit 2x Vorwärts', kInv: 'Rad andersherum', kFixed: 'Fest: A+C Menü, B+C Karte, Rad 2 s zurück ins Paradise, Haltetaste + Rad drücken Ton.',
@@ -43,6 +43,10 @@ const T = {
     devConnect: 'Verbinden', devDump: 'ROM auslesen', devWrite: 'Neues ROM aufs Gerät schreiben', devOnly: 'Nur Änderungen schreiben', devKeep: 'Spielstände behalten', devStop: 'Abbrechen',
     devNoSerial: 'Dieser Browser kann nicht mit dem Dongle reden. Bitte Chrome oder Edge am Computer verwenden.', devNone: 'Nicht verbunden.',
     devOn: 'Verbunden: {ed}, {mb} MB{l}', devLoaded: ', Flash-App geladen', devReady: 'Bereit.', devNeedRom: 'Zum Schreiben zuerst ein ROM öffnen (oder auslesen).',
+    visTitle: 'Besuch simulieren (Paradise)', visStart: 'Starten', visStop: 'Beenden',
+    visHint: 'Das Studio spielt ein zweites Paradise. Dongle an die Kontakte, das Paradise läuft normal.\n1. Edition wählen, Starten, Dongle wählen.\n2. Am Paradise: Planet-Menü, VERBINDUNG, PLAYDATE, dann B.\nGeheime Charaktere: im Jugendalter zwei andere Farben besuchen.\nOben "Verbinden" ist nur fürs ROM, für den Besuch nicht drücken.',
+    visWait: 'Bereit als {ed}. Am Paradise PLAYDATE wählen und B drücken.', visRun: 'Verbunden, Daten werden getauscht…', visPlay: 'Die beiden spielen…',
+    visDone: 'Besuch fertig ({ed}). Für den nächsten wieder B am Paradise.', visErr: 'Abgebrochen: {e}. Am Paradise nochmals B.', visBadKey: 'Das Paradise versteht die Daten nicht.',
     phload: 'Flash-App laden', phread: 'Auslesen', phcompare: 'Vergleichen', phwrite: 'Schreiben', phcheck: 'Prüfen', phprepare: 'Vorbereiten',
     devDumped: 'ROM ausgelesen und als {n} gespeichert. Es ist jetzt im Studio geöffnet.',
     devSure: 'Das neue ROM wird jetzt aufs Gerät geschrieben. Gerät während des Schreibens eingeschaltet lassen. Auf eigene Gefahr schreiben?',
@@ -68,6 +72,7 @@ const T = {
     feldUse: 'Öffnen: auf dem Heimbildschirm A und C zusammen halten. Rad wählt, B bestätigt, C zurück.',
     feldNo: 'Feldwahl geht mit Land, Water, Sky (untereinander) und Tropical, Glacier (untereinander).', feldMissing: 'In dieser Ausgabe fehlt das Menü.',
     feldCur: 'Aktives Feld: {f}.', feldList: 'Wählbar: {s}.', feldStored: 'Gespeichert: {s}.', feldFail: 'Menü nicht eingebaut: {e}', feldUnknown: 'Ausgabe nicht erkannt.',
+    tabGb: 'Game Boy', gbNoMain: 'Game Boy nur im Menü', gbPick: 'Spiele wählen (.gb)', gbHint: 'Die Spiele kommen ins Paramix-Menü. Am Gerät: A+B+C zusammen öffnet die Einstellungen (dort auch Select und Ton), Rad 2 s halten führt zurück.', gbNone2: 'Noch kein Spiel gewählt.', gbKeysTitle: 'Tasten', gbKeysDef: 'Standard', gbKeysMiss: 'Nicht belegt: {n}', gbNone: '–', gbRight: 'Rechts', gbLeft: 'Links', gbUp: 'Hoch', gbDown: 'Runter', gbInA: 'Taste A', gbInB: 'Taste B', gbInC: 'Taste C', gbInWp: 'Rad drücken', gbInWu: 'Rad hoch', gbInWd: 'Rad runter', gbInAC: 'A + C', gbInBC: 'B + C', gbInAB: 'A + B', gbBad: '{f}: kein Game-Boy-Spiel', gbColor: '{f}: nur für Game Boy Color, das geht nicht', gbNeedRom: 'Zuerst ein ROM öffnen (oder vom Gerät lesen).',
     tabFigs: 'Figuren', tabAll: 'Alle Sprites', tabDim: 'Karte', tabEmu: 'Emulator', tabDoom: 'DOOM',
     doomPick: 'DOOM.WAD wählen', doomEp: 'Episode', doomMusic: 'Musik',
     doomHint: 'Baut DOOM ins ROM. Die WAD bringst du selbst mit, sie bleibt auf deinem Computer.',
@@ -77,13 +82,13 @@ const T = {
     doomBoth: 'Emulator und DOOM zusammen passen nicht in ein ROM. Bitte nur eines wählen.',
     doomBig: 'Keine Episode dieser WAD passt ins ROM.', doomNoMusic: 'Diese Episode passt nur ohne Musik.',
     emuPick: 'Firmware oder ROM wählen', emuOff: 'Emulator entfernen',
-    emuHint: 'Farb-Tamas (TamaEmu), Tama-Go und Friends (T7Emu), Meets und On (T18Emu), erste Tamagotchis und Digimon (V1Emu). Das erste ist das Hauptprogramm, jedes weitere kommt ins Menü. Der volle Stern zeigt das Hauptprogramm, ein Klick auf einen leeren Stern macht ein anderes dazu. Die Dateien bringst du selbst mit.', t7Ok: 'V7-ROM erkannt (T7Emu). Es wird beim Speichern eingebaut.', t7OkFr: 'Tamagotchi Friends erkannt (T7Emu, Test). Es wird beim Speichern eingebaut. Figuren gibt es dafür keine.', t7Has: 'In diesem ROM ist T7Emu eingebaut.', t7HasFr: 'In diesem ROM ist T7Emu mit Tamagotchi Friends eingebaut.', t7Use: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Zurück: Rad lange drücken (speichert). Rad kurz: Einstellungen und Figur. Hängt T7Emu: mit A und C starten, loslassen und in den ersten 3 Sekunden das Rad drücken und mit A bestätigen.', t7FigPick: 'Figuren hinzufügen', t7FigNone: 'Noch keine Figuren.', t7FigBad: '{f}: keine Figur.', t7FigFull: 'Kein Platz mehr für {f}.', t7FigMax: 'Kein Platz für weitere Figuren.', t7FigDup: '{f} ist schon dabei.', appPick: 'Weiteren Emulator dazu', appHint: 'Noch ein Tama-Go- oder Friends-ROM (T7Emu). Start über das Menü (A und C), dafür muss im Tab Menü etwas eingeschaltet sein.', appNone: 'Keine weiteren Emulatoren.', appBad: '{f}: kein Tama-Go- oder Friends-ROM.', appBadL: '{f}: weder Tama-Go-, Friends-ROM noch Farb-Tama- oder TG18-Firmware.', appT18One: 'T18Emu geht nur einmal pro ROM.', appHintL: 'Im Startgerät: Tama-Go- oder Friends-ROM, Farb-Tama-Firmware (TamaEmu) oder TG18-Firmware (T18Emu, nur einmal).', ruleLaunch: 'Startgerät: Emulatoren und DOOM passen zusammen, solange Platz frei ist.', appMax: 'Höchstens 12 weitere Emulatoren.', appNeedMenu: 'Weitere Emulatoren starten über das Menü: im Tab Menü Feldwechsel oder Items einschalten.', appFail: 'Weitere Emulatoren: {e}', appSix: 'Sechs Felder gehen nicht zusammen mit weiteren Emulatoren.', t7SaveBtn: 'T7Emu-Spielstand (.bin)', saveFor: 'Programm', saveMain: 'Haupt-Emulator', v1SaveBtn: 'V1Emu-Spielstand (.bin)', saveT18No: 'T18Emu: Spielstand sichern geht hier noch nicht.', t7SaveXDone: 'Spielstand für {n} übernommen. Jetzt das ROM speichern oder aufs Gerät schreiben.', t7NoSave: 'Das Tama hat noch keinen Spielstand.', t7SaveInDone: 'T7Emu-Spielstand übernommen. Jetzt das ROM speichern oder aufs Gerät schreiben.', t7SaveNeed: 'Dafür muss T7Emu im ROM sein.', saveEmuAny: 'Emulator-Spielstand (.sav / .bin)',
+    emuHint: 'Farb-Tamas (TamaEmu), Tama-Go und Friends (T7Emu), Meets und On (T18Emu), erste Tamagotchis und Digimon (V1Emu), Connection V3 (V3Emu). Das erste ist das Hauptprogramm, jedes weitere kommt ins Menü. Der volle Stern zeigt das Hauptprogramm, ein Klick auf einen leeren Stern macht ein anderes dazu. Die Dateien bringst du selbst mit.', t7Ok: 'V7-ROM erkannt (T7Emu). Es wird beim Speichern eingebaut.', t7OkFr: 'Tamagotchi Friends erkannt (T7Emu, Test). Es wird beim Speichern eingebaut. Figuren gibt es dafür keine.', t7Has: 'In diesem ROM ist T7Emu eingebaut.', t7HasFr: 'In diesem ROM ist T7Emu mit Tamagotchi Friends eingebaut.', t7Use: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Zurück: Rad lange drücken (speichert). Rad kurz: Einstellungen und Figur. Hängt T7Emu: mit A und C starten, loslassen und in den ersten 3 Sekunden das Rad drücken und mit A bestätigen.', t7FigPick: 'Figuren hinzufügen', t7FigNone: 'Noch keine Figuren.', t7FigBad: '{f}: keine Figur.', t7FigFull: 'Kein Platz mehr für {f}.', t7FigMax: 'Kein Platz für weitere Figuren.', t7FigDup: '{f} ist schon dabei.', appPick: 'Weiteren Emulator dazu', appHint: 'Noch ein Tama-Go- oder Friends-ROM (T7Emu). Start über das Menü (A und C), dafür muss im Tab Menü etwas eingeschaltet sein.', appNone: 'Keine weiteren Emulatoren.', appBad: '{f}: kein Tama-Go- oder Friends-ROM.', appBadL: '{f}: weder Tama-Go-, Friends-ROM noch Farb-Tama- oder TG18-Firmware.', appT18One: 'T18Emu geht nur einmal pro ROM.', appHintL: 'Im Startgerät: Tama-Go- oder Friends-ROM, Farb-Tama-Firmware (TamaEmu) oder TG18-Firmware (T18Emu, nur einmal).', ruleLaunch: 'Startgerät: Emulatoren und DOOM passen zusammen, solange Platz frei ist.', appMax: 'Höchstens 12 weitere Emulatoren.', appNeedMenu: 'Weitere Emulatoren starten über das Menü: im Tab Menü Feldwechsel oder Items einschalten.', appFail: 'Weitere Emulatoren: {e}', appSix: 'Sechs Felder gehen nicht zusammen mit weiteren Emulatoren.', t7SaveBtn: 'T7Emu-Spielstand (.bin)', saveFor: 'Programm', saveMain: 'Haupt-Emulator', v1SaveBtn: 'V1Emu-Spielstand (.bin)', saveT18No: 'T18Emu: Spielstand sichern geht hier noch nicht.', t7SaveXDone: 'Spielstand für {n} übernommen. Jetzt das ROM speichern oder aufs Gerät schreiben.', t7NoSave: 'Das Tama hat noch keinen Spielstand.', t7SaveInDone: 'T7Emu-Spielstand übernommen. Jetzt das ROM speichern oder aufs Gerät schreiben.', t7SaveNeed: 'Dafür muss T7Emu im ROM sein.', saveEmuAny: 'Emulator-Spielstand (.sav / .bin)',
     emuUse: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Zurück: Rad lange drücken (speichert). Hängt TamaEmu: mit A und C starten, loslassen und in den ersten 3 Sekunden das Rad drücken und mit A bestätigen. Dann beginnt er neu ab dem eigenen Spielstand des Tamas.',
-    emuNone: 'Kein Emulator gewählt.', petT: 'Spielstand ändern', petOpen: 'Paradise-Spielstand öffnen', petRom: 'Spielstand im ROM', petClose: 'Schliessen', petRomDone: 'Im ROM geändert. Jetzt das ROM speichern oder aufs Gerät schreiben (ohne "Spielstände behalten", sonst bleibt der Spielstand des Geräts).', petLevel: 'Stufe', petChar: 'Tama', petCare: 'Satt, glücklich, gesund', petSave: 'Geänderten Spielstand speichern', petKeep: 'unverändert', petKid: 'Kind', petYoung: 'Teen', petAdult: 'Erwachsen', petNow: 'Im Spielstand: Stufe {l}, Tama {c}, Hunger {h}/6, Laune {j}/20{s}.', petSick: ', krank', petOther: 'Der Spielstand ist für eine andere Ausgabe als das geladene ROM.', petNoSet: 'Im Spielstand fehlt der Einstellungsblock.', petDone: '{n} gespeichert. Mit "Spielstand aufs Gerät" übertragen.', petNothing: 'Nichts geändert.', tabSave: 'Spielstand', tabNames: 'Namen', cardNoChars: 'keine Figuren auf dieser Karte', noRoomKB: 'Zu wenig Platz: es fehlen etwa {k} KB. Ein Programm entfernen.', noRoomAdd: '{n} hat keinen Platz mehr: es fehlen etwa {k} KB.', eyeMvT: 'Augen verschieben', mouthMvT: 'Mund verschieben', poseNr: 'Pose {i} von {n}', faceBig: 'Gross', faceSmall: 'Klein', poseOnly: 'Nur diese Pose', poseOnlyHint: 'Die Pfeile verschieben Augen oder Mund nur in der gezeigten Pose. Für eigene Figuren, bei denen einzelne Posen nicht passen.', eyeMvHint: 'Gilt auf dem Feld für Tamas, die nach dem Schreiben schlüpfen oder sich entwickeln. Die kleine Figur rückt halb so weit.', planEyes: 'Augen und Mund', namesHint: 'Namen ändern: Grossbuchstaben, Ziffern, Leerzeichen und . & \' ! ? /. Gilt für alle Sprachen mit lateinischer Schrift auf dem Gerät.', namesFields: 'Felder', namesChars: 'Tamas', namesItems: 'Items', namesFind: 'Suchen', namesUndo: 'Alle zurücksetzen', planNames: 'Namen', planNamesN: '{n} geändert', saveParaOut: 'Paradise-Spielstand (.tamasave)', saveEmuOut: 'TamaEmu-Spielstand (.sav)', saveInfo: 'Exportieren holt die Spielstände aus diesem ROM. Ein Emulator-Spielstand (TamaEmu .sav oder T7Emu .bin) kommt ins ROM, danach das ROM speichern oder aufs Gerät schreiben. Ein Paradise-Spielstand geht direkt aufs Gerät, dafür oben das Gerät verbinden.', saveOutT: 'Exportieren', saveInT: 'Einspielen', saveSecProg: 'Programme', saveSecPara: 'Paradise', saveParaOutB: 'Exportieren (.tamasave)', saveParaInB: 'Aufs Gerät schreiben (.tamasave)', saveProgInfo: 'Exportieren holt den Spielstand des gewählten Programms aus diesem ROM. Einspielen bringt ihn ins ROM, danach das ROM speichern oder aufs Gerät schreiben.', saveParaInfo: 'Exportieren holt den Paradise-Spielstand aus diesem ROM. Aufs Gerät schreiben geht direkt, dafür oben das Gerät verbinden. Platz: welcher Spielstand.', saveSlotL: 'Platz', slotLive: '{n} (aktiv)', slotEmpty: '{n} (leer)', slotNone: 'Auf diesem Platz ist kein Spielstand.', slotField: 'Der Spielstand ist für {a}, der Platz für {b}.', slotDevOther: 'Das Menü auf dem Gerät passt nicht zum geladenen ROM. Zuerst das ROM vom Gerät laden.', slotSure: 'Der Spielstand kommt auf dem Gerät nach {n} und ersetzt den dortigen. Weiter?', slotDone: 'Fertig: {n} auf dem Gerät ersetzt.', saveNoProg: 'In diesem ROM ist noch kein Programm. Ein TamaEmu- oder T7Emu-Spielstand bringt seinen Emulator mit.', saveBtnOut: 'Exportieren ({f})', saveBtnIn: 'Einspielen ({f})', saveEmuInDone: 'TamaEmu-Spielstand übernommen ({d}). Jetzt das ROM speichern oder aufs Gerät schreiben.', saveEmuOther: 'Im ROM ist TamaEmu für {a}, der Spielstand ist für {b}. Trotzdem übernehmen?', saveNoRoom: 'Für TamaEmu ist in diesem ROM kein Platz.', saveEmuBad: 'Das ist kein Emulator-Spielstand (TamaEmu .sav oder T7Emu .bin).', saveNoEmu: 'In diesem ROM ist kein Emulator.', saveDone: '{n} gespeichert.', saveNoClock: '{n} gespeichert. Die Uhr ist nicht dabei, in der App eventuell neu stellen.', devSaveRead: 'Spielstand sichern', devSaveWrite: 'Spielstand aufs Gerät', devSaveHint: 'Sichern holt den Paradise-Spielstand mit Uhr und den Spielstand von TamaEmu oder T7Emu. Aufs Gerät geht nur der Paradise-Spielstand.', devSaveSure: 'Der Spielstand wird auf das Gerät ({ed}) geschrieben und ersetzt den jetzigen. Weiter?', devSaveDone: 'Fertig: {w} Seiten geschrieben. {c} Das Gerät kann neu gestartet werden.', devSaveClock: 'Uhr übernommen.', devSaveClockNo: 'Die Uhr bitte am Gerät stellen.', devSaveGot: 'Gesichert: {n}.', fl_saveOtherEd: 'der Spielstand ist von einer anderen Ausgabe ({s}), das Gerät ist {d}', fl_saveFamily: 'der Spielstand passt nicht zu dieser Ausgabe', fl_saveNoSettings: 'im Spielstand fehlt der Einstellungsblock, das ist kein vollständiger Paradise-Spielstand', fl_saveOutside: '{n} Seiten liegen ausserhalb des Spielstands und werden nicht geschrieben', fl_saveIncomplete: 'der Spielstand enthält nicht alle Seiten, fehlende bleiben wie auf dem Gerät', emuUndo: 'Auswahl zurücknehmen', progMain: 'Start mit A und C', progMainL: 'Erster Eintrag im Menü', progMenu: 'Start im Menü', progGone: 'wird entfernt', progUndo: 'Zurücknehmen', progDel: 'Entfernen', progNone: 'Noch kein Emulator. Firmware oder ROM wählen, jedes weitere kommt ins Menü.', appBadMain: '{f}: Farb-Tama- und TG18-Firmware gehen als weiteres Programm nur im Startgerät. Sonst erst den Emulator oben mit × entfernen.', emuInList: 'Im ROM als weitere Programme: {n}. Nicht nochmals wählen.', emuNfc: '4U: NFC-Chip nachbilden', emuNfcHint: 'Das Menü reagiert auf einen Druck. Ohne Haken wie bisher.', emuClock: 'Uhr beim Start vom Paradise übernehmen', emuClockHint: 'Bei jedem Start gilt die Zeit des Paradise. Die Zeit dazwischen wird nicht nachgespielt.', emuAuto: 'Beim Einschalten starten', emuAutoHint: 'Rad lange drücken: zurück ins Paradise, es bleibt dort. Wieder in den Emulator: A und C oder Reset-Knopf.', emuHas: 'In diesem ROM ist ein Emulator eingebaut.', emuBig: 'Diese Firmware ist gross: der Feldwechsel im Menü hat daneben keinen Platz.', emuUp: 'Beim Speichern kommt die neue Emulator-Version hinein. Mit "Spielstände behalten" bleibt der Spielstand.',
+    emuNone: 'Kein Emulator gewählt.', petT: 'Spielstand ändern', petOpen: 'Paradise-Spielstand öffnen', petRom: 'Spielstand im ROM', petClose: 'Schliessen', petRomDone: 'Im ROM geändert. Jetzt das ROM speichern oder aufs Gerät schreiben (ohne "Spielstände behalten", sonst bleibt der Spielstand des Geräts).', petLevel: 'Stufe', petChar: 'Tama', petCare: 'Satt, glücklich, gesund', petSave: 'Geänderten Spielstand speichern', petKeep: 'unverändert', petKid: 'Kind', petYoung: 'Teen', petAdult: 'Erwachsen', petNow: 'Im Spielstand: Stufe {l}, Tama {c}, Hunger {h}/6, Laune {j}/20{s}.', petSick: ', krank', petOther: 'Der Spielstand ist für eine andere Ausgabe als das geladene ROM.', petNoSet: 'Im Spielstand fehlt der Einstellungsblock.', petDone: '{n} gespeichert. Mit "Spielstand aufs Gerät" übertragen.', petNothing: 'Nichts geändert.', tabSave: 'Spielstand', tabNames: 'Namen', cardNoChars: 'keine Figuren auf dieser Karte', noRoomKB: 'Zu wenig Platz: es fehlen etwa {k} KB. Ein Programm entfernen.', noRoomAdd: '{n} hat keinen Platz mehr: es fehlen etwa {k} KB.', eyeMvT: 'Augen verschieben', mouthMvT: 'Mund verschieben', poseNr: 'Pose {i} von {n}', faceBig: 'Gross', faceSmall: 'Klein', poseOnly: 'Nur diese Pose', poseOnlyHint: 'Die Pfeile verschieben Augen oder Mund nur in der gezeigten Pose. Für eigene Figuren, bei denen einzelne Posen nicht passen.', eyeMvHint: 'Gilt auf dem Feld für Tamas, die nach dem Schreiben schlüpfen oder sich entwickeln. Die kleine Figur rückt halb so weit.', planEyes: 'Augen und Mund', namesHint: 'Namen ändern: Grossbuchstaben, Ziffern, Leerzeichen und . & \' ! ? /. Gilt für alle Sprachen mit lateinischer Schrift auf dem Gerät.', namesFields: 'Felder', namesChars: 'Tamas', namesItems: 'Items', namesFind: 'Suchen', namesUndo: 'Alle zurücksetzen', planNames: 'Namen', planNamesN: '{n} geändert', saveParaOut: 'Paradise-Spielstand (.tamasave)', saveEmuOut: 'TamaEmu-Spielstand (.sav)', saveInfo: 'Exportieren holt die Spielstände aus diesem ROM. Ein Emulator-Spielstand (TamaEmu .sav oder T7Emu .bin) kommt ins ROM, danach das ROM speichern oder aufs Gerät schreiben. Ein Paradise-Spielstand geht direkt aufs Gerät, dafür oben das Gerät verbinden.', saveOutT: 'Exportieren', saveInT: 'Einspielen', saveSecProg: 'Programme', saveSecPara: 'Paradise', saveParaOutB: 'Exportieren (.tamasave)', saveParaInB: 'Aufs Gerät schreiben (.tamasave)', saveProgInfo: 'Exportieren holt den Spielstand des gewählten Programms aus diesem ROM. Einspielen bringt ihn ins ROM, danach das ROM speichern oder aufs Gerät schreiben.', saveParaInfo: 'Exportieren holt den Paradise-Spielstand aus diesem ROM. Aufs Gerät schreiben geht direkt, dafür oben das Gerät verbinden. Platz: welcher Spielstand.', saveSlotL: 'Platz', slotLive: '{n} (aktiv)', slotEmpty: '{n} (leer)', slotNone: 'Auf diesem Platz ist kein Spielstand.', slotField: 'Der Spielstand ist für {a}, der Platz für {b}.', slotDevOther: 'Das Menü auf dem Gerät passt nicht zum geladenen ROM. Zuerst das ROM vom Gerät laden.', slotSure: 'Der Spielstand kommt auf dem Gerät nach {n} und ersetzt den dortigen. Weiter?', slotDone: 'Fertig: {n} auf dem Gerät ersetzt.', saveNoProg: 'In diesem ROM ist noch kein Programm. Ein TamaEmu- oder T7Emu-Spielstand bringt seinen Emulator mit.', saveBtnOut: 'Exportieren ({f})', saveBtnIn: 'Einspielen ({f})', saveEmuInDone: 'TamaEmu-Spielstand übernommen ({d}). Jetzt das ROM speichern oder aufs Gerät schreiben.', saveEmuOther: 'Im ROM ist TamaEmu für {a}, der Spielstand ist für {b}. Trotzdem übernehmen?', saveNoRoom: 'Für TamaEmu ist in diesem ROM kein Platz.', saveEmuBad: 'Das ist kein Emulator-Spielstand (TamaEmu .sav oder T7Emu .bin).', saveNoEmu: 'In diesem ROM ist kein Emulator.', saveDone: '{n} gespeichert.', saveNoClock: '{n} gespeichert. Die Uhr ist nicht dabei, in der App eventuell neu stellen.', devSaveRead: 'Spielstand sichern', devSaveWrite: 'Spielstand aufs Gerät', devSaveHint: 'Sichern holt den Paradise-Spielstand mit Uhr und den Spielstand von TamaEmu oder T7Emu. Aufs Gerät geht nur der Paradise-Spielstand.', devSaveSure: 'Der Spielstand wird auf das Gerät ({ed}) geschrieben und ersetzt den jetzigen. Weiter?', devSaveDone: 'Fertig: {w} Seiten geschrieben. {c} Das Gerät kann neu gestartet werden.', devSaveClock: 'Uhr übernommen.', devSaveClockNo: 'Die Uhr bitte am Gerät stellen.', devSaveGot: 'Gesichert: {n}.', fl_saveOtherEd: 'der Spielstand ist von einer anderen Ausgabe ({s}), das Gerät ist {d}', fl_saveFamily: 'der Spielstand passt nicht zu dieser Ausgabe', fl_saveNoSettings: 'im Spielstand fehlt der Einstellungsblock, das ist kein vollständiger Paradise-Spielstand', fl_saveOutside: '{n} Seiten liegen ausserhalb des Spielstands und werden nicht geschrieben', fl_saveIncomplete: 'der Spielstand enthält nicht alle Seiten, fehlende bleiben wie auf dem Gerät', emuUndo: 'Auswahl zurücknehmen', progMain: 'Start mit A und C', progMainL: 'Erster Eintrag im Menü', progMenu: 'Start im Menü', progGone: 'wird entfernt', progUndo: 'Zurücknehmen', progDel: 'Entfernen', progNone: 'Noch kein Emulator. Firmware oder ROM wählen, jedes weitere kommt ins Menü.', appBadMain: '{f}: Farb-Tama- und TG18-Firmware gehen als weiteres Programm nur im Startgerät. Sonst erst den Emulator oben mit × entfernen.', emuInList: 'Im ROM als weitere Programme: {n}. Nicht nochmals wählen.', emuNfc: '4U: NFC-Chip nachbilden', emuNfcHint: 'Das Menü reagiert auf einen Druck. Ohne Haken wie bisher.', emuClock: 'Uhr beim Start vom Paradise übernehmen', emuClockHint: 'Bei jedem Start gilt die Zeit des Paradise. Die Zeit dazwischen wird nicht nachgespielt.', emuAuto: 'Beim Einschalten starten', emuAutoHint: 'Rad lange drücken: zurück ins Paradise, es bleibt dort. Wieder in den Emulator: A und C oder Reset-Knopf.', autoHintL: 'Startet beim Einschalten statt des Menüs. B beim Einschalten halten: Menü.', emuHas: 'In diesem ROM ist ein Emulator eingebaut.', emuBig: 'Diese Firmware ist gross: der Feldwechsel im Menü hat daneben keinen Platz.', emuUp: 'Beim Speichern kommt die neue Emulator-Version hinein. Mit "Spielstände behalten" bleibt der Spielstand.',
     emuOk: 'Firmware erkannt ({size}). Sie wird beim Speichern eingebaut.', emuBad: 'Firmware nicht erkannt: {e}', t18Ok: 'TG18-Firmware erkannt (T18Emu, Meets/On). Sie wird beim Speichern eingebaut.', t18Has: 'In diesem ROM ist T18Emu eingebaut.', t18Use: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Zurück: Rad lange drücken (speichert). Hängt T18Emu: mit A und C starten, loslassen, in den ersten 3 Sekunden das Rad drücken und mit A bestätigen. Dann startet die Firmware neu ab ihrem eigenen Spielstand. Experimentell: das Tama läuft noch langsamer als echt.',
     emuGone: 'Emulator wird beim Speichern entfernt.', emuMissing: 'In dieser Ausgabe fehlt das Emulator-Programm.',
     emuFail: 'Emulator nicht eingebaut: {e}', savedEmu: 'Gespeichert: {name}',
-    dlcPick: 'Download-Inhalte hinzufügen', dlcInfo: 'Belegte Plätze zeigen', progMore: 'Einstellungen und Inhalt', progMakeMain: 'Zum Hauptprogramm machen', progIsMain: 'Hauptprogramm', v1Ok: 'Erstes Tamagotchi oder Digimon erkannt (V1Emu).', optVol: 'Lautstärke', optVolN: 'normal', optVolQ: 'leise', optVolL: 'laut', optOff: 'aus', optDim: 'Helligkeit', optScr: 'Bild aus nach', optDev: 'Auch am Gerät: Rad kurz drücken. Dort Geändertes gilt, bis du es hier wieder änderst.', optScrToy: 'wie am Tama', v1Use: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Rad kurz: Einstellungen. Rad drehen: schütteln. Zurück: Rad lange drücken.', progNoMainDoom: 'DOOM ist das Hauptprogramm. Für ein anderes zuerst DOOM entfernen (×).', doomAutoHint: 'Rad 2 s drücken: zurück ins Paradise, es bleibt dort.', progReplaced: '{n} ist jetzt das Hauptprogramm statt {o}.', appTwice: '{n} ist schon dabei.', progNoMainV1: 'V1Emu startet nur aus dem Menü', progNoMain: 'Geht nur im Startgerät', progMainNow: '{n} ist jetzt das Hauptprogramm. Die Spielstände der getauschten Programme fangen neu an.', dlcLoading: 'Wird gelesen…', dlcNewArea: 'Dieses Item braucht einen neuen Speicherblock. Der Spielstand dieses Emulators fängt nach dem Schreiben neu an. Items in schon benutzten Bereichen behalten ihn.', dlcHint: 'Essen, Kleider, Accessoires, Spiele usw. als .jpg-Download-Dateien. Mehrere Dateien auf einmal gehen, bei P\'s einen VDP-Satz immer ganz.', dlcFreeN: '{n} frei', dlcDel: 'entfernen', dlcK0: 'Mahlzeiten', dlcK1: 'Snacks', dlcK2: 'Kleider', dlcK3: 'Accessoires', dlcK4: 'Gegenstände', dlcK5: 'Alltagsdinge', dlcK6: 'Hintergründe', dlcK7: 'Spiele', dlcK8: 'Ausflugsziele', dlcK10: 'VDP-Rezepte', dlcK15: 'Dekorationen', dlcK16: 'Gutscheine', dlcK17: 'Bingo', dlcK18: 'Gashapon', dlcK19: 'Figuren', dlcOk: '{n} liegt jetzt in {k}, Platz {s}.', dlcBad: '{f}: {e}', dlcGone: '{n} entfernt.',
+    t18Pics: 'Bilder für Erwachsen', t18PicsPick: 'Bilder wählen', t18PicsDel: 'Bilder entfernen', t18PicsOk: '{n} Bilder übernommen.', t18PicsUnknown: '{f}: unbekannter Name', t18PicsHint: 'Am Gerät zeigt Erwachsen dann das Bild der Wahl. PNG-Dateien, Name = Figur (z.B. Mametchi.png, Kuchipatchi.png) oder ihre Nummer (16.png). Der Ordner erwachsen aus dem Android-T18Emu geht auch: alle Dateien samt erwachsen.json wählen. Jede Grösse, wird auf 64x64 verkleinert.', t18Items: 'Items', t18ItemsPick: 'MyMeets-Dateien wählen', t18ItemsNoSave: 'Items gehen, sobald das Spiel einmal gelaufen ist (ROM vom Gerät lesen).', t18ItemsHint: 'Items, Raum und Tamapoints kommen in den Spielstand des Spiels. Beim Schreiben ersetzt das den Spielstand von T18Emu auf dem Gerät, auch mit «Spielstände behalten». Das Tama bleibt, der laufende Stand fängt neu an.', t18ItemsNone: 'Keine Items in den Dateien gefunden.', t18ItemsOther: '{n} ist für {m}, nicht für die Meets/On. Ob es dort geht, ist nicht sicher.', t18ItemsFull: 'kein Platz mehr', mmTitle: 'MixingMeets (Besuch, Heirat)', uartBusy: 'Paramix Studio ist noch mit dem Dongle verbunden. So lange geht die Brücke nicht.', uartFree: 'UART freigeben', uartFreed: 'Dongle freigegeben. Das Paradise neu starten, damit das Spiel wieder läuft.', uartRun: 'Erst warten, bis das Gerät fertig ist.', pairTitle: 'Zwei Paradise verbinden (Besuch, Spiel)', pairHint: 'Beide Paradise oben zusammenstecken, an beiden T18Emu starten. Dann an beiden CONNECTION, TAMAGOTCHI und weiter wie bei zwei Tamas.', pairHintDigi: 'Beide Paradise oben zusammenstecken, an beiden V1Emu mit Digimon starten. Dann den Kampf wählen und starten wie bei zwei echten Digimon.', pairHintPs: 'Beide Paradise oben zusammenstecken, an beiden TamaEmu (P\'s) starten. Dann an beiden Verbindung, たまごっちP\'s, あそぶ. Am einen あそびにいく, am anderen ともだちをよぶ, ふたりで, ein Spiel, dann B.', pairHintIdl: 'Beide Paradise oben zusammenstecken, an beiden TamaEmu (iD L) starten. Dann an beiden die Verbindung im Spiel wählen wie bei zwei echten iD L.', pairHintV3: 'Beide Paradise oben zusammenstecken, an beiden V3Emu starten. Dann an beiden die Verbindung im Spiel wählen wie bei zwei echten V3.', pairHintT7: 'Beide Paradise oben zusammenstecken, an beiden T7Emu (Tama-Go) starten. Dann an beiden Verbindung, TAMA-GO, VISIT oder GAME. Am Gerät, das besuchen geht, B drücken.', mmLink: 'Paramix-Brücke', mmDrag: 'In die Lesezeichenleiste ziehen, dann auf mixing-meets.com anklicken.', mmHint: '1. Den Knopf Paramix-Brücke einmal in die Lesezeichenleiste ziehen (Chrome oder Edge).\n2. Paramix Studio vom Dongle trennen (UART freigeben oder das Studio schliessen). Dongle an die Kontakte wie beim Flashen. Am Tama: CONNECTION, APP, VISIT (zum Zurückholen: A drücken, GO BACK, YES).\n3. Auf mixing-meets.com Connect oder Return öffnen, das Lesezeichen anklicken, dann Select Tamagotchi und den Dongle wählen.\nNach jedem Seitenwechsel das Lesezeichen nochmals anklicken.', t7Gp: 'Gotchi Points', t7GpHint: 'Kommt wie ein eingespielter Spielstand ins ROM: das Tama bleibt, der laufende Stand fängt neu an (am Gerät DOWNLOAD wählen).', t18KeepAsk: 'T18Emu: Items oder Tamapoints geändert. Sein Spielstand auf dem Gerät wird durch den aus dem ROM ersetzt (Stand beim Auslesen), auch mit «Spielstände behalten». Weiter?', t18ItemNo: 'Nr. {n}', t18ItemOk: '{n} liegt jetzt bei {k}.', t18Points: 'Tamapoints', t18A_food: 'Essen', t18A_item: 'Gegenstände', t18A_acc: 'Accessoires', t18A_room: 'Raum', t18RoomBack: 'eigener Raum weg', t18RoomBuiltin: 'eingebauter Raum', dlcPick: 'Download-Inhalte hinzufügen', dlcInfo: 'Belegte Plätze zeigen', progMore: 'Einstellungen und Inhalt', progMakeMain: 'Zum Hauptprogramm machen', progIsMain: 'Hauptprogramm', v1Ok: 'Erstes Tamagotchi oder Digimon erkannt (V1Emu).', v3Ok: 'Tamagotchi Connection V3 erkannt (V3Emu).', v3Use: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Rad kurz: Einstellungen. Zurück: Rad lange drücken.', optVol: 'Lautstärke', optVolN: 'normal', optVolQ: 'leise', optVolL: 'laut', optOff: 'aus', optDim: 'Helligkeit', optScr: 'Bild aus nach', optDev: 'Auch am Gerät: Rad kurz drücken. Dort Geändertes gilt, bis du es hier wieder änderst.', optScrToy: 'wie am Tama', v1Use: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Rad kurz: Einstellungen. Rad drehen: schütteln. Zurück: Rad lange drücken.', progNoMainDoom: 'DOOM ist das Hauptprogramm. Für ein anderes zuerst DOOM entfernen (×).', doomAutoHint: 'Rad 2 s drücken: zurück ins Paradise, es bleibt dort.', progReplaced: '{n} ist jetzt das Hauptprogramm statt {o}.', appTwice: '{n} ist schon dabei.', progNoMainV1: 'V1Emu startet nur aus dem Menü', progNoMain: 'Geht nur im Startgerät', progMainNow: '{n} ist jetzt das Hauptprogramm. Die Spielstände der getauschten Programme fangen neu an.', dlcLoading: 'Wird gelesen…', dlcNewArea: 'Dieses Item braucht einen neuen Speicherblock. Der Spielstand dieses Emulators fängt nach dem Schreiben neu an. Items in schon benutzten Bereichen behalten ihn.', dlcHint: 'Essen, Kleider, Accessoires, Spiele usw. als .jpg-Download-Dateien. Mehrere Dateien auf einmal gehen, bei P\'s einen VDP-Satz immer ganz.', dlcFreeN: '{n} frei', dlcDel: 'entfernen', dlcK0: 'Mahlzeiten', dlcK1: 'Snacks', dlcK2: 'Kleider', dlcK3: 'Accessoires', dlcK4: 'Gegenstände', dlcK5: 'Alltagsdinge', dlcK6: 'Hintergründe', dlcK7: 'Spiele', dlcK8: 'Ausflugsziele', dlcK10: 'VDP-Rezepte', dlcK15: 'Dekorationen', dlcK16: 'Gutscheine', dlcK17: 'Bingo', dlcK18: 'Gashapon', dlcK19: 'Figuren', dlcOk: '{n} liegt jetzt in {k}, Platz {s}.', dlcBad: '{f}: {e}', dlcGone: '{n} entfernt.',
     figField: 'Feld:', figAll: 'alle', zipField: 'Feld als ZIP', fieldZipOk: '{f}: {n} Figuren und {s} Bilder als ZIP.', fieldIn: 'Feld aus ZIP übernehmen', fieldInBad: 'Kein Feld-ZIP (field.json fehlt).', fieldInOk: '{src} in {dst} übernommen: {n} Teile.', fieldInEyes: '{k} Figuren bleiben original, ihre Augenbilder sind hier zu gross.',
     zipFigs: 'Alle Figuren als ZIP', zipAll: 'Alle Sprites als ZIP', upload: 'Sheets hochladen (PNG oder ZIP)',
     numbers: 'Nummern-Test-ROM',
@@ -144,7 +149,7 @@ const T = {
     ruleNoRoom: 'This edition has no room for emulator and DOOM (its character data is larger). The menu works.',
     emuVsDoom: 'Note: DOOM is chosen or built in. Choosing a firmware here drops DOOM.',
     doomVsEmu: 'Note: an emulator is chosen or built in. Choosing a WAD here drops the emulator.',
-    noRoomApp: 'This edition has no room for it.',
+    noRoomApp: 'This edition has no room for it.', a0Menu: 'This edition has no room for a main program at 0x0A0000: every program goes to the menu. The star chooses what starts when switched on.', a0MenuN: 'This edition has no room for a main program at 0x0A0000. Tama-Go, Friends, the old Tamas and the V3 go to the menu (A and C; switch on field switch or items in the Menu tab). Colour Tamas and TG18 work here in a start device only.', a0NoMain: '{f}: colour Tamas and TG18 work in this edition in a start device only (Menu tab).',
     doomHas: 'This ROM contains DOOM.', doomOff: 'Remove DOOM', doomGone: 'DOOM is removed on save.',
     keysTitle: 'Buttons', kFire: 'Fire', kFwd: 'Forward', kBack: 'Back', kUse: 'Use', kMod: 'Change weapon: hold + wheel',
     kWheel: 'Wheel press', kRun: 'Run with 2x forward', kInv: 'Wheel reversed', kFixed: 'Fixed: A+C menu, B+C map, wheel 2 s back to Paradise, hold button + wheel press sound.',
@@ -153,6 +158,10 @@ const T = {
     devConnect: 'Connect', devDump: 'Read ROM', devWrite: 'Write new ROM to the device', devOnly: 'Only write changes', devKeep: 'Keep saves', devStop: 'Cancel',
     devNoSerial: 'This browser cannot talk to the dongle. Please use Chrome or Edge on a computer.', devNone: 'Not connected.',
     devOn: 'Connected: {ed}, {mb} MB{l}', devLoaded: ', flash app loaded', devReady: 'Ready.', devNeedRom: 'To write, open a ROM first (or read one).',
+    visTitle: 'Simulate a visit (Paradise)', visStart: 'Start', visStop: 'Stop',
+    visHint: 'The Studio plays a second Paradise. Dongle on the contacts, the Paradise runs normally.\n1. Choose the edition, Start, choose the dongle.\n2. On the Paradise: planet menu, CONNECTION, PLAYDATE, then B.\nSecret characters: visit two other colours at the young stage.\n"Connect" above is only for the ROM, do not press it for a visit.',
+    visWait: 'Ready as {ed}. On the Paradise choose PLAYDATE and press B.', visRun: 'Connected, exchanging data…', visPlay: 'The two are playing…',
+    visDone: 'Visit done ({ed}). For the next one press B on the Paradise again.', visErr: 'Stopped: {e}. Press B on the Paradise again.', visBadKey: 'The Paradise does not understand the data.',
     phload: 'Loading flash app', phread: 'Reading', phcompare: 'Comparing', phwrite: 'Writing', phcheck: 'Checking', phprepare: 'Preparing',
     devDumped: 'ROM read and saved as {n}. It is now open in the Studio.',
     devSure: 'The new ROM is written to the device now. Keep the device switched on while writing. Write at your own risk?',
@@ -168,6 +177,7 @@ const T = {
     feldUse: 'Open: hold A and C together on the home screen. Wheel selects, B confirms, C goes back.',
     feldNo: 'Field switch works with Land, Water, Sky (among each other) and Tropical, Glacier (among each other).', feldMissing: 'This build does not contain the menu.',
     feldCur: 'Active field: {f}.', feldList: 'Selectable: {s}.', feldStored: 'Saved: {s}.', feldFail: 'Menu not built in: {e}', feldUnknown: 'Edition not recognised.',
+    tabGb: 'Game Boy', gbNoMain: 'Game Boy only in the menu', gbPick: 'Choose games (.gb)', gbHint: 'The games go into the Paramix menu. On the device: A+B+C together opens the settings (also Select and sound), hold the wheel for 2 s to go back.', gbNone2: 'No game chosen yet.', gbKeysTitle: 'Keys', gbKeysDef: 'Default', gbKeysMiss: 'Not assigned: {n}', gbNone: '–', gbRight: 'Right', gbLeft: 'Left', gbUp: 'Up', gbDown: 'Down', gbInA: 'Key A', gbInB: 'Key B', gbInC: 'Key C', gbInWp: 'Wheel press', gbInWu: 'Wheel up', gbInWd: 'Wheel down', gbInAC: 'A + C', gbInBC: 'B + C', gbInAB: 'A + B', gbBad: '{f}: not a Game Boy game', gbColor: '{f}: Game Boy Color only, that does not work', gbNeedRom: 'Open a ROM first (or read it from the device).',
     tabFigs: 'Characters', tabAll: 'All sprites', tabDim: 'Card', tabEmu: 'Emulator', tabDoom: 'DOOM',
     doomPick: 'Choose DOOM.WAD', doomEp: 'Episode', doomMusic: 'Music',
     doomHint: 'Builds DOOM into the ROM. Bring your own WAD, it stays on your computer.',
@@ -177,13 +187,13 @@ const T = {
     doomBoth: 'Emulator and DOOM do not fit into one ROM together. Please choose only one.',
     doomBig: 'No episode of this WAD fits into the ROM.', doomNoMusic: 'This episode only fits without music.',
     emuPick: 'Choose firmware or ROM', emuOff: 'Remove emulator',
-    emuHint: 'Colour tamas (TamaEmu), Tama-Go and Friends (T7Emu), Meets and On (T18Emu), first Tamagotchis and Digimon (V1Emu). The first is the main program, every further one goes to the menu. The filled star marks the main program, a click on an empty star makes another one the main program. Bring your own files.', t7Ok: 'V7 ROM recognised (T7Emu). It is built in on save.', t7OkFr: 'Tamagotchi Friends recognised (T7Emu, test). It is built in on save. There are no figures for it.', t7Has: 'This ROM contains T7Emu.', t7HasFr: 'This ROM contains T7Emu with Tamagotchi Friends.', t7Use: 'Start: hold A and C together on the home screen. Back: hold the wheel (saves). Wheel short: settings and figure. If T7Emu hangs: start with A and C, release them and press the wheel within the first 3 seconds and confirm with A.', t7FigPick: 'Add figures', t7FigNone: 'No figures yet.', t7FigBad: '{f}: not a figure.', t7FigFull: 'No room left for {f}.', t7FigMax: 'No room for more figures.', t7FigDup: '{f} is already in.', appPick: 'Add another emulator', appHint: 'One more Tama-Go or Friends ROM (T7Emu). Started from the menu (A and C), so something in the Menu tab must be switched on.', appNone: 'No other emulators.', appBad: '{f}: not a Tama-Go or Friends ROM.', appBadL: '{f}: neither a Tama-Go or Friends ROM nor a colour Tama or TG18 firmware.', appT18One: 'T18Emu goes only once per ROM.', appHintL: 'In a start device: Tama-Go or Friends ROM, colour Tama firmware (TamaEmu) or TG18 firmware (T18Emu, once only).', ruleLaunch: 'Start device: emulators and DOOM fit together as long as there is room.', appMax: 'At most 12 more emulators.', appNeedMenu: 'More emulators start from the menu: switch on the field switch or items in the Menu tab.', appFail: 'More emulators: {e}', appSix: 'Six fields do not go together with more emulators.', t7SaveBtn: 'T7Emu save (.bin)', saveFor: 'Program', saveMain: 'Main emulator', v1SaveBtn: 'V1Emu save (.bin)', saveT18No: 'T18Emu: backing up its save is not possible here yet.', t7SaveXDone: 'Save for {n} taken over. Now save the ROM or write it to the device.', t7NoSave: 'The Tama has no save yet.', t7SaveInDone: 'T7Emu save taken over. Now save the ROM or write it to the device.', t7SaveNeed: 'T7Emu has to be in the ROM for that.', saveEmuAny: 'Emulator save (.sav / .bin)',
+    emuHint: 'Colour tamas (TamaEmu), Tama-Go and Friends (T7Emu), Meets and On (T18Emu), first Tamagotchis and Digimon (V1Emu), Connection V3 (V3Emu). The first is the main program, every further one goes to the menu. The filled star marks the main program, a click on an empty star makes another one the main program. Bring your own files.', t7Ok: 'V7 ROM recognised (T7Emu). It is built in on save.', t7OkFr: 'Tamagotchi Friends recognised (T7Emu, test). It is built in on save. There are no figures for it.', t7Has: 'This ROM contains T7Emu.', t7HasFr: 'This ROM contains T7Emu with Tamagotchi Friends.', t7Use: 'Start: hold A and C together on the home screen. Back: hold the wheel (saves). Wheel short: settings and figure. If T7Emu hangs: start with A and C, release them and press the wheel within the first 3 seconds and confirm with A.', t7FigPick: 'Add figures', t7FigNone: 'No figures yet.', t7FigBad: '{f}: not a figure.', t7FigFull: 'No room left for {f}.', t7FigMax: 'No room for more figures.', t7FigDup: '{f} is already in.', appPick: 'Add another emulator', appHint: 'One more Tama-Go or Friends ROM (T7Emu). Started from the menu (A and C), so something in the Menu tab must be switched on.', appNone: 'No other emulators.', appBad: '{f}: not a Tama-Go or Friends ROM.', appBadL: '{f}: neither a Tama-Go or Friends ROM nor a colour Tama or TG18 firmware.', appT18One: 'T18Emu goes only once per ROM.', appHintL: 'In a start device: Tama-Go or Friends ROM, colour Tama firmware (TamaEmu) or TG18 firmware (T18Emu, once only).', ruleLaunch: 'Start device: emulators and DOOM fit together as long as there is room.', appMax: 'At most 12 more emulators.', appNeedMenu: 'More emulators start from the menu: switch on the field switch or items in the Menu tab.', appFail: 'More emulators: {e}', appSix: 'Six fields do not go together with more emulators.', t7SaveBtn: 'T7Emu save (.bin)', saveFor: 'Program', saveMain: 'Main emulator', v1SaveBtn: 'V1Emu save (.bin)', saveT18No: 'T18Emu: backing up its save is not possible here yet.', t7SaveXDone: 'Save for {n} taken over. Now save the ROM or write it to the device.', t7NoSave: 'The Tama has no save yet.', t7SaveInDone: 'T7Emu save taken over. Now save the ROM or write it to the device.', t7SaveNeed: 'T7Emu has to be in the ROM for that.', saveEmuAny: 'Emulator save (.sav / .bin)',
     emuUse: 'Start: hold A and C together on the home screen. Back: hold the wheel (saves). If TamaEmu hangs: start with A and C, release them and press the wheel within the first 3 seconds and confirm with A. It then starts over from the save the Tama keeps itself.',
-    emuNone: 'No emulator chosen.', petT: 'Change save', petOpen: 'Open Paradise save', petRom: 'Save in the ROM', petClose: 'Close', petRomDone: 'Changed in the ROM. Now save the ROM or write it to the device (without "Keep saves", otherwise the device keeps its save).', petLevel: 'Level', petChar: 'Tama', petCare: 'Fed, happy, healthy', petSave: 'Save changed save', petKeep: 'unchanged', petKid: 'Kid', petYoung: 'Teen', petAdult: 'Adult', petNow: 'In the save: level {l}, Tama {c}, hunger {h}/6, happiness {j}/20{s}.', petSick: ', sick', petOther: 'The save is for another edition than the loaded ROM.', petNoSet: 'The settings block is missing in the save.', petDone: '{n} saved. Send it with "Save to device".', petNothing: 'Nothing changed.', tabSave: 'Save', tabNames: 'Names', cardNoChars: 'no characters on this card', noRoomKB: 'Not enough room: about {k} KB missing. Remove a program.', noRoomAdd: 'No room left for {n}: about {k} KB missing.', eyeMvT: 'Move the eyes', mouthMvT: 'Move the mouth', poseNr: 'Pose {i} of {n}', faceBig: 'Big', faceSmall: 'Small', poseOnly: 'This pose only', poseOnlyHint: 'The arrows move eyes or mouth only in the pose shown. For your own figures where single poses do not fit.', eyeMvHint: 'Applies on the field to Tamas that hatch or grow after writing. The small figure moves half as far.', planEyes: 'Eyes and mouth', namesHint: 'Change names: capitals, digits, space and . & \' ! ? /. Applies to every language with Latin letters on the device.', namesFields: 'Fields', namesChars: 'Tamas', namesItems: 'Items', namesFind: 'Search', namesUndo: 'Reset all', planNames: 'Names', planNamesN: '{n} changed', saveParaOut: 'Paradise save (.tamasave)', saveEmuOut: 'TamaEmu save (.sav)', saveInfo: 'Export takes the saves out of this ROM. An emulator save (TamaEmu .sav or T7Emu .bin) goes into the ROM, then save the ROM or write it to the device. A Paradise save goes straight to the device, connect it above for that.', saveOutT: 'Export', saveInT: 'Import', saveSecProg: 'Programs', saveSecPara: 'Paradise', saveParaOutB: 'Export (.tamasave)', saveParaInB: 'Write to device (.tamasave)', saveProgInfo: 'Export takes the save of the chosen program out of this ROM. Import puts it into the ROM, then save the ROM or write it to the device.', saveParaInfo: 'Export takes the Paradise save out of this ROM. Write to device goes straight to the device, connect it above for that. Slot: which save.', saveSlotL: 'Slot', slotLive: '{n} (active)', slotEmpty: '{n} (empty)', slotNone: 'There is no save in this slot.', slotField: 'The save is for {a}, the slot for {b}.', slotDevOther: 'The menu on the device does not match the loaded ROM. Load the ROM from the device first.', slotSure: 'The save goes into {n} on the device and replaces the one there. Continue?', slotDone: 'Done: {n} replaced on the device.', saveNoProg: 'No program in this ROM yet. A TamaEmu or T7Emu save brings its emulator along.', saveBtnOut: 'Export ({f})', saveBtnIn: 'Import ({f})', saveEmuInDone: 'TamaEmu save taken over ({d}). Now save the ROM or write it to the device.', saveEmuOther: 'The ROM has TamaEmu for {a}, the save is for {b}. Take it anyway?', saveNoRoom: 'This ROM has no room for TamaEmu.', saveEmuBad: 'This is not an emulator save (TamaEmu .sav or T7Emu .bin).', saveNoEmu: 'This ROM has no emulator.', saveDone: '{n} saved.', saveNoClock: '{n} saved. The clock is not included, set it in the app if needed.', devSaveRead: 'Back up save', devSaveWrite: 'Save to device', devSaveHint: 'Back up takes the Paradise save with the clock and the save of TamaEmu or T7Emu. Only the Paradise save goes to the device.', devSaveSure: 'The save is written to the device ({ed}) and replaces the current one. Continue?', devSaveDone: 'Done: {w} pages written. {c} The device can be restarted.', devSaveClock: 'Clock taken over.', devSaveClockNo: 'Please set the clock on the device.', devSaveGot: 'Backed up: {n}.', fl_saveOtherEd: 'the save is from another edition ({s}), the device is {d}', fl_saveFamily: 'the save does not fit this edition', fl_saveNoSettings: 'the settings block is missing, this is not a complete Paradise save', fl_saveOutside: '{n} pages lie outside the save and are not written', fl_saveIncomplete: 'the save does not hold every page, missing ones stay as on the device', emuUndo: 'Undo choice', progMain: 'Starts with A and C', progMainL: 'First entry of the menu', progMenu: 'Starts from the menu', progGone: 'will be removed', progUndo: 'Undo', progDel: 'Remove', progNone: 'No emulator yet. Choose firmware or ROM, every further one goes to the menu.', appBadMain: '{f}: colour Tama and TG18 firmware go as a further program only in a start device. Otherwise remove the emulator above with × first.', emuInList: 'In the ROM as further programs: {n}. No need to choose them again.', emuNfc: '4U: emulate the NFC chip', emuNfcHint: 'The menu reacts to one press. Unticked it works as before.', emuClock: 'Take the clock from the Paradise at the start', emuClockHint: 'At every start the Paradise\'s time applies. The time in between is not played through.', emuAuto: 'Start when switched on', emuAutoHint: 'Hold the wheel: back to the Paradise, it stays there. Back into the emulator: A and C, or the reset button.', emuHas: 'This ROM contains an emulator.', emuBig: 'This firmware is big: the field switch of the menu has no room next to it.', emuUp: 'Saving puts in the new emulator version. With "Keep saves" the save stays.',
+    emuNone: 'No emulator chosen.', petT: 'Change save', petOpen: 'Open Paradise save', petRom: 'Save in the ROM', petClose: 'Close', petRomDone: 'Changed in the ROM. Now save the ROM or write it to the device (without "Keep saves", otherwise the device keeps its save).', petLevel: 'Level', petChar: 'Tama', petCare: 'Fed, happy, healthy', petSave: 'Save changed save', petKeep: 'unchanged', petKid: 'Kid', petYoung: 'Teen', petAdult: 'Adult', petNow: 'In the save: level {l}, Tama {c}, hunger {h}/6, happiness {j}/20{s}.', petSick: ', sick', petOther: 'The save is for another edition than the loaded ROM.', petNoSet: 'The settings block is missing in the save.', petDone: '{n} saved. Send it with "Save to device".', petNothing: 'Nothing changed.', tabSave: 'Save', tabNames: 'Names', cardNoChars: 'no characters on this card', noRoomKB: 'Not enough room: about {k} KB missing. Remove a program.', noRoomAdd: 'No room left for {n}: about {k} KB missing.', eyeMvT: 'Move the eyes', mouthMvT: 'Move the mouth', poseNr: 'Pose {i} of {n}', faceBig: 'Big', faceSmall: 'Small', poseOnly: 'This pose only', poseOnlyHint: 'The arrows move eyes or mouth only in the pose shown. For your own figures where single poses do not fit.', eyeMvHint: 'Applies on the field to Tamas that hatch or grow after writing. The small figure moves half as far.', planEyes: 'Eyes and mouth', namesHint: 'Change names: capitals, digits, space and . & \' ! ? /. Applies to every language with Latin letters on the device.', namesFields: 'Fields', namesChars: 'Tamas', namesItems: 'Items', namesFind: 'Search', namesUndo: 'Reset all', planNames: 'Names', planNamesN: '{n} changed', saveParaOut: 'Paradise save (.tamasave)', saveEmuOut: 'TamaEmu save (.sav)', saveInfo: 'Export takes the saves out of this ROM. An emulator save (TamaEmu .sav or T7Emu .bin) goes into the ROM, then save the ROM or write it to the device. A Paradise save goes straight to the device, connect it above for that.', saveOutT: 'Export', saveInT: 'Import', saveSecProg: 'Programs', saveSecPara: 'Paradise', saveParaOutB: 'Export (.tamasave)', saveParaInB: 'Write to device (.tamasave)', saveProgInfo: 'Export takes the save of the chosen program out of this ROM. Import puts it into the ROM, then save the ROM or write it to the device.', saveParaInfo: 'Export takes the Paradise save out of this ROM. Write to device goes straight to the device, connect it above for that. Slot: which save.', saveSlotL: 'Slot', slotLive: '{n} (active)', slotEmpty: '{n} (empty)', slotNone: 'There is no save in this slot.', slotField: 'The save is for {a}, the slot for {b}.', slotDevOther: 'The menu on the device does not match the loaded ROM. Load the ROM from the device first.', slotSure: 'The save goes into {n} on the device and replaces the one there. Continue?', slotDone: 'Done: {n} replaced on the device.', saveNoProg: 'No program in this ROM yet. A TamaEmu or T7Emu save brings its emulator along.', saveBtnOut: 'Export ({f})', saveBtnIn: 'Import ({f})', saveEmuInDone: 'TamaEmu save taken over ({d}). Now save the ROM or write it to the device.', saveEmuOther: 'The ROM has TamaEmu for {a}, the save is for {b}. Take it anyway?', saveNoRoom: 'This ROM has no room for TamaEmu.', saveEmuBad: 'This is not an emulator save (TamaEmu .sav or T7Emu .bin).', saveNoEmu: 'This ROM has no emulator.', saveDone: '{n} saved.', saveNoClock: '{n} saved. The clock is not included, set it in the app if needed.', devSaveRead: 'Back up save', devSaveWrite: 'Save to device', devSaveHint: 'Back up takes the Paradise save with the clock and the save of TamaEmu or T7Emu. Only the Paradise save goes to the device.', devSaveSure: 'The save is written to the device ({ed}) and replaces the current one. Continue?', devSaveDone: 'Done: {w} pages written. {c} The device can be restarted.', devSaveClock: 'Clock taken over.', devSaveClockNo: 'Please set the clock on the device.', devSaveGot: 'Backed up: {n}.', fl_saveOtherEd: 'the save is from another edition ({s}), the device is {d}', fl_saveFamily: 'the save does not fit this edition', fl_saveNoSettings: 'the settings block is missing, this is not a complete Paradise save', fl_saveOutside: '{n} pages lie outside the save and are not written', fl_saveIncomplete: 'the save does not hold every page, missing ones stay as on the device', emuUndo: 'Undo choice', progMain: 'Starts with A and C', progMainL: 'First entry of the menu', progMenu: 'Starts from the menu', progGone: 'will be removed', progUndo: 'Undo', progDel: 'Remove', progNone: 'No emulator yet. Choose firmware or ROM, every further one goes to the menu.', appBadMain: '{f}: colour Tama and TG18 firmware go as a further program only in a start device. Otherwise remove the emulator above with × first.', emuInList: 'In the ROM as further programs: {n}. No need to choose them again.', emuNfc: '4U: emulate the NFC chip', emuNfcHint: 'The menu reacts to one press. Unticked it works as before.', emuClock: 'Take the clock from the Paradise at the start', emuClockHint: 'At every start the Paradise\'s time applies. The time in between is not played through.', emuAuto: 'Start when switched on', emuAutoHint: 'Hold the wheel: back to the Paradise, it stays there. Back into the emulator: A and C, or the reset button.', autoHintL: 'Starts at switching on instead of the menu. Hold B while switching on: menu.', emuHas: 'This ROM contains an emulator.', emuBig: 'This firmware is big: the field switch of the menu has no room next to it.', emuUp: 'Saving puts in the new emulator version. With "Keep saves" the save stays.',
     emuOk: 'Firmware recognised ({size}). It is built in on save.', emuBad: 'Firmware not recognised: {e}', t18Ok: 'TG18 firmware recognised (T18Emu, Meets/On). It is built in on save.', t18Has: 'This ROM contains T18Emu.', t18Use: 'Start: hold A and C together on the home screen. Back: hold the wheel (saves). If T18Emu hangs: start with A and C, release them, press the wheel within the first 3 seconds and confirm with A. The firmware then starts over from its own save. Experimental: the Tama still runs slower than the real one.',
     emuGone: 'The emulator is removed on save.', emuMissing: 'This build does not contain the emulator program.',
     emuFail: 'Emulator not built in: {e}', savedEmu: 'Saved: {name}',
-    dlcPick: 'Add download content', dlcInfo: 'Show used slots', progMore: 'Settings and content', progMakeMain: 'Make it the main program', progIsMain: 'Main program', v1Ok: 'First Tamagotchi or Digimon recognised (V1Emu).', optVol: 'Volume', optVolN: 'normal', optVolQ: 'quiet', optVolL: 'loud', optOff: 'off', optDim: 'Brightness', optScr: 'Screen off after', optDev: 'Also on the device: press the wheel briefly. A change made there applies until you change it here again.', optScrToy: 'as on the Tama', v1Use: 'Start: hold A and C together on the home screen. Wheel short: settings. Turn the wheel: shake. Back: hold the wheel.', progNoMainDoom: 'DOOM is the main program. For another one remove DOOM first (×).', doomAutoHint: 'Hold the wheel for 2 s: back to the Paradise, it stays there.', progReplaced: '{n} is now the main program instead of {o}.', appTwice: '{n} is already in.', progNoMainV1: 'V1Emu starts from the menu only', progNoMain: 'Only in a start device', progMainNow: '{n} is now the main program. The saves of the swapped programs start anew.', dlcLoading: 'Reading…', dlcNewArea: 'This item needs a new memory block. The save of this emulator starts anew after writing. Items in areas already in use keep it.', dlcHint: 'Food, clothes, accessories, games etc. as .jpg download files. Several files at once work, on the P\'s always a whole VDP set.', dlcFreeN: '{n} free', dlcDel: 'remove', dlcK0: 'Meals', dlcK1: 'Snacks', dlcK2: 'Clothing', dlcK3: 'Accessories', dlcK4: 'Items', dlcK5: 'Daily items', dlcK6: 'Wallpapers', dlcK7: 'Games', dlcK8: 'Destinations', dlcK10: 'VDP recipes', dlcK15: 'Decorations', dlcK16: 'Coupons', dlcK17: 'Bingo', dlcK18: 'Gashapon', dlcK19: 'Characters', dlcOk: '{n} now sits in {k}, slot {s}.', dlcBad: '{f}: {e}', dlcGone: '{n} removed.',
+    t18Pics: 'Pictures for grow up', t18PicsPick: 'Choose pictures', t18PicsDel: 'Remove pictures', t18PicsOk: '{n} pictures taken.', t18PicsUnknown: '{f}: unknown name', t18PicsHint: 'On the device grow up then shows the picture of the choice. PNG files, name = character (e.g. Mametchi.png, Kuchipatchi.png) or its number (16.png). The folder erwachsen of the Android T18Emu works too: choose all files with erwachsen.json. Any size, scaled to 64x64.', t18Items: 'Items', t18ItemsPick: 'Choose MyMeets files', t18ItemsNoSave: 'Items work once the game has run (read the ROM from the device).', t18ItemsHint: 'Items, room and Tamapoints go into the game\'s save. When written it replaces T18Emu\'s save on the device, even with "Keep saves". The Tama stays, the running state starts anew.', t18ItemsNone: 'No items found in the files.', t18ItemsOther: '{n} is for {m}, not for the Meets/On. It may not work there.', t18ItemsFull: 'no room left', mmTitle: 'MixingMeets (visit, marriage)', uartBusy: 'Paramix Studio is still connected to the dongle. The bridge does not work meanwhile.', uartFree: 'Release UART', uartFreed: 'Dongle released. Restart the Paradise so the game runs again.', uartRun: 'Wait until the device is done.', pairTitle: 'Connect two Paradise (visit, game)', pairHint: 'Plug both Paradise together at the top and start T18Emu on both. Then on both CONNECTION, TAMAGOTCHI and on as with two Tamas.', pairHintDigi: 'Plug both Paradise together at the top and start V1Emu with Digimon on both. Then choose and start the battle as with two real Digimon.', pairHintPs: 'Plug both Paradise together at the top and start TamaEmu (P\'s) on both. Then on both connection, たまごっちP\'s, あそぶ. On one あそびにいく, on the other ともだちをよぶ, ふたりで, a game, then B.', pairHintIdl: 'Plug both Paradise together at the top and start TamaEmu (iD L) on both. Then choose the connection in the game on both as with two real iD L.', pairHintV3: 'Plug both Paradise together at the top and start V3Emu on both. Then choose the connection in the game on both as with two real V3.', pairHintT7: 'Plug both Paradise together at the top and start T7Emu (Tama-Go) on both. Then on both connection, TAMA-GO, VISIT or GAME. Press B on the device that goes visiting.', mmLink: 'Paramix bridge', mmDrag: 'Drag it to the bookmarks bar, then click it on mixing-meets.com.', mmHint: '1. Drag the Paramix bridge button to the bookmarks bar once (Chrome or Edge).\n2. Disconnect Paramix Studio from the dongle (Release UART or close the Studio). Dongle on the contacts as for flashing. On the Tama: CONNECTION, APP, VISIT (to bring it back: press A, GO BACK, YES).\n3. On mixing-meets.com open Connect or Return, click the bookmark, then Select Tamagotchi and choose the dongle.\nClick the bookmark again after every page change.', t7Gp: 'Gotchi Points', t7GpHint: 'Goes into the ROM like an imported save: the Tama stays, the running state starts anew (choose DOWNLOAD on the device).', t18KeepAsk: 'T18Emu: items or Tamapoints changed. Its save on the device is replaced by the one in the ROM (as read), even with "Keep saves". Go on?', t18ItemNo: 'No. {n}', t18ItemOk: '{n} is now in {k}.', t18Points: 'Tamapoints', t18A_food: 'Food', t18A_item: 'Items', t18A_acc: 'Accessories', t18A_room: 'Room', t18RoomBack: 'remove own room', t18RoomBuiltin: 'built-in room', dlcPick: 'Add download content', dlcInfo: 'Show used slots', progMore: 'Settings and content', progMakeMain: 'Make it the main program', progIsMain: 'Main program', v1Ok: 'First Tamagotchi or Digimon recognised (V1Emu).', v3Ok: 'Tamagotchi Connection V3 recognised (V3Emu).', v3Use: 'Start: hold A and C together on the home screen. Wheel short: settings. Back: hold the wheel.', optVol: 'Volume', optVolN: 'normal', optVolQ: 'quiet', optVolL: 'loud', optOff: 'off', optDim: 'Brightness', optScr: 'Screen off after', optDev: 'Also on the device: press the wheel briefly. A change made there applies until you change it here again.', optScrToy: 'as on the Tama', v1Use: 'Start: hold A and C together on the home screen. Wheel short: settings. Turn the wheel: shake. Back: hold the wheel.', progNoMainDoom: 'DOOM is the main program. For another one remove DOOM first (×).', doomAutoHint: 'Hold the wheel for 2 s: back to the Paradise, it stays there.', progReplaced: '{n} is now the main program instead of {o}.', appTwice: '{n} is already in.', progNoMainV1: 'V1Emu starts from the menu only', progNoMain: 'Only in a start device', progMainNow: '{n} is now the main program. The saves of the swapped programs start anew.', dlcLoading: 'Reading…', dlcNewArea: 'This item needs a new memory block. The save of this emulator starts anew after writing. Items in areas already in use keep it.', dlcHint: 'Food, clothes, accessories, games etc. as .jpg download files. Several files at once work, on the P\'s always a whole VDP set.', dlcFreeN: '{n} free', dlcDel: 'remove', dlcK0: 'Meals', dlcK1: 'Snacks', dlcK2: 'Clothing', dlcK3: 'Accessories', dlcK4: 'Items', dlcK5: 'Daily items', dlcK6: 'Wallpapers', dlcK7: 'Games', dlcK8: 'Destinations', dlcK10: 'VDP recipes', dlcK15: 'Decorations', dlcK16: 'Coupons', dlcK17: 'Bingo', dlcK18: 'Gashapon', dlcK19: 'Characters', dlcOk: '{n} now sits in {k}, slot {s}.', dlcBad: '{f}: {e}', dlcGone: '{n} removed.',
     figField: 'Field:', figAll: 'all', zipField: 'Field as ZIP', fieldZipOk: '{f}: {n} characters and {s} pictures as ZIP.', fieldIn: 'Load field from ZIP', fieldInBad: 'Not a field ZIP (field.json missing).', fieldInOk: '{src} applied to {dst}: {n} parts.', fieldInEyes: '{k} characters stay original, their eye images are too big here.',
     zipFigs: 'All characters as ZIP', zipAll: 'All sprites as ZIP', upload: 'Upload sheets (PNG or ZIP)',
     numbers: 'Number test ROM',
@@ -387,7 +397,7 @@ async function loadRom(file) {
   Object.assign(state, { ctx, name: file.name, changed: new Map(), decoded: new Map(), open: null, eyeOffsets: new Map() });
   $('start').hidden = true; $('work').classList.add('on'); $('btnSave').disabled = false;
   $('romname').textContent = file.name;
-  state.emu = null; state.t7save = null; state.t7saveX = null; state.saveIn = null; state.emuRemove = false; state.doom = null; state.doomKeys = null; state.six = null; state.sixName = ''; state.sixWant = false; state.sixOff = false; state.petDirty = false; state.texts = new Map(); state.eyeShift = new Map(); state.mouthShift = new Map(); state.poseAdj = new Map(); state.poseCache = null; face.g = -1; state.dlcT = 'main'; state.figT = 'main'; state.dlcOpen = false; state.mainGuest = null; state.progOpen = new Set();
+  state.emu = null; state.t7save = null; state.t7saveX = null; state.saveIn = null; state.emuRemove = false; state.doom = null; state.doomKeys = null; state.six = null; state.sixName = ''; state.sixWant = false; state.sixOff = false; state.petDirty = false; state.texts = new Map(); state.eyeShift = new Map(); state.mouthShift = new Map(); state.poseAdj = new Map(); state.poseCache = null; face.g = -1; state.dlcT = 'main'; state.figT = 'main'; state.dlcOpen = false; state.mainGuest = null; state.t18Main = null; state.t18Dirty = false; state.t18Pics = E.t18PicsRead(buf); state.t18PicsDirty = false; state.itemT = 'main'; state.progOpen = new Set(); state.mainPick = null; state.mainDirty = false;
   { const si = S6.sixInfo(buf); state.sixPlanet = si && si.version >= 5 ? si.planet : true; state.sixMenu = si && si.version >= 6 ? si.fieldMenu : true; }
   { const l = stubList(buf); const g = E.autoGet(buf, l); state.emuAuto = g === null ? E.autoGetOld(buf, l) : g; }
   { const c = E.emuClockGet(buf); state.emuClock = c === null ? true : c; }
@@ -397,8 +407,11 @@ async function loadRom(file) {
     state.feld = !!(f && (f.flags & F.F_FIELDS)); state.bag = !!(f && (f.flags & F.F_BAG)); state.tama = !!(f && (f.flags & F.F_TAMA)); state.saves = true;
     state.feldInit = state.feld; state.bagInit = state.bag; state.tamaInit = state.tama; state.savesInit = true;
     state.launch = !!(f && f.version >= 2 && (f.flags & F.F_LAUNCH)); state.launchInit = state.launch; state.launchMap = null;
-    state.extras = f ? E.appsRead(buf, F.feldApps(buf, fe.stub).apps).map((x) => x.kind === 'tama' ? { kind: 'tama', guest: x.guest, dev: x.dev, clock: x.clock, nfc: x.nfc, opt: x.opt } : x.kind === 't18' ? { kind: 't18', fw: x.fw, clock: x.clock, opt: x.opt } : x.kind === 'v1' ? { kind: 'v1', rom: x.rom, clock: x.clock } : { rom: x.rom, figs: x.figs || [], clock: x.clock }) : []; state.extrasDirty = false;
+    state.extras = f ? E.appsRead(buf, F.feldApps(buf, fe.stub).apps).map((x) => x.kind === 'tama' ? { kind: 'tama', guest: x.guest, dev: x.dev, clock: x.clock, nfc: x.nfc, opt: x.opt } : x.kind === 't18' ? { kind: 't18', fw: x.fw, clock: x.clock, opt: x.opt, keepOff: x.off } : x.kind === 'v1' ? { kind: 'v1', rom: x.rom, clock: x.clock } : x.kind === 'gb' ? { kind: 'gb', rom: x.rom, keys: x.keys, inv: x.inv, save: x.save } : { rom: x.rom, figs: x.figs || [], clock: x.clock }) : []; state.extrasDirty = false;
     state.extrasUp = f ? extrasOld(buf, F.feldApps(buf, fe.stub).apps) : false;   // 1.6.8: programs of an older Studio are renewed on save
+    // 1.6.9 test13: start device with DOOM, the main program out of the menu's list and its autostart
+    if (f && state.launch) { const fa = F.feldApps(buf, fe.stub);
+      if (fa.v9) { state.emuAuto = !!fa.auto; const k = fa.mainSrc ? E.appsRead(buf, fa.apps).findIndex((x) => x.off === fa.mainSrc - 0x10000000 + 0x11000) : -1; state.mainPick = k >= 0 ? state.extras[k] || null : null; } }
     // A menu from an older Studio version is rebuilt on save (e.g. 0.9.5 had no item pictures)
     state.feldStale = false;
     if (f) {
@@ -406,7 +419,7 @@ async function loadRom(file) {
         const embOld = { stub: fe.stub, oldStub: E.embedded() && E.embedded().stub };
         const fa = F.feldApps(buf, fe.stub), low = fa.apps.length ? Math.min(...fa.apps.map((a) => a.src - 0x10000000 + 0x11000)) : 0;
         const dl = f.version >= 7 ? (buf[f.off + 0x334] | buf[f.off + 0x335] << 8 | buf[f.off + 0x336] << 16 | buf[f.off + 0x337] << 24) >>> 0 : 0, dlo = dl ? dl - 0x10000000 + 0x11000 : 0;
-        const re = F.feldApply(F.feldStrip(buf, embOld, E), { fields: state.feld, bag: state.bag, tama: state.tama, saves: state.saves, launch: state.launch, apps: fa.apps, name0: fa.name0, appsLow: low, dl, fieldNames: fieldTexts(buf).map((x) => x.name) }, F.feldSlots(buf, fe.stub), { feld: fe.feld, stub: fe.stub }, E);
+        const re = F.feldApply(F.feldStrip(buf, embOld, E), { fields: state.feld, bag: state.bag, tama: state.tama, saves: state.saves, launch: state.launch, apps: fa.apps, name0: fa.name0, appsLow: low, dl, mainSrc: fa.mainSrc, auto: fa.auto, fieldNames: fieldTexts(buf).map((x) => x.name) }, F.feldSlots(buf, fe.stub), { feld: fe.feld, stub: fe.stub }, E);
         if (dlo) re.set(buf.subarray(dlo, dlo + 0x10000), dlo);   // the flash app stays where it is
         state.feldStale = re.length !== buf.length || re.some((v, i) => v !== buf[i]);
       } catch (e) { state.feldStale = false; }
@@ -531,7 +544,7 @@ function refreshTile(kind, idx) {
 }
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x === b)));
-  ['figs', 'all', 'names', 'dim', 'emu', 'doom', 'feld', 'save'].forEach(k => $('pane-' + k).hidden = k !== b.dataset.tab);
+  ['figs', 'all', 'names', 'dim', 'emu', 'doom', 'gb', 'feld', 'save'].forEach(k => $('pane-' + k).hidden = k !== b.dataset.tab);
 });
 
 // Options for a sprite that belongs to a character group (eyes keep their length,
@@ -1016,9 +1029,13 @@ function emuUpPending() {
   } catch (e) { return false; }
 }
 /* Room for emulator and DOOM: both need the area after the characters from 0x830000 and the program space at 0x0A0000 */
-function appRoom() { const r = state.ctx.rom; return estimateEnd() <= 0x830000 && (F.appKind(r) || r.subarray(0xA0000, 0xA1000).every(b => b === 0xFF)); }
+/* 1.6.9 test25: firmware that reaches past 0x0A0000 (Jade Forest wave 2 up to 0x0A1683, GitHub issue; Tropical, Glacier):
+ * no main program there, but a start device puts every program into the menu (appsPlace, anywhere free) */
+function a0Free() { const r = state.ctx.rom; return !!F.appKind(r) || r.subarray(0xA0000, 0xA1000).every(b => b === 0xFF); }
+function appRoom() { return !a0Free() || estimateEnd() <= 0x830000; }   // without a main program the trial build decides (roomMissing)
 function renderEmu() {
   if (!state.ctx) return;
+  renderGb();
   const has = emuInstalled();
   $('btnEmuOff').hidden = true; $('btnEmuUndo').hidden = true;   // 1.6.8: in the list of programs (×, ↺)
   let s;
@@ -1026,16 +1043,18 @@ function renderEmu() {
   const t7In = has && F.emuType(state.ctx.rom) === 't7', t7 = state.emu ? !!state.emu.t7 : t7In && !state.emuRemove;
   const t18In = has && F.emuType(state.ctx.rom) === 't18', t18 = state.emu ? !!state.emu.t18 : t18In && !state.emuRemove;
   const t7Fr = state.emu ? !!state.emu.t7 && E.t7Kind(state.emu.rom) === 'friends' : t7In && !!E.t7Cfg(state.ctx.rom) && E.t7Cfg(state.ctx.rom).romLen === 0xC0000;
-  if (state.emu) s = state.emu.v1 ? t('v1Ok') : state.emu.t7 ? t(t7Fr ? 't7OkFr' : 't7Ok') : state.emu.t18 ? t('t18Ok') : t('emuOk', { size: E.DEVICES[state.emu.dev].label });
+  if (state.emu) s = state.emu.v1 ? t(E.v3Detect(state.emu.rom) ? 'v3Ok' : 'v1Ok') : state.emu.t7 ? t(t7Fr ? 't7OkFr' : 't7Ok') : state.emu.t18 ? t('t18Ok') : t('emuOk', { size: E.DEVICES[state.emu.dev].label });
   else if (state.emuRemove) s = t('emuGone');
   else s = has ? t(t7In ? (t7Fr ? 't7HasFr' : 't7Has') : t18In ? 't18Has' : 'emuHas') + (emuUpPending() ? ' ' + t('emuUp') : '') : (state.extras && state.extras.length ? t('emuInList', { n: state.extras.map((x) => E.extraName(x)).join(', ') }) : t('emuNone'));
   const v1 = state.emu ? !!state.emu.v1 : has && F.emuType(state.ctx.rom) === 'v1' && !state.emuRemove;
-  s += (state.emu || (has && !state.emuRemove) ? '\n' + t(v1 ? 'v1Use' : t7 ? 't7Use' : t18 ? 't18Use' : 'emuUse') : '');
+  const v3 = v1 && E.v3Detect(state.emu ? state.emu.rom : E.v1FromRom(state.ctx.rom));
+  s += (state.emu || (has && !state.emuRemove) ? '\n' + t(v3 ? 'v3Use' : v1 ? 'v1Use' : t7 ? 't7Use' : t18 ? 't18Use' : 'emuUse') : '');
   const bigIn = has && !state.emu && !state.emuRemove && state.ctx.rom[0xA0148] === 0 && state.ctx.rom[0xA014A] === 0x84;
   if ((state.emu && state.emu.big) || bigIn) s += '\n' + t('emuBig');
   const room = appRoom();
   $('btnEmu').disabled = !room;
   if (!room) s = t('noRoomApp');
+  else if (!a0Free()) s += '\n' + t(state.launch ? 'a0Menu' : 'a0MenuN');
   else if (!state.launch && !state.emu && (state.doom || (doomInstalled() && !state.emuRemove))) s += '\n' + t('emuVsDoom');
   $('emuStat').textContent = s;
   renderT7Figs(t7 && room && !t7Fr);
@@ -1066,6 +1085,228 @@ function dlcTarget(tg = state.dlcT) {
   const mg = state.mainGuest;
   if (mg && !state.emuRemove) return { guest: mg.g, dev: mg.dev, set: (g) => { const pk = E.packGuest(g, mg.dev); state.emu = { guest: g, dev: mg.dev, size: pk.blob.length, big: pk.big, kept: true }; state.mainGuest = null; } };
   return null;
+}
+/* test5: Gotchi Points of a Tama-Go (T7Emu): EEPROM 0x030-0x034, 5 bytes BCD lowest digits first, no checksum
+ * (save.bin: behind the 2 byte page mask). Goes in like an imported save: the running state starts anew. */
+function t7GpSave(tg) {
+  const rom = state.ctx.rom;
+  if (tg === 'main') return state.t7save || SV.t7SaveOut(rom);
+  const x = state.extras[tg]; if (!x || x.kind || x.fresh) return null;
+  if (state.t7saveX && state.t7saveX.i === tg) return state.t7saveX.save;
+  const o = romExtras(rom).find((r) => E.extraKind(r) === 't7' && r.rom.length === x.rom.length && r.rom.every((v, k) => v === x.rom[k]));
+  return o ? SV.t7SaveOut(rom, o.saveOff) : null;
+}
+function t7GpGet(sv) {
+  let n = 0;
+  for (let i = 4; i >= 0; i--) { const v = sv[0x32 + i], hi = v >> 4, lo = v & 15; if (hi > 9 || lo > 9) return -1; n = n * 100 + hi * 10 + lo; }
+  return n;
+}
+function t7GpInto(box, tg) {
+  const sv = t7GpSave(tg); if (!sv || !(sv[0] & 1)) return;   // page 0 of the EEPROM must be there
+  const n = t7GpGet(sv); if (n < 0) return;
+  const l = document.createElement('label'); l.className = 'check'; const sp = document.createElement('span'); sp.textContent = t('t7Gp') + ' ';
+  const inp = document.createElement('input'); inp.type = 'number'; inp.min = 0; inp.max = 999999; inp.value = String(n); inp.style.width = '7em';
+  inp.onchange = () => {
+    let v = Math.max(0, Math.min(999999, Math.floor(+inp.value || 0)));
+    const g = new Uint8Array(sv);
+    for (let i = 0; i < 5; i++) { const d = v % 100; g[0x32 + i] = ((d / 10 | 0) << 4) | (d % 10); v = Math.floor(v / 100); }
+    if (tg === 'main') state.t7save = g; else state.t7saveX = { i: tg, save: g };
+    renderPlan(); renderEmu();
+  };
+  l.append(sp, inp); box.appendChild(l);
+  const w = document.createElement('div'); w.className = 'hint'; w.textContent = t('t7GpHint'); box.appendChild(w);
+}
+/* 1.6.8 (test47): items of T18Emu (MyMeets files) go straight into its firmware's save; the running state starts anew */
+function t18Target(tg) {
+  if (typeof tg === 'number') { const x = (state.extras || [])[tg]; return x && x.kind === 't18' ? { fw: x.fw, set: () => { x.items = true; state.extrasDirty = true; } } : null; }
+  const em = state.emu;
+  if (em) return em.t18 ? { fw: em.rom, set: () => { em.items = true; } } : null;
+  if (!emuInstalled() || state.emuRemove || F.emuType(state.ctx.rom) !== 't18') return null;
+  if (!state.t18Main) state.t18Main = E.t18FromRom(state.ctx.rom);
+  const fw = state.t18Main; if (!fw) return null;
+  return { fw, set: () => { state.t18Dirty = true; } };   // written into the installed program on save (E.t18RomWriteGuest)
+}
+function picCanvas(pic, sc) {
+  const c = document.createElement('canvas'); c.className = 'itempic';
+  if (!pic) { c.width = c.height = 1; return c; }
+  c.width = pic.w; c.height = pic.h; c.style.width = (pic.w * sc) + 'px'; c.style.height = (pic.h * sc) + 'px';
+  c.getContext('2d').putImageData(new ImageData(pic.rgba, pic.w, pic.h), 0, 0); return c;
+}
+/* test47: pictures for "grow up" (the user's own files: <name>.png, <id>.png or the Android T18Emu set with erwachsen.json) */
+function t18PicsInto(box) {
+  const h = document.createElement('h4'); h.className = 'subhead'; h.textContent = t('t18Pics'); box.appendChild(h);
+  const tools = document.createElement('div'); tools.className = 'tools';
+  const pick = document.createElement('button'); pick.className = 'btn small'; pick.textContent = t('t18PicsPick'); pick.onclick = () => $('fileT18Pic').click();
+  tools.appendChild(pick);
+  if (state.t18Pics && state.t18Pics.size) { const del = document.createElement('button'); del.className = 'btn small'; del.textContent = t('t18PicsDel'); del.onclick = () => { state.t18Pics = new Map(); state.t18PicsDirty = true; renderEmu(); }; tools.appendChild(del); }
+  box.appendChild(tools);
+  if (state.t18Pics && state.t18Pics.size) {
+    const g = document.createElement('div'); g.className = 'picgrid';
+    for (const [id, p] of state.t18Pics) { const f = document.createElement('figure'); const c = picCanvas(E.t18PicRgba(p), 1); const cap = document.createElement('figcaption'); cap.textContent = (E.T18_ADULTS.find((a) => a[0] === id) || [0, '#' + id])[1]; f.append(c, cap); g.appendChild(f); }
+    box.appendChild(g);
+  }
+  const w = document.createElement('div'); w.className = 'hint'; w.textContent = t('t18PicsHint'); box.appendChild(w);
+}
+async function pngRgba(bytes) {
+  const bm = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+  const c = document.createElement('canvas'); c.width = bm.width; c.height = bm.height; const x = c.getContext('2d'); x.drawImage(bm, 0, 0);
+  return { w: bm.width, h: bm.height, rgba: x.getImageData(0, 0, bm.width, bm.height).data };
+}
+/* test3: items or Tamapoints changed: with "keep saves" the device would bring back its own T18 save (session, sector
+ * tables, spare blocks) over the changed one. The whole T18 save comes from the image then (it is the device's state at
+ * reading plus the change). */
+function t18Fresh(rom, off, fresh) {
+  const c = E.extraCfg(rom, off); if (!c || c.kind !== 't18') return;
+  fresh.push([c.saveOff, c.saveOff + 0x24000]);
+  for (const b of c.spare) if (b !== 0xFFFF) fresh.push([b << 16, (b + 1) << 16]);
+}
+/* test2: a name the Studio cannot read (Japanese letters) shows as its number */
+function t18Nm(r) { return r.readable !== false || !r.cat ? r.name : t('t18ItemNo', { n: r.cat }); }
+/* test6: MixingMeets for T18Emu on the Paradise. The page (mixing-meets.com, Connect and Return) speaks Web Bluetooth
+ * with "TMGC_meets" (service fff0, fff1 notify, fff2 write). This bookmarklet replaces navigator.bluetooth on that page:
+ * "Select Tamagotchi" then opens the serial port of the UART dongle on the Paradise's contacts, and T18Emu hands the data
+ * to the firmware's Bluetooth module, as the Android T18Emu does. Frames: see t18/src/app/main.c (T18_LINK). */
+function pmxBridge() {
+  if (window.__pmxBridge) { alert('Paramix: bridge already on'); return; }
+  if (!navigator.serial) { alert('Paramix: this browser has no Web Serial (Chrome or Edge on a computer)'); return; }
+  window.__pmxBridge = 1;
+  const bn = document.createElement('div');
+  bn.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:2147483647;background:#1d2b44;color:#fff;padding:8px 12px;border-radius:8px;font:13px/1.3 sans-serif;max-width:320px';
+  const st = (m) => { bn.textContent = 'Paramix: ' + m; };
+  st('bridge on. Select Tamagotchi, then choose the dongle.'); document.body.appendChild(bn);
+  const FFF0 = '0000fff0-0000-1000-8000-00805f9b34fb', FFF1 = '0000fff1-0000-1000-8000-00805f9b34fb', FFF2 = '0000fff2-0000-1000-8000-00805f9b34fb';
+  let port = null, reader = null, writer = null, hello = 0, ack = null, ping = null, live = false;
+  const notes = [], gone = [];
+  let fs = 0, fty = 0, flen = 0, fbuf = [], fsum = 0;
+  const frame = (ty, d) => { const a = new Uint8Array(4 + d.length); a[0] = 0x5A; a[1] = ty; a[2] = d.length; let s = ty + d.length; for (let i = 0; i < d.length; i++) { a[3 + i] = d[i]; s += d[i]; } a[3 + d.length] = s & 255; return a; };
+  const send = (ty, d) => writer.write(frame(ty, d || []));
+  const R = { uuid: FFF1, properties: { notify: true, read: false, write: false, writeWithoutResponse: false }, value: null,
+    addEventListener: (ty, fn) => { if (ty === 'characteristicvaluechanged') notes.push(fn); }, removeEventListener: () => {},
+    startNotifications: async () => R, stopNotifications: async () => R };
+  const got = (ty, d) => {
+    if (ty === 0x48) { hello = Date.now(); return; }
+    if (ty === 0x4B) { const a = ack; ack = null; if (a) a(); return; }
+    if (ty === 0x4E) { const u = new Uint8Array(d); R.value = new DataView(u.buffer); for (const fn of notes) { try { fn({ target: R }); } catch (e) { console.error(e); } } }
+  };
+  const feed = (b) => {
+    if (fs === 0) { if (b === 0xA5) fs = 1; return; }
+    if (fs === 1) { fty = b; fsum = b; fs = 2; return; }
+    if (fs === 2) { if (b > 64) { fs = 0; return; } flen = b; fsum += b; fbuf = []; fs = flen ? 3 : 4; return; }
+    if (fs === 3) { fbuf.push(b); fsum += b; if (fbuf.length >= flen) fs = 4; return; }
+    fs = 0; if ((fsum & 255) === b) got(fty, fbuf);
+  };
+  const down = () => { if (!live) return; live = false; dev.gatt.connected = false; clearInterval(ping); for (const fn of gone) { try { fn({ target: dev }); } catch (e) {} } };
+  const readLoop = async () => { try { for (;;) { const { value, done } = await reader.read(); if (done) break; for (const b of value) feed(b); } } catch (e) {} st('dongle closed'); down(); };
+  const write = async (data) => {
+    if (!live) throw new Error('Your Tama disconnected');
+    const u = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    for (let o = 0; o < u.length; o += 60) {
+      const p = new Promise((res, rej) => { ack = res; setTimeout(() => { if (ack === res) { ack = null; rej(new Error('Paradise did not answer')); } }, 15000); });
+      await send(0x57, Array.from(u.subarray(o, o + 60))); await p;
+    }
+  };
+  const T = { uuid: FFF2, properties: { write: true, writeWithoutResponse: false, notify: false, read: false },
+    writeValueWithResponse: write, writeValue: write, writeValueWithoutResponse: write };
+  const svc = { uuid: FFF0, isPrimary: true, getCharacteristic: async (u) => { u = String(u).toLowerCase(); if (u.indexOf('fff1') >= 0) return R; if (u.indexOf('fff2') >= 0) return T; throw new Error('No characteristic ' + u); } };
+  const dev = { id: 'paramix', name: 'TMGC_meets', addEventListener: (ty, fn) => { if (ty === 'gattserverdisconnected') gone.push(fn); }, removeEventListener: () => {} };
+  dev.gatt = { device: dev, connected: false,
+    connect: async () => { await send(0x43, [1]); live = true; dev.gatt.connected = true; clearInterval(ping); ping = setInterval(() => { send(0x50, []).catch(() => {}); }, 1000); st('connected to the Paradise'); return dev.gatt; },
+    disconnect: () => { if (writer) send(0x43, [0]).catch(() => {}); down(); },
+    getPrimaryService: async (u) => { if (String(u).toLowerCase().indexOf('fff0') < 0) throw new Error('No services matching UUID ' + u); return svc; } };
+  const requestDevice = async () => {
+    if (!port) {
+      const pp = await navigator.serial.requestPort();
+      try { await pp.open({ baudRate: 460800, bufferSize: 4096 }); }
+      catch (e) { st('the dongle is busy. In Paramix Studio press "UART freigeben" (or close the Studio), then try again.'); alert('Paramix: the dongle is busy.\nParamix Studio still holds it: press "UART freigeben" there or close the Studio, then try again.'); throw e; }
+      port = pp;
+      reader = port.readable.getReader(); writer = port.writable.getWriter(); readLoop();
+    }
+    st('looking for T18Emu on the Paradise...');
+    const t0 = Date.now(); while (!hello && Date.now() - t0 < 4000) await new Promise((r) => setTimeout(r, 100));
+    if (!hello) { st('no answer from the Paradise'); throw new Error('Paradise not found: start T18Emu and check the dongle'); }
+    st('Paradise found'); return dev;
+  };
+  try { Object.defineProperty(navigator, 'bluetooth', { configurable: true, value: { requestDevice, getAvailability: async () => true } }); }
+  catch (e) { alert('Paramix: could not take over Bluetooth on this page'); }
+  window.addEventListener('pagehide', () => { try { if (writer) writer.write(frame(0x43, [0])); } catch (e) {} });
+}
+function pmxBridgeHref() { return 'javascript:' + encodeURIComponent('(' + pmxBridge.toString() + ')()'); }
+window.pmxBridgeHref = pmxBridgeHref;   // for the test
+window.pmxTest = { uartWarnInto: (b) => uartWarnInto(b), devFree: () => devFree(), devRender: () => devRender(), dv: () => dv };
+function t18BridgeInto(box) {
+  const h = document.createElement('h4'); h.className = 'subhead'; h.textContent = t('mmTitle'); box.appendChild(h);
+  const a = document.createElement('a'); a.className = 'btn small'; a.href = pmxBridgeHref(); a.textContent = t('mmLink'); a.onclick = (e) => { e.preventDefault(); toast(t('mmDrag')); };
+  box.appendChild(a);
+  const w = document.createElement('div'); w.className = 'hint'; w.style.whiteSpace = 'pre-line'; w.textContent = t('mmHint'); box.appendChild(w);
+  uartWarnInto(box);
+  pairInto(box, 'pairHint');
+}
+/* 1.6.9: visits over the contacts for the other emulators (T7Emu Tama-Go so far) */
+const IR_HINT = { ps: 'pairHintPs', idl: 'pairHintIdl' };   /* TamaEmu with the infrared link (1.6.9) */
+function linkInto(box, hint) { pairInto(box, hint); }
+/* test7: the bridge page needs the dongle for themselves. While the Studio holds it, say so and
+ * offer to let it go. */
+const uartWarns = [];
+function uartWarnRender() {
+  for (const b of uartWarns) { if (!b.isConnected) continue; b.hidden = !dv.io; }
+}
+function uartWarnInto(box) {
+  const d = document.createElement('div'); d.className = 'uartwarn';
+  const m = document.createElement('span'); m.textContent = t('uartBusy') + ' ';
+  const k = document.createElement('button'); k.className = 'btn small'; k.textContent = t('uartFree'); k.onclick = () => devFree();
+  d.append(m, k); box.appendChild(d); uartWarns.push(d); d.hidden = !dv.io;
+}
+async function devFree() {
+  if (dv.run) { toast(t('uartRun')); return; }
+  try { if (dv.io) await dv.io.close(); } catch (e) {}
+  dv.io = null; dv.d = null; dv.loaded = false; devRender(t('devNone')); toast(t('uartFreed'));
+}
+/* 1.6.9: visits between two Paradise: plugged together at the top, the programs talk over the contacts themselves */
+function pairInto(box, hint) {
+  const h = document.createElement('h4'); h.className = 'subhead'; h.textContent = t('pairTitle'); box.appendChild(h);
+  const w = document.createElement('div'); w.className = 'hint'; w.style.whiteSpace = 'pre-line'; w.textContent = t(hint); box.appendChild(w);
+}
+function t18ItemsInto(box, tg) {
+  const T = t18Target(tg); if (!T) return;
+  const it = E.t18Items(T.fw);
+  const h = document.createElement('h4'); h.className = 'subhead'; h.textContent = t('t18Items'); box.appendChild(h);
+  if (!it.save) { const w = document.createElement('div'); w.className = 'hint'; w.textContent = t('t18ItemsNoSave'); box.appendChild(w); return; }
+  const tools = document.createElement('div'); tools.className = 'tools';
+  const pick = document.createElement('button'); pick.className = 'btn small'; pick.textContent = t('t18ItemsPick');
+  pick.onclick = () => { state.itemT = tg; $('fileT18Item').click(); };
+  const pl = document.createElement('label'); pl.className = 'check'; const ps = document.createElement('span'); ps.textContent = t('t18Points') + ' ';
+  const pi = document.createElement('input'); pi.type = 'number'; pi.min = 0; pi.max = 65535; pi.value = String(it.points); pi.style.width = '7em';
+  pi.onchange = () => { E.t18Points(T.fw, +pi.value || 0); T.set(); renderEmu(); };
+  pl.append(ps, pi); tools.append(pick, pl); box.appendChild(tools);
+  const grid = document.createElement('div'); grid.className = 'dlcgrid';
+  for (const a of it.areas) {
+    const d = document.createElement('div'); d.className = 'dlcbox';
+    const used = a.slots.filter((x) => x.rec);
+    const hh = document.createElement('h4'); hh.textContent = t('t18A_' + a.key) + ' ' + used.length + '/' + (used.length + a.free); d.appendChild(hh);
+    for (const x of used) {
+      const r = document.createElement('div'); r.className = 'dlcrow';
+      const n = document.createElement('span'); n.className = 'itemname'; n.append(picCanvas(x.rec.pic, 1), document.createTextNode(' ' + t18Nm(x.rec)));
+      const sel = document.createElement('select'); [1, 2, 3].forEach((v) => { const o = document.createElement('option'); o.value = String(v); o.textContent = v + '×'; sel.appendChild(o); });
+      sel.value = String(x.count); sel.onchange = () => { E.t18ItemCount(T.fw, a.key, x.n, +sel.value); T.set(); renderEmu(); };
+      const b = document.createElement('button'); b.className = 'btn small'; b.textContent = t('dlcDel');
+      b.onclick = () => { E.t18ItemDel(T.fw, a.key, x.n); T.set(); toast(t('dlcGone', { n: t18Nm(x.rec) })); renderEmu(); };
+      const ctl = document.createElement('span'); ctl.className = 'itemctl'; ctl.append(sel, b); r.append(n, ctl); d.appendChild(r);
+    }
+    const f = document.createElement('div'); f.className = 'dlcrow free'; f.textContent = t('dlcFreeN', { n: a.free }); d.appendChild(f);
+    grid.appendChild(d);
+  }
+  { const d = document.createElement('div'); d.className = 'dlcbox';
+    const hh = document.createElement('h4'); hh.textContent = t('t18A_room'); d.appendChild(hh);
+    const r = document.createElement('div'); r.className = 'dlcrow';
+    if (it.room) {
+      const n = document.createElement('span'); n.className = 'itemname'; n.append(picCanvas(it.room.pic, 0.5), document.createTextNode(' ' + t18Nm(it.room)));
+      const b = document.createElement('button'); b.className = 'btn small'; b.textContent = t('t18RoomBack');
+      b.onclick = () => { E.t18RoomReset(T.fw); T.set(); renderEmu(); };
+      r.append(n, b);
+    } else r.textContent = t('t18RoomBuiltin');
+    d.appendChild(r); grid.appendChild(d); }
+  box.appendChild(grid);
+  const w = document.createElement('div'); w.className = 'hint'; w.textContent = t('t18ItemsHint'); box.appendChild(w);
 }
 function figTarget(tg = state.figT) {
   if (typeof tg === 'number') { const x = (state.extras || [])[tg]; if (!x || x.kind || E.t7Kind(x.rom) !== 'go') return null; x.figs = x.figs || []; return x; }
@@ -1161,13 +1402,23 @@ function renderApps() {
   const dIn = doomInstalled(), dGone = dIn && !state.doom && (state.emuRemove || (!state.launch && !!state.emu));
   const doomOut = () => { if (state.doom) state.doom = null; else { state.emuRemove = true; if (!state.launch) state.emu = null; } renderEmu(); renderDoom(); };
   const doomBack = () => { state.emuRemove = false; if (!state.launch) state.emu = null; renderEmu(); renderDoom(); };
-  if (dm) row('doom', 'DOOM', tagMain + (state.doom ? ' · ' + t('stNew') : ''), 'main', [['★', null, t('progIsMain'), 'pstar on', true], ['×', doomOut, t('doomOff')]],
-    state.launch ? null : (d) => checkInto(d, t('emuAuto'), t('doomAutoHint'), !!state.emuAuto, (v) => { state.emuAuto = v; renderEmu(); }));
+  // 1.6.9 test13: in the start device DOOM stays at 0x0A0000, but the main program (first in the menu, can start when
+  // switched on) can be any program of the list (switch FELD_AUTO in the menu)
+  const lp = !!state.launch && dm && mainV9();
+  if (lp && state.mainPick && state.mainPick !== 'emu' && !(state.extras || []).includes(state.mainPick)) state.mainPick = null;
+  if (lp && state.mainPick === 'emu' && !em) state.mainPick = null;
+  const pick = (v) => { state.mainPick = v; state.mainDirty = true; renderEmu(); };
+  const autoL = (d) => checkInto(d, t('emuAuto'), t('autoHintL'), !!state.emuAuto, (v) => { state.emuAuto = v; state.mainDirty = true; renderEmu(); });
+  const star = (on, v) => on ? ['★', null, t('progIsMain'), 'pstar on', true] : ['☆', () => pick(v), t('progMakeMain'), 'pstar'];
+  const doomIsMain = dm && !(lp && state.mainPick);
+  if (dm) row('doom', 'DOOM', (doomIsMain ? tagMain : t('progMenu')) + (state.doom ? ' · ' + t('stNew') : ''), doomIsMain ? 'main' : '', [lp ? star(doomIsMain, null) : ['★', null, t('progIsMain'), 'pstar on', true], ['×', doomOut, t('doomOff')]],
+    state.launch ? (lp && doomIsMain ? autoL : null) : (d) => checkInto(d, t('emuAuto'), t('doomAutoHint'), !!state.emuAuto, (v) => { state.emuAuto = v; renderEmu(); }));
   else if (dGone) row('doom', 'DOOM', t('progGone'), 'main gone', [['↺', doomBack, t('progUndo')]]);
   const undo = () => { state.emu = null; emuRemoveClear(); state.t7save = null; renderEmu(); renderDoom(); };
   // settings of the main program (they are in the program at 0x0A0000)
   const mainSet = (d, dev) => {
-    if (!dm) checkInto(d, t('emuAuto'), t('emuAutoHint'), !!state.emuAuto, (v) => { state.emuAuto = v; renderEmu(); });
+    if (!dm) checkInto(d, t('emuAuto'), t(state.launch && mainV9() ? 'autoHintL' : 'emuAutoHint'), !!state.emuAuto, (v) => { state.emuAuto = v; if (state.launch) state.mainDirty = true; renderEmu(); });
+    else if (lp && state.mainPick === 'emu') autoL(d);
     checkInto(d, t('emuClock'), t('emuClockHint'), state.emuClock !== false, (v) => { state.emuClock = v; renderEmu(); });
     if (dev === '4u' || dev === '4u-plain') checkInto(d, t('emuNfc'), t('emuNfcHint'), state.emuNfc !== false, (v) => { state.emuNfc = v; renderEmu(); });
     if (dev !== 't7' && dev !== 'v1' && dev) { state.emuOpt = state.emuOpt || { vol: 0, dim: 0, off: 0 }; optInto(d, state.emuOpt, () => renderEmu()); }
@@ -1177,9 +1428,10 @@ function renderApps() {
     const b = [], go = em.t7 && E.t7Kind(em.rom) === 'go', big = !em.t7 && !em.t18 && !em.v1 && DLC_DEV.includes(em.dev);
     if (go) b.push([t('t7FigPick') + (em.figs.length ? ' (' + em.figs.length + ')' : ''), () => { state.figT = 'main'; $('fileT7Fig').click(); }]);
     if (big) b.push([t('dlcPick'), () => { state.dlcT = 'main'; $('fileDlc').click(); }]);
-    b.push(dm ? ['☆', null, t('progNoMainDoom'), 'pstar', true] : ['★', null, t('progIsMain'), 'pstar on', true]);
+    const emMain = lp && state.mainPick === 'emu';
+    b.push(lp ? star(emMain, 'emu') : dm ? ['☆', null, t('progNoMainDoom'), 'pstar', true] : ['★', null, t('progIsMain'), 'pstar on', true]);
     b.push(['×', undo, t('progUndo')]);
-    row('main', nm, dm ? t('progMenu') + ' · ' + t('stNew') : em.kept ? tagMain : tagMain + ' · ' + t('stNew'), dm ? '' : 'main', b, (d) => { mainSet(d, em.dev); if (go) figsInto(d, 'main'); if (big) dlcInto(d, 'main'); });
+    row('main', nm, dm ? (emMain ? tagMain : t('progMenu')) + ' · ' + t('stNew') : em.kept ? tagMain : tagMain + ' · ' + t('stNew'), dm && !emMain ? '' : 'main', b, (d) => { mainSet(d, em.dev); if (go) { figsInto(d, 'main'); linkInto(d, 'pairHintT7'); } if (big) dlcInto(d, 'main'); if (!em.t7 && !em.t18 && !em.v1 && IR_HINT[em.dev]) linkInto(d, IR_HINT[em.dev]); if (em.v1 && E.v3Detect(em.rom)) linkInto(d, 'pairHintV3'); if (em.t18) { t18ItemsInto(d, 'main'); t18PicsInto(d); t18BridgeInto(d); } });
   } else if (has && !state.emuRemove) {
     const nm = (F.embedded() && F.feldApps(state.ctx.rom, F.embedded().stub).name0) || mainName(state.ctx.rom) || 'EMU';
     const b = [], c7 = F.emuType(state.ctx.rom) === 't7' && E.t7Cfg(state.ctx.rom), go = c7 && c7.romLen !== 0xC0000, cfg = romEmuCfg(state.ctx.rom), big = cfg && DLC_DEV.includes(cfg.dev);
@@ -1189,7 +1441,9 @@ function renderApps() {
     b.push(['×', () => { state.emu = null; state.emuRemove = true; renderEmu(); }, t('emuOff')]);
     row('main', nm, tagMain, 'main', b, (d) => {
       mainSet(d, cfg ? cfg.dev : F.emuType(state.ctx.rom));
-      if (go) figsInto(d, 'main');
+      if (go) { figsInto(d, 'main'); t7GpInto(d, 'main'); linkInto(d, 'pairHintT7'); }
+      if (cfg && IR_HINT[cfg.dev]) linkInto(d, IR_HINT[cfg.dev]);
+      if (F.emuType(state.ctx.rom) === 't18') { t18ItemsInto(d, 'main'); t18PicsInto(d); t18BridgeInto(d); }
       if (big) { if (state.mainGuest) dlcInto(d, 'main'); else { const w = document.createElement('div'); w.className = 'hint'; w.textContent = t('dlcLoading'); d.appendChild(w); busy(async () => { await mainGuestLoad(); renderEmu(); }); } }
     });
   } else if (has && state.emuRemove) {
@@ -1201,16 +1455,23 @@ function renderApps() {
     const b = [], go = !x.kind && E.t7Kind(x.rom) === 'go', big = x.kind === 'tama' && DLC_DEV.includes(x.dev);
     if (go) b.push([t('t7FigPick') + (x.figs && x.figs.length ? ' (' + x.figs.length + ')' : ''), () => { state.figT = i; $('fileT7Fig').click(); }]);
     if (big) b.push([t('dlcPick'), () => { state.dlcT = i; $('fileDlc').click(); }]);
-    { const ok = !dm && canMain(x); b.push(['☆', ok ? () => busy(() => makeMain(i)) : null, t(ok ? 'progMakeMain' : dm ? 'progNoMainDoom' : 'progNoMain'), 'pstar', !ok]); }
-    b.push(['×', () => { state.extras.splice(i, 1); state.extrasDirty = true; state.t7saveX = null; state.dlcT = 'main'; state.figT = 'main'; state.progOpen = new Set(); renderEmu(); }, t('progDel')]);
-    const det = x.kind === 'v1' && !E.v1Clock(x.rom) ? null : (d) => {
-      checkInto(d, t('emuClock'), t('emuClockHint'), x.clock !== false, (v) => { x.clock = v; state.extrasDirty = true; renderEmu(); });
+    const xMain = lp && state.mainPick === x;
+    if (lp) b.push(star(xMain, x));
+    else { const ok = !dm && canMain(x); b.push(['☆', ok ? () => busy(() => makeMain(i)) : null, t(ok ? 'progMakeMain' : x.kind === 'gb' ? 'gbNoMain' : dm ? 'progNoMainDoom' : 'progNoMain'), 'pstar', !ok]); }
+    b.push(['×', () => { if (state.mainPick === x) { state.mainPick = null; state.mainDirty = true; } state.extras.splice(i, 1); state.extrasDirty = true; state.t7saveX = null; state.dlcT = 'main'; state.figT = 'main'; state.progOpen = new Set(); renderEmu(); }, t('progDel')]);
+    const det = ((x.kind === 'v1' && !E.v1Clock(x.rom)) || x.kind === 'gb') && !xMain ? null : (d) => {   // test37: the Game Boy has no clock
+      if (xMain) autoL(d);
+      if (!(x.kind === 'v1' && !E.v1Clock(x.rom)) && x.kind !== 'gb') checkInto(d, t('emuClock'), t('emuClockHint'), x.clock !== false, (v) => { x.clock = v; state.extrasDirty = true; renderEmu(); });
       if (x.kind === 'tama' || x.kind === 't18') { x.opt = x.opt || { vol: 0, dim: 0, off: 0 }; optInto(d, x.opt, () => { state.extrasDirty = true; renderEmu(); }); }
       if (x.kind === 'tama' && (x.dev === '4u' || x.dev === '4u-plain')) checkInto(d, t('emuNfc'), t('emuNfcHint'), x.nfc !== false, (v) => { x.nfc = v; state.extrasDirty = true; renderEmu(); });
-      if (go) figsInto(d, i);
+      if (go) { figsInto(d, i); t7GpInto(d, i); linkInto(d, 'pairHintT7'); }
       if (big) dlcInto(d, i);
+      if (x.kind === 'tama' && IR_HINT[x.dev]) linkInto(d, IR_HINT[x.dev]);
+      if (x.kind === 'v1' && E.v1Name(x.rom).startsWith('DIGIMON')) linkInto(d, 'pairHintDigi');
+      if (x.kind === 'v1' && E.v3Detect(x.rom)) linkInto(d, 'pairHintV3');
+      if (x.kind === 't18') { t18ItemsInto(d, i); t18BridgeInto(d); }
     };
-    row('x' + i, E.extraName(x), t('progMenu'), '', b, det);
+    row('x' + i, E.extraName(x), xMain ? tagMain : t('progMenu'), xMain ? 'main' : '', b, det);
   });
   if (!box.children.length) { const d = document.createElement('span'); d.className = 'hint'; d.textContent = t('progNone'); box.appendChild(d); }
   else if ((state.extras || []).length && !menuWanted()) { const d = document.createElement('span'); d.className = 'hint'; d.textContent = t('appNeedMenu'); box.appendChild(d); }
@@ -1219,7 +1480,7 @@ function renderApps() {
 /* does a program in the menu come from an older Studio? (vectors and code differ from the program in this one) */
 function extrasOld(rom, apps) {
   try {
-    const progs = { t7: E.t7Embedded(), tama: E.embedded() && E.embedded().app, t18: E.t18Embedded(), v1: E.v1Embedded() };
+    const progs = { t7: E.t7Embedded(), tama: E.embedded() && E.embedded().app, t18: E.t18Embedded(), v1: E.v1Embedded(), gb: E.gbEmbedded() };
     for (const x of E.appsRead(rom, apps)) {
       const k = E.extraKind(x), img = k === 't18' ? null : progs[k]; if (!img) continue;   // T18Emu: its image is patched all over
       const at = x.off, same = (a, z) => { for (let i = a; i < z; i++) if (rom[at + i] !== img[i]) return false; return true; };
@@ -1231,6 +1492,8 @@ function extrasOld(rom, apps) {
 /* 1.6.8: choosing or dropping an emulator does not bring back a DOOM the user took out (emuRemove means "take the
  * program at 0x0A0000 out", which is DOOM when DOOM is built in) */
 function emuRemoveClear() { if (!doomInstalled()) state.emuRemove = false; }
+/* 1.6.9 test13: the Studio's menu program knows the main program out of its list (version 9) */
+function mainV9() { const fe = F.embedded(); if (!fe) return false; const f = fe.feld; for (let i = 0; i + 8 <= f.length; i += 4) if ((f[i] | f[i + 1] << 8 | f[i + 2] << 16 | f[i + 3] << 24) >>> 0 === 0x444C4546) return (f[i + 4] | f[i + 5] << 8) >= 9; return false; }
 function doomMain() { return !!state.doom || (doomInstalled() && !state.emuRemove && (!!state.launch || !state.emu)); }
 function curMainX() {
   const em = state.emu;
@@ -1238,8 +1501,10 @@ function curMainX() {
   return null;
 }
 function canMain(x) {
+  if (x.kind === 'gb') return false;   // 1.6.9 test36: GBEmu only in the menu
   // outside a start device only T7Emu goes to the menu, so the old main program must be a T7Emu (or none)
   if (state.launch) return true;
+  if (!a0Free()) return false;   // test25: no main program at 0x0A0000 in this edition
   const em = state.emu, ty = em ? (em.v1 ? 'v1' : em.t7 ? 't7' : em.t18 ? 't18' : 'tama') : (emuInstalled() && !state.emuRemove ? F.emuType(state.ctx.rom) : null);
   return !ty || ty === 't7' || ty === 'v1';
 }
@@ -1288,7 +1553,8 @@ async function roomMissing() {
 }
 async function addExtra(g, fname) {
   let x = null;
-  if (E.v1Detect(g)) x = { kind: 'v1', rom: g };   // 1.6.8: V1Emu (first Tamagotchis, Digital Monster)
+  if (E.gbDetect(g)) { if (E.gbColorOnly(g)) { toast(t('gbColor', { f: fname }), true); return; } x = { kind: 'gb', rom: g, keys: gbKeysNow().slice(), inv: !!state.gbInv }; }   // 1.6.9 test36: GBEmu
+  else if (E.v1Detect(g)) x = { kind: 'v1', rom: g };   // 1.6.8: V1Emu (first Tamagotchis, Digital Monster)
   else if (E.t7Detect(g)) x = { rom: g };
   else if (E.t18Detect(g)) x = { kind: 't18', fw: g };
   else { try { const dev = E.emuDetect(g); E.packGuest(g, dev); x = { kind: 'tama', guest: g, dev }; } catch (err) { x = null; } }
@@ -1301,6 +1567,8 @@ async function addExtra(g, fname) {
   { let m = curMainX(); if (!m && emuInstalled() && !state.emuRemove) { const r0 = state.ctx.rom, ty = F.emuType(r0); if (ty === 't7') { const c7 = E.t7FromRom(r0); if (c7) m = { rom: c7.rom }; } else if (ty === 't18') { const fw = E.t18FromRom(r0); if (fw) m = { kind: 't18', fw }; } else if (ty === 'v1') { const r = E.v1FromRom(r0); if (r) m = { kind: 'v1', rom: r }; } else if (x.kind === 'tama') { await mainGuestLoad(); if (state.mainGuest) m = { kind: 'tama', guest: state.mainGuest.g, dev: state.mainGuest.dev }; } } if ((m && sameFw(x, m)) || state.extras.some((y) => sameFw(x, y))) { toast(t('appTwice', { n: E.extraName(x) }), true); return; } }   // 1.6.8: each program once
   if (x.kind === 't18' && (state.extras.some((y) => y.kind === 't18') || (state.emu && state.emu.t18) || (!state.emu && F.emuType(state.ctx.rom) === 't18' && !state.emuRemove))) { toast(t('appT18One'), true); return; }
   x.fresh = true; state.extras.push(x); state.extrasDirty = true; state.t7saveX = null;
+  // test25: no room at 0x0A0000 and no start device: a colour Tama or TG18 cannot go anywhere
+  if (!state.launch && !a0Free() && (x.kind === 'tama' || x.kind === 't18')) { state.extras = state.extras.filter((y) => y !== x); toast(t('a0NoMain', { f: fname }), true); renderEmu(); return; }
   // outside a start device a colour Tama or TG18 only runs as the main program (A and C): it becomes the main one
   if (!state.launch && (x.kind === 'tama' || x.kind === 't18')) { busy(() => makeMain(state.extras.length - 1)); return; }
   // 1.6.8: does it still fit? A trial build right away, not only when writing
@@ -1345,12 +1613,58 @@ $('fileDlc').onchange = async (e) => {
   try { const t1 = dlcTarget(); if (nb0 >= 0 && E.packGuest(t1.guest, t1.dev).blocks !== nb0 && hasOldSave()) toast(t('dlcNewArea'), true); } catch (err) { /* only a hint */ }
   renderEmu();
 };
+$('fileT18Item').onchange = async (e) => {
+  const files = [...e.target.files]; e.target.value = ''; const T = t18Target(state.itemT); if (!files.length || !T) return;
+  const recs = [];
+  for (const f of files) {
+    try {
+      const b = new Uint8Array(await f.arrayBuffer());
+      if (f.name.toLowerCase().endsWith('.zip')) { const z = await C.zipRead(b, inflateRaw); for (const x of z) recs.push(...E.t18iScan(x.data)); }
+      else recs.push(...E.t18iScan(b));
+    } catch (err) { toast(t('dlcBad', { f: f.name, e: em(err) }), true); }
+  }
+  if (!recs.length) { toast(t('t18ItemsNone'), true); return; }
+  let n = 0;
+  for (const r of recs) {
+    if (r.model && r.model !== 'tg18') toast(t('t18ItemsOther', { n: t18Nm(r), m: r.model.toUpperCase() }), true);
+    try { const x = E.t18ItemAdd(T.fw, r, 1); n++; toast(t('t18ItemOk', { n: t18Nm(r), k: t('t18A_' + x.area) })); }
+    catch (err) { toast(t('dlcBad', { f: t18Nm(r), e: err.message === 'full' ? t('t18ItemsFull') : em(err) }), true); }
+  }
+  if (n) T.set();
+  renderEmu();
+};
+$('fileT18Pic').onchange = async (e) => {
+  const files = [...e.target.files]; e.target.value = ''; if (!files.length) return;
+  const ents = [];
+  for (const f of files) {
+    const b = new Uint8Array(await f.arrayBuffer());
+    if (f.name.toLowerCase().endsWith('.zip')) { try { for (const x of await C.zipRead(b, inflateRaw)) ents.push({ name: x.name.split('/').pop(), data: x.data }); } catch (err) { toast(t('dlcBad', { f: f.name, e: em(err) }), true); } }
+    else ents.push({ name: f.name, data: b });
+  }
+  const byImg = new Map();   // the Android set: erwachsen.json names every picture
+  // English firmwares (Param block at 0xF800D864) take the pictures of the English ones first, the others the Japanese ones
+  const fw0 = state.emu && state.emu.t18 ? state.emu.rom : null, pa = fw0 ? E.t18Addrs(fw0).param : (state.ctx.rom[0xA0140 + 428] | state.ctx.rom[0xA0140 + 429] << 8 | state.ctx.rom[0xA0140 + 430] << 16 | state.ctx.rom[0xA0140 + 431] << 24) >>> 0;
+  const EN = new Set(['34525147dbe95eb512760981a07f5c30', '1a7d362f6f31b637e0a3b34ba6b6d110', '190a9d6801ed709f9a090a74f95039af']), wantEn = !pa || pa === 0xF800D864;
+  const rank = new Map();
+  for (const x of ents) if (/\.json$/i.test(x.name)) { try { const j = JSON.parse(new TextDecoder().decode(x.data)); for (const k in j) for (const a of j[k] || []) if (a.img) { byImg.set(a.img, a.id); rank.set(a.img, EN.has(k) === wantEn ? 0 : 1); } } catch (err) { /* not that file */ } }
+  ents.sort((a, b) => (rank.has(b.name) ? rank.get(b.name) : 0) - (rank.has(a.name) ? rank.get(a.name) : 0));   // the wanted ones last: they win
+  state.t18Pics = state.t18Pics || new Map(); let n = 0;
+  for (const x of ents) {
+    if (!/\.png$/i.test(x.name)) continue;
+    const id = byImg.has(x.name) ? byImg.get(x.name) : E.t18AdultFind(x.name);
+    if (id < 0 || !E.T18_ADULTS.some((a) => a[0] === id)) { toast(t('t18PicsUnknown', { f: x.name }), true); continue; }
+    try { state.t18Pics.set(id, E.t18PicMake(await pngRgba(x.data))); n++; } catch (err) { toast(t('dlcBad', { f: x.name, e: em(err) }), true); }
+  }
+  if (n) { state.t18PicsDirty = true; toast(t('t18PicsOk', { n })); }
+  renderEmu();
+};
 $('btnEmu').onclick = () => $('fileEmu').click();
 $('fileEmu').onchange = async (e) => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   const g = new Uint8Array(await f.arrayBuffer());
   // 1.6.8: one button for everything: the first program is the main one (A and C), every further one goes to the menu
-  if (state.emu || (emuInstalled() && !state.emuRemove) || (state.extras || []).length || (E.v1Detect(g) && doomMain())) { await addExtra(g, f.name); return; }   // the first program stays the main one
+  if (E.gbDetect(g)) { await addExtra(g, f.name); renderGb(); return; }   // 1.6.9 test36: Game Boy games go to the menu
+  if (state.emu || (emuInstalled() && !state.emuRemove) || (state.extras || []).length || (E.v1Detect(g) && doomMain()) || !a0Free()) { await addExtra(g, f.name); return; }   // test25: no room at 0x0A0000: the menu   // the first program stays the main one
   if (E.v1Detect(g)) { state.emu = { v1: true, dev: 'v1', rom: g, size: g.length + 0x2000 }; extrasDedupe(null); emuRemoveClear(); if (!state.launch) state.doom = null; renderDoom(); }
   else if (E.t18Detect(g)) {
     let n = 0; for (let i = 0; i < 128; i++) if (!g.subarray(i << 16, (i + 1) << 16).every((v) => v === 0xFF)) n++;
@@ -1376,6 +1690,49 @@ function keySel(id, val, wheel) {
   [[1, 'A'], [2, 'B'], [4, 'C']].concat(wheel ? [[8, t('kWheel')]] : []).forEach(([v, l]) => { const o = document.createElement('option'); o.value = v; o.textContent = l; sel.appendChild(o); });
   sel.value = String(val);
 }
+/* 1.6.9 test36: tab Game Boy. The games go into the menu (GBEmu, kind 'gb' in state.extras); one key layout for all. */
+const GB_BTNS = [[0, 'gbNone'], [1, 'A'], [2, 'B'], [8, 'Start'], [4, 'Select'], [16, 'gbRight'], [32, 'gbLeft'], [64, 'gbUp'], [128, 'gbDown']];
+const GB_INS = ['gbInA', 'gbInB', 'gbInC', 'gbInWp', 'gbInWu', 'gbInWd', 'gbInAC', 'gbInBC', 'gbInAB'];
+function gbKeysNow() { if (!state.gbKeys) { const x = (state.extras || []).find((y) => y.kind === 'gb' && y.keys && y.keys.length === 9); state.gbKeys = x ? x.keys.slice() : E.GB_KEYS_DEFAULT.slice(); if (x) state.gbInv = !!x.inv; } return state.gbKeys; }
+function gbKeysApply() { for (const x of state.extras || []) if (x.kind === 'gb') { x.keys = state.gbKeys.slice(); x.inv = !!state.gbInv; } state.extrasDirty = true; }
+function renderGb() {
+  if (!$('gbList')) return;
+  const xs = (state.extras || []).map((x, i) => [x, i]).filter(([x]) => x.kind === 'gb');
+  const box = $('gbList'); box.innerHTML = '';
+  if (!xs.length) { const d = document.createElement('div'); d.className = 'hint'; d.textContent = t('gbNone2'); box.appendChild(d); }
+  for (const [x, i] of xs) {
+    const r = document.createElement('div'); r.className = 'dlcrow';
+    const n = document.createElement('span'); n.className = 'itemname'; n.textContent = E.extraName(x) + '  (' + (x.rom.length >> 10) + ' KB)';
+    const b = document.createElement('button'); b.className = 'btn small'; b.textContent = '×'; b.title = t('progDel');
+    b.onclick = () => { state.extras.splice(i, 1); state.extrasDirty = true; renderEmu(); };
+    r.append(n, b); box.appendChild(r);
+  }
+  if (xs.length && !menuWanted()) { const d = document.createElement('div'); d.className = 'hint'; d.textContent = t('appNeedMenu'); box.appendChild(d); }
+  const k = gbKeysNow(), g = $('gbKeyGrid'); g.innerHTML = '';
+  GB_INS.forEach((nm, i) => {
+    const l = document.createElement('label'); const sp = document.createElement('span'); sp.textContent = t(nm);
+    const sel = document.createElement('select');
+    for (const [v, tn] of GB_BTNS) { const o = document.createElement('option'); o.value = String(v); o.textContent = tn.startsWith('gb') ? t(tn) : tn; sel.appendChild(o); }
+    sel.value = String(GB_BTNS.some(([v]) => v === k[i]) ? k[i] : 0);
+    sel.onchange = () => { state.gbKeys[i] = +sel.value; gbKeysApply(); renderGb(); };
+    l.append(sp, sel); g.appendChild(l);
+  });
+  $('gbInv').checked = !!state.gbInv;
+  const used = new Set(k.filter((v) => v)); const miss = [[1, 'A'], [2, 'B'], [8, 'Start']].filter(([v]) => !used.has(v)).map(([, n]) => n);
+  $('gbKeysStat').textContent = miss.length ? t('gbKeysMiss', { n: miss.join(', ') }) : '';
+}
+$('btnGb').onclick = () => { if (!state.ctx) { toast(t('gbNeedRom'), true); return; } $('fileGb').click(); };
+$('fileGb').onchange = async (e) => {
+  const files = [...e.target.files]; e.target.value = '';
+  for (const f of files) {
+    const g = new Uint8Array(await f.arrayBuffer());
+    if (!E.gbDetect(g)) { toast(t('gbBad', { f: f.name }), true); continue; }
+    await addExtra(g, f.name);
+  }
+  renderGb();
+};
+$('gbInv').onchange = () => { gbKeysNow(); state.gbInv = $('gbInv').checked; gbKeysApply(); };
+$('btnGbKeysDef').onclick = () => { state.gbKeys = E.GB_KEYS_DEFAULT.slice(); state.gbInv = false; gbKeysApply(); renderGb(); };
 function renderDoom() {
   if (!state.ctx) return;
   let s;
@@ -1555,7 +1912,7 @@ async function composeRom() {
   const keysDirty = !state.doom && doomInstalled() && state.doomKeys && D.doomKeysGet(state.ctx.rom) && JSON.stringify(state.doomKeys) !== JSON.stringify(D.doomKeysGet(state.ctx.rom));
   const si0 = S6.sixInfo(state.ctx.rom), sixUp = !!si0 && (si0.version < S6.VERSION || !sixSame(si0)) && !S6.sixNeedsSource(state.ctx.rom);
   const emuUp = emuUpPending();
-  if (!state.changed.size && !state.t7save && !state.emu && !state.emuRemove && !state.doom && !keysDirty && !emuUp && !emuAutoDirty() && !state.six && !sixUp && !(state.sixWant && !S6.sixInfo(state.ctx.rom)) && state.feld === state.feldInit && state.bag === state.bagInit && state.tama === state.tamaInit && state.saves === state.savesInit && state.launch === state.launchInit && !state.feldStale && !state.extrasDirty && !state.extrasUp && !state.t7saveX && !state.saveIn && !state.sixOff && !state.petDirty && !(state.texts && state.texts.size) && !(state.eyeShift && state.eyeShift.size) && !(state.mouthShift && state.mouthShift.size) && !(state.poseAdj && state.poseAdj.size)) return { rom: state.ctx.rom, name: state.name, res: null, same: true };
+  if (!state.changed.size && !state.t7save && !state.emu && !state.emuRemove && !state.doom && !keysDirty && !emuUp && !emuAutoDirty() && !state.six && !sixUp && !(state.sixWant && !S6.sixInfo(state.ctx.rom)) && state.feld === state.feldInit && state.bag === state.bagInit && state.tama === state.tamaInit && state.saves === state.savesInit && state.launch === state.launchInit && !state.feldStale && !state.extrasDirty && !state.mainDirty && !state.extrasUp && !state.t7saveX && !state.saveIn && !state.sixOff && !state.petDirty && !state.t18Dirty && !state.t18PicsDirty && !(state.texts && state.texts.size) && !(state.eyeShift && state.eyeShift.size) && !(state.mouthShift && state.mouthShift.size) && !(state.poseAdj && state.poseAdj.size)) return { rom: state.ctx.rom, name: state.name, res: null, same: true };
   const fe = F.embedded(); let feldSaved = fe ? F.feldSlots(state.ctx.rom, fe.stub) : [];
   // start device with DOOM (1.6.8): DOOM is the program at 0x0A0000, the emulator of the Emulator tab goes along as a further program
   const doomL = !!state.launch && (!!state.doom || (doomInstalled() && !state.emuRemove));
@@ -1602,6 +1959,8 @@ async function composeRom() {
   }
   // newer emulator program: only the program changes, the Tamagotchi's save stays
   if (emuUp && F.appKind(rom) === 2) { const ty = F.emuType(rom), u = ty === 'v1' ? E.v1Upgrade(rom, E.v1Embedded()) : ty === 't7' ? E.t7Upgrade(rom, E.t7Embedded()) : ty === 't18' ? E.t18Upgrade(rom, E.t18Embedded(), E.embedded() && E.embedded().stub) : E.emuUpgrade(rom, E.embedded().app); if (u) rom = u; }
+  if (state.t18Dirty && state.t18Main && !state.emu && !state.emuRemove && F.emuType(rom) === 't18') { try { rom = E.t18RomWriteGuest(rom, state.t18Main); t18Fresh(rom, 0xA0000, fresh); } catch (e) { toast(t('emuFail', { e: em(e) }), true); return null; } }   // test47: items
+  if (F.emuType(rom) === 't18' && state.t18Pics && (state.t18Pics.size || state.t18PicsDirty)) rom = E.t18PicsWrite(rom, state.t18Pics);   // test47: grow-up pictures
   if (state.doom && !state.doom.ok.length) { toast(t('doomBig'), true); return null; }
   if (state.doom) {
     const emb = D.embedded(), embE = E.embedded();
@@ -1636,13 +1995,14 @@ async function composeRom() {
   if (S6.sixInfo(rom)) rom = S6.sixFix(rom);   // the archive may have moved: rain pictures point to 0xF00000
   // more emulators (1.6.0): the old blocks go, the list is placed again from the top of the emulator area
   let apps = [], appsLow = 0;
-  if (fe) { const old = E.appsRead(state.ctx.rom, F.feldApps(state.ctx.rom, fe.stub).apps); if (old.length) rom = E.appsClear(rom, old); }
+  if (fe) { const old = E.appsRead(state.ctx.rom, F.feldApps(state.ctx.rom, fe.stub).apps); if (old.length) rom = E.appsClear(rom, old.filter((o) => !extrasL.some((x) => x.kind === 't18' && x.keepOff === o.off))); }   // test2: an installed T18Emu stays
   let dl = 0;
   if (extrasL.length || state.launch) {
     if (!fe || !menuWanted()) { toast(t('appNeedMenu'), true); return null; }
     if (!E.t7Embedded()) { toast(t('emuMissing'), true); return null; }
     const progs = { t7: E.t7Embedded(), tama: E.embedded() && E.embedded().app, t18: E.t18Embedded(), v1: E.v1Embedded() };
     try { const r = E.appsPlace(rom, extrasL, progs, { lang, clock: state.emuClock !== false, nfc: state.emuNfc !== false, launch: !!state.launch, keep: F.appKind(rom) === 1 ? [[0x830000, 0xD48000]] : [], dlApp: state.launch ? FL.embedded() : null }); rom = r.rom; apps = r.list; appsLow = r.low; dl = r.dl;
+      for (const x of extrasL) if (x.kind === 't18' && x.items && x.keepOff !== undefined) t18Fresh(rom, x.keepOff, fresh);   // test3
       if (state.t7saveX && apps[state.t7saveX.i + (mainX ? 1 : 0)]) rom = SV.t7SaveIn(rom, state.t7saveX.save, apps[state.t7saveX.i + (mainX ? 1 : 0)].off + 0x10000);
       if (state.saveIn && typeof state.saveIn.key === 'number' && apps[state.saveIn.key + (mainX ? 1 : 0)]) {
         const at = apps[state.saveIn.key + (mainX ? 1 : 0)].off, cx = E.extraCfg(rom, at);
@@ -1652,9 +2012,11 @@ async function composeRom() {
     catch (e) { lastRoom = e && e.room ? e.missing : 0; toast(e && e.room ? t('noRoomKB', { k: e.missing }) : t('appFail', { e: em(e) }), true); return null; }
   }
   // 1.6.8: always the firmware's name (TAMA-GO, FRIENDS, ID L, 4U+ ...), not the emulator's
-  const name0 = state.emu && state.emu.guest ? E.tamaName(state.emu.guest, state.emu.dev) : (!state.emu && !state.emuRemove && fe && F.appKind(state.ctx.rom) === F.appKind(rom) && F.feldApps(state.ctx.rom, fe.stub).name0) || mainName(rom);
+  // 1.6.9 test13: the chosen main program's place in the list (0 = the program at 0x0A0000)
+  const mainSrcOf = () => { if (!state.launch || !state.mainPick || !doomL) return 0; const k = state.mainPick === 'emu' ? (mainX ? 0 : -1) : extrasL.indexOf(state.mainPick); return k >= 0 && apps[k] ? apps[k].src : 0; };
+  const name0 = F.appKind(rom) === 1 ? 'DOOM' : state.emu && state.emu.guest ? E.tamaName(state.emu.guest, state.emu.dev) : (!state.emu && !state.emuRemove && fe && F.appKind(state.ctx.rom) === F.appKind(rom) && F.feldApps(state.ctx.rom, fe.stub).name0) || mainName(rom);
   if (fe && menuWanted()) {
-    try { rom = F.feldApply(rom, { fields: state.feld, bag: state.bag, tama: state.tama, saves: state.saves, launch: !!state.launch, apps, name0, appsLow, dl, fieldNames: fieldTexts(rom).map((x) => x.name) }, feldSaved, { feld: fe.feld, stub: fe.stub }, E); }
+    try { rom = F.feldApply(rom, { fields: state.feld, bag: state.bag, tama: state.tama, saves: state.saves, launch: !!state.launch, apps, name0, appsLow, dl, mainSrc: mainSrcOf(), auto: !!state.emuAuto, fieldNames: fieldTexts(rom).map((x) => x.name) }, feldSaved, { feld: fe.feld, stub: fe.stub }, E); }
     catch (e) { toast(t('feldFail', { e: em(e) }), true); return null; }
   }
   // autostart of the emulator (the stubs above were written with it off), clock switch (1.5.1)
@@ -1694,6 +2056,7 @@ function devRender(msg) {
   if (msg !== undefined) $('devStat').textContent = msg;
   else if (!ser) $('devStat').textContent = t('devNoSerial');
   else if (dv.d && !state.ctx && !dv.run) $('devStat').textContent = t('devNeedRom');
+  uartWarnRender();
 }
 /* Flasher errors and notes carry a code; German has its own texts, English uses the module's */
 function flMsg(x) { return x && x.code && lang !== 'en' && T[lang]['fl_' + x.code] ? t('fl_' + x.code, x.p) : (x.message || x.text || String(x)); }
@@ -1714,7 +2077,58 @@ $('btnDevice').onclick = () => { $('device').hidden = !$('device').hidden; devRe
 $('btnHelp').onclick = () => { $('helpBox').hidden = !$('helpBox').hidden; };
 $('helpClose').onclick = () => { $('helpBox').hidden = true; };
 $('btnDevStop').onclick = () => { dv.cancel = true; };
+/* 1.6.9: simulated playdate partner for the Paradise (src/visit.js). Same link key and serial transport as the
+ * flash app loader (src/flash.js). */
+const VS = { io: null, v: null };
+const VIS_ED = [['land', 'Land'], ['water', 'Water'], ['sky', 'Sky'], ['jade', 'Jade Forest'], ['tropics', 'Tropics'], ['glacier', 'Glacier']];
+function visKey() { return window.ParamixVisit.parseKey(FL.linkKey); }
+function visStat(m) { $('visStat').textContent = m; }
+function visEdName() { const e = $('visEd').value; const x = VIS_ED.find((a) => a[0] === e); return x ? x[1] : e; }
+function visRender() {
+  $('btnVis').textContent = t(VS.io ? 'visStop' : 'visStart');
+  $('btnVis').disabled = !navigator.serial;
+}
+{
+  const sel = $('visEd');
+  for (const [v, n] of VIS_ED) { const o = document.createElement('option'); o.value = v; o.textContent = n; sel.appendChild(o); }
+  try { const e = localStorage.getItem('pmxVisitEd'); if (e) sel.value = e; } catch (e) {}
+  if (!sel.value) sel.value = 'water';
+  sel.onchange = () => { try { localStorage.setItem('pmxVisitEd', sel.value); } catch (e) {} if (VS.io && (!VS.v || VS.v.state.phase === 'wait' || VS.v.state.phase === 'done' || VS.v.state.phase === 'error')) visArm(); };
+  visRender();
+}
+function visArm() {
+  if (VS.v) VS.v.stop();
+  const ed = visEdName();
+  VS.v = window.ParamixVisit.createVisitor({
+    edition: $('visEd').value, key: visKey(),
+    send: (b) => VS.io.write(b),
+    log: (e, i) => {
+      if (e === 'start') visStat(t('visRun'));
+      else if (e === 'sent') visStat(t('visPlay'));
+      else if (e === 'done') { visStat(t('visDone', { ed })); setTimeout(() => { if (VS.io) visArm(); visStat(t('visDone', { ed })); }, 500); }
+      else if (e === 'error') { visStat(i.text === 'key' ? t('visBadKey') : t('visErr', { e: i.text })); if (i.text !== 'key') setTimeout(() => { if (VS.io) visArm(); }, 1000); }
+    },
+  });
+  visStat(t('visWait', { ed }));
+}
+async function visClose() {
+  const io = VS.io; VS.io = null;
+  if (VS.v) VS.v.stop(); VS.v = null;
+  try { if (io) await io.close(); } catch (e) {}
+  visRender();
+}
+$('btnVis').onclick = async () => {
+  if (VS.io) { await visClose(); visStat(''); return; }
+  if (!navigator.serial) { visStat(t('devNoSerial')); return; }
+  if (dv.io) { visStat(t('uartBusy')); return; }
+  let port;
+  try { port = await navigator.serial.requestPort(); } catch (e) { return; }
+  try { VS.io = await FL.serialOpen(port); } catch (e) { visStat(t('visErr', { e: e.message })); return; }
+  VS.io.onData = (d) => { if (VS.v) VS.v.feed(d); };
+  visRender(); visArm();
+};
 $('btnConn').onclick = async () => {
+  if (VS.io) await visClose();
   let port;
   try { port = await navigator.serial.requestPort(); } catch (e) { return; }
   devTask(async () => {
@@ -1761,6 +2175,8 @@ $('btnWrite').onclick = async () => {
       if (!confirm(t('devEmuLost', { o: EMU[dm], n }))) return;
     }
   }
+  // test4: items or Tamapoints of T18Emu: its save on the device is replaced by the one in the ROM, "keep saves" or not
+  if (keep && (state.t18Dirty || (state.extras || []).some((x) => x.kind === 't18' && x.items)) && !confirm(t('t18KeepAsk'))) return;
   devTask(async () => {
     const fe = F.embedded();
     const plan = keep ? FL.keepPlan(F, E, fe && { stub: fe.stub }, { emuChanged: !!state.emu && !emuSame, t7Save: !!state.t7save, t7SaveX: state.t7saveX ? state.t7saveX.i : -1, mine: studioSecs(state.ctx.rom, c.rom), fresh: c.fresh || [] }) : null;

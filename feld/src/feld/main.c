@@ -86,6 +86,9 @@ typedef struct {
   u32 dl_src;
   /* from version 8 (1.6.8): six more programs (the small V1Emu ones fit many times) */
   struct { u32 src; char name[12]; } apps2[6];
+  /* from version 9 (1.6.9 test13): the main program of the start device when it is one of the list (DOOM stays
+   * at 0x0A0000): shown first and started by itself when vflags bit 0 is set (0 = the stub's own) */
+  u32 main_src, vflags;
 } Cfg;
 
 #ifdef HOST
@@ -94,18 +97,18 @@ typedef struct {
 #define CFG_QUAL const
 #endif
 __attribute__((section(".pmxcfg"), used))
-volatile CFG_QUAL Cfg g_cfg = { FELD_MAGIC, 8, 0x830000u, 0x58000u, 3, 0xD4A000u, 0x1000000u, 0xD49000u, 0xB0000u,
+volatile CFG_QUAL Cfg g_cfg = { FELD_MAGIC, 9, 0x830000u, 0x58000u, 3, 0xD4A000u, 0x1000000u, 0xD49000u, 0xB0000u,
   F_FIELDS|F_BAG, 0x70169E2Cu, 1, 4, 3, {1,2,3,0}, {"LAND","WATER","SKY",""},
   {0x5647u, 0x2BDFu, 0x7E9Fu, 0xFD45u},
   {{8,0x11,0},{16,0xc0,0},{17,0xa8,0},{168,1,0},{576,0x3f,0},{577,0x1f,0},{1856,1,0}},
   {{{4,0x0c,0},{170,2,0},{439,0,0}}, {{4,4,0},{170,1,0},{439,1,0}}, {{4,4,0},{170,1,0},{439,2,0}}},
-  0xb4u, 0x240u, 0x740u, 0, 0, 439u, 0, 0, {0,0}, {"",""}, {0,0}, {{{0,0,0}}}, 0, 0, {0}, "", 0, {{0,""}}, 0, 0, 0 };
+  0xb4u, 0x240u, 0x740u, 0, 0, 439u, 0, 0, {0,0}, {"",""}, {0,0}, {{{0,0,0}}}, 0, 0, {0}, "", 0, {{0,""}}, 0, 0, 0, {{0,""}}, 0, 0 };
 #define XIP_DEC 0x11000u
 #include <stddef.h>
 _Static_assert(offsetof(Cfg,flags)==36 && offsetof(Cfg,id_c)==40 && offsetof(Cfg,nfields)==48 && offsetof(Cfg,field_name)==68
   && offsetof(Cfg,field_col)==116 && offsetof(Cfg,fac_common)==132 && offsetof(Cfg,fac_field)==196
   && offsetof(Cfg,money_off)==260 && offsetof(Cfg,cat_n)==276 && offsetof(Cfg,field_byte)==280 && offsetof(Cfg,six_off)==288 && offsetof(Cfg,field_name2)==300
-  && offsetof(Cfg,field_col2)==324 && offsetof(Cfg,fac_field2)==332 && offsetof(Cfg,slot_off2)==364 && offsetof(Cfg,six_map)==372 && sizeof(Cfg)==600 && offsetof(Cfg,dl_src)==500 && offsetof(Cfg,tama_off)==492 && offsetof(Cfg,name0)==380 && offsetof(Cfg,napps)==392 && offsetof(Cfg,apps)==396, "settings block layout");
+  && offsetof(Cfg,field_col2)==324 && offsetof(Cfg,fac_field2)==332 && offsetof(Cfg,slot_off2)==364 && offsetof(Cfg,six_map)==372 && sizeof(Cfg)==608 && offsetof(Cfg,main_src)==600 && offsetof(Cfg,dl_src)==500 && offsetof(Cfg,tama_off)==492 && offsetof(Cfg,name0)==380 && offsetof(Cfg,napps)==392 && offsetof(Cfg,apps)==396, "settings block layout");
 #define NF_MAX 6u
 
 /* Saved field (header page at the start of its slot). res[0] = POOL_MAGIC (1.2.12): the
@@ -535,6 +538,17 @@ static void apps_detect(void){
     for(int k=0;k<12;k++){ g_appnm[g_napp][k]=nm[k]; } g_appnm[g_napp][12]=0;
     g_appsrc[g_napp++]=s;
   }
+#ifdef FELD_AUTO
+  /* 1.6.9 test13: the chosen main program first */
+  if(g_cfg.version>=9u && g_cfg.main_src){
+    for(u32 j=1;j<g_napp;j++) if(g_appsrc[j]==g_cfg.main_src){
+      u32 s=g_appsrc[j]; char t[13]; for(int k=0;k<13;k++) t[k]=g_appnm[j][k];
+      for(u32 m=j;m>0;m--){ g_appsrc[m]=g_appsrc[m-1]; for(int k=0;k<13;k++) g_appnm[m][k]=g_appnm[m-1][k]; }
+      g_appsrc[0]=s; for(int k=0;k<13;k++) g_appnm[0][k]=t[k];
+      break;
+    }
+  }
+#endif
   /* start device: our flash app as the last entry, so the PC can write the ROM again (the Paradise's own
    * download screen is not reachable any more) */
   g_dl=0; g_sx=0;
@@ -550,6 +564,31 @@ static void apps_detect(void){
     g_appsrc[g_napp++]=g_cfg.dl_src; g_dl=g_napp;
   }
 }
+#ifdef FELD_AUTO
+/* 1.6.9 test13: start the main program by itself in the start device, once per switching on (as the stub's autostart,
+ * same mailbox 0x20000FFC): "PMXL" a program went back on purpose, "PMXM" the menu decided already, "PMXR" restart
+ * while the main program ran (reset button); anything else: switched on (seconds counter below 30) or woken from deep
+ * sleep. B held: stay in the menu. */
+#ifdef HOST
+#include <stdlib.h>
+static u32 h_mb, h_gpio=0xFFFFFFFFu, h_cnt;   /* host: from the environment (AUTO_MB, AUTO_GPIO, AUTO_CNT) */
+#define AUTO_MB (&h_mb)
+#define AUTO_GPIO h_gpio
+#define AUTO_CNT h_cnt
+#else
+#define AUTO_MB ((volatile u32*)0x20000FFCu)
+#define AUTO_GPIO REG(0x40018000u)
+#define AUTO_CNT REG(0x45000304u)
+#endif
+static int auto_go(void){
+  if(g_cfg.version<9u || !(g_cfg.vflags & 1u) || !g_napp || !(g_cfg.flags & F_LAUNCH)) return 0;
+  volatile u32 *mb=AUTO_MB; u32 m=*mb;
+  if(!(AUTO_GPIO & 0x800u)){ *mb=0x4D584D50u; return 0; }
+  if(m==0x4C584D50u || m==0x4D584D50u) return 0;
+  if(m!=0x52584D50u && AUTO_CNT>=30u){ *mb=0x4D584D50u; return 0; }
+  *mb=0x52584D50u; return 1;
+}
+#endif
 static void start_app_i(u32 i){
   if(!g_appsrc[i]){ start_app(); return; }
   rect(0,0,128,128,0); show();
@@ -620,6 +659,13 @@ static int launch_mode(void){ return (g_cfg.flags & F_LAUNCH) != 0u; }
 static const u32 g_idle_tab[5]={30000u,60000u,120000u,300000u,0u};
 static const char *const g_idle_nm[5]={"30 S","1 MIN","2 MIN","5 MIN","NEVER"};
 static u32 g_idle_t, g_idle_ms;
+#ifdef BAT_SHOW
+#ifdef HOST
+static void bat_text(char *s){ const char *t="2.84V 80%"; int i=0; while((s[i]=t[i])) i++; }
+#else
+#include "../../../emu/src/emu/batt.h"
+#endif
+#endif
 static void lset_menu(void);
 static int idle_input(void){
   int k=input();
@@ -654,6 +700,11 @@ static void apps_menu(int top){
         text(123-text_w(st,1),y+(dy-8)/2+1,st,GREY,1);
       } else big_entry(y0+(int)i*29, i==sel, g_appnm[i], g_dl && i+1u==g_dl ? "PC FLASH" : sx ? "SOUND, DISPLAY" : "START", c, GREY);
     }
+#ifdef BAT_SHOW
+    /* test17: the start device's home screen shows the battery bottom right */
+    if(top && launch_mode()){ char bt[12]; bat_text(bt); text(5,119,"B START",GREY,1); if(n<=8u) text(123-text_w(bt,1),119,bt,GREY,1); }
+    else
+#endif
     ctext(119, top && launch_mode() ? "B START" : "B OK   C BACK",GREY,1);
     if(n>8u){ char sc[8]; u32 a=sel+1u; int k=0; if(a>=10u) sc[k++]=(char)('0'+a/10u); sc[k++]=(char)('0'+a%10u); sc[k++]='/'; if(n>=10u) sc[k++]=(char)('0'+n/10u); sc[k++]=(char)('0'+n%10u); sc[k]=0; text(123-text_w(sc,1),119,sc,GREY,1); }
     show(); wait_release();
@@ -954,7 +1005,15 @@ static void list_draw(const char *title, u32 n, u32 sel, u32 top, int (*row)(u32
 
 /* Bag list: index -> slot (only items that are not fixed), entry 0 = add */
 static u16 g_bag[640]; static u32 g_bagn;
+#ifdef BAG_DEL
+#define BAG_SHOWN(i) (count_get(i) != 0u)
+/* 1.6.9: count 0 = the game has the item no more (its own list keeps such entries, e.g. an apple eaten up); they are
+ * not shown, a count can be set to 0 to take an item out again */
+static void bag_build(void){ g_bagn=0; u32 n=list_len(); for(u32 i=0;i<n;i++) if(!cat_fixed(list_id(i)) && count_get(i)) g_bag[g_bagn++]=(u16)i; }
+#else
 static void bag_build(void){ g_bagn=0; u32 n=list_len(); for(u32 i=0;i<n;i++) if(!cat_fixed(list_id(i))) g_bag[g_bagn++]=(u16)i; }
+#define BAG_SHOWN(i) 1
+#endif
 static int bag_row(u32 i, char *name, char *right, u16 *col){
   if(i==0){ const char *s="+ ADD ITEM"; int k=0; while(s[k]){ name[k]=s[k]; k++; } name[k]=0; *col=GOLD; return 0; }
   u32 slot=g_bag[i-1]; const char *s=item_name(list_id(slot)); int k=0; while(s[k] && k<22){ name[k]=s[k]; k++; } name[k]=0;
@@ -965,28 +1024,47 @@ static u16 g_cat[512]; static u32 g_catn;
 static void cat_build(void){ g_catn=0; for(u32 k=0;k<g_cfg.cat_n && g_catn<512u;k++){ u32 o=g_cfg.cat_off+8u+28u*k; if(!fl(o+2)[0]) g_cat[g_catn++]=(u16)rd16(o); } }
 static int cat_row(u32 i, char *name, char *right, u16 *col){
   u32 id=g_cat[i]; const char *s=item_name(id); int k=0; while(s[k] && k<22){ name[k]=s[k]; k++; } name[k]=0;
-  u32 n=list_len(); for(u32 j=0;j<n;j++) if(list_id(j)==id){ right[0]='x'; utoa_(count_get(j), right+1); *col=GREY; break; }
+  u32 n=list_len(); for(u32 j=0;j<n;j++) if(list_id(j)==id){
+#ifdef BAG_DEL
+    if(!count_get(j)) break;
+#endif
+    right[0]='x'; utoa_(count_get(j), right+1); *col=GREY; break; }
   return 0;
 }
-/* Set the count (1..15). Returns the new count, or 0 if cancelled. */
+/* Set the count (1..15). Returns the new count, or 0 if cancelled. BAG_DEL: lo 0 allows 0 (= remove), then
+ * cancelled is 16. */
+#ifdef BAG_DEL
+static u32 count_edit(u32 id, u32 v, u32 lo){
+  if(v<lo) v=lo; if(v>15u) v=15u;
+#else
 static u32 count_edit(u32 id, u32 v){
+  const u32 lo=1u;
   if(v<1u) v=1u; if(v>15u) v=15u;
+#endif
   for(;;){
     rect(0,0,128,128,BG);
     const char *nm=item_name(id); int L=slen(nm);
     if(L<=20) ctext(4,nm,WHITE,1); else { textn(4,2,nm,20,WHITE,1); textn(4,11,nm+20,20,WHITE,1); }
     rect(30,20,98,84,RGB(40,40,70));
     draw_item_pic(id,64,52,64);
-    char s[8]; s[0]='x'; utoa_(v,s+1); ctext(90,s,GOLD,2);
+    char s[8]; s[0]='x'; utoa_(v,s+1);
+#ifdef BAG_DEL
+    if(!v) ctext(90,"REMOVE",GOLD,2); else
+#endif
+    ctext(90,s,GOLD,2);
     ctext(108,"WHEEL: COUNT",GREY,1);
     ctext(119,"B OK   C BACK",GREY,1);
     show(); wait_release();
     for(;;){
       int k=input();
-      if(k==1){ int nv=(int)v+(g_step>0?1:-1); if(nv<1) nv=1; if(nv>15) nv=15; v=(u32)nv; break; }
-      if(k==K_A){ v = v>=15u ? 1u : v+1u; break; }
+      if(k==1){ int nv=(int)v+(g_step>0?1:-1); if(nv<(int)lo) nv=(int)lo; if(nv>15) nv=15; v=(u32)nv; break; }
+      if(k==K_A){ v = v>=15u ? lo : v+1u; break; }
       if(k==K_OK) return v;
+#ifdef BAG_DEL
+      if(k==K_BACK) return 16u;
+#else
       if(k==K_BACK) return 0;
+#endif
     }
   }
 }
@@ -1009,8 +1087,13 @@ static void cat_pick(void){
         u32 id=g_cat[sel], n=list_len(), slot=n;
         for(u32 i=0;i<n;i++) if(list_id(i)==id){ slot=i; break; }
         if(slot>=640u){ message("BAG IS FULL","",""); return; }
+#ifdef BAG_DEL
+        u32 v=count_edit(id, slot<n ? count_get(slot) : 1u, 1u);
+        if(v<16u){ list_set(slot,id); count_set(slot,v); g_dirty=1; return; }
+#else
         u32 v=count_edit(id, slot<n ? count_get(slot) : 1u);
         if(v){ list_set(slot,id); count_set(slot,v); g_dirty=1; return; }
+#endif
         break;
       }
     }
@@ -1032,7 +1115,11 @@ static void items_menu(void){
       if(c==K_A){ sel=(sel+1u)%n; break; }
       if(c==K_OK){
         if(sel==0){ cat_pick(); }
+#ifdef BAG_DEL
+        else { u32 slot=g_bag[sel-1]; u32 v=count_edit(list_id(slot), count_get(slot), 0u); if(v<16u && v!=count_get(slot)){ count_set(slot,v); g_dirty=1; } }
+#else
         else { u32 slot=g_bag[sel-1]; u32 v=count_edit(list_id(slot), count_get(slot)); if(v && v!=count_get(slot)){ count_set(slot,v); g_dirty=1; } }
+#endif
         break;
       }
       if(c==K_BACK){
@@ -1306,7 +1393,7 @@ static void main_menu(void){
       switch(kinds[i]){
         case 0: if(saves_mode()){ const char *a="SAVE "; int q=0; while(a[q]){ st[q]=a[q]; q++; } st[q++]=(char)('1'+g_act); st[q++]=' '; a=fname((u32)g_cur); while(*a && q<22) st[q++]=*a++; st[q]=0; big_entry(y,i==sel,"SAVES",st,fcol((u32)g_cur),WHITE); }
                 else big_entry(y,i==sel,"FIELD",fname((u32)g_cur),fcol((u32)g_cur),WHITE); break;
-        case 1: { u32 c=0; if(ok){ u32 L=list_len(); for(u32 j=0;j<L;j++) if(!cat_fixed(list_id(j))) c++; utoa_(c,st); int k=slen(st); const char *a=" IN BAG"; for(int q=0;a[q];q++) st[k++]=a[q]; st[k]=0; } else { st[0]='-'; st[1]=0; }
+        case 1: { u32 c=0; if(ok){ u32 L=list_len(); for(u32 j=0;j<L;j++) if(!cat_fixed(list_id(j)) && BAG_SHOWN(j)) c++; utoa_(c,st); int k=slen(st); const char *a=" IN BAG"; for(int q=0;a[q];q++) st[k++]=a[q]; st[k]=0; } else { st[0]='-'; st[1]=0; }
                   big_entry(y,i==sel,"ITEMS",st,PINK,GREY); } break;
         case 2: if(ok) utoa_(money_get(),st); else { st[0]='-'; st[1]=0; }
                 big_entry(y,i==sel,"POINTS",st,GOLD,GREY); break;
@@ -1339,6 +1426,12 @@ static void run(void){
 #endif
   app_detect();
   apps_detect();
+#ifdef FELD_AUTO
+#ifdef HOST
+  { const char *e; if((e=getenv("AUTO_MB"))) h_mb=(u32)strtoul(e,0,16); if((e=getenv("AUTO_GPIO"))) h_gpio=(u32)strtoul(e,0,16); if((e=getenv("AUTO_CNT"))) h_cnt=(u32)strtoul(e,0,10); }
+#endif
+  if(auto_go()) start_app_i(0);
+#endif
   g_cur = field_now();
   int fields = (g_cfg.flags & F_FIELDS) && g_cur>=0 && g_cfg.nfields>=2u;
   g_act=g_cur;
@@ -1399,7 +1492,11 @@ void Reset_Handler(void){
   __asm__ volatile("cpsid i");
   /* 1.6.8: the Paradise's clock for the programs started from here (their own search finds nothing once
    * the menu has used the SRAM) */
-  { u32 cnt=REG(0x45000304u), t=para_clock(cnt, 0, 0x1F000u, 0, 0); para_mailbox_put(t, cnt);
+  { u32 cnt=REG(0x45000304u), t=para_clock(cnt, 0, 0x1F000u, 0, 0);
+#ifdef PARA_FLASH
+    if(!t && !para_mailbox(cnt)) t=para_flash(cnt);   /* 1.6.9 test37: the base in the Paradise's settings page */
+#endif
+    para_mailbox_put(t, cnt);
 #ifdef PARA_BACK
     para_leave_mark(cnt, t);   /* the Paradise does not live while the menu and its programs run */
 #endif

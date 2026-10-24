@@ -83,11 +83,17 @@ img, canvas { image-rendering: pixelated; }
 .fact b { display: block; color: var(--ink); font-size: 15px; margin-bottom: 2px; }
 
 .emustat { margin: 6px 4px; font-weight: 700; white-space: pre-line; }
-.dlcgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin: 8px 4px; }
-.dlcbox { border: 2px solid var(--line); border-radius: 10px; padding: 6px 8px; font-size: 13px; }
+.dlcgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px; margin: 8px 4px; }
+.dlcbox { border: 2px solid var(--line); border-radius: 10px; padding: 6px 8px; font-size: 13px; min-width: 0; }
 .dlcbox h4 { margin: 0 0 4px; font-size: 14px; }
-.dlcrow { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 1px 0; }
+.dlcrow { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px; padding: 1px 0; }
 .dlcrow.free { color: var(--soft); }
+.itemname { display: inline-flex; align-items: center; gap: 4px; flex: 1 1 80px; min-width: 0; overflow-wrap: anywhere; }
+.itemctl { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.itempic { image-rendering: pixelated; }
+.picgrid { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 4px; }
+.picgrid figure { margin: 0; text-align: center; font-size: 12px; }
+.picgrid canvas { width: 64px; height: 64px; image-rendering: pixelated; display: block; }
 .dlcrow button { font-size: 11px; padding: 0 6px; }
 /* workspace */
 .work { display: none; }
@@ -103,6 +109,8 @@ img, canvas { image-rendering: pixelated; }
 .pane { background: var(--panel); margin: 0 20px 24px; border-radius: 0 var(--radius) var(--radius) var(--radius); padding: 16px; min-height: 60vh; }
 .tools { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin-bottom: 14px; }
 .tools .hint { color: var(--soft); font-size: 13px; }
+.uartwarn { margin: 6px 0; padding: 6px 8px; border-radius: 6px; background: #fff3cd; color: #5c4400; font-size: 13px; }
+.uartwarn[hidden] { display: none; }
 .tools .lbl { min-width: 96px; }
 .check { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; }
 
@@ -248,6 +256,8 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
 <input type="file" id="fileT7Fig" hidden multiple accept=".bin,.BIN">
 <input type="file" id="fileApp" hidden accept=".bin,.BIN">
 <input type="file" id="fileDlc" hidden multiple accept=".jpg,.JPG,.jpeg,.bin">
+<input type="file" id="fileT18Item" hidden multiple accept=".txt,.bin,.zip">
+<input type="file" id="fileT18Pic" hidden multiple accept=".png,.json,.zip">
 <input type="file" id="fileField" hidden accept=".zip,.ZIP">
 <input type="file" id="fileWad" hidden accept=".wad,.WAD">
 
@@ -284,6 +294,15 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
     </div>
     <div class="flash"><span class="seg emu" id="devBar" style="width:0"></span></div>
     <p class="emustat" id="devStat"></p>
+    <div id="visitBox">
+      <h4 class="subhead" data-t="visTitle"></h4>
+      <p class="hint" data-t="visHint" style="white-space:pre-line"></p>
+      <div class="tools">
+        <select id="visEd"></select>
+        <button class="btn small primary" id="btnVis" data-t="visStart"></button>
+      </div>
+      <p class="emustat" id="visStat"></p>
+    </div>
   </section>
 
   <section class="start" id="start">
@@ -320,6 +339,7 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <button class="tab" role="tab" data-tab="dim" aria-selected="false" data-t="tabDim"></button>
       <button class="tab" role="tab" data-tab="emu" aria-selected="false" data-t="tabEmu"></button>
       <button class="tab" role="tab" data-tab="doom" aria-selected="false" data-t="tabDoom"></button>
+      <button class="tab" role="tab" data-tab="gb" aria-selected="false" data-t="tabGb"></button>
       <button class="tab" role="tab" data-tab="feld" aria-selected="false" data-t="tabFeld"></button>
       <button class="tab" role="tab" data-tab="save" aria-selected="false" data-t="tabSave"></button>
     </div>
@@ -402,6 +422,23 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
           <label class="check"><input type="checkbox" id="kInv"> <span data-t="kInv"></span></label>
         </div>
         <p class="hint" id="keysStat"></p>
+      </div>
+    </div>
+    <div class="pane" id="pane-gb" hidden>
+      <div class="tools">
+        <button class="btn small" id="btnGb" data-t="gbPick"></button>
+        <input type="file" id="fileGb" hidden multiple accept=".gb,.GB">
+        <span class="hint" data-t="gbHint"></span>
+      </div>
+      <div class="dlcbox" id="gbList"></div>
+      <div class="keys" id="gbKeys">
+        <h3 data-t="gbKeysTitle"></h3>
+        <div class="keygrid" id="gbKeyGrid"></div>
+        <div class="tools">
+          <label class="check"><input type="checkbox" id="gbInv"> <span data-t="kInv"></span></label>
+          <button class="btn small" id="btnGbKeysDef" data-t="gbKeysDef"></button>
+        </div>
+        <p class="hint" id="gbKeysStat"></p>
       </div>
     </div>
     <div class="pane" id="pane-names" hidden>
@@ -529,6 +566,9 @@ __FLASH__
 </script>
 <script>
 __SAVES__
+</script>
+<script>
+__VISIT__
 </script>
 <script>
 __APP__

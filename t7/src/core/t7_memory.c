@@ -350,10 +350,16 @@ static uint8_t io_read_porta(uint8_t reg)
 //   eeprom.update(d & 4, d & 2, d & 1)
 //
 // Bit 2 = POWER, bit 1 = CLK, bit 0 = DATA.
+#ifdef T7_LINK
+void t7_ir_led_on(void);
+#endif
 static void io_write_portb(uint8_t reg, uint8_t value)
 {
   g_cpureg[reg] = value;
   if (reg == 0x16) spi_cs_set(value & 0x10);   // $3016 Bit 4 = SPI-Figur-CS (aktiv-LOW)
+#ifdef T7_LINK
+  if (reg == 0x16 && (value & 0x08)) t7_ir_led_on();   // 1.6.9: infrared LED on (packet for the other Paradise)
+#endif
   uint8_t mask = g_cpureg[0x15];
   uint8_t d    = (uint8_t)(~mask) | g_cpureg[0x16];
   t7_eeprom_update(d & 4, d & 2, d & 1);
@@ -380,6 +386,15 @@ uint8_t T7_HOT t7_io_read(uint16_t addr)
 {
   uint8_t reg = addr & 0xFF;
   switch (reg) {
+#ifdef T7_PW_FIX
+    // Nibble helper used only by the PC password code (bank 2, $6180-$6520):
+    // the game writes a byte to $3080 and reads back its high nibble ($3082),
+    // low nibble ($3083) or the nibble-swapped byte ($308A). Without this the
+    // reads returned 0 and the login password was always 000000000000.
+    case 0x82: return (uint8_t)(g_cpureg[0x80] >> 4);
+    case 0x83: return (uint8_t)(g_cpureg[0x80] & 0x0F);
+    case 0x8A: return (uint8_t)((g_cpureg[0x80] << 4) | (g_cpureg[0x80] >> 4));
+#endif
     case 0x12: return io_read_porta(reg);
     case 0x16: return io_read_portb(reg);
     default:
@@ -402,6 +417,22 @@ void T7_HOT t7_io_write(uint16_t addr, uint8_t value)
   uint8_t reg = addr & 0xFF;
   switch (reg) {
     case 0x00: io_write_bank(reg, value);     break;
+#ifdef T7_STOP
+    case 0x01:                                     /* clock: 7 = CPU stops (STOP), with the original sound only (its timers wake) */
+      g_cpureg[reg] = value;
+      if (value == 0x07 && g_snd_on) {
+#ifdef T7_STOP_KEYACT
+        if (g_t7_keyact) break;   /* test14: keys in use (1 s after a change): no STOP. Asleep, the firmware missed the
+                                     release of a key and took the next press as the same one (on the PC: 3 quick taps, 1 to 2 seen) */
+#endif
+        if ((g_cpureg[0x07] & 0x01) && (g_keys & 0x07) != 0x07) g_cpureg[0x08] |= 0x01;   /* a key is down already: awake at once */
+        else g_t7_halted = 1;
+#ifdef T7_STOP_DBG
+        { extern void t7_stop_dbg(int); t7_stop_dbg(1); }
+#endif
+      }
+      break;
+#endif
     case 0x11: io_write_porta(reg, value);    break;
     case 0x12: io_write_porta(reg, value);    break;
     case 0x15: io_write_portb(reg, value);    break;

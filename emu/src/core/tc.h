@@ -174,6 +174,13 @@ uint32_t periph_next(Emu *e);
 void periph_rtc_advance(Emu *e, uint32_t n);
 void periph_rtc_ms(Emu *e);
 extern uint32_t g_tc_rtc_wr;   /* writes of the guest to its clock registers (1.6.8) */
+#ifdef TC_IRLINK
+/* 1.6.9: infrared to another Paradise (tc_periph.c); the platform passes the bytes */
+void tc_ir_setup(uint32_t mode_flag, uint32_t ctx_ptr);
+int  tc_ir_avail(void);
+int  tc_ir_in(void);
+void tc_ir_out(uint8_t b);
+#endif
 void periph_rtc_set(Emu *e, uint32_t t);   /* local time, seconds since 1970 */
 void periph_buttons(Emu *e, uint8_t mask);
 void periph_init(Emu *e);

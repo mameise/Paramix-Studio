@@ -79,3 +79,76 @@ The game clock is kept on the Paradise's seconds counter: every 2 s the app
 sets minute and second; when a whole hour is missing it lets the game roll
 the hour itself, so the day goes on as in the game. After a pause up to 30
 hours are caught up, then the hour is set directly.
+
+## PC passwords (1.6.8-test4, T7_PW_FIX)
+
+The PC password code (bank 2, login $6229, encoding $6378, logout check $643E, reward $6192) uses a nibble helper: the
+game writes a byte to $3080 and reads its high nibble at $3082, its low nibble at $3083 and the byte with swapped
+nibbles at $308A. The core returned 0 there, so the login was always 000000000000 and every logout decoded to zeros
+and failed. With T7_PW_FIX the login changes every time and a correct logout is accepted (host test: 0 to 5000 points).
+Logout: same format as the login; byte 0 = 0x80 | login byte 0, byte 1 = login byte 1, points in thousands in byte 3
+and the low 2 bits of byte 4, checksum nibble. Gotchi Points: RAM $0320-$0324 and EEPROM 0x030-0x034, 5 bytes BCD
+lowest digits first (save.bin of the app: file offset 0x32-0x36, behind the 2 byte page mask); no checksum.
+
+## Battery (T7_IDLE, T7_STOP, 1.6.9 test12)
+
+Taken over from TamaGo for the Pebble (v0.3.0). T7_IDLE: the Tama-Go's main loop waits at $CE66 (5 JSR to the seed
+routines at $D2ED, LDA $2D, BEQ back); when the BEQ goes back and no IRQ is taken, the passes that fit up to the end of
+the run or the next sound event are added up at once (seeds $C4..$C8, the stack slots of the last JSR, A, flags).
+Checked against the ROM bytes at the start (t7_idle_check; Friends: off). Bit-identical: host/runcmp.c gives the same
+state hash every 2 ms with and without the switch. T7_STOP: writing 7 to $3001 halts the CPU (original sound only,
+its timers wake it); any IRQ request or a key ($3007 bit 0 set, reported in $3008 bit 0) wakes it. On the PC (runcmp,
+sound on, 10 minutes after setup): 78 % of the emulated cycles skipped, the game clock the same as without.
+
+## Keys (T7_KEYQ, 1.6.9 test13)
+
+The main loop read the keys once per pass; a pass that draws and catches up took longer than a quick tap, the tap was
+lost. The 1 ms tick now counts every press (GPIO0 P0.9 A, P0.11 B, P0.10 C, pressed = 0); each counted press goes to
+the game for at least 120 ms of emulated time (longer while held), then 100 ms released (test14: on the PC the
+firmware lost taps shorter than about 120 ms or gaps shorter than about 80 ms, also without STOP).
+test15: a press counts only after the key was up for 30 ms (KQ_DEB): the contacts bounce, one press
+was taken as two (clock and straight back to the room).
+T7_STOP_KEYACT (cycles, 4000000 = 1 s): after a key change no STOP. Halted, the firmware missed the release
+(only IRQ 13 enabled, 2 Hz) and took the next press as the same one: 3 quick taps, 1 or 2 seen. Presses that wake the screen,
+close the settings menu or come while it is open do not reach the game. host/hrun.c "k A hold gap" taps in 2 ms steps:
+the core takes taps of 20 ms; test/devt7.py feeds the GPIO and the press counter.
+
+## Save after a battery change (T7_SESS_EESEQ, T7_EE_SOON, 1.6.9 test16)
+
+A user report: items bought in a figure shop vanished, after taking the batteries out the game was new. The run
+state (session, 0x0C0000) holds the CPU, RAM and display, not the EEPROM; SESS_AUTO writes it every 30 minutes or
+when the screen goes dark. After a battery change that old run state was resumed: its RAM won over the EEPROM the
+game had written since, and the game wrote the old state back. Now the session sector notes at 0xFF8 "T7EQ" and the
+sequence of the EEPROM slot in the flash (the EEPROM is stored first, then the session); a session whose sequence is
+not the current one is dropped and the game starts from its EEPROM. Sessions without the note load as before.
+T7_EE_SOON: the game's EEPROM writes go to the flash 5 s later (2 s without a key) instead of after a minute
+without keys. The game writes its EEPROM seldom (host/hrun.c with -DT7_EEDBG, EEDBG=1: at the setup and at
+events, nothing in 10 idle minutes). Checked in test/devt7.py (session with SESS_T1/T2 short: sequence noted;
+a session with an older sequence: cold start from the EEPROM, the egg is there).
+
+## Tone (T7_TONE_Q, 1.6.9 test14)
+
+The tone was set right after each 2 ms step. After drawing or a flash write the loop catches up up to 30 ms at
+once, so the notes of a melody (about 26 ms, host/hrun.c "tl <s>" lists them) came within a millisecond and were
+swallowed. As T18Emu: tone changes queued with the game time, played 80 ms after the first of a sequence on the
+real clock, late by more than 200 ms the timing starts anew.
+
+## Pixel mode (T7_PIXSOFT, tried in test13, off)
+
+A game pixel is 2 display pixels (pixel exact) or 2 to 3 (large). test13 drew the gap of every cell in its own colour,
+a little lighter; on the device it no longer looked like pixels. Off again, the pixel mode is as before.
+
+## Visits between two Paradise (T7_LINK, 1.6.9)
+
+Tama-Go: connection icon, TAMA-GO, VISIT or GAME. Both wait in STAND BY, B on the device that goes visiting sends.
+The game sends a packet with `$748E` (bank 3): `$32` and `$5B` minus the count, a preamble, then the bytes from `$0220`
+by switching the infrared LED (`$3016` bit 3). `t7_ir_led_on` (called by `t7_io_write`, outside the hot loop) takes
+the packet at the first LED switch-on of the preamble (`$32 == $5B`) as 32 bytes with the sum in the last, like the
+older `t7_ir_bridge_tx_poll` (that one compared `$0220` and lost a packet sent again unchanged). The other device puts
+it in with `t7_ir_bridge_rx` (the receive hook at `$60C4` of the IR bridge), only while its game is in the connection
+screen (`t7_ir_activity` changed within 1.5 s), so an old packet does not wait. Between the devices: `T` frames over
+the UART on the contacts (`../emu/src/emu/plink.h`, 460800 8N1, A5 type len data sum, hello every second).
+
+Sound must be on: the game waits for its beeps to end (`$A3` bit 7) also during the visit. Checked on the PC with two
+cores linked in lockstep: visit (guest away, the host shows both, guest home), GAME (YOU WIN / YOU LOSE), the second
+device entering STAND BY late (the first one sends again).

@@ -41,7 +41,14 @@ const CLOCK_READ = 14, CLOCK_SET = 15;
 const HELLO = 1, READ = 5, CRC = 6, WRITE_TEST = 8, WRITE_BEGIN = 9, WRITE_DATA = 10, WRITE_COMMIT = 11, WRITE_FINISH = 12, WRITE_STATE = 13;
 // App loading: constants of the device's download protocol (needed to load our
 // own flash app, the same values as in the Paradise Flash Tool).
-const PDLO_XOR = 0xE5F04076, PDLO_TOKEN = 'oS6!juQ8', LINK_KEY = 'SPqREQqtuhvgJuRexqMfG8FzstAgmnf7';
+/* link values of the Paradise (chunk key, download file token and mask), kept as two mixed tables (1.6.9 test35) */
+const LV_A = [3, 175, 246, 44, 204, 25, 45, 199, 29, 242, 14, 63, 238, 148, 219, 113, 91, 21, 50, 246, 127, 248];
+const LV_B = [11, 238, 128, 40, 225, 137, 250, 116, 146, 111, 247, 251, 126, 100, 255, 4, 18, 238, 64, 95, 162, 62];
+const LV = (() => { const o = new Uint8Array(LV_A.length + LV_B.length); let s = 0x2C1B3C6D;
+  for (let i = 0; i < o.length; i++) { s = (Math.imul(s, 1103515245) + 12345) & 0x7fffffff; o[i] = (i & 1 ? LV_B : LV_A)[i >> 1] ^ ((s >>> 16) & 255); }
+  return o; })();
+const LINK_KEY = String.fromCharCode(...LV.subarray(0, 32)), PDLO_TOKEN = String.fromCharCode(...LV.subarray(32, 40));
+const PDLO_XOR = (LV[40] | LV[41] << 8 | LV[42] << 16 | LV[43] << 24) >>> 0;
 const IMAGE_SIZE = 0x10000, CHUNK = 0x1000;
 const EDITIONS = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier' };
 
@@ -423,6 +430,14 @@ async function connect(io, appImage, opts = {}, status) {
  * F and E are the feld.js and emu.js modules, menu = { stub } of the menu (or
  * null); opts.emuChanged = guest replaced in the Studio.
  */
+/* T18Emu's settings on the device (d at dc) and in the new image (n at nc) describe the same save: same save place,
+ * block map and spares, where the new one may have more spares behind (test29: spares added keep the save). */
+function t18SameGrown(d, dc, n, nc) {
+  const eq = (a, len) => { for (let i = 0; i < len; i++) if (d[dc + a + i] !== n[nc + a + i]) return false; return true; };
+  const nd = u32(d, dc + 12), nn = u32(n, nc + 12);
+  if (nd > 64 || nn > 64 || nn < nd) return false;
+  return eq(8, 4) && eq(16, 256) && eq(272, 2 * nd) && (nn === nd ? eq(272, 128) : true);
+}
 function keepPlan(F, E, menu, opts = {}) {
   return async (dev, img, changed) => {
     const ed = F.edition(img);
@@ -517,7 +532,7 @@ function keepPlan(F, E, menu, opts = {}) {
           xT18.push(...bl);
           if (!ad.some((d) => d.src === a.src)) continue;
           const dv = changed.has(off) ? await dev.read(off, SECTOR) : img.subarray(off, off + SECTOR);
-          if (u32(dv, 0x140) === T18 && dv.subarray(0x140 + 8, 0x140 + 400).every((v, i) => v === img[c + 8 + i]) && !opts.emuChanged) {
+          if (u32(dv, 0x140) === T18 && t18SameGrown(dv, 0x140, img, c) && !opts.emuChanged) {
             const so = u32(img, c + 8); ranges.push([so, so + 0x24000]);
             for (let i = 0; i < ns; i++) { const b = img[c + 272 + 2 * i] | (img[c + 273 + 2 * i] << 8); t18keepX.push([b << 16, (b + 1) << 16]); }
           } else notes.push(note('noteEmu'));
@@ -538,6 +553,13 @@ function keepPlan(F, E, menu, opts = {}) {
             if (sameFw) { ranges.push([gOff, gOff + gLen]); guestR.push([gOff, gOff + gLen]); }
           } else for (let x = gOff; sameFw && x < gOff + gLen; x += SECTOR) if (changed.has(x)) sameFw = false;
           if (sameFw) ranges.push([so, so + 0x50000], [(gOff + gLen + 0xFFF) & ~0xFFF, se]); else notes.push(note('noteEmu'));
+          continue;
+        }
+        if (mag === 0x47584D50) {   // GBEmu (1.6.9 test36): settings and cartridge RAM stay with the same game at the same place
+          const sameG = [0x140, 0x148, 0x14C, 0x150].every((k) => u32(dv, k) === u32(img, off + k));
+          const ro = u32(img, off + 0x148), rl = u32(img, off + 0x14C), so = u32(img, off + 0x150);
+          let sameRom = sameG; for (let x = ro & ~0xFFF; sameRom && x < ro + rl; x += SECTOR) if (changed.has(x)) sameRom = false;
+          if (sameRom) ranges.push([so, so + 0x9000]); else notes.push(note('noteEmu'));
           continue;
         }
         if (mag === 0x31584D50) {   // V1Emu (1.6.8): the session stays with the same ROM at the same place
@@ -566,7 +588,7 @@ function keepPlan(F, E, menu, opts = {}) {
       // spares must be empty unless the save that uses them is kept (they may lie in the Paradise save range)
       for (let i = 0; i < ns; i++) t18blocks.push(img[c + 272 + 2 * i] | (img[c + 273 + 2 * i] << 8));
       if (img[c + 400] & 4) t18blocks.push(0xFD, 0xFE);   // hot window (1.6.6): second copy of the flash part
-      const same = t18d && view.subarray(c + 12, c + 400).every((v, i) => v === img[c + 12 + i]);
+      const same = t18d && t18SameGrown(view, c, img, c);
       if (same && !opts.emuChanged) {
         ranges.push([0xC0000, 0xC0000 + 0x24000]);   // map, clock note, session (the program's flash part at 0x0F0000 comes from the image)
         for (let i = 0; i < ns; i++) { const b = img[c + 272 + 2 * i] | (img[c + 273 + 2 * i] << 8); t18keep.push([b << 16, (b + 1) << 16]); }
@@ -656,6 +678,6 @@ async function serialOpen(port) {
   return io;
 }
 
-root.ParamixFlash = { connect, keepPlan, Link, Paradise, serialOpen, embedded, buildPdlo, crc32, sectorOrder, EDITIONS, FLASH_SIZE, BAUD, TimeoutError };
+root.ParamixFlash = { linkKey: LINK_KEY, connect, keepPlan, Link, Paradise, serialOpen, embedded, buildPdlo, crc32, sectorOrder, EDITIONS, FLASH_SIZE, BAUD, TimeoutError };
 if (typeof module !== 'undefined') module.exports = root.ParamixFlash;
 })(typeof window !== 'undefined' ? window : globalThis);

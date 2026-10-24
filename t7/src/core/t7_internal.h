@@ -63,6 +63,12 @@ extern uint16_t g_irq_vectors[16];
 // cpureg bytes on every instruction — at ~3 million steps/sec that saves
 // ~6 million memory loads/sec.
 extern uint8_t g_irq_pending_any;
+/* 1.6.9 (test12) battery, as TamaGo-Pebble v0.3.0: T7_IDLE jumps over the passes of the main loop's wait at $CE66
+ * (bit-identical), T7_STOP halts the CPU when the firmware writes 7 to $3001 (until an IRQ or a key) */
+#define T7_IDLE_PC 0xCE66u
+extern uint8_t g_t7_idle_ok, g_t7_halted;
+extern uint32_t g_t7_idle_cyc, g_t7_keyact;
+void t7_idle_check(void);
 
 // Misc runtime state.
 extern uint8_t  g_rom_bank_id;

@@ -33,14 +33,14 @@ const E = require('../src/emu.js'), F = require('../src/feld.js');
   };
   const info = (f) => { const img = new Uint8Array(fs.readFileSync(f)); const fa = F.feldApps(img, fe.stub); return { kind: F.appKind(img), type: F.emuType(img), apps: fa.apps.map((a) => a.name).join(','), name0: fa.name0, auto: (() => { const es = new Uint8Array(fs.readFileSync(__dirname + '/../emu/stub_tpl.bin')), ff = F.feldFind(img, fe.stub), l = [[0xB0000, es], [0xB0000, fe.stub]]; if (ff) l.push([ff.stubOff, fe.stub]); return E.autoGet(img, l); })() }; };
 
-  // 1) start device: DOOM main, iD L in the menu
+  // 1) start device: DOOM main, iD L in the menu (test13: its star can make it the main program, DOOM stays)
   await load(rom, true); await doom(); await pick(idl);
-  ok(await list() === 'DOOM* ID L-', '1 start device with DOOM: ' + await list());
+  ok(await list() === 'DOOM* ID L+', '1 start device with DOOM: ' + await list());
   const r1 = await save('m1.bin'); const i1 = info(r1);
   ok(i1.kind === 1 && i1.apps === 'ID L', '1 saved: DOOM at 0x0A0000, menu ' + i1.apps);
   // 2) loaded again, DOOM out, star on iD L: iD L main, DOOM stays out
   await load(r1);
-  ok(await list() === 'DOOM* ID L-', '2 loaded: ' + await list());
+  ok(await list() === 'DOOM* ID L+', '2 loaded: ' + await list());
   await btn('DOOM', '×');
   ok(await list() === 'DOOM(weg) ID L+', '2 DOOM taken out: ' + await list());
   await btn('ID L', '☆');
@@ -51,7 +51,7 @@ const E = require('../src/emu.js'), F = require('../src/feld.js');
   ok(await list() === 'ID L*', '2 loaded again: ' + await list());
   // 3) DOOM out and back
   await load(r1); await btn('DOOM', '×'); await btn('DOOM', '↺');
-  ok(await list() === 'DOOM* ID L-', '3 DOOM back: ' + await list());
+  ok(await list() === 'DOOM* ID L+', '3 DOOM back: ' + await list());
   // 4) start device without DOOM: Friends, Tama-Go, iD L; star on iD L
   await load(rom, true); await pick(fr, 500); await pick(go, 500); await pick(idl);
   ok(await list() === 'FRIENDS* TAMA-GO+ ID L+', '4 start device: ' + await list());

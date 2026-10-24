@@ -113,7 +113,9 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
   const order = FL.sectorOrder();
   ok(order.length === 4096 && order[0] === 0x111000 && order[4095] === 0, 'flash sector order');
   const pd = FL.buildPdlo(new Uint8Array([1, 2, 3, 4]));
-  ok(pd.length === 0x10010 && (((pd[0] | pd[1] << 8 | pd[2] << 16 | pd[3] << 24) ^ 0xE5F04076) >>> 0) === 0x4F4C4450, 'flash PDLO header');
+  { const m = ((pd[0] | pd[1] << 8 | pd[2] << 16 | pd[3] << 24) ^ 0x4F4C4450) >>> 0;   // the mask, from the known header word
+    const lv = Buffer.concat([Buffer.from(FL.linkKey, 'latin1'), Buffer.from(pd.subarray(8, 12).map((x, i) => x ^ (m >>> (8 * i) & 255))), Buffer.from(pd.subarray(12, 16).map((x, i) => x ^ (m >>> (8 * i) & 255))), Buffer.from([m & 255, m >>> 8 & 255, m >>> 16 & 255, m >>> 24])]);
+    ok(pd.length === 0x10010 && require('crypto').createHash('sha256').update(lv).digest('hex') === 'e42c852be360af2b76316a5f02058a90d68db0a946a7b556819c07ec0db23cdb', 'flash PDLO header and link values'); }
   // fake device: 16 MB flash, answers PAU1 like the flash app
   function fakeDevice(mem) {
     const devSide = new FL.Link({ write: async () => {} });

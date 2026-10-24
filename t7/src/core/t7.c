@@ -84,6 +84,7 @@ bool t7_init(void)
   g_rom_loaded = false;
 
   if (!t7_load_static_rom()) return false;
+  t7_idle_check();
   t7_set_rom_bank(0);
   t7_eeprom_init();      // load save data from persist
   t7_cpu_reset();
@@ -182,6 +183,9 @@ uint32_t T7_HOT t7_step_cycles(uint32_t target_cycles)
     }
   }
   if (g_snd_on) t7_snd_flush();
+#ifdef T7_STOP_KEYACT
+  g_t7_keyact = g_t7_keyact > spent ? g_t7_keyact - spent : 0;
+#endif
   return spent;
 }
 #else
@@ -301,6 +305,12 @@ void t7_set_buttons(uint8_t mask)
   // Obere Bits MUESSEN 0 bleiben (wie in der Referenz: this.keys = 0xF).
   // Frueher stand hier "| 0xF0", was die Figur-Bits (Bit 5-7 in PortA) komplett
   // maskiert hat -> die Firmware konnte eine gesteckte Figur nie erkennen.
+#ifdef T7_STOP
+#ifdef T7_STOP_KEYACT
+  if (lo != g_keys) g_t7_keyact = T7_STOP_KEYACT;
+#endif
+  if (g_t7_halted && (lo & 0x07) != 0x07 && (g_cpureg[0x07] & 0x01)) { g_cpureg[0x08] |= 0x01; g_t7_halted = 0; }
+#endif
   g_keys = lo;
 }
 

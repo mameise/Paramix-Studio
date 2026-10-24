@@ -219,18 +219,33 @@ TC_INIT static void backlight_on(void){
 u32 g_hw_vol = 2u, g_hw_dim = 0u;
 static const u8 VOL_SH[4] = { 5, 7, 5, 3 };
 #endif
+#ifdef CLK_ECO
+u32 g_hw_clk_sh;   /* 1.6.9 test22: AHB clock divided by 2^sh (eco.h); the tone timer runs on the divided clock too */
+u32 g_hw_tone_hz;
+#define TONE_CLK (72000000u >> g_hw_clk_sh)
+#else
+#define TONE_CLK 72000000u
+#endif
 void hw_tone(u32 hz){
   static u32 on;
 #ifdef HW_OPTS
   if(!g_hw_vol) hz = 0;
 #endif
+#ifdef CLK_ECO
+  g_hw_tone_hz = hz;
+#endif
   if(!hz){ REG(CT7+0x34)=0; REG(CT7+0x00)=0; on=0; return; }
 #ifdef HW_OPTS
-  u32 per = 72000000u / hz, mr0 = per - (per >> VOL_SH[g_hw_vol & 3u]);
+  u32 per = TONE_CLK / hz, mr0 = per - (per >> VOL_SH[g_hw_vol & 3u]);
 #else
-  u32 per = 72000000u / hz, mr0 = per - per/32u;
+  u32 per = TONE_CLK / hz, mr0 = per - per/32u;
 #endif
-  if(on){ REG(CT7+0x24)=per; REG(CT7+0x18)=mr0; return; }
+  if(on){ REG(CT7+0x24)=per; REG(CT7+0x18)=mr0;
+#ifdef TONE_SAFE   /* 1.6.9 test38 (GBEmu): a shorter period below the running counter left the buzzer silent until the
+                    * 32-bit counter wrapped (~60 s); then the counter starts again */
+    if(REG(CT7+0x08) >= per){ REG(CT7+0x00)=2; REG(CT7+0x08)=0; REG(CT7+0x00)=1; }
+#endif
+    return; }
   REG(CT7+0x34)=0;
   REG(CT7+0x00)=2; REG(CT7+0x08)=0; REG(CT7+0x00)=0;
   REG(CT7+0x18)=mr0; REG(CT7+0x1C)=0; REG(CT7+0x20)=0;
@@ -276,8 +291,23 @@ void hw_bl_test(u32 m, u32 pct){
 /* v0.8.18: off = put the display to sleep (DISPOFF, SLPIN) and stop the backlight timer,
  * PWM output off (like panel_down in the Flash Tool). On = SLPOUT, short wait, DISPON, backlight restart.
  * MR1 values alone (v0.8.17) had no effect on the device. */
+static int is_on=1;
+#ifdef WAKE_ASYNC
+/* test14: switching the panel on in steps from the main loop (SLPOUT, 125 ms later DISPON, 20 ms later the light),
+ * hw_backlight(1) waited 145 ms and the emulator fell behind (the ring of a call in standby ran slow).
+ * Returns 0 when the panel is on already. */
+int hw_wake_step(int ph){
+  if(ph==1){ if(is_on) return 0; lcd_cmd(0x11,0,0); return 1; }
+  if(ph==2){ lcd_cmd(0x29,0,0); return 1; }
+#ifdef BL_PWM
+  g_bl_on=1u; bl_apply(1);
+#else
+  pwm2(0u,1);
+#endif
+  is_on=1; return 1;
+}
+#endif
 void hw_backlight(int on){
-  static int is_on=1;
 #ifndef WAKE_QUICK
   /* 1.6.8: the panel needs 120 ms after SLPOUT; switched on earlier it showed white for a moment. Its picture is
    * kept while it sleeps, so after the wait it shows the old picture, the light comes last. */
@@ -372,8 +402,23 @@ void hw_px_end(void){ LCD_DC(0); }
 
 /* Back to the Paradise: firmware routine that reloads the encrypted PRAM image
    and restarts (flash 0x110568, XIP 0x100FF569). */
+#ifdef CLK_ECO
+/* 1.6.9 test22: the AHB prescaler (SYS_AHBCP 0x45000010, Sonix TRM: SYSCLK / 2^sh for the core, the memory and, through
+ * APB, the peripherals). SysTick keeps its 1 ms, a playing tone keeps its pitch. Only while the screen is off. */
+__attribute__((minsize)) void hw_clk_shift(u32 sh, u32 core_hz){
+  if(sh > 3u) sh = 3u;
+  if(sh == g_hw_clk_sh) return;
+  REG(0x45000010u) = sh; g_hw_clk_sh = sh;
+  __asm__ volatile("dsb\n isb");
+  REG(0xE000E014u) = (core_hz >> sh) / 1000u - 1u; REG(0xE000E018u) = 0;
+  if(g_hw_tone_hz) hw_tone(g_hw_tone_hz);
+}
+#endif
 void hw_back_to_paradise(void){
   __asm__ volatile("cpsid i");
+#ifdef CLK_ECO
+  REG(0x45000010u) = 0;   /* the Paradise runs at full speed again */
+#endif
   ((void(*)(void))(PARADISE_REBOOT|1u))();
   for(;;){}
 }

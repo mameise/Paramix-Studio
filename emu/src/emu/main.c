@@ -6,6 +6,25 @@
 #include "flash.h"
 #include "../core/tc.h"
 #include "state.h"
+#ifdef TC_IRLINK
+#define PL_ATTR __attribute__((noinline, minsize))
+#include "plink.h"
+#ifdef CLK_ECO
+#include "eco.h"
+#endif
+/* 1.6.9: the guest's infrared bytes to the other Paradise ('E' frames over the contacts) and back */
+static u8 g_irq[512], g_irtx[60], g_irtxn;
+static u16 g_irh, g_irt;
+int tc_ir_avail(void) { return g_irh != g_irt; }
+int tc_ir_in(void) { if (g_irh == g_irt) return -1; u8 b = g_irq[g_irh & 511u]; g_irh++; return b; }
+__attribute__((minsize)) void tc_ir_out(u8 b) { g_irtx[g_irtxn++] = b; if (g_irtxn >= sizeof g_irtx) { plink_send('E', g_irtx, g_irtxn); g_irtxn = 0; } }
+__attribute__((noinline, minsize)) static void ir_got(u8 ty, const u8 *d, int n)
+{
+  if (ty != 'E') return;
+  for (int i = 0; i < n; i++) if ((u16)(g_irt - g_irh) < 512u) { g_irq[g_irt & 511u] = d[i]; g_irt++; }
+}
+__attribute__((noinline, minsize)) static void ir_link_tick(u32 now) { if (g_irtxn) { plink_send('E', g_irtx, g_irtxn); g_irtxn = 0; } plink_poll(now, 0, ir_got); }
+#endif
 #define PARA_ATTR __attribute__((section(".initcode")))
 #include "paraclock.h"
 #ifdef PARA_BACK
@@ -23,10 +42,10 @@ volatile const PmxCfg g_cfg = { 0x43584D50u, 1, 0x940000u, 0x400000u, 0xC0000u, 
 static u32 g_para, g_para_cnt;          /* the Paradise's time at the start (seconds since 1970, 0 = not found), its counter then */
 static int para_hard(void) { return g_cfg.version >= 4u && (g_cfg.flags & 2u) && g_para; }
 
-static uint16_t g_gram[GRAM_H][GRAM_W];
+static uint16_t g_gram[GRAM_H][GRAM_W] __attribute__((aligned(4)));   /* also a flash source (para_back_fix): the DMA takes words */
 static Emu g_emu;
 #define NSLOT 2
-static uint8_t g_pool[NSLOT * OVL_SIZE];
+static uint8_t g_pool[NSLOT * OVL_SIZE] __attribute__((aligned(4)));   /* flash DMA source */
 #ifdef OVL_RAM20
 /* v0.9.1: extra slots for the guest's modified flash sectors in RAM at 0x20004000 (64 KB on the device,
  * the first 16 KB stay free). With 8 slots instead of 2, eviction mid-game is almost never needed. */
@@ -70,13 +89,30 @@ static void systick_init(void){ SYST_RVR = CORE_HZ/1000u - 1u; SYST_CVR = 0; SYS
 #define APP_FLASH 0x600A0000u
 static volatile u32 g_zero;
 static u32 g_pc_n, g_pc_first, g_pc_last, g_pc_rt;
+#ifdef APP_SELF
+/* test5: where this program's image lies in the flash. A further TamaEmu of the menu has its image right behind its
+ * guest area (spare_end), not at 0x0A0000; checking against 0x0A0000 copied the main TamaEmu's settings over its own
+ * and the other ROM started (Bernd: iD L and P's, always the one added first). */
+static u32 app_flash(void){
+  if(g_cfg.version>=3u){ u32 a=g_cfg.spare_end;
+    if(a && a<0x1000000u && !(a & 0xFFFFu) && a!=0xA0000u){
+      volatile const u32 *c=(volatile const u32*)(0x60000000u + a + 0x140u);
+      if(c[0]==0x43584D50u && c[2]==g_cfg.guest_off && c[4]==g_cfg.save_off) return 0x60000000u + a; } }
+  return APP_FLASH;
+}
+#else
+#define app_flash() APP_FLASH
+#endif
 static u32 pram_check(u32 end, int fix){
   volatile u32 *dst=(volatile u32*)g_zero;
-  volatile const u32 *src=(volatile const u32*)APP_FLASH;
+  volatile const u32 *src=(volatile const u32*)app_flash();
   if(src[0]!=dst[0] || src[1]!=dst[1]) return 0xFFFFFFFFu;   /* window does not read the image */
   u32 n=0;
   for(u32 i=0;i<end/4u;i++){
     u32 v=src[i];
+#ifdef APP_SELF
+    if(i>=0x140u/4u && i<(0x140u+sizeof(PmxCfg))/4u) continue;   /* its own settings stay, whatever the image there says */
+#endif
     if(dst[i]!=v){ if(!g_pc_n && !n) g_pc_first=i*4u; g_pc_last=i*4u; n++; if(fix) dst[i]=v; }
   }
   if(n && fix){ __asm__ volatile("dsb\n isb" ::: "memory"); }
@@ -259,6 +295,9 @@ static void push_dirty(Emu *e){
 }
 
 static void leave_go(int save){
+#ifdef CLK_ECO
+  hw_clk_shift(0, CORE_HZ);
+#endif
   hw_tone(0);
   REG(0x20000FF8u)=0;                    /* start counter of the home hooks */
   REG(0x20000FFCu)=0x4C584D50u;          /* "PMXL": back on purpose, the autostart of the stub stays off (v0.9.4) */
@@ -396,6 +435,27 @@ __attribute__((noinline)) static u32 sram_watch(u32 *first, u32 *c2){
   *first=f; *c2=k; return c;
 }
 static u32 g_sw_n, g_sw_f, g_sw_k;
+#endif
+#ifdef EMU_CARE
+/* test30: care and Gotchi Points in the settings, per firmware (its reset vector), found in the simulation and checked
+ * on the game's status pages: hunger (raised to its full value), happy/love (P's ring, 4U love), Gotchi Points (u32) */
+typedef struct { u32 rv; u16 hun, hap, pts, med; u8 hmax, mul, add, mask; } EmuCare;   /* 0x8xxx: dstram 0x84xxx, else a0ram */
+/* test32: the happy bar (iD L: friend level, Plus Color: HAPPY!, P's: ring, 4U: love) only as far as the game itself
+ * lets it grow, read from each firmware's own code: mul * (medals in med, bits of mask) + add; mask 0 (4U): 100 once
+ * the stage byte med is above 2, else 30 */
+static const EmuCare CARE[] = {
+  { 0x00C2F0ECu, 0x8125u, 0x812Cu, 0x8138u, 0x815Eu, 4, 10, 10, 0x7F },   /* Plus Color v040 */
+  { 0x024CA8FEu, 0x8225u, 0x8228u, 0x8238u, 0x826Cu, 4, 20, 19, 0x0F },   /* iD L v050 */
+  { 0x024CA942u, 0x8225u, 0x822Cu, 0x8238u, 0x8270u, 4, 20, 19, 0x0F },   /* iD L v050 (2011-02-24) */
+  { 0x024CAA72u, 0x8225u, 0x822Cu, 0x8238u, 0x8270u, 4, 20, 19, 0x0F },   /* iD L v053 (English) */
+  { 0x024BD18Au, 0x8201u, 0x8208u, 0x8214u, 0x8250u, 4, 20, 19, 0x0F },   /* iD L v054 (15th) */
+  { 0x024C14F6u, 0x8201u, 0x8208u, 0x8214u, 0x8250u, 4, 20, 19, 0x0F },   /* iD L v055 (Princess Spacy) */
+  { 0x024FDFE6u, 0x12ACu, 0x12B4u, 0x12C0u, 0x12FAu, 4, 4, 4, 0x0F },     /* P's */
+  { 0x024F6256u, 0x11A1u, 0x11A8u, 0x11B4u, 0x11E2u, 6, 0, 0, 0 },        /* 4U+ */
+  { 0x024C680Au, 0x12A9u, 0x12B0u, 0x12BCu, 0x12EAu, 6, 0, 0, 0 },        /* 4U v001 */
+};
+static const EmuCare *care_find(Emu *e){ u32 v=mem_read32(e, e->dev.ttbr_reset); for(u32 i=0;i<sizeof CARE/sizeof CARE[0];i++) if(CARE[i].rv==v) return &CARE[i]; return 0; }
+static u8 *care_p(Emu *e, u32 a){ return (a & 0x8000u) ? e->dstram+(a & 0x7FFFu) : e->a0ram+a; }
 #endif
 static u32 g_ovl;                         /* speed display on (short wheel press) */
 /* Timing (v0.8.20): cycles from SysTick (g_ms * 96000 + elapsed part of the current ms).
@@ -540,12 +600,16 @@ __attribute__((noinline, minsize)) static void clock_sync(Emu *e){
     r0=r; m0=run_ms;
   }
 }
-void Reset_Handler(void){
-  __asm__ volatile("cpsid i");
+/* 1.6.9: everything up to the translator runs once, from the startup area (.initcode, later the translator's):
+ * frees PRAM for the infrared link */
+__attribute__((section(".initcode"), noinline)) static void boot(void){
   u32 swf=0, swk=0, swn=0;
   /* the Paradise's clock, before its SRAM is overwritten (the stack is in the top 4 KB) */
   u32 pcnt=REG(0x45000304u), para=para_clock(pcnt, 0, 0x1F000u, 0, 0);
   if(!para) para=para_mailbox(pcnt);   /* 1.6.8: started from the menu */
+#ifdef PARA_FLASH
+  if(!para) para=para_flash(pcnt);   /* 1.6.9 test37 */
+#endif
 #ifdef PARA_BACK
   para_leave_mark(pcnt, para);         /* 1.6.8: the Paradise does not live meanwhile */
 #endif
@@ -613,6 +677,11 @@ void Reset_Handler(void){
   else tc_profile_plus_color(&e->dev);
   /* 1.6.8: 4U/4U+ get an answering NFC chip (flags bit 2 switches it off again) */
   if(g_cfg.device>=3u && g_cfg.device<=4u && !(g_cfg.flags & 4u)) e->dev.nfc_pn512=true;
+#ifdef TC_IRLINK
+  /* 1.6.9: infrared to another Paradise over the contacts (iD L: session through its context pointer, P's: its mode byte) */
+  if(g_cfg.device==1u){ tc_ir_setup(0, 0x84350u); plink_init(); }
+  else if(g_cfg.device==2u){ tc_ir_setup(0xDB3u, 0); plink_init(); }
+#endif
 #ifdef HW_OPTS
   /* 1.6.8: volume (bits 16-17: 0 normal, 1 quiet, 2 loud, 3 off), brightness (18-19), screen off after (20-23) */
 #ifdef OPT_MENU
@@ -652,6 +721,15 @@ void Reset_Handler(void){
     }
   }
   st_pages(e, &g_sc);                     /* spare pages for written empty blocks (after a restore as well) */
+}
+/* test26 CLK_ECO: the main loop for size (the 64 KB were full); the hot paths (core, JIT, LCD push) stay -O2 */
+#ifdef CLK_ECO
+__attribute__((minsize))
+#endif
+void Reset_Handler(void){
+  __asm__ volatile("cpsid i");
+  boot();
+  Emu *e=&g_emu;
   /* startup code is done: the translator gets its space as well */
   g_stage=4; diag(e,0);
 #if defined(JIT_STAGE)
@@ -735,6 +813,12 @@ void Reset_Handler(void){
       for(;;){ hw_wdt_feed(); if(hw_buttons()&BTN_WHEEL) leave_nosave(); }
     }
     emu_ms++; busy_ms++;
+#ifdef CLK_ECO
+    ECO_CHECK(g_ms, g_ms-emu_ms, CORE_HZ);
+#endif
+#ifdef TC_IRLINK
+    ir_link_tick(g_ms);
+#endif
 #ifdef RTC_MS
     /* 1.6.8: the guest's clock counts real milliseconds (not guest cycles). Guest clock ahead of the
      * Paradise's crystal (g_hold_ms from clock_sync): one ms in 16 is not counted. */
@@ -784,6 +868,10 @@ void Reset_Handler(void){
     { static int lock=1;                    /* wait for the start buttons (A+C) to be released */
       g_st[14]=b | ((u32)lock<<8);
       if(lock){ if(b) b=0; else lock=0; } }
+#ifdef CLK_ECO
+    /* test26: screen dark, no key, no tone, no link traffic for 30 s: a lower clock (eco.h) */
+    eco_poll(now, !g_bl && !b && !g_hw_tone_hz && !(g_pl.last_rx && now-g_pl.last_rx<30000u), (int)(now-emu_ms), CORE_HZ);
+#endif
     /* v0.9.5: guest screen dark right after the start (its own screen saver ran out while the clock
      * caught up, often after the autostart): one short press of C wakes it, like the user would.
      * Only once, only after resuming a session, in the first 8 s, while dark and nothing is pressed. */
@@ -810,7 +898,18 @@ void Reset_Handler(void){
     if(b&BTN_WHEEL){ if(!wheel_ms) wheel_ms=now?now:1; else if(now-wheel_ms>1500) leave(); }
 #if defined(OPT_MENU)
     /* 1.6.8: wheel short: settings (the game stands still meanwhile) */
-    else { if(wheel_ms && now-wheel_ms<1000u){ u32 n=hw_opts_menu(g_opt, (int)(g_cfg.flags & 1u));
+    else { if(wheel_ms && now-wheel_ms<1000u){
+#ifdef EMU_CARE
+        const EmuCare *c=care_find(e); int en=(int)(g_cfg.flags & 1u);
+        const char *cx[2]={ c ? "GOTCHI POINTS" : 0, c ? (en ? "FULL CARE" : "PFLEGE VOLL") : 0 };
+        u32 n=hw_opts_menu_xn(g_opt, en, cx, 2);
+        if(n & 0x80000000u){ u8 *p=care_p(e,c->pts);
+          if(n & (1u<<28)){ u8 *h=care_p(e,c->hun); if(*h<c->hmax) *h=c->hmax; { u32 m=*care_p(e,c->med), cap; if(c->mask){ m&=c->mask; cap=0; while(m){ cap+=c->mul; m&=m-1u; } cap+=c->add; } else cap=m>2u?100u:30u; h=care_p(e,c->hap); if(*h<cap) *h=(u8)cap; } }
+          else { u32 v=p[0]|(u32)p[1]<<8|(u32)p[2]<<16; if(hw_num_edit("GOTCHI POINTS",&v,5,99999u,en)){ p[0]=(u8)v; p[1]=(u8)(v>>8); p[2]=(u8)(v>>16); p[3]=0; } }
+          n&=0x0FFFFFFFu; }
+#else
+        u32 n=hw_opts_menu(g_opt, (int)(g_cfg.flags & 1u));
+#endif
         if(n!=g_opt){ g_opt=n; opt_apply(n); opt_store(); }
         g_scr_dark=0; g_btn_ms=g_ms; e->lcd.dx0=0; e->lcd.dy0=0; e->lcd.dx1=127; e->lcd.dy1=127; LCD_ALL(); } wheel_ms=0; }
 #elif defined(CLEAN) && !defined(MESS)
@@ -900,6 +999,19 @@ void Reset_Handler(void){
       if(g_scr_ms && now-g_btn_ms>g_scr_ms) g_scr_dark=1;
       if(g_scr_dark) on=0;
 #endif
+#ifdef BL_GUEST_PWM
+      /* 1.6.9: the colour Tamas light their screen with T16 channel 2 (PWM, all four models). The P's wakes its LCD
+       * every 20 minutes for about 9 s while the screen is dark, without that light (a dark refresh, also a silent
+       * reminder now and then); on the Paradise this lit the screen all night. The light now goes on only with the
+       * guest's own light, or with a key or a tone in the last second (a call stays visible), and stays on while
+       * the LCD stays on. */
+      { static u32 tone_ms; static int ok;
+        if(periph_tone_hz(e)) tone_ms=now?now:1;
+        int gl=(e->ioram[0x300796u-e->dev.io_base] & 1u) && (e->ioram[0x3007E4u-e->dev.io_base] & 8u);
+        if(!on) ok=0;
+        else if(gl || now-g_btn_ms<1000u || (tone_ms && now-tone_ms<1000u)) ok=1;
+        if(!ok) on=0; }
+#endif
       if(on){ dark=0; if(!bl){ bl=1; hw_backlight(1); e->lcd.dx0=0; e->lcd.dy0=0; e->lcd.dx1=127; e->lcd.dy1=127; LCD_ALL(); } }
       else if(bl && ++dark>500u){ bl=0; hw_backlight(0); }
       g_bl=bl; }
@@ -927,4 +1039,8 @@ __attribute__((naked)) static void Irq_Off(void){ __asm__ volatile("cpsid i\n bx
 __attribute__((section(".vectors"), used))
 const void* const g_vectors[16+64] = { (void*)0x18020000u, (void*)Reset_Handler,
   [2 ... 14] = (void*)Default_Handler, [3 ... 6] = (void*)Fault_Handler, [11] = (void*)Irq_Off, [14] = (void*)Irq_Off,
-  [15] = (void*)SysTick_Handler, [16 ... 79] = (void*)Irq_Off };
+  [15] = (void*)SysTick_Handler, [16 ... 79] = (void*)Irq_Off
+#ifdef TC_IRLINK
+  , [16 + 37] = (void*)plink_irq
+#endif
+};

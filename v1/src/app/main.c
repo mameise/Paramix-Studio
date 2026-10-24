@@ -6,6 +6,9 @@
  * The screen: 32x16 dots four times enlarged, the eight icons above and below.
  * Author: mameise */
 #include "../../../emu/src/emu/hw.h"
+#ifdef CLK_ECO
+#include "../../../emu/src/emu/eco.h"
+#endif
 #include "../../../emu/src/emu/flash.h"
 #include "../core/tamalib.h"
 #include "../core/hal.h"
@@ -30,6 +33,40 @@ volatile const V1Cfg g_cfg = { V1_MAGIC, 1, 0, 0, 0, 0, {0}, 0, {{0}} };
 #define SESSION (g_cfg.save_off)
 #define SETTINGS (g_cfg.save_off + 0x1000u)
 #include "font.h"
+#ifdef V1_LINK
+#include "../../../emu/src/emu/plink.h"
+/* 1.6.9: Digimon battles between two Paradise. The toy's contact (P20, cpu.c) as edges with the toy's own time
+ * ('D' frames: level, time in us). The other side plays them back at that time plus an offset, set at the first
+ * edge of a burst (30 ms quiet before) to "now plus LK_LEAD": the lengths of the pulses stay exact, the
+ * transport only shifts them. */
+#define LK_LEAD 20000u
+static struct { u32 t; u8 low; } g_lq[64];
+static u8 g_lqh, g_lqt, g_rlow, g_have;
+static s32 g_off; static u32 g_last_rt;
+void v1_link_out(int low, u32_t t)
+{
+  u8 d[5] = { (u8)low, (u8)t, (u8)(t >> 8), (u8)(t >> 16), (u8)(t >> 24) };
+  plink_send('D', d, 5);
+}
+int v1_link_in(u32_t t)
+{
+  while (g_lqh != g_lqt) {
+    u32 rt = g_lq[g_lqh & 63u].t;
+    if (!g_have || ((s32)(rt - g_last_rt) > 30000 && g_have != 2)) { g_off = (s32)(t - rt) + (s32)LK_LEAD; g_have = 2; }
+    if ((s32)(t - (rt + (u32)g_off)) < 0) break;
+    g_rlow = g_lq[g_lqh & 63u].low; g_last_rt = rt; g_lqh++; g_have = 1;
+  }
+  return g_rlow;
+}
+static void lk_got(u8 ty, const u8 *d, int n)
+{
+  if (ty != 'D' || n != 5) return;
+  if ((u8)(g_lqt - g_lqh) >= 64u) g_lqh++;                        /* full: the oldest goes */
+  g_lq[g_lqt & 63u].low = d[0];
+  g_lq[g_lqt & 63u].t = (u32)d[1] | (u32)d[2] << 8 | (u32)d[3] << 16 | (u32)d[4] << 24;
+  g_lqt++;
+}
+#endif
 #define ST_MAGIC 0x54533156u   /* "V1ST" */
 
 /* ---- time: SysTick 1 ms ---- */
@@ -183,8 +220,35 @@ static void text(int x, int y, const char *s, u16 col, u16 *row, int ry)
     for (int k = 0; k < 5; k++) if ((bits & (0x10 >> k)) && x + k >= 0 && x + k < 128) row[x + k] = col;
   }
 }
-enum { M_PAL, M_GRID, M_SHD, M_ICO, M_GHOST, M_SND, M_LIGHT, M_DIM, M_DIMTO, M_OFF, M_SYNC, M_LANG, M_N };   /* shake: turn the wheel (1.6.8 test30) */
+enum {
+#ifdef BAT_SHOW
+  M_BAT,   /* test17: the battery (shown, nothing to change) */
+#endif
+  M_PAL, M_GRID, M_SHD, M_ICO, M_GHOST, M_SND, M_LIGHT, M_DIM, M_DIMTO, M_OFF, M_SYNC,
+#ifdef V1_CARE
+  M_CARE,
+#endif
+  M_LANG, M_N };   /* shake: turn the wheel (1.6.8 test30) */
 static int g_items[M_N], g_nitems;
+#ifdef V1_CARE
+/* test31: "Full care" per toy (by the name the Studio writes), the RAM nibbles found on the PC and checked on the
+ * toy's status pages: hunger and happy (Digimon: strength) raised to full */
+typedef struct { char nm[11]; u8 hv, av; u16 hun, hap; } V1Care;
+static const V1Care CARE[] = {
+  { "TAMA P1", 15, 15, 0x40, 0x41 }, { "TAMA P1 EN", 15, 15, 0x40, 0x41 }, { "TAMA P2", 15, 15, 0x40, 0x41 },
+  { "ANGEL", 15, 15, 0x40, 0x43 }, { "GENJIN", 4, 5, 0x3E, 0x3D }, { "UMINO", 4, 4, 0x7E, 0x7F }, { "YASASHII", 4, 4, 0x31, 0x32 }, { "TAMAOTCH", 4, 4, 0x1E0, 0x1E1 }, { "MORINO", 15, 15, 0x40, 0x41 },
+  { "DIGIMON V1", 4, 4, 0x3E, 0x3D }, { "DIGIMON V2", 4, 4, 0x3E, 0x3D }, { "DIGIMON V3", 4, 4, 0x3E, 0x3D },
+};
+static const V1Care *care_find(void)
+{
+  for (u32 i = 0; i < sizeof CARE / sizeof CARE[0]; i++) {
+    int k = 0; while (k < 11 && CARE[i].nm[k] && CARE[i].nm[k] == g_cfg.name[k]) k++;
+    if ((k == 11 || !CARE[i].nm[k]) && (k >= 15 || !g_cfg.name[k])) return &CARE[i];
+  }
+  return 0;
+}
+static u8 g_cared;
+#endif
 static void menu_items(void)
 {
   g_nitems = 0;
@@ -195,16 +259,26 @@ static void menu_items(void)
     if (k == M_LIGHT) continue;
 #endif
     if (k == M_SYNC && !(g_cfg.flags & 8u)) continue;   /* only where V1Emu knows the toy's clock */
+#ifdef V1_CARE
+    if (k == M_CARE && !care_find()) continue;
+#endif
     g_items[g_nitems++] = k;
   }
   if (g_msel >= g_nitems) g_msel = g_nitems - 1;
 }
+#ifdef BAT_SHOW
+#include "../../../emu/src/emu/batt.h"
+static char g_bat[12];   /* read once per drawing of the menu */
+#endif
 static void pct(char *o, int v) { int n = 0; if (v >= 100) o[n++] = '1'; if (v >= 10) o[n++] = (char)('0' + (v / 10) % 10); o[n++] = (char)('0' + v % 10); o[n++] = '%'; o[n] = 0; }
 static void menu_line(int it, const char **a, char *b)
 {
   int e = en(); const char *v = 0; b[0] = 0;
   const char *on = e ? "ON" : "AN", *off = e ? "OFF" : "AUS";
   switch (it) {
+#ifdef BAT_SHOW
+    case M_BAT: *a = e ? "BATTERY" : "BATTERIE"; v = g_bat; break;
+#endif
     case M_PAL: *a = e ? "COLOUR" : "FARBE"; v = PAL_NM[e][g_set.pal % 6u]; break;
     case M_GRID: *a = e ? "GRID" : "RASTER"; v = g_set.grid ? on : off; break;
     case M_SHD: *a = e ? "SHADOW" : "SCHATTEN"; v = g_set.shadow ? on : off; break;
@@ -220,6 +294,9 @@ static void menu_line(int it, const char **a, char *b)
 #endif
     case M_OFF: *a = e ? "SCREEN OFF" : "BILD AUS NACH"; v = T_NM[e][g_set.off <= T_N ? g_set.off : T_N]; break;
     case M_SYNC: *a = e ? "CLOCK" : "UHR"; v = g_set.sync ? "AUTO" : (e ? "GAME" : "SPIEL"); break;
+#ifdef V1_CARE
+    case M_CARE: *a = e ? "FULL CARE" : "PFLEGE VOLL"; if (g_cared) v = "OK"; break;
+#endif
     default: *a = e ? "LANGUAGE" : "SPRACHE"; v = e ? "ENGLISH" : "DEUTSCH"; break;
   }
   if (v) { int n = 0; while (v[n] && n < 11) { b[n] = v[n]; n++; } b[n] = 0; }
@@ -229,6 +306,9 @@ static void menu_draw(void)
 {
   if (g_msel < g_mtop) g_mtop = g_msel;
   if (g_msel >= g_mtop + ROWS) g_mtop = g_msel - ROWS + 1;
+#ifdef BAT_SHOW
+  bat_text(g_bat);
+#endif
   hw_px_begin(0, 0, 128, 128);
   for (int y = 0; y < 128; y++) {
     for (int x = 0; x < 128; x++) g_row[x] = BG;
@@ -252,6 +332,9 @@ static int g_set_dirty;
 static void menu_close(u32 now, int tap)
 {
   (void)now; (void)tap; g_menu = 0;
+#ifdef V1_CARE
+  g_cared = 0;
+#endif
   if (g_set_dirty) { set_store(); g_set_dirty = 0; }
   draw(1);
 }
@@ -260,6 +343,9 @@ static void menu_key(u32 k, u32 now)
   if (k & BTN_A) g_msel = (g_msel + 1) % g_nitems;
   if (k & BTN_B) {
     switch (g_items[g_msel]) {
+#ifdef BAT_SHOW
+      case M_BAT: break;
+#endif
       case M_PAL: g_set.pal = (u8)((g_set.pal + 1u) % 6u); break;
       case M_GRID: g_set.grid ^= 1u; break;
       case M_SHD: g_set.shadow ^= 1u; break;
@@ -275,6 +361,9 @@ static void menu_key(u32 k, u32 now)
 #endif
       case M_OFF: do g_set.off = (u8)((g_set.off + 1u) % (T_N + 1u)); while (g_set.off < T_N && g_set.dim < T_N && g_set.off <= g_set.dim); break;
       case M_SYNC: g_set.sync ^= 1u; break;
+#ifdef V1_CARE
+      case M_CARE: { const V1Care *c = care_find(); if (c) { if (cpu_v1_peek(c->hun) < c->hv) cpu_v1_poke(c->hun, c->hv); if (cpu_v1_peek(c->hap) < c->av) cpu_v1_poke(c->hap, c->av); g_cared = 1; } } menu_draw(); return;
+#endif
       default: g_set.lang = (u8)(en() ? 1u : 2u); break;
     }
     g_set_dirty = 1; colours(); menu_items();
@@ -311,6 +400,9 @@ static u32 g_sess_ms;
 static void drop_session(void) { if (!flash_isff(SESSION, 0x1000u)) flash_erase4k(SESSION); }
 static void leave(int save)
 {
+#ifdef CLK_ECO
+  hw_clk_shift(0, CORE_HZ);
+#endif
   hw_tone(0);
   set_store();
   REG(0x20000FF8u) = 0;                  /* start counter of the home hooks */
@@ -347,6 +439,19 @@ static void clock_write(void)
   else { cpu_v1_poke(CB + 4, (u4_t)(h & 15u)); cpu_v1_poke(CB + 5, (u4_t)(h >> 4)); }
 }
 static u32 clock_sec(void) { return cpu_v1_peek(CB) | (u32)cpu_v1_peek(CB + 1) << 4; }
+#ifdef V1_CLK_CHECK
+/* test3: does the toy show the Paradise's time (hours and minutes, one minute of slack)? A resumed P2 kept its old
+ * time (Bernd); now the time is checked after the start and written again if it is off, three times at most. */
+static int clock_ok(void)
+{
+  u32 t = g_para_time + (REG(0x45000304u) - g_para_cnt), want = t % 86400u / 60u, h;
+  u32 m = cpu_v1_peek(CB + 2) + 10u * cpu_v1_peek(CB + 3);
+  if (DIGI) h = cpu_v1_peek(CB + 4) % 12u + (cpu_v1_peek(CB + 5) ? 12u : 0u);
+  else h = cpu_v1_peek(CB + 4) | (u32)cpu_v1_peek(CB + 5) << 4;
+  u32 diff = (h * 60u + m + 1440u - want) % 1440u;
+  return diff <= 1u || diff >= 1439u;
+}
+#endif
 /* keys the program presses itself (Tamagotchis): B, B, B, A, C (wake, clock, clock setting, one hour so the clock
  * starts, set), 3 s after the start; then the time is written and checked (a second try if the clock stands) */
 #define NSET (DIGI ? 2 : 5)
@@ -373,6 +478,9 @@ void Reset_Handler(void)
   /* the Paradise's clock, before its SRAM is overwritten; started from the menu: its mailbox */
   u32 cnt = REG(0x45000304u), para = para_clock(cnt, 0, 0x1F000u, 0, 0);
   if (!para) para = para_mailbox(cnt);
+#ifdef PARA_FLASH
+  if (!para) para = para_flash(cnt);   /* 1.6.9 test37 */
+#endif
 #ifdef PARA_BACK
   para_leave_mark(cnt, para);            /* 1.6.8: the Paradise does not live meanwhile */
 #endif
@@ -387,16 +495,22 @@ void Reset_Handler(void)
   { const volatile u8 *r = XIP_PTR(g_cfg.rom_off); u32 n = g_cfg.rom_len / 2u; if (n > 8192u) n = 8192u;
     for (u32 i = 0; i < n; i++) g_prog[i] = (u12_t)(((u32)r[2 * i] << 8 | r[2 * i + 1]) & 0xFFFu); }
   tamalib_register_hal(&g_hal_v1);
-  { extern int thw_digi, cpu_kmask_fix; thw_digi = DIGI; cpu_kmask_fix = DIGI; }   /* test46: Digimon takes its keys by interrupt */   /* 1.6.8: Digimon's own LCD wiring */
+  { extern int thw_digi, cpu_kmask_fix; thw_digi = DIGI; cpu_kmask_fix = DIGI; }
+#ifdef V1_DIRECT
+  { extern int thw_direct; thw_direct = (g_cfg.flags & 128u) != 0u; }   /* test31: Yasashii, segment = column (Studio flag) */
+#endif   /* test46: Digimon takes its keys by interrupt */   /* 1.6.8: Digimon's own LCD wiring */
   tamalib_init(g_prog, 0, 1000000u);
   int restored = load_session();
   set_load(); g_sound = g_set.sound;
-  u32 clk_chk = 0, clk_s0 = 0xFFu, clk_try = 0;
+  u32 clk_chk = 0, clk_s0 = 0xFFu, clk_try = 0, clk_fix = 0;
   if (clock_on()) {
     if (restored) { clock_write(); clk_chk = 2500u; }
     else if (NEEDSET) { g_auto_k = 0; g_auto_at = 3000u; }
   }
   draw(1);
+#ifdef V1_LINK
+  if (DIGI) plink_init();
+#endif
   SYST_RVR = CORE_HZ / 1000u - 1u; SYST_CVR = 0; SYST_CSR = 7;
   __asm__ volatile("cpsie i");
 
@@ -408,6 +522,17 @@ void Reset_Handler(void)
     u32 now = g_ms;
     u32 b = hw_buttons();
     if (lock) { if (b) b = 0; else lock = 0; }         /* wait until the keys of the start are released */
+#ifdef CLK_ECO
+    /* test22: screen off, no key, no tone, no clock setting, no link traffic for 30 s: a lower clock (eco.h) */
+#ifdef ECO_RTC
+    (void)eco_rtc(now, CORE_HZ);   /* test27: a clock step whose ms tick runs slow is not used again */
+#endif
+    eco_poll(now, !bl && !b && !g_hw_tone_hz && !g_menu && g_auto_k < 0 && !clk_chk
+#ifdef V1_LINK
+      && !(g_pl.last_rx && now - g_pl.last_rx < 30000u)
+#endif
+      , (int)(now - emu_ms), CORE_HZ);
+#endif
     if (b & BTN_WHEEL) {
       if (restored && now - t_start < 3000u) {
         int yes = hw_ask_reset(en());
@@ -416,7 +541,13 @@ void Reset_Handler(void)
       }
       if (!wheel_ms) wheel_ms = now ? now : 1;
       else if (now - wheel_ms > 1500u) leave(1);
-    } else if (wheel_ms) { if (now - wheel_ms < 1000u) { if (g_menu) menu_key(BTN_WHEEL, now); else { g_menu = 1; g_msel = 0; g_mtop = 0; menu_items(); menu_draw(); } } wheel_ms = 0; }
+    } else if (wheel_ms) { if (now - wheel_ms < 1000u) { if (g_menu) menu_key(BTN_WHEEL, now); else { g_menu = 1;
+#ifdef BAT_SHOW
+        g_msel = 1;   /* the battery line is only shown */
+#else
+        g_msel = 0;
+#endif
+        g_mtop = 0; menu_items(); menu_draw(); } } wheel_ms = 0; }
     /* turning the wheel shakes the toy (vibration sensor of the Angel and others, K03): any step of the encoder */
     { u32 n = REG(0x4001A000u) & 3u; if (n != g_enc) { g_enc = n; if (!g_menu) g_tap_until = now + 120u; last_in = now; } }
     if (b) {
@@ -438,7 +569,11 @@ void Reset_Handler(void)
     /* does the toy's clock run? (a clock never set in the game stands still) If not: set it with the toy's keys, twice at most */
     if (clk_chk) {
       if (clk_s0 == 0xFFu && now - t_start >= clk_chk - 2000u) clk_s0 = clock_sec();
-      if (now - t_start >= clk_chk) { clk_chk = 0; if (clock_sec() == clk_s0 && NEEDSET && clk_try++ < 2) { g_auto_k = 0; g_auto_at = now - t_start + 100u; } }
+      if (now - t_start >= clk_chk) { clk_chk = 0; if (clock_sec() == clk_s0 && NEEDSET && clk_try++ < 2) { g_auto_k = 0; g_auto_at = now - t_start + 100u; }
+#ifdef V1_CLK_CHECK
+        else if (!clock_ok() && clk_fix++ < 3u) { clock_write(); clk_chk = now - t_start + 2500u; clk_s0 = 0xFFu; }
+#endif
+      }
     }
     u32 ab = (g_auto_b && (s32)(g_auto_until - now) > 0) ? g_auto_b : 0u;
     if (g_menu) {                                       /* the toy runs on, its keys go to the menu */
@@ -453,6 +588,12 @@ void Reset_Handler(void)
       u32 target = g_vt + 1000u;
       while ((s32)(target - g_vt) > 0) { u32 v0 = g_vt; tamalib_step(); if (g_vt == v0) g_vt += 31u; }
       emu_ms++;
+#ifdef CLK_ECO
+      ECO_CHECK(g_ms, g_ms - emu_ms, CORE_HZ);
+#endif
+#ifdef V1_LINK
+      plink_poll(g_ms, 0, lk_got);
+#endif
     }
     if (g_tone_now && now - g_tone_since > 3000u) { g_tone_cut = 1; snd_apply(); }   /* a stuck tone stops */
     /* 1.6.8: draw a picture only once the toy has finished it (no change for 8 ms of toy time, at the latest after
@@ -480,4 +621,8 @@ __attribute__((naked)) static void Irq_Off(void) { __asm__ volatile("cpsid i\n b
 __attribute__((section(".vectors"), used))
 const void *const g_vectors[16 + 64] = { (void *)0x18020000u, (void *)Reset_Handler,
   [2 ... 10] = (void *)Default_Handler, [11] = (void *)Irq_Off, [12 ... 13] = (void *)Default_Handler, [14] = (void *)Irq_Off,
-  [15] = (void *)SysTick_Handler, [16 ... 79] = (void *)Irq_Off };
+  [15] = (void *)SysTick_Handler, [16 ... 79] = (void *)Irq_Off
+#ifdef V1_LINK
+  , [16 + 37] = (void *)plink_irq
+#endif
+};

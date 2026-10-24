@@ -12,6 +12,9 @@
  *   Flash window 0x10000000 (base 0x60011000): code that is not hot, at flash T18_XIP_OFF.
  * Author: mameise */
 #include "../../../emu/src/emu/hw.h"
+#ifdef CLK_ECO
+#include "../../../emu/src/emu/eco.h"
+#endif
 #include "../../../emu/src/emu/ask.h"
 #include "../../../emu/src/emu/flash.h"
 #include "../../../emu/src/emu/paraclock.h"
@@ -257,7 +260,10 @@ static void flash_put(uint32_t phys, const uint8_t *src) { flash_update4k(phys, 
  * (0x60000000, about 1.5 us per access on the device: pictures from the flash made the pet screen
  * 10 times slower). A block the guest has written in this session (or a spare) is read uncached,
  * the cache would not see the new data. Switch T18_FLASH_UNCACHED: always uncached as before. */
-static uint8_t g_wblk[128];
+/* test26: one bit per 64 KB block (was a byte each: CLK_ECO needed the 112 bytes in the HOLE) */
+static uint32_t g_wblk[4];
+#define WBLK(b) ((g_wblk[(b) >> 5] >> ((b) & 31u)) & 1u)
+#define WBLK_SET(b, v) do { uint32_t _b = (b); if (v) g_wblk[_b >> 5] |= 1u << (_b & 31u); else g_wblk[_b >> 5] &= ~(1u << (_b & 31u)); } while (0)
 static uint32_t g_ncached;              /* blocks read through the cache (shown under the speed) */
 /* flash offset the window starts at: 0x11000 (the Paradise's base) or T18_HOT_BASE (hot window) */
 static uint32_t g_wbase = 0x11000u;
@@ -272,7 +278,7 @@ static const uint8_t *blk_xip(uint32_t b)
   if (g_map[b] == 0xFFFFu) return 0;
   uint32_t phys = (uint32_t)g_map[b] << 16;
 #ifndef T18_FLASH_UNCACHED
-  if (!g_wblk[b] && in_window(phys)) return (const uint8_t *)(0x10000000u + phys - g_wbase);
+  if (!WBLK(b) && in_window(phys)) return (const uint8_t *)(0x10000000u + phys - g_wbase);
 #endif
   return (const uint8_t *)(0x60000000u + phys);
 }
@@ -318,6 +324,24 @@ static uint32_t s_alloc(uint32_t sec)
     s_row(i - 1u)[(sec >> 12) & 15u] = (uint8_t)(k + 1u);
     return ((uint32_t)g_cfg.spare[k >> 4] << 16) | ((k & 15u) << 12);
   }
+#ifdef T18_POOL_RECLAIM
+  /* test29: the pool is full (reported: growing up hung, the firmware wrote its save block again and again because
+   * 3 sectors had no room and their writes were lost). A pool sector that is empty (erased by the firmware since)
+   * is taken from the guest sector that held it: reading that one gives 0xFF as before. */
+  for (uint32_t r = 0; r < S_ROWS; r++) {
+    int on = 0; for (uint32_t q = 0; q < 128u; q++) if (S_IDX[q] == r + 1u) { on = 1; break; }
+    if (!on) continue;
+    for (uint32_t j = 0; j < 16u; j++) {
+      uint32_t v = s_row(r)[j]; if (!v || (r + 1u == i && j == ((sec >> 12) & 15u))) continue;
+      uint32_t ph = ((uint32_t)g_cfg.spare[(v - 1u) >> 4] << 16) | (((v - 1u) & 15u) << 12);
+      if (!flash_isff(ph, 0x1000u)) continue;
+      s_row(r)[j] = 0;
+      s_row(i - 1u)[(sec >> 12) & 15u] = (uint8_t)v;
+      g_t18st[6]++;
+      return ph;
+    }
+  }
+#endif
   return 0;
 }
 #endif
@@ -371,19 +395,19 @@ COLD static void map_load(void)
     for (int i = 0; i < 128; i++) g_map[i] = g_cfg.map[i];
     memset(g_spare_used, 0, sizeof g_spare_used);
   }
-  for (uint32_t b = 0; b < 128; b++) g_wblk[b] = g_map[b] != g_cfg.map[b];
+  for (uint32_t b = 0; b < 128; b++) WBLK_SET(b, g_map[b] != g_cfg.map[b]);
 #ifndef T18_FLASH_UNCACHED
   /* 1.6.5: the cached window must show the same as the flash; where it does not (the window may not
    * reach that far on the device), the block is read uncached */
   g_ncached = 0;
   for (uint32_t b = 0; b < 128; b++) {
-    if (g_map[b] == 0xFFFFu || g_wblk[b]) continue;
+    if (g_map[b] == 0xFFFFu || WBLK(b)) continue;
     uint32_t phys = (uint32_t)g_map[b] << 16, ok = (uint32_t)in_window(phys);
     static const uint16_t at[4] = { 0x0000u, 0x4000u, 0x8000u, 0xFFF0u };
     for (int k = 0; k < 4 && ok; k++)
       for (uint32_t i = 0; i < 16u && ok; i += 4u)
         if (*(const volatile uint32_t *)(0x10000000u + phys - g_wbase + at[k] + i) != *(const volatile uint32_t *)(0x60000000u + phys + at[k] + i)) ok = 0;
-    if (!ok) g_wblk[b] = 1; else g_ncached++;
+    if (!ok) WBLK_SET(b, 1); else g_ncached++;
   }
 #endif
   for (uint32_t b = 0; b < 128; b++) { t18_fblk[b] = blk_xip(b); FFF_SET(b); }
@@ -521,7 +545,7 @@ COLD static void c_write_back(void)
 #endif
   }
   uint32_t phys = ((uint32_t)g_map[b] << 16) | (sec & 0xFFFFu);
-  g_wblk[b] = 1;                                  /* from now on uncached (fblk_set when the buffer goes) */
+  WBLK_SET(b, 1);                                 /* from now on uncached (fblk_set when the buffer goes) */
   hw_tone(0);
   flash_put(phys, c_buf);
   c_dirty = 0; g_t18st[2]++;
@@ -583,7 +607,7 @@ COLD void t18_flash_erase(uint32_t a, uint32_t size)
 #endif
     if (g_map[s >> 16] == 0xFFFFu) continue;
     uint32_t phys = ((uint32_t)g_map[s >> 16] << 16) | (s & 0xFFFFu);
-    if (!flash_isff(phys, 0x1000u)) { hw_tone(0); flash_erase4k(phys); g_t18st[2]++; if (!g_wblk[s >> 16]) { g_wblk[s >> 16] = 1; fblk_set(s >> 16); } }
+    if (!flash_isff(phys, 0x1000u)) { hw_tone(0); flash_erase4k(phys); g_t18st[2]++; if (!WBLK(s >> 16)) { WBLK_SET(s >> 16, 1); fblk_set(s >> 16); } }
   }
 }
 
@@ -731,7 +755,9 @@ COLD static void prof_tick(void)
 COLD static void prof_show(void) { rows_draw(8, g_pv, 16); }
 #endif
 /* send the picture: only rows that changed since the last time (the SPI to the panel is slow) */
-#ifdef T18_ROWSUM_RAM20
+#if defined(T18_ROWSUM_RAM20) && defined(T18_LINK)
+#define g_row_sum ((uint16_t *)0x20000D00u)   /* test6: 16 bit sums, the link has 0x20000E00..0x20000F00 */
+#elif defined(T18_ROWSUM_RAM20)
 #define g_row_sum ((uint32_t *)0x20000D00u)   /* test builds: the Paradise's RAM (no room in the hole) */
 #else
 static uint32_t g_row_sum[128];
@@ -747,16 +773,37 @@ static void present(int force)
   uint32_t src = g_pres_src, len = g_pres_len;
   if (!len) return;
   uint32_t rows = len / 256u; if (rows > 128u) rows = 128u;
+#ifdef T18_ROW_RR
+  uint32_t g_rr = (g_ms >> 5) % rows;   /* a different row every 32 ms (no room for a counter in the hole) */
+#endif
   int y0 = -1;
   for (uint32_t y = 0; y <= rows; y++) {
     int changed = 0;
     if (y < rows) {
       const uint16_t *p = guest_row(src + y * 256u);
       if (!p) return;
+#ifdef T18_SUM_FNV
+      /* test14: the rotate-and-xor sum gave the same value for many different rows (the rotations repeat every 32
+       * pixel pairs, every 16 once folded to 16 bits for the link): a row of one colour, frames, AM/PM did not go out.
+       * Now multiply and xor per pixel pair (FNV-1a on 32 bits). */
+      uint32_t sum = 0x811C9DC5u;
+      for (int i = 0; i < 128; i += 2) sum = (sum ^ ((uint32_t)p[i] | (uint32_t)p[i + 1] << 16)) * 0x01000193u;
+      sum ^= sum >> 13;
+#else
       uint32_t sum = 0x9E3779B9u;
       for (int i = 0; i < 128; i += 2) sum = (sum << 5 | sum >> 27) ^ ((uint32_t)p[i] | (uint32_t)p[i + 1] << 16);
-      changed = force || sum != g_row_sum[y];
+#endif
+#ifdef T18_ROW_RR
+      if (y == g_rr) changed = 1;   /* test14: one row per picture goes out anyway (a row with an equal 16 bit sum heals) */
+#endif
+#if defined(T18_ROWSUM_RAM20) && defined(T18_LINK)
+      sum ^= sum >> 16;
+      changed |= force || (uint16_t)sum != g_row_sum[y];
+      g_row_sum[y] = (uint16_t)sum;
+#else
+      changed |= force || sum != g_row_sum[y];
       g_row_sum[y] = sum;
+#endif
     }
     if (changed && y0 < 0) y0 = (int)y;
     if (!changed && y0 >= 0) {
@@ -786,7 +833,15 @@ static uint32_t frame_hash(void)
 }
 #endif
 /* ---- clock note and session ---- */
-typedef struct { uint32_t magic, rtc, tm[6], flags; } Note;
+typedef struct { uint32_t magic, rtc, tm[6], flags, gday, rday; } Note;   /* test4: gday/rday (0xFFFFFFFF in older notes) */
+#ifdef T18_DAY_FIX
+/* test4: the firmware counts the days itself (soft clock +0x2C, one up when the hour goes from 23 to 0) and a new start
+ * loads them from its save: the time was right, the date stayed at the day of leaving. The note keeps the game's day and
+ * the clock's day at leaving; after the start the game's day is moved on by the days since, once. */
+static uint32_t g_nd;   /* game day << 16 | clock day (days since 1970, both below 65536), 0 = nothing to do (HOLE is full) */
+static int32_t gday_rd(void) { uint32_t v = 0, a = g_cfg.softrtc + 0x2Cu - 0xF8000000u; for (int i = 0; i < 4; i++) v |= (uint32_t)*t18_sram_rp(a + i) << (8 * i); return (int32_t)v; }
+static uint32_t rday_now(void) { int t[6]; tg18_get_time(T, t); return (uint32_t)para_days(t[0], t[1], t[2]); }
+#endif
 COLD static int note_load(Note *n)
 {
   const volatile uint8_t *p = XIP_PTR(SAVE + T18_NOTE_SEC);
@@ -796,6 +851,10 @@ COLD static int note_load(Note *n)
 COLD static void note_save(void)
 {
   Note n; n.magic = 0x544E3854u; n.rtc = rtc_now(); n.flags = 0;
+  n.gday = n.rday = 0xFFFFFFFFu;
+#ifdef T18_DAY_FIX
+  if (g_cfg.softrtc) { int32_t v = gday_rd(); if (v > 0 && v < 200000) { n.gday = (uint32_t)v; n.rday = rday_now(); } }
+#endif
   int tm[6]; tg18_get_time(T, tm); for (int i = 0; i < 6; i++) n.tm[i] = (uint32_t)tm[i];
   memset(c_buf, 0xFF, 0x1000); memcpy(c_buf, &n, sizeof n);
   hw_tone(0); flash_put(SAVE + T18_NOTE_SEC, c_buf);
@@ -928,9 +987,19 @@ COLD static int session_load(uint32_t *saved_rtc)
   return 1;
 }
 
+#ifdef T18_GROW
+static int g_grow;
+COLD static void grow_end(int ok);
+#endif
 COLD static void leave(int save)
 {
+#ifdef CLK_ECO
+  hw_clk_shift(0, CORE_HZ);
+#endif
   hw_tone(0);
+#ifdef T18_GROW
+  if (g_grow != -2) grow_end(0);   /* test47: leaving while growing: clock and choice back */
+#endif
   REG(0x20000FF8u) = 0;                  /* start counter of the home hooks */
   REG(0x20000FFCu) = 0x4C584D50u;        /* "PMXL": back on purpose, the autostart stays off */
   c_release();
@@ -945,6 +1014,9 @@ COLD static void leave(int save)
 }
 
 /* Start: memory, firmware map, the SoC, the session; the clock. Returns 1 when a session was resumed. */
+#ifdef T18_LINK
+COLD static void lk_init(void);
+#endif
 COLD static int app_start(void)
 {
   t18_sram = (uint8_t *)0x18000000u; t18_hole_new = hole_new; t18_hole_free = hole_free;
@@ -978,12 +1050,24 @@ COLD static int app_start(void)
 #endif
 #endif
   tg18_set_present(T, on_present, 0);
+#ifdef T18_LINK
+  lk_init();
+#endif
+#ifdef T18_PRES_FIRST
+  /* test14: the row sums in the Paradise RAM are left from before (the menu or another program ran): started from the
+   * menu only the rows that differed from those went out, black elsewhere. A value no row gives (0x5A5A: the sum's
+   * fold leaves it as likely as any other, one row in 65536). */
+  for (int y = 0; y < 128; y++) g_row_sum[y] = 0x5A5Au;
+#endif
   g_stage = 4;
 
 #ifdef T18_CLOCK_AFTER
   tg18_set_rtc_cb(T, clock_after_set);   /* 1.6.8: the game's own clock setting does not overwrite the Paradise's time */
 #endif
   uint32_t saved_rtc = 0, restored = (uint32_t)session_load(&saved_rtc);
+#ifdef T18_DAY_FIX
+  { Note n; if (note_load(&n) && n.gday && n.gday < 0x10000u && n.rday < 0x10000u) g_nd = n.gday << 16 | n.rday; }
+#endif
 #ifdef SESS_ONCE
   if (restored) session_drop();   /* 1.6.8: used once; power gone without leaving: next start from the toy's own save */
 #endif
@@ -1005,6 +1089,213 @@ COLD static int app_start(void)
   return (int)restored;
 }
 
+#ifdef T18_GROW
+/* 1.6.8 (test47): grow up, as in the Android T18Emu (Wachsen.kt). The firmware counts the age in minutes (Param +0x1C)
+ * and develops the Tama at exactly 60 (baby -> child), 1500 (child -> teen) and 2940 (teen -> adult). The age is put
+ * just before the next step and the game clock runs 60 times as fast; development, animation, family photo are the
+ * firmware's own. Care stays full (hunger +0x05, mood +0x11, illness +0x16 bit 0). Which adult: the firmware decides
+ * at teen -> adult from gender (+0x04), care misses (+0x14) and four counters (+0x13E..+0x145), first generation
+ * only (+0x3A < 2); tried for all 9 firmwares on the PC (same everywhere, Sanrio has Flowertchi for Pompomtchi).
+ * At night the Tama sleeps and does not develop: the clock stands at noon meanwhile and is put back after. */
+typedef struct { uint8_t g, m; uint16_t off; uint8_t val; const char *name; } Adult;
+static const Adult ADULTS[10] = {
+  { 0, 0, 0, 0, "MAMETCHI" }, { 0, 0, 0x140, 5, "KUCHIPATCHI" }, { 0, 0, 0x141, 10, "KIKITCHI" },
+  { 0, 2, 0, 0, "KUROMAMETCHI" }, { 0, 7, 0, 0, "GOZARUTCHI" }, { 1, 0, 0, 0, "LOVELITCHI" },
+  { 1, 0, 0x144, 5, "NIJIFUWATCHI" }, { 1, 0, 0x145, 5, "POMPOMTCHI" }, { 1, 2, 0, 0, "MEMETCHI" }, { 1, 7, 0, 0, "WATAWATATCHI" } };
+static const uint16_t GROW_AT[4] = { 0, 0x3C, 0x5DC, 0xB7C };
+static int g_grow = -2;                 /* -2 idle, -1 running without a choice, 0..9 the chosen adult */
+static uint32_t g_grow_t0, g_grow_last, g_grow_miss = 0xFFFFFFFFu, g_grow_sex, g_grow_noon, g_grow_wake;
+static int64_t g_grow_secs;   /* game time at the start (test3: one number, the HOLE is full) */
+#ifdef T18_GROW2
+static uint32_t g_grow_st = 0xFFu, g_grow_hold;
+#endif
+/* test3: only a Param address inside the guest SRAM (an older Studio could leave code bytes there) */
+#define PA_OK() (g_cfg.param_addr >= 0xF8000000u && g_cfg.param_addr - 0xF8000000u < T18_SRAM_SIZE - 0x200u)
+static uint32_t pa_rd(uint32_t o, int n) { uint32_t v = 0, a = g_cfg.param_addr - 0xF8000000u + o; for (int i = 0; i < n; i++) v |= (uint32_t)*t18_sram_rp(a + i) << (8 * i); return v; }
+static void pa_wr(uint32_t o, uint32_t v, int n) { uint32_t a = g_cfg.param_addr - 0xF8000000u + o; for (int i = 0; i < n; i++) t18_sram_wr(a + i, (v >> (8 * i)) & 0xFFu, 1); }
+COLD static void grow_end(int ok)
+{
+  tg18_set_clock_mult(T, 1);
+#ifdef T18_GROW2
+  tg18_set_keep_awake(T, 0);
+#endif
+  if ((g_cfg.flags & T18F_CLOCK) && g_para) set_time_secs((int64_t)g_para + (int64_t)(rtc_now() - g_para_cnt));
+  else set_time_secs(g_grow_secs + (int64_t)((g_ms - g_grow_t0) / 1000u));
+  if (!ok && g_grow_miss != 0xFFFFFFFFu) { pa_wr(0x14, g_grow_miss, 1); if (g_grow_sex <= 1u) pa_wr(0x04, g_grow_sex, 1); }
+  g_grow = -2;
+}
+/* about ten times a second while growing; pressing C (the wake key) when the screen is off */
+COLD static uint32_t grow_step(void)
+{
+  uint32_t now = g_ms;
+  if (now - g_grow_t0 > 6u * 60000u) { grow_end(0); return 0; }
+  if (g_grow_wake && now - g_grow_wake < 120u) return BTN_C;
+  if (now - g_grow_last < 100u) return 0;
+  g_grow_last = now; g_grow_wake = 0;
+  if (!tg18_power(T)) { g_grow_wake = now; return BTN_C; }
+  if (!pa_rd(0, 3) && !pa_rd(0x52, 1)) return 0;               /* a scene is loading */
+  if (pa_rd(0x16, 1) & 0x10u) { grow_end(0); return 0; }        /* gone */
+  uint32_t st = pa_rd(0x52, 1);
+  if (st == 0) return 0;                                         /* egg: hatches by itself */
+  if (g_grow_miss == 0xFFFFFFFFu) {
+    g_grow_miss = pa_rd(0x14, 1); g_grow_sex = pa_rd(0x04, 1);
+    int t[6]; tg18_get_time(T, t);
+    if (t[3] < 8 || t[3] >= 19) tg18_set_time(T, t[0], t[1], t[2], 12, 0, 0);
+  }
+  if (st >= 4) {
+    pa_wr(0x14, g_grow_miss, 1);
+    if (pa_rd(0x36, 1) < 3u) pa_wr(0x36, 3, 1);
+    pa_wr(0x11, 100, 1);                                         /* an adult's mood goes up to 100 */
+    grow_end(1); return 0;
+  }
+  if (pa_rd(0x05, 1) < 6u) pa_wr(0x05, 6, 1);
+  if (pa_rd(0x11, 1) < 30u) pa_wr(0x11, 30, 1);
+  { uint32_t fl = pa_rd(0x16, 1); if (fl & 1u) { pa_wr(0x16, fl & 0xFEu, 1); pa_wr(0x18, 0, 2); pa_wr(0x0C, pa_rd(0x0C, 1) & 0xF7u, 1); } }
+  if (st == 3 && g_grow >= 0 && pa_rd(0x3A, 2) < 2u) {
+    const Adult *a = &ADULTS[g_grow];
+    pa_wr(0x04, a->g, 1); pa_wr(0x14, a->m, 1);
+    for (uint32_t i = 0; i < 8u; i++) pa_wr(0x13E + i, 0, 1);
+    if (a->off) pa_wr(a->off, a->val, 1);
+  }
+#ifdef T18_GROW2
+  /* test3: the game clock runs fast only for the one game minute before a step (age set just before it); the
+   * development itself and its animation run in real time, then 18 s are left for it before the next jump (test4: was 25 s; baby to child: 12 s animation and a gift). With
+   * x60 all along the Paradise could not keep up (slow animation) and the game's minutes went by (hunger, illness). */
+  if (st != g_grow_st) { if (g_grow_st != 0xFFu) g_grow_hold = now ? now : 1u; g_grow_st = st; }
+  if (g_grow_hold) { if (now - g_grow_hold < 18000u) { tg18_set_clock_mult(T, 1); return 0; } g_grow_hold = 0; }
+#endif
+  uint32_t age = pa_rd(0x1C, 4);
+  if (st <= 3u && (age < GROW_AT[st] - 1u || age > GROW_AT[st] + 5u)) { pa_wr(0x1C, GROW_AT[st] - 1u, 4); age = GROW_AT[st] - 1u; }
+#ifdef T18_GROW2
+  tg18_set_clock_mult(T, (st <= 3u && age < GROW_AT[st]) ? 60 : 1);
+#endif
+  return 0;
+}
+/* from the settings: choose (first generation) and start */
+COLD static void grow_menu(int en)
+{
+  if (!PA_OK()) return;
+  uint32_t st = pa_rd(0x52, 1), gen = pa_rd(0x3A, 2);
+  if (st >= 4u || (pa_rd(0x16, 1) & 0x10u)) return;
+  if (gen >= 2u) {                                                /* a child of a pair: its parents decide */
+    static const char *const ok_de[1] = { "START" }, *const ok_en[1] = { "START" };
+    if (hw_list_menu(en ? "LIKE ITS PARENTS" : "WIE DIE ELTERN", en ? ok_en : ok_de, 1) < 0) return;
+    g_grow = -1;
+  } else {
+    char nm[10][22]; const char *it[10];   /* on the stack: no room in the hole */
+    for (int i = 0; i < 10; i++) {
+      const char *s = (i == 7 && (g_cfg.adult_flags & 1u)) ? "FLOWERTCHI" : ADULTS[i].name; int k = 0;
+      while (s[k] && k < 12) { nm[i][k] = s[k]; k++; }
+      const char *g = ADULTS[i].g ? (en ? "GIRL" : "MAEDCHEN") : (en ? "BOY" : "JUNGE");
+      nm[i][k++] = ' '; for (int j = 0; g[j] && k < 21; j++) nm[i][k++] = g[j]; nm[i][k] = 0; it[i] = nm[i];
+    }
+    static const uint8_t IDS[10] = { 16, 17, 20, 25, 24, 19, 23, 35, 18, 22 };
+    int r;
+    for (;;) {
+      r = hw_list_menu(en ? "GROW UP INTO" : "ERWACHSEN ALS", it, 10);
+      if (r < 0) return;
+      /* test47: the user's own picture of it, if the Studio put one in */
+      const volatile uint8_t *pi = 0;
+      if (g_cfg.pic_off) {
+        const volatile uint8_t *h = (const volatile uint8_t *)(0x60000000u + g_cfg.pic_off);
+        uint32_t id = (r == 7 && (g_cfg.adult_flags & 1u)) ? 21u : IDS[r];
+        if (h[0] == 'T' && h[1] == '8' && h[2] == 'P' && h[3] == 'I')
+          for (uint32_t k = 0; k < h[4] && k < 10u; k++) { const volatile uint8_t *e = h + 16 + k * (4u + 512u + 4096u); if (e[0] == id) { pi = e + 4; break; } }
+      }
+      if (!pi || hw_pic_ask(pi, en)) break;
+    }
+    g_grow = r;
+  }
+  g_grow_t0 = g_grow_last = g_ms; g_grow_miss = 0xFFFFFFFFu; g_grow_wake = 0;
+  { int t[6]; tg18_get_time(T, t); g_grow_secs = (int64_t)para_days(t[0], t[1], t[2]) * 86400 + t[3] * 3600 + t[4] * 60 + t[5]; }
+#ifdef T18_GROW2
+  g_grow_st = 0xFFu; g_grow_hold = 0;
+  tg18_set_keep_awake(T, 1);   /* as the Android T18Emu: the screen stays on, no waking it again and again */
+#else
+  tg18_set_clock_mult(T, 60);
+#endif
+}
+#endif
+#ifdef T18_LINK
+/* test6: Bluetooth visits (MixingMeets) over the Paradise's UART (the three contacts, UART1 0x4000B000, IRQ 37): a bridge
+ * on the PC (Paramix Studio, Web Serial) plays the Meets' Bluetooth module for the web page. As the Android T18Emu: the
+ * page's writes go unchanged to the emulated module (22 len data), the firmware's data for the phone comes back as
+ * notifications; the firmware does the rest. Frames PC->Paradise: 5A type len data sum ('C' connect 0/1, 'W' write,
+ * 'P' alive); Paradise->PC: A5 type len data sum ('H' hello: bit0 module set up, bit1 connected; 'N' notification;
+ * 'K' write taken). The PC sends the next write only after 'K' (like a Bluetooth write with response).
+ * RAM: 0x20000E00..0x20000F00 (the row sums became 16 bit). */
+#define U1 0x4000B000u
+#define U_DATA REG(U1 + 0x00)
+#define U_IER  REG(U1 + 0x04)
+#define U_FCR  REG(U1 + 0x08)
+#define U_LCR  REG(U1 + 0x0C)
+#define U_LSR  REG(U1 + 0x14)
+#define U_FDR  REG(U1 + 0x28)
+#define U_CTRL REG(U1 + 0x30)
+typedef struct {
+  uint8_t rx[128]; volatile uint8_t rh, rt;          /* from the contacts (filled in the interrupt) */
+  uint8_t st, ty, len, pos, sum, conn, pend, ip;     /* frame being read; pend: its data waits (write or infrared) */
+  uint8_t in, on;                                    /* infrared bytes from the other Paradise in f[ip..in); on: link in use */
+  uint8_t pad[2];
+  uint32_t last_rx, hello;
+  uint8_t f[64];                                     /* the frame's data */
+  uint8_t ir[36]; uint8_t irn, pad2[3];              /* infrared for the other Paradise, sent as one frame */
+} Link;
+_Static_assert(sizeof(Link) <= 256, "link RAM is 0x20000E00..0x20000F00");
+#define LK ((Link *)0x20000E00u)
+__attribute__((used)) static void Uart1_Handler(void)
+{
+  Link *k = LK;
+  while (U_LSR & 1u) { uint8_t b = (uint8_t)U_DATA; uint8_t nt = (uint8_t)((k->rt + 1u) & 127u); if (nt != k->rh) { k->rx[k->rt] = b; k->rt = nt; } }
+}
+static void lk_tx(uint8_t ty, const uint8_t *d, int n)
+{
+  uint8_t h[3] = { 0xA5, ty, (uint8_t)n }, s = (uint8_t)(ty + n);
+  for (int i = 0; i < 3; i++) { while (!(U_LSR & 0x20u)) {} U_DATA = h[i]; }
+  for (int i = 0; i < n; i++) { while (!(U_LSR & 0x20u)) {} U_DATA = d[i]; s = (uint8_t)(s + d[i]); }
+  while (!(U_LSR & 0x20u)) {} U_DATA = s;
+}
+void tg18_link_out(const uint8_t *d, int n) { lk_tx('N', d, n > 60 ? 60 : n); }
+/* test7: visits between two Paradise (CONNECTION, TAMAGOTCHI): the infrared bytes go 1:1 over the contacts as 'I'
+ * frames (both Paradise plugged together at the top) */
+void tg18_link_ir_out(uint8_t b) { Link *k = LK; k->ir[k->irn++] = b; if (k->irn >= sizeof k->ir) { lk_tx('I', k->ir, k->irn); k->irn = 0; } }
+int tg18_link_ir_avail(void) { Link *k = LK; return k->pend == 2; }
+int tg18_link_ir_in(uint8_t *b) { Link *k = LK; if (k->pend != 2) return 0; *b = k->f[k->ip++]; if (k->ip >= k->in) k->pend = 0; return 1; }
+COLD static void lk_init(void)
+{
+  memset(LK, 0, sizeof(Link));
+  U_IER = 0;
+  U_LCR = 0x83; U_DATA = 0x1A; U_IER = 0x00; U_LCR = 0x03; U_FDR = 0x100; U_FCR = 0x07; U_CTRL = 0xC1;   /* 460800 8N1, as the flash program */
+  while (U_LSR & 1u) (void)U_DATA;
+  U_IER = 0x01;                                    /* received data */
+  REG(0xE000E104u) = 1u << (37 - 32);              /* NVIC: UART1 */
+}
+static void lk_poll(uint32_t now)
+{
+  Link *k = LK;
+  if (k->irn) { lk_tx('I', k->ir, k->irn); k->irn = 0; }
+  if (k->pend == 1 && tg18_ble_from_phone(T, k->f, k->len)) { k->pend = 0; lk_tx('K', 0, 0); }
+  while (k->rh != k->rt && !k->pend) {
+    uint8_t b = k->rx[k->rh]; k->rh = (uint8_t)((k->rh + 1u) & 127u);
+    switch (k->st) {
+    case 0: if (b == 0x5A || b == 0xA5) k->st = 1; break;   /* 5A from the PC, A5 from another Paradise */
+    case 1: k->ty = b; k->sum = b; k->st = 2; break;
+    case 2: if (b > 64) { k->st = 0; break; } k->len = b; k->pos = 0; k->sum = (uint8_t)(k->sum + b); k->st = b ? 3 : 4; break;
+    case 3: k->f[k->pos++] = b; k->sum = (uint8_t)(k->sum + b); if (k->pos >= k->len) k->st = 4; break;
+    case 4:
+      k->st = 0;
+      if (b != k->sum) break;                      /* noise on an open contact */
+      k->last_rx = now ? now : 1u;
+      if (k->ty == 'C' && k->len >= 1) { k->conn = k->f[0] ? 1u : 0u; tg18_ble_connect(T, k->conn); }
+      else if (k->ty == 'W' && k->len) { if (tg18_ble_from_phone(T, k->f, k->len)) lk_tx('K', 0, 0); else k->pend = 1; }
+      else if (k->ty == 'I' && k->len) { k->ip = 0; k->in = k->len; k->pend = 2; }   /* the core takes them at line rate */
+      break;
+    }
+  }
+  if (k->conn && now - k->last_rx > 4000u) { k->conn = 0; tg18_ble_connect(T, 0); }   /* the page went away */
+  if (now - k->hello >= 1000u) { k->hello = now; uint8_t f = (uint8_t)((tg18_ble_ready(T) ? 1u : 0u) | (k->conn ? 2u : 0u)); lk_tx('H', &f, 1); }
+}
+#endif
 static void main_loop(int restored)
 {
   uint32_t emu_ms = g_ms, t_start = g_ms, wheel_ms = 0, last_pres = 0, sp_t = g_ms, sp_emu = 0;
@@ -1012,22 +1303,70 @@ static void main_loop(int restored)
   g_key_ms = g_ms;
 #endif
   int bl = -1, lock = 1;
+#ifdef T18_WHEEL_WAKE
+  uint32_t g_ww = 0;   /* test29: wheel woke the game: when (| 1), 0 = not */
+  int g_wdark = 0;
+#endif
   g_stage = 7;
   for (;;) {
     hw_wdt_feed();
     uint32_t now = g_ms;
     u32 b = hw_buttons();
     if (lock) { if (b) b = 0; else lock = 0; }         /* wait until A+C from the start are released */
+#ifdef CLK_ECO
+    /* test26: screen dark, no key, no tone, no link traffic for 30 s: a lower clock (eco.h) */
+    eco_poll(now, bl == 0 && !b && !g_hw_tone_hz
+#ifdef T18_LINK
+      && !(LK->last_rx && now - LK->last_rx < 30000u)
+#endif
+      , (int)(now - emu_ms), CORE_HZ);
+#endif
     if (b & BTN_WHEEL) {
       if (restored && now - t_start < 3000u) {            /* wheel right after a resumed start: drop the session? */
         if (hw_ask_reset((g_cfg.flags & T18F_EN) != 0)) { session_drop(); leave(0); }
         restored = 0; wheel_ms = 0; lock = 1; present(1); continue;   /* 1.6.6: asked first */
       }
-      if (!wheel_ms) wheel_ms = now ? now : 1;
+      if (!wheel_ms) { wheel_ms = now ? now : 1;
+#ifdef T18_WHEEL_WAKE
+        g_wdark = bl == 0 || g_scr_dark;               /* dark when the wheel went down */
+#endif
+      }
       else if (now - wheel_ms > 1500u) leave(1);
 #ifdef OPT_MENU
     } else if (wheel_ms) {           /* 1.6.8: wheel short: settings (the game stands still meanwhile) */
-      if (now - wheel_ms < 1000u) { uint32_t n = hw_opts_menu(g_opt, (g_cfg.flags & T18F_EN) != 0);
+#ifdef T18_WHEEL_WAKE
+      /* test29: with the screen dark the wheel only wakes it (as T7Emu); the settings opened unseen before */
+      if (now - wheel_ms < 1000u && g_wdark) {
+        if (bl == 0) g_ww = now | 1u;                    /* the game sleeps: a short C wakes it */
+        g_scr_dark = 0; g_key_ms = g_ms; wheel_ms = 0;
+      } else
+#endif
+      if (now - wheel_ms < 1000u) {
+#if defined(T18_GROW) && defined(T18_CARE)
+        /* test30: Tamapoints (Param +0x20, u16; the firmware keeps its save block 0x7FE000 as a copy of Param) and
+         * full care (hunger 6, mood 30 or 100 as an adult, illness gone, calls for both cleared) */
+        int en = (g_cfg.flags & T18F_EN) != 0;
+        const char *ex[3] = { (PA_OK() && g_grow == -2) ? (en ? "GROW UP" : "ERWACHSEN") : 0, PA_OK() ? "TAMAPOINTS" : 0,
+                              PA_OK() ? (en ? "FULL CARE" : "PFLEGE VOLL") : 0 };
+        uint32_t n = hw_opts_menu_xn(g_opt, en, ex, 3);
+        if (n & 0x80000000u) {
+          uint32_t w = (n >> 28) & 7u; n &= 0x0FFFFFFFu;
+          if (w == 0) grow_menu(en);
+          else if (w == 1) { uint32_t v = pa_rd(0x20, 2); if (hw_num_edit("TAMAPOINTS", &v, 5, 65535u, en)) pa_wr(0x20, v, 2); }
+          else if (pa_rd(0x52, 1) >= 1u && !(pa_rd(0x16, 1) & 0x10u)) {      /* hatched and alive */
+            pa_wr(0x05, 6, 1); pa_wr(0x06, 0, 2);
+            pa_wr(0x11, pa_rd(0x52, 1) >= 4u ? 100u : 30u, 1);
+            uint32_t fl = pa_rd(0x16, 1); if (fl & 1u) { pa_wr(0x16, fl & 0xFEu, 1); pa_wr(0x18, 0, 2); }
+            pa_wr(0x0C, pa_rd(0x0C, 1) & ~0x0Bu, 1);                       /* calls: hunger 1, mood 2, ill 8 */
+          }
+        }
+#elif defined(T18_GROW)
+        int en = (g_cfg.flags & T18F_EN) != 0;
+        uint32_t n = hw_opts_menu_x(g_opt, en, (PA_OK() && g_grow == -2) ? (en ? "GROW UP" : "ERWACHSEN") : 0);
+        if (n & 0x80000000u) { n &= 0x7FFFFFFFu; grow_menu(en); }
+#else
+        uint32_t n = hw_opts_menu(g_opt, (g_cfg.flags & T18F_EN) != 0);
+#endif
         if (n != g_opt) { g_opt = n; opt_apply(n); opt_store(); }
         g_scr_dark = 0; g_key_ms = g_ms; lock = 1; present(1); }
       wheel_ms = 0; }
@@ -1045,6 +1384,31 @@ static void main_loop(int restored)
       if (swallow) { if (b) b = 0; else swallow = 0; }
       if (g_scr_ms && now - g_key_ms > g_scr_ms) g_scr_dark = 1; }
 #endif
+#ifdef T18_GROW
+    if (g_grow != -2) b |= grow_step();
+#endif
+#ifdef T18_DAY_FIX
+    /* the first 5 minutes: the game has loaded the day of leaving (a new start: CONTINUE) */
+    if (g_nd && g_cfg.softrtc && now - t_start < 300000u && (uint32_t)gday_rd() == g_nd >> 16) {
+      int t[6]; tg18_get_time(T, t);
+      uint32_t rd = (uint32_t)para_days(t[0], t[1], t[2]), r0 = g_nd & 0xFFFFu;
+      if (rd == r0) g_nd = 0;                                            /* same day: nothing to move */
+      else if (rd - r0 < 4000u && t[3] * 60 + t[4] >= 5 && t[3] * 60 + t[4] < 23 * 60 + 55) {   /* not near midnight */
+        uint32_t nv = (g_nd >> 16) + (rd - r0), a = g_cfg.softrtc + 0x2Cu - 0xF8000000u;
+        for (int i = 0; i < 4; i++) t18_sram_wr(a + i, (nv >> (8 * i)) & 0xFFu, 1);
+        g_nd = 0;
+      } }
+#endif
+#ifdef T18_WAKE_START
+    /* test3: started from the menu the game may still sleep (screen dark until a key): wake it once with a short C,
+     * as the Android T18Emu does when it becomes visible */
+    { static uint32_t ws;   /* 0 not yet, 1 done, else when the key went down */
+      if (!ws && now - t_start > 600u) ws = tg18_power(T) ? 1u : (now | 2u);
+      if (ws > 1u) { if (now - ws < 120u) b |= BTN_C; else ws = 1u; } }
+#endif
+#ifdef T18_WHEEL_WAKE
+    if (g_ww) { if (now - g_ww < 120u) b |= BTN_C; else g_ww = 0; }
+#endif
     tg18_set_buttons(T, (int)(b & 7u));
 #ifdef T18_CLOCK_AFTER
     clock_after_poll();
@@ -1056,9 +1420,18 @@ static void main_loop(int restored)
       if (lost >= 1000u) { tg18_advance_offline(T, (int64_t)(lost / 1000u)); lost %= 1000u; }   /* the game clock keeps up */
     }
     uint32_t t0 = g_ms;
+#ifdef T18_LINK
+    lk_poll(now);
+#endif
     while ((int32_t)(now - emu_ms) >= 4 && g_ms - t0 < 40u) {
       tg18_run_us(T, 4000);
+#ifdef T18_LINK
+      lk_poll(g_ms);
+#endif
       emu_ms += 4; g_t18st[0] += 4; sp_emu += 4;
+#ifdef CLK_ECO
+      ECO_CHECK(g_ms, g_ms - emu_ms, CORE_HZ);
+#endif
 #ifdef T18_TONE_Q
       g_gms += 4;
 #endif
@@ -1111,7 +1484,17 @@ static void main_loop(int restored)
 #ifdef HW_OPTS
     if (g_scr_dark) on = 0;
 #endif
+#ifdef T18_WAKE_ASYNC
+    /* test14: the panel comes on in steps (hw_wake_step), the emulator runs meanwhile; g_wk: time << 2 | step */
+    int blchg = 0;
+    { static uint32_t g_wk;
+      if (on != bl) { blchg = 1; bl = on; g_wk = 0; if (!on) { g_lcd_on = 0; hw_backlight(0); } else if (hw_wake_step(1)) g_wk = (g_ms << 2) | 1u; else { g_lcd_on = 1; present(1); } }
+      if ((g_wk & 3u) == 1u && ((g_ms - (g_wk >> 2)) & 0x3FFFFFFFu) >= 125u) { hw_wdt_feed(); hw_wake_step(2); g_wk = (g_ms << 2) | 2u; }
+      else if ((g_wk & 3u) == 2u && ((g_ms - (g_wk >> 2)) & 0x3FFFFFFFu) >= 20u) { hw_wake_step(3); g_wk = 0; g_lcd_on = 1; present(1); } }
+    if (blchg) {
+#else
     if (on != bl) { bl = on; g_lcd_on = on; hw_backlight(on); if (on) present(1);
+#endif
 #ifdef SESS_AUTO
       if (!on && now - g_sess_ms > SESS_T1) { note_save(); session_save(); g_sess_ms = now; }
 #endif
@@ -1174,6 +1557,9 @@ void Reset_Handler(void)
   uint32_t cnt = REG(0x45000304u);
   uint32_t para = para_clock(cnt, 0, T18_SRAM_SIZE, T18_HOLE_LO, T18_HOLE_HI);
   if (!para) para = para_mailbox(cnt);   /* 1.6.8: started from the menu */
+#ifdef PARA_FLASH
+  if (!para) para = para_flash(cnt);   /* 1.6.9 test37 */
+#endif
 #ifdef PARA_BACK
   para_leave_mark(cnt, para);            /* 1.6.8: the Paradise does not live meanwhile */
 #endif
@@ -1234,4 +1620,8 @@ extern u32 __stack_top;
 __attribute__((section(".vectors"), used))
 const void *const g_vectors[16 + 64] = { (void *)&__stack_top, (void *)Reset_Handler,
   [2] = (void *)Fault_Handler, [3 ... 6] = (void *)Fault_Handler, [7 ... 10] = (void *)Fault_Handler, [11] = (void *)Irq_Off,
-  [12 ... 13] = (void *)Fault_Handler, [14] = (void *)Irq_Off, [15] = (void *)SysTick_Handler, [16 ... 79] = (void *)Irq_Off };
+  [12 ... 13] = (void *)Fault_Handler, [14] = (void *)Irq_Off, [15] = (void *)SysTick_Handler, [16 ... 79] = (void *)Irq_Off
+#ifdef T18_LINK
+  , [16 + 37] = (void *)Uart1_Handler
+#endif
+  };

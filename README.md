@@ -11,8 +11,14 @@ the device over a UART dongle.
 - **T7Emu:** the Tama-Go with its figures (also the full figure dumps) and the
   Tamagotchi Friends, from your own ROMs.
 - **T18Emu:** the Tamagotchi Meets / On (TG18 firmware).
-- **V1Emu (test):** the first Tamagotchis (P1, P2, Angel ...) and the Digital
-  Monster, from your own ROMs; small enough for many of them on one ROM.
+  Grow up on the device, items and Tamapoints from MyMeets files, visits and
+  marriages over mixing-meets.com through the UART dongle.
+- **V1Emu (test):** the first Tamagotchis (P1 Japanese and English, P2, Angel ...) and the Digital
+  Monster V1, V2 and V3, from your own ROMs; small enough for many of them on one ROM.
+- **V3Emu (test):** the Tamagotchi Connection V3, from your own ROM.
+- **Visits between two Paradise:** plug two Paradise together at the top:
+  T18Emu, T7Emu (Tama-Go), TamaEmu (P's, iD L) and V1Emu (Digimon battles)
+  talk to each other as two toys would.
 - **More emulators:** up to twelve more programs next to the main one, started
   from the on-device menu.
 - **Start device:** turn the Paradise into a device for programs only: after
@@ -29,6 +35,8 @@ the device over a UART dongle.
   (a .tamasave or the save inside the loaded ROM).
 - **Characters:** export every character as an image sheet, edit it in any paint
   program, upload it again. Digimon from DIM cards too.
+- **Names:** rename fields, Tamas and items; move the eyes and the mouth of a
+  character; take characters from TamaSma cards.
 - **Device:** read the ROM from the device and write a new one, only the parts
   that changed, keeping the saves on the device.
 - **Save games:** back up the Paradise and the TamaEmu save on their own and
@@ -138,6 +146,12 @@ Paradise, which stays there, also when its screen goes dark. A and C, the
 reset button or a battery change bring the emulator back. Hold B while the
 Paradise starts to skip the emulator once.
 
+Two colour Tamas in one ROM (1.6.9, start device, e.g. iD L as the main program and P's in the menu): each
+starts its own firmware (switch `APP_SELF`). The iD L clock no longer runs fast while its screen is off and only
+finished pictures go to the panel (1.6.8). When the colour Tama wakes its display without its own light (the P's
+does it every 20 minutes for about 9 s, all night) the Paradise's light stays off: it follows the toy's own
+backlight, a key or a tone (1.6.9, switch `BL_GUEST_PWM`).
+
 Updating the emulator: open your ROM with the emulator in a newer Studio and
 save it (do not choose the firmware again). Only the emulator program is
 replaced. Written with "Keep saves", the Tamagotchi keeps its save and the
@@ -175,12 +189,32 @@ press the wheel within the first 3 seconds.
 Updating: open the ROM in a newer Studio and save it. Written with "Keep
 saves", the Tama-Go keeps its save as long as its ROM is the same.
 
+Gotchi Points (1.6.9, under ▾ in the Tama-Go's row): 0 to 999999, written into its saved EEPROM like an
+imported save (the Tama stays, the running state starts anew).
+
+PC passwords (1.6.9): Door and PC of the Tama-Go work. The game's nibble helper at $3080 was missing, so
+the login password was always 000000000000 and no logout password was taken (switch `T7_PW_FIX`).
+
+Battery, keys and tone (1.6.9): the game's wait for the next frame is added up at once and its STOP
+(the Tama-Go stops its CPU until a timer or a key) halts the emulated CPU too, as in TamaGo for the Pebble;
+about 80 % of the emulated time no longer needs the Paradise's CPU (switches `T7_IDLE`, `T7_STOP`). For 1 s
+after a key there is no STOP (`T7_STOP_KEYACT`). Every press is counted every millisecond (after 30 ms
+released, against bouncing contacts) and goes to the game for at least 120 ms, then 100 ms released
+(`T7_KEYQ`): quick presses are kept in order instead of lost. Tones are queued and played on the real clock,
+80 ms late, so melodies keep every note (`T7_TONE_Q`). The main loop sleeps whenever it is less than one 2 ms
+step behind (`T7_WFI_FIX`, 1.6.9; before it spun through every other millisecond). Details in `t7/README.md`.
+
 ### More emulators (1.6.0)
 "Choose firmware or ROM" (tab Emulator) takes the main emulator first; every further file goes to the
 list of further programs (Tama-Go, Friends, V1Emu ROMs, up to twelve). Each entry has a × to take it
 out again. The filled star marks the main program (DOOM when it is in the ROM; in a start device the emulators
 then all go to the menu; DOOM has its own × and ↺ in the list), a click on an empty star makes another one the main
-program. In a normal ROM a colour Tama or TG18 always becomes the main program. Each program goes in once. DOOM as
+program. In a normal ROM a colour Tama or TG18 always becomes the main program. Each program goes in once.
+
+Editions whose firmware reaches past 0x0A0000 (Jade Forest wave 2 up to 0x0A1683, Tropical and Glacier up to
+0x0B5E00; 1.6.9, GitHub issue) have no room for a main program there. The Studio then puts every program into
+the menu: in a normal ROM Tama-Go, Friends, V1Emu and V3Emu (A and C, with field switch or items switched on),
+colour Tamas and TG18 only in a start device. 0x0A0000.. of the firmware stays untouched. DOOM as
 the main program of a normal ROM can start when switched on (▾ in its row).
 ▾ opens a program's row: its settings (clock per program, NFC for a 4U, start when switched on
 for the main one) and its figures or download slots. The overview "Your new ROM" shows all emulators in one
@@ -205,7 +239,7 @@ save (T7Emu, TamaEmu, V1Emu), "Paradise" holds the Paradise save and its editor.
 ### V1Emu (1.6.8, test version)
 The first Tamagotchis and the Digital Monster: ROMs of 12 KB or 16 KB (Epson E0C6S46 and E0C6S48, as
 TamaLIB and MAME read them). Known by name: Tamagotchi P1 and P2, Angel, Morino, Umino, Yasashii,
-Genjintchi, Tamaotchi, Digimon V1 and V2; other ROMs of the same kind run as well. Each one takes about
+Genjintchi, Tamaotchi, Digimon V1, V2 and V3; other ROMs of the same kind run as well. Each one takes about
 88 KB (program, session, settings, ROM), so many fit next to the other programs; the menu takes up to
 12 further programs. Choose the ROM with "Choose firmware or ROM", it goes to the menu.
 
@@ -219,12 +253,48 @@ segments, takes its keys by interrupt and beeps with the one-shot buzzer; V1Emu 
 V1Emu can be the main program too (star in the list): A and C on the home screen, start when switched on (▾).
 Shake (the Angel's sensor): turn the wheel. Icons: the Angel and the Digimon have their own sets, the others the P1/P2 set for now.
 
-The Digimon's LCD is mounted the other way round: V1Emu turns it (and its icons).
+The Digimon's LCD is mounted the other way round: V1Emu turns it (and its icons). The Digimon V3 (1.6.9) is
+handled like V1 and V2: turned LCD, the Digimon icons, its clock at 0x1A (checked on the host: set and running as
+the V1), battles over the contacts (`V1_LINK`; its send and receive routines are the same as in the V1, at 0x0B06
+and 0x0B5B).
 
-Clock (1.6.8): for Tamagotchi P1, P2, Angel, Morino and the Digimon V1/V2 V1Emu takes the Paradise's time at every start
+Clock (1.6.8): for Tamagotchi P1, P2, Angel, Morino and the Digimon V1/V2/V3 V1Emu takes the Paradise's time at every start
 (tick "Take the clock from the Paradise" under ▾ in the program's row, and "Clock: Auto" on the device).
 On a fresh start it first sets the toy's clock with the toy's own keys (B, B, A, C), so the Angel comes down
 on its own. For the other ROMs set the clock in the game as on the toy.
+After the start the toy's clock is checked against the Paradise's time and set again when it is off (1.6.9,
+switch `V1_CLK_CHECK`; a resumed P2 kept its old time). Register B of the toy is kept with the running state
+(1.6.9, `V1_REGB`; it was 0 after a resume).
+
+### V3Emu (1.6.9, test version)
+The Tamagotchi Connection V3: ROM of 512 KB (Sunplus SPLB32, a 6502, as BrickEmuPy reads it). Choose it like a
+V1Emu ROM ("Choose firmware or ROM"); the Studio treats it as a V1Emu (same settings block and save layout) and puts
+V3Emu in instead of V1Emu. Main program: ROM at 0x940000. In the menu: about 584 KB (ROM, 64 KB aligned, then
+program, session 4 KB, settings 4 KB).
+
+On the device: A, B and C as on the toy (left, middle, right). The screen shows the ten menu icons above and
+below, lit as the toy lights them, and the 32 x 30 dots three times enlarged (setting "Icons" off: no icons, the
+dots four times enlarged). The icon pictures are mameise's V3 icons (`v3/gen/icons.py` makes `icons_v3.h` from the PNGs). Wheel short: settings (battery, colour, grid in percent,
+pixel view in percent (the unlit dots), icons on/off, icons inactive in percent (how strongly the icons that are off show),
+sound, light, dim after, dim to, screen off after, clock Auto/Game (when the Studio knows the toy's clock), language;
+A next line, B change, C close; switch `V3_SETX` for the percent settings and the clock line). Wheel long: save and back. The toy's own save (its EEPROM, 1 KB) is
+kept in the settings sector and written 3 s after the game changed it; the running state on leaving, when the
+screen goes off and every 15 minutes. If the game has saved since the last running state, it starts from its own
+save, like the toy after a battery change.
+
+The core (v3/src/core) is ported from BrickEmuPy: the instructions are generated from its Python (v3/gen/py2c.py),
+the rest follows it line by line, checked to the bit against it on the host. The timers only get the time when
+something can happen, and while the toy has stopped its CPU the steps up to its next timer event are skipped at once.
+Clock (switch `V3_CLOCK`): with "Take the clock from the Paradise" (on by default) V3Emu writes the Paradise's time
+and date into the toy at every start: seconds 0x81/0x82, minutes 0x83/0x84, hour 0x85 (1..12) and 0x86 (PM), day 0x13D (ones)
+and 0x13E (tens), month 0x13F. Only when the toy's clock runs, so set it once in the game; then it is checked and written again if
+it is off.
+
+Connection (switch `V3_LINK`): two Paradise plugged together at the top, V3Emu on both, then the connection in the
+game as with two real V3. The core turns the toy's infrared pulses into bytes and back (as BrickEmuPy's CON_V3_IR,
+which links two emulators over a serial line); the bytes go as 'V' frames over the UART on the contacts (plink.h).
+
+V3Emu can start when the Paradise is switched on (main program, ▾ "Start when switched on"), like the others.
 
 ### T18Emu
 Tab "Emulator": choose the firmware of the Tamagotchi Meets or On (TG18, 8 MB)
@@ -232,7 +302,10 @@ instead of a colour Tama firmware. The Studio puts its used 64 KB blocks into
 free blocks of the Paradise flash, from the top down (from 0xF00000, then from
 0xD40000 downwards; empty blocks are left out), plus up to 10 spare blocks for
 the save data the firmware writes later. T18Emu fills them by the 4 KB sector
-(1.6.8): start, photo and diary need 30 sectors in 7 blocks, 6 spare blocks hold 96. The bottom (from 0x830000) stays free, so the
+(1.6.8): start, photo and diary need 30 sectors in 7 blocks, 6 spare blocks hold 96. A game that has grown up
+needs more (a baby to child step was measured with 99), so in a start device the Studio adds spares up to 15 where
+there is room (1.6.9, also to an installed T18Emu, behind its spares: the save stays), and a full pool takes over
+sectors the firmware has erased (switch `T18_POOL_RECLAIM`). The bottom (from 0x830000) stays free, so the
 field switch of the menu fits next to it on Land, Sky and Water. The program
 has two parts: one is loaded into the PRAM, the other runs from the flash
 (0x0F0000).
@@ -244,6 +317,107 @@ and C, release them, press the wheel within the first 3 seconds and confirm with
 firmware then starts over from its own save ("CONTINUE"). Busy scenes (a call) can still run a little slower than on the toy; melodies keep
 their tempo anyway (played on the real clock, about 0.3 s late). The camera
 (Item Box, Special) and the diary work on all nine known firmwares.
+
+Grow up (on the device, wheel short, line "Grow up"): as in the Android T18Emu, the Tama becomes an adult in
+about a minute and a half (its age is put just before each step, the game clock runs fast only for that one game
+minute, the step and its animation run in real time, care stays full, the screen stays on, the firmware does the rest). A Tama of the
+first generation can be chosen (ten adults, the Sanrio firmware has Flowertchi); a child of a married pair grows
+up like its parents. Pictures for the choice: the Studio has none; under ▾ in the T18Emu row "Choose pictures"
+takes your own PNG files named after the character (Mametchi.png, Kuchipatchi.png ...) or its number (16.png),
+or the folder erwachsen of the Android T18Emu with its erwachsen.json. They are scaled to 64x64 and stored at
+0x0E4000 (main program only).
+
+Items (under ▾ in the T18Emu row): MyMeets files (tg18_gh..., _oy..., _as..., _ac..., _bg... .txt, also in a .zip)
+go into the game's save, with a picture, the number of pieces (1 to 3) and a room. Tamapoints can be set. The game
+must have run once (read the ROM from the device). The running state of the emulator starts anew, the Tama stays. A name in
+Japanese letters shows as its number (Nr. 3006). T18Emu in the menu of a start device keeps its place when the ROM is
+saved again.
+With "Keep saves" ticked, writing items or Tamapoints to the device asks first: T18Emu's save is replaced by the
+one in the ROM.
+
+The date (1.6.9, switch `T18_DAY_FIX`): the game counts the days itself and a new start (CONTINUE) loaded the day of
+leaving; the days since are added once after the start. Started from the menu, a sleeping game is woken once
+with a short C (`T18_WAKE_START`).
+
+Screen (1.6.9): the picture goes out whole once the game has finished drawing it, only the rows that changed
+(1.6.6 to 1.6.8). The check value per row is now FNV-1a (`T18_SUM_FNV`): the old one gave the same value for
+many different rows and left parts of the picture old (AM/PM on the clock, frames). One row per picture always
+goes out (`T18_ROW_RR`), the first picture after the start is complete (`T18_PRES_FIRST`), and switching the
+screen on no longer stops the game for 145 ms while the panel wakes (`T18_WAKE_ASYNC`).
+
+MixingMeets (1.6.9, under ▾ in the T18Emu row): visits and marriages over mixing-meets.com through the UART
+dongle on the Paradise's contacts. Drag the "Paramix bridge" bookmark to the bookmarks bar once; disconnect
+the Studio from the dongle ("Release UART" or close it); on the Tama CONNECTION, APP, VISIT; on
+mixing-meets.com open Connect or Return, click the bookmark, then Select Tamagotchi and choose the dongle.
+Click the bookmark again after every page change. The page's Bluetooth goes over the dongle to T18Emu, which
+hands it to the firmware's Bluetooth module like the Android T18Emu (switch `T18_LINK`).
+
+### Visits between two Paradise (1.6.9)
+Plug two Paradise together at the top (the connector crosses TX and RX), start the same program on both and
+connect as with two toys. The programs talk over the contacts (UART1, 460800 baud), the Studio does not take
+part (under ▾ it only says how).
+
+| Program | On both devices |
+| --- | --- |
+| T18Emu | CONNECTION, TAMAGOTCHI: playdate, gift, marriage (switch `T18_LINK`) |
+| T7Emu (Tama-Go) | connection, TAMA-GO, VISIT or GAME; B on the visiting one (`T7_LINK`) |
+| TamaEmu (P's, iD L) | P's: あそぶ, あそびにいく on one, ともだちをよぶ on the other (`TC_IRLINK`) |
+| V1Emu (Digimon) | choose and start the battle (`V1_LINK`, not yet checked with a real battle) |
+| V3Emu | the connection in the game on both (`V3_LINK`, not yet checked on two devices) |
+
+Checked on the PC with two cores in lockstep; on the device see the test notes.
+
+### Game Boy (1.6.9)
+Tab "Game Boy": choose Game Boy games (.gb, the black and white Game Boy; Game Boy Color games do not work). They go
+into the Paramix menu (switch the menu on in the tab "Menu"). The screen is shrunk from 160 x 144 to 128 x 115, nothing
+is cut off. The keys are set in the tab for all games (default: A left, C right, B = B, wheel press = A, wheel up and
+down, A+C Start). On the device: A+B+C together opens the settings (with Select and sound), holding the wheel for 2 s
+saves and goes back. Battery saves of the games are kept. Sound: the Paradise's buzzer plays one tone at a time (the
+melody or the effect). Program and details: `gb/`.
+
+### Simulated visit for the Paradise itself (1.6.9)
+Under "Device" the Studio can play a second Paradise over the dongle, so one device is enough for a playdate.
+The Paradise runs its normal game (no flash app). "Connect" above is not needed for it.
+
+1. Choose the edition the visitor comes from (Land, Water, Sky, Jade Forest, Tropics, Glacier), "Start", pick the dongle.
+2. On the Paradise: planet menu, CONNECTION, PLAYDATE, then B.
+
+The visitor is a copy of your own Tama (its picture comes from your device, the Studio has no game data); only
+the edition and its IDs are its own, so every edition is a friend of its own. At the young stage the Paradise
+notes the edition of each partner (seen in its save after a visit from Water and one from Sky); the secret
+characters want two other colours there. Whether the secret character then comes is to be checked on the device.
+Protocol: GMMan's tama-para-research (TCP over UART, 460800 baud), code in `src/visit.js`. The Studio
+answers as the device that was asked (the Paradise presses B), never breeds (it answers BREED 0).
+Checked on the PC with the emulated Land against the Studio in the browser (Sky, Water, Jade Forest).
+
+### Battery (1.6.9)
+Battery saving (1.6.9, switch `CLK_ECO`, `emu/src/emu/eco.h`): with the screen off T7Emu, V1Emu and V3Emu lower the
+chip's clock (AHB prescaler `SYS_AHBCP` 0x45000010, Sonix TRM: SYSCLK / 2^n for core, memory and peripherals) step by
+step from 96 MHz down to 12 MHz while the emulation keeps up (busy share from the DWT cycle counter every 500 ms:
+below 35 % one step down, above 80 % one step up). If it falls 25 ms behind: full speed at once, then one step less
+deep for 5 minutes. A key, the screen, a tone or link traffic (30 s) bring full speed. SysTick is set for 1 ms at
+each step, a playing tone keeps its pitch. Measured in the Unicorn simulation with the screen off: V1Emu (P2) at 12 MHz, V3Emu and T7Emu at 48 MHz,
+T18Emu (Meets in standby) mostly at 12 MHz. TamaEmu has it too (no simulation for it); on the device the busy share
+decides how far each one goes down. ECO_LAG per program (T7Emu 400, TamaEmu 50, T18Emu 120, V1/V3 25 ms).
+Tick check (1.6.9, switch `ECO_RTC`): T7Emu, V1Emu and V3Emu compare the millisecond tick with the Paradise's seconds
+counter every 4 whole seconds; a clock step that counted fewer than 3800 ms is not used again until the next start,
+T7Emu adds the missing time (its emulation catches up). The counts go into T7Emu's session sector at 0xFF0
+(clock steps found wrong | corrections << 8, ms added), so a dump shows them.
+
+Care and points on the device (wheel short, in the settings): T18Emu has "Tamapoints" (A next digit, B the
+digit + 1, C OK, the wheel goes back without change) and "Full care" (hunger and mood full, not sick, no call), on
+all nine known firmwares. T7Emu (Tama-Go and Friends) has "Gotchi Points" (up to 999999) and "Full care" (hunger
+and happy 5 hearts). TamaEmu has "Gotchi Points" (up to 99999) and "Full care" with Plus Color, iD L (v050 to v055),
+P's, 4U and 4U+ (hunger full and the happy bar as far as the game allows it: iD L friend level and
+Plus Color HAPPY! by the medals, P's ring by the medals, 4U love ring by the stage). V3Emu has "Gotchi Points" (4 digits)
+and "Full care" (hunger and happy 4 hearts). V1Emu has "Full care" for all twelve known ROMs (P1 also English, P2, Angel, Genjintch,
+Morino, Tamaotch, Umino, Yasashii, Digimon V1 to V3; Digimon: hunger and strength). Other ROMs show no such lines.
+
+The settings of T7Emu, V1Emu, TamaEmu and T18Emu (wheel short) show the battery, e.g. "2.84V 80%", and the
+home screen of a start device shows it bottom right. It is measured as the Paradise firmware does it: SAR ADC at
+0x4003A000, channel 4 (P0.6), volts = sample x 3.3 / 1024; below 2.2 V the Paradise switches off (0 %), 3.0 V and
+more count as full. Shared code `emu/src/emu/batt.h`, switch `BAT_SHOW`. Not yet checked on the device; "?" means no
+reading came.
 
 ### How the emulators behave (TamaEmu, T7Emu, T18Emu)
 
@@ -318,6 +492,11 @@ to the end first.
   as further programs. Choosing the same firmware again does not add it twice.
 - The room behind the Paradise's save (from 0xF00000) is used for programs as
   long as there is no T18Emu (which needs it).
+- Main program with DOOM (1.6.9): DOOM stays at its place, but the star in the
+  Emulator tab can make any program of the menu the main one. It is shown first
+  and, with "Start when switched on" under ▾, starts instead of the menu after a
+  battery change or a reset while it ran (hold B: the menu). Switch `FELD_AUTO`
+  in the menu program, settings version 9.
 
 ### Menu (saves, fields, items, Tamapoints, Tama)
 Tab "Menu": tick "Several saves (with field choice)", "Items and Tamapoints"
@@ -348,7 +527,8 @@ selects, B confirms, C goes back.
 - Neither works together with DOOM or the emulator (these editions have no
   room for them).
 - Items: put items into the bag and set their amount, with picture. The list
-  and the pictures come from your own ROM.
+  and the pictures come from your own ROM. Amount 0 ("REMOVE") takes an item out
+  again; items the game holds with amount 0 (eaten up) are not shown (switch `BAG_DEL`).
 - Tamapoints: set digit by digit.
 - Change Tama: level, care (fed, happy, healthy) and the character.
 - TamaEmu or DOOM, when built in, is the last entry of the same menu.
@@ -392,6 +572,9 @@ it in the app if needed), the TamaEmu save as a .sav and the T7Emu save as a .bi
 (the save.bin of the T7Emu app). Import: a .sav or a T7Emu .bin goes into the
 ROM (then save the ROM or write it to the device), a .tamasave goes straight to
 a connected device.
+T7Emu saves written up to 1.6.8 may lie 2 bytes off in the flash (the page buffer was not word aligned, the flash DMA
+takes words); the export finds them too and gives the right save.bin, and T7Emu from 1.6.9 reads them itself
+(switch `T7_EE_SHIFT`).
 
 Slot (1.6.8): with the menu's "Several saves" (or the field switch) the menu keeps further saves in
 slots. "Slot" picks which one: export takes it out of the ROM (unpacked), write to device puts the
@@ -429,12 +612,13 @@ Pages, Source "GitHub Actions" publishes the page as a website as well.
 | `t18/` | T18Emu, the Meets/On emulator program for the Paradise, with source in `t18/src` |
 | `doom/` | DOOM for the Paradise and the WAD converter (WebAssembly), with source in `doom/src` |
 | `feld/` | the on-device menu (field switch, items, Tamapoints), with source in `feld/src` |
+| `gb/` | GBEmu, the Game Boy emulator program for the Paradise (core Peanut-GB), with source in `gb/src` |
 | `six/` | helper code for six fields on Tropical/Glacier, with source in `six/src` |
 | `flash/` | the flash app loaded for reading and writing over UART, with source in `flash/src` |
-| `test/` | tests |
+| `test/` | tests (`visit_test.js`: the simulated visit with a test key) |
 
 Every shipped binary (`emu/emu.bin`, `t7/t7.bin`, `t18/t18.bin`, `emu/stub_tpl.bin`, `doom/*.bin`,
-`doom/mcuwad.wasm`, `feld/*.bin`, `six/six.bin`, `flash/flashapp.bin`) is built from the source
+`doom/mcuwad.wasm`, `gb/gb.bin`, `feld/*.bin`, `six/six.bin`, `flash/flashapp.bin`) is built from the source
 next to it; the build commands are in the README of each folder.
 
 ## Credits and license
@@ -448,6 +632,11 @@ or later, see [LICENSE](LICENSE). It builds on the work of others, see
   project; the emulator core and the download content layout come from tamaemu.
 - **V1Emu** is based on [TamaLIB](https://github.com/jcrona/tamalib) by
   Jean-Christophe Rona (GPL-2.0-or-later).
+- **V3Emu** is based on [BrickEmuPy](https://github.com/azya52/BrickEmuPy) by
+  azya52, released under CC0 1.0 (public domain dedication: free to use, change
+  and pass on, no conditions): the SPLB32 core, the HT24LC08 EEPROM, the
+  infrared byte link and the dot and icon layout of the Connection V3 face.
+  See NOTICE.md.
 - **DOOM** is based on nRF52840 Doom by next-hack, GBADoom by doomhack, PrBoom
   and the DOOM source by id Software (GPL-2.0-or-later). The WAD converter is
   MCUDoomWadUtil by Nicola Wrachien (GPL-2.0).

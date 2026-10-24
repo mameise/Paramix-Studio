@@ -28,6 +28,17 @@ void tg18_run_cycles(tg18_t *t, uint64_t target);
 void tg18_run_us(tg18_t *t, uint32_t us);
 uint64_t tg18_cycles(tg18_t *t);
 void tg18_set_buttons(tg18_t *t, int mask);
+#ifdef T18_LINK
+/* test6: phone side of the Bluetooth module over a link (Paradise UART) */
+void tg18_link_out(const uint8_t *d, int n);   /* given by the platform: data for the phone */
+/* test7: infrared of a visit to and from the other Paradise (given by the platform) */
+void tg18_link_ir_out(uint8_t b);
+int tg18_link_ir_in(uint8_t *b);
+int tg18_link_ir_avail(void);
+void tg18_ble_connect(tg18_t *t, int on);
+int tg18_ble_ready(tg18_t *t);
+int tg18_ble_from_phone(tg18_t *t, const uint8_t *d, int n);
+#endif
 void tg18_set_present(tg18_t *t, t18_present_fn fn, void *user);
 #ifndef PARADISE
 const uint16_t *tg18_picture(tg18_t *t);       /* PC: the last finished picture */

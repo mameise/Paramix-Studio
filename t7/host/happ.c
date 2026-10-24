@@ -19,6 +19,7 @@ static uint32_t g_rtc = 1000000, g_ms;
 static T7Cfg cfg = { T7_MAGIC, 1, 0, 0, 0, 0, {{0}}, 0 };
 static const uint8_t *figs[T7_FIG_MAX];
 uint32_t plat_rtc(void) { return g_rtc; }
+void plat_bat(char *s) { const char *t = "2.84V 80%"; int i = 0; while ((s[i] = t[i])) i++; }
 void plat_rect(int x0, int y0, int x1, int y1) { rx0 = x0; rx1 = x1; ry = y0; (void)y1; }
 void plat_row(const uint16_t *px, int n) { for (int i = 0; i < n && rx0 + i < 128; i++) fb[ry][rx0 + i] = px[i]; ry++; }
 void plat_rect_end(void) {}
@@ -90,7 +91,10 @@ int main(int c, char **v)
     }
     else if (!strcmp(cmd, "wall")) { int h, m, d, mo; sscanf(l, "%*s %d %d %d %d", &h, &m, &d, &mo); cfg.wall_cnt = g_rtc; cfg.wall_sod = (uint32_t)(h * 3600 + m * 60); cfg.wall_ymd = (2026u << 16) | (uint32_t)(mo << 8 | d); }
     else if (!strcmp(cmd, "store")) app_store();
+    else if (!strcmp(cmd, "set")) { extern T7Set g_set; int sz = 0, px = 0, gr = -1; sscanf(l, "%*s %d %d %d", &sz, &px, &gr); g_set.size = (uint8_t)sz; g_set.pixel = (uint8_t)px; if (gr >= 0) g_set.grid = (uint8_t)gr; app_dim(1); app_dim(0); }   /* set <size> <pixel> [grid] */
     else if (!strcmp(cmd, "reboot")) { t7_init(); app_init(&cfg); app_render(1); }
+    else if (!strcmp(cmd, "wb")) { unsigned ad, v; sscanf(l, "%*s %x %x", &ad, &v); t7_ram_write((uint16_t)ad, (uint8_t)v); }   /* test30 */
+    else if (!strcmp(cmd, "dump")) { FILE *o = fopen(a, "wb"); for (int i = 0; i < 0x600; i++) fputc(t7_ram_read((uint16_t)i), o); fclose(o); }
     else if (!strcmp(cmd, "q")) break;
     fflush(stdout);
   }

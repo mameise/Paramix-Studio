@@ -16,7 +16,8 @@ fl = bytearray(open(img, 'rb').read())
 u = Uc(UC_ARCH_ARM, UC_MODE_THUMB | UC_MODE_MCLASS)
 # as on the Paradise: PRAM 64 KB (the stub copies 64 KB from 0xA0000), RAM at 0x20000000 only 4 KB,
 # flash window 0x10000000 = flash 0x11000.. (base 0x60011000)
-u.mem_map(0, 0x10000); u.mem_write(0, bytes(fl[0xA0000:0xB0000]))
+APPOFF = int(os.environ.get('APPOFF', '0xA0000'), 16)   # test29: a program in the menu
+u.mem_map(0, 0x10000); u.mem_write(0, bytes(fl[APPOFF:APPOFF + 0x10000]))
 u.mem_map(0x18000000, 0x20000); u.mem_map(0x20000000, 0x1000)
 u.mem_map(0x10000000, 0x1000000)
 # the flash window as measured on the device (1.6.6): 1 MB from the base register (0x4002F004), beyond that
@@ -63,9 +64,13 @@ if 't18_pram_w16' in syms and os.environ.get('PWHOOK', '1') == '1':
 
 u.mem_map(0x60000000, 0x1000000); u.mem_write(0x60000000, bytes(fl))
 u.mem_map(0x40000000, 0x100000)
+u.mem_write(0x4000B014, b'\x60\x00\x00\x00')   # test6: UART1 line status: transmitter empty (T18_LINK sends hello frames)
+UTX = []
+def _utx(uc, acc, addr, size, val, ud): UTX.append(val & 0xFF)
+u.hook_add(UC_HOOK_MEM_WRITE, _utx, begin=0x4000B000, end=0x4000B000)
 def _xipw(uc, acc, addr, size, val, ud):
     if addr == 0x4002F004 and val != WIN[0]: win_load(val); uc.ctl_flush_tb()
-u.hook_add(UC_HOOK_MEM_WRITE, _xipw, begin=0x4002F004, end=0x4002F007); u.mem_map(0x45000000, 0x1000); u.mem_map(0xE000E000, 0x1000)
+u.hook_add(UC_HOOK_MEM_WRITE, _xipw, begin=0x4002F004, end=0x4002F007); u.mem_map(0x45000000, 0x1000); u.mem_map(0xE000E000, 0x1000); u.mem_map(0xE0001000, 0x1000)   # DWT (CYCCNT reads 0 here)
 fb = [[0] * 128 for _ in range(128)]
 rect = {'x0': 0, 'x1': 0, 'y': 0, 'x': 0}
 KS = []
@@ -99,9 +104,11 @@ def h_upd(uc):
     d = bytes(uc.mem_read(src, 0x1000)); a = ad & 0xFFF000
     if fl[a:a + 0x1000] == d: ret(uc, 0); return
     uc.mem_write(0x60000000 + a, d); fl[a:a + 0x1000] = d; state['flashw'] += 1; ret(uc, 1)
+    if os.environ.get('FWLOG'): print('FW', state['ms'], hex(a))
 def h_erase(uc):
     a = uc.reg_read(UC_ARM_REG_R0) & 0xFFF000
     uc.mem_write(0x60000000 + a, b'\xff' * 0x1000); fl[a:a + 0x1000] = b'\xff' * 0x1000; state['flashw'] += 1; ret(uc)
+    if os.environ.get('FWLOG'): print('FE', state['ms'], hex(a))
 def h_back(uc): state['back'] = 1; uc.emu_stop()
 def h_nop(uc): ret(uc)
 def h_fatal(uc): print('FATAL code', uc.reg_read(UC_ARM_REG_R0), 'info', hex(uc.reg_read(UC_ARM_REG_R1)), 'lr', hex(uc.reg_read(UC_ARM_REG_LR))); state['back'] = 1; uc.emu_stop()
@@ -210,6 +217,12 @@ def irq_return():
     sp += 32 + (4 if f[7] & 0x200 else 0)
     u.reg_write(UC_ARM_REG_SP, sp); u.reg_write(UC_ARM_REG_XPSR_NZCVQ, f[7] & 0xF8000000); u.reg_write(UC_ARM_REG_PC, f[6] | 1)
     if os.environ.get('IRQDBG') and IRQ_N[0] < 6: print('ret to', hex(f[6]), 'sp', hex(sp), 'gms', struct.unpack('<I', bytes(u.mem_read(gms, 4)))[0])
+# 1.6.9 test26 CLK_ECO: the AHB prescaler at 0x45000010 slows the core: RT >> sh instructions per ms
+state['sh'] = 0; state['shms'] = [0, 0, 0, 0]
+def _ahb(uc, acc, a, sz, v, ud):
+    state['sh'] = v & 7
+    if os.environ.get('ECOLOG'): print('AHB', v & 7, 'at ms', state['ms'])
+u.hook_add(UC_HOOK_MEM_WRITE, _ahb, begin=0x45000010, end=0x45000013)
 while state['ms'] < total_ms and 'back' not in state:
     u.mem_write(0x45000304, struct.pack('<I', rtc0 + state['ms'] // 1000))
     try:
@@ -225,7 +238,7 @@ while state['ms'] < total_ms and 'back' not in state:
             if u.reg_read(UC_ARM_REG_PRIMASK) & 1 or not systick_on(): state['pend'] = 1
             else: irq_enter(pc); pc = u.reg_read(UC_ARM_REG_PC)
         else:
-            u.emu_start(pc | 1, 0xFFFFFFF0, count=RT)
+            u.emu_start(pc | 1, 0xFFFFFFF0, count=max(1, RT >> state['sh'])); state['shms'][min(state['sh'], 3)] += 1
     except UcError as ex:
         print('error', ex, hex(u.reg_read(UC_ARM_REG_PC))); break
     pc = u.reg_read(UC_ARM_REG_PC)
@@ -264,11 +277,16 @@ print('ms', state['ms'], 'tones', len(state['tone']), 'back' if 'back' in state 
 if PROF:
     tot = sum(pc_cnt.values())
     for k, v in pc_cnt.most_common(25): print('  %-24s %5.1f%%' % (k, 100.0 * v / tot))
+print('ms per clock step (96, 48, 24, 12 MHz):', state['shms'])
 open(os.path.join(out, 'flash_after.bin'), 'wb').write(fl)
 if JWLOG is not None:
     open(os.environ['JWLOG'], 'w').write('\n'.join('%x %04x' % w for w in JWLOG))
 if EXEC:
     import pickle; pickle.dump(EXEC, open(os.environ['EXECLOG'], 'wb'))
 if os.environ.get('BLKOUT'): open(os.environ['BLKOUT'], 'w').write('\n'.join('%x %d' % kv for kv in sorted(BLK.items(), key=lambda kv: -kv[1])))
+if os.environ.get('PEEK'):
+    for _p in os.environ['PEEK'].split(','):
+        _a, _n = _p.split(':'); print('PEEK', _a, bytes(u.mem_read(int(_a, 16), int(_n))).hex())
 if os.environ.get('DUMPPRAM'): open(os.environ['DUMPPRAM'], 'wb').write(bytes(u.mem_read(0, 0x10000)))
 shot('shot_end.png')
+if os.environ.get('UARTLOG'): print('uart tx', len(UTX), 'bytes:', ' '.join('%02x' % b for b in UTX[:80]))

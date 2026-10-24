@@ -67,7 +67,11 @@ static void geometry(void)
   else { GW = LCDW * 2; GH = LCDH * 2; GX = (SCR - GW) / 2; GY = MY + (MH - GH) / 2; }
   for (int c = 0; c < LCDW; c++) {
     int x0 = c * GW / LCDW, x1 = (c + 1) * GW / LCDW;
+#ifdef T7_PIXSOFT
+    for (int x = x0; x < x1; x++) { g_cx[x] = (uint8_t)c; g_gx[x] = x == x1 - 1; }   /* test13: a gap in every cell, in the cell's own colour (draw_row) */
+#else
     for (int x = x0; x < x1; x++) { g_cx[x] = (uint8_t)c; g_gx[x] = x == x1 - 1 && (!g_set.size || x1 - x0 >= 3); }   /* large: gap only in 3 pixel cells, dots stay 2 wide */
+#endif
   }
   for (int r = 0; r <= LCDH; r++) g_ry[r] = (uint8_t)(r * GH / LCDH);
 }
@@ -147,20 +151,50 @@ static void num(char *o, int v, const char *unit)   /* "25%" or "Aus" for 0 */
 }
 /* Menu: page 0 = settings, page 1 = figures */
 static int g_page;
-enum { M_FIG, M_BG, M_INK, M_G1, M_G2, M_SIZE, M_PIX, M_GRID, M_PVIS, M_GHOST, M_SND, M_BL, M_LIGHT, M_DIM, M_OFF, M_SYNC, M_LANG, M_N };
+enum { M_FIG, M_BG, M_INK, M_G1, M_G2, M_SIZE, M_PIX, M_GRID, M_PVIS, M_GHOST, M_SND, M_BL, M_LIGHT, M_DIM, M_OFF, M_SYNC,
+#ifdef T7_CARE
+  M_GP, M_CARE,
+#endif
+  M_LANG,
+#ifdef BAT_SHOW
+  M_BAT,   /* test17: the battery (shown, nothing to change) */
+#endif
+  M_N };
 static int g_items[M_N], g_nitems;
 #define ROWS 7
 static void menu_items(void)
 {
   g_nitems = 0;
+#ifdef BAT_SHOW
+  g_items[g_nitems++] = M_BAT;   /* first: seen when the menu opens */
+#endif
   if (g_cfg->nfig) g_items[g_nitems++] = M_FIG;
   for (int k = M_BG; k < M_N; k++) {
+#ifdef BAT_SHOW
+    if (k == M_BAT) continue;
+#endif
 #ifndef BL_PWM
     if (k == M_BL) continue;
 #endif
     if (k != M_DIM || app_dim_ms()) g_items[g_nitems++] = k;   /* dim level only when dimming */
   }
 }
+#ifdef T7_CARE
+/* test30: Tama-Go's and Friends' state block in the RAM from 0x2F0 (Friends: same places, checked in the PC run) (what it keeps in EEPROM page 0, same offsets; found in the
+ * simulation): Gotchi Points 0x320..0x324 (BCD, lowest digits first), hunger 0x326 and happy 0x327 (0..5 hearts) */
+int hw_num_edit(const char *title, uint32_t *v, int digits, uint32_t max, int en);
+static uint8_t g_cared;   /* "OK" until the menu closes */
+static uint32_t gp_get(void)
+{
+  uint32_t n = 0;
+  for (int i = 4; i >= 0; i--) { uint8_t v = t7_ram_read((uint16_t)(0x320 + i)); n = n * 100u + (v >> 4) * 10u + (v & 15u); }
+  return n;
+}
+static void gp_set(uint32_t n)
+{
+  for (int i = 0; i < 5; i++) { uint32_t d = n % 100u; n /= 100u; t7_ram_write((uint16_t)(0x320 + i), (uint8_t)((d / 10u) << 4 | (d % 10u))); }
+}
+#endif
 static const char *onoff(int v) { return v ? tr("Ein", "On") : tr("Aus", "Off"); }
 static void item_text(int it, const char **label, char *val)
 {
@@ -187,6 +221,13 @@ static void item_text(int it, const char **label, char *val)
   case M_OFF: *label = tr("Bild aus nach", "Screen off"); b = g_set.r2 ? tt[(g_set.r2 - 1) % T7_T_N] : never; break;
   case M_SYNC: *label = tr("Uhr", "Clock"); b = g_set.sync ? "Auto" : tr("Spiel", "Game"); break;
   case M_LANG: *label = tr("Sprache", "Language"); b = g_lang ? "English" : "Deutsch"; break;
+#ifdef T7_CARE
+  case M_GP: { uint32_t v = gp_get(); char t[8]; int n = 0; do { t[n++] = (char)('0' + v % 10u); v /= 10u; } while (v); int j = 0; while (n) val[j++] = t[--n]; val[j++] = 'p'; val[j] = 0; } *label = "Gotchi Points"; break;
+  case M_CARE: *label = tr("Pflege voll", "Full care"); if (g_cared) { val[0] = 'O'; val[1] = 'K'; val[2] = 0; } break;
+#endif
+#ifdef BAT_SHOW
+  case M_BAT: *label = tr("Batterie", "Battery"); plat_bat(val); break;
+#endif
   }
   if (b) { int n = 0; while (b[n] && n < 15) { val[n] = b[n]; n++; } val[n] = 0; }
 }
@@ -273,6 +314,10 @@ static void change(int it)
     break;
   case M_SYNC: g_set.sync ^= 1; break;
   case M_LANG: g_set.lang = (uint8_t)(g_lang ^ 1); break;
+#ifdef T7_CARE
+  case M_GP: { uint32_t v = gp_get(); if (hw_num_edit("GOTCHI POINTS", &v, 6, 999999u, g_lang)) gp_set(v); } break;
+  case M_CARE: t7_ram_write(0x326, 5); t7_ram_write(0x327, 5); g_cared = 1; break;
+#endif
   }
   g_dirty_set = 1;
   palette();
@@ -283,6 +328,9 @@ static void change(int it)
 static void menu_close(void)
 {
   g_menu = 0; g_full = 1;
+#ifdef T7_CARE
+  g_cared = 0;
+#endif
   if (g_dirty_set) { app_store(); g_dirty_set = 0; }
 }
 int app_keys(uint32_t b, uint32_t now)
@@ -295,7 +343,11 @@ int app_keys(uint32_t b, uint32_t now)
   if (press & 2u) {
     if (g_page) { fig_choose(g_sel - 1, now); g_page = 0; g_sel = 0; g_top = 0; menu_build(); }
     else if (g_items[g_sel] == M_FIG) { g_page = 1; g_sel = g_fig + 1; g_top = 0; menu_build(); }
-    else { change(g_items[g_sel]); menu_build(); }
+    else { int k = g_items[g_sel]; change(k); menu_build();
+#ifdef T7_CARE
+      if (k == M_GP) g_full = 1;   /* the number screen covered everything */
+#endif
+    }
   }
   if (press & 4u) {
     if (g_page) { g_page = 0; g_sel = 0; g_top = 0; menu_build(); }
@@ -319,7 +371,11 @@ void app_dim(int pct)
 void app_wheel_short(void)
 {
   if (g_menu) { menu_close(); return; }
+#ifdef BAT_SHOW
+  g_menu = 1; menu_items(); g_page = 0; g_sel = 1; g_top = 0; menu_build();   /* the battery line is only shown */
+#else
   g_menu = 1; menu_items(); g_page = 0; g_sel = 0; g_top = 0; menu_build();
+#endif
 }
 
 /* ---------------------------------------------------------------- stored settings and clock note
@@ -380,6 +436,21 @@ void app_init(const volatile T7Cfg *cfg)
 static void draw_row(int r, const uint8_t *d)
 {
   int p = g_set.pixel;
+#ifdef T7_PIXSOFT
+  /* 1.6.9 test13: pixel mode. A cell is only 2 or 3 display pixels: a gap in the grid colour left a dot of 1 pixel
+   * and the picture was hard to see. Now every cell has its gap (right column, bottom row), drawn as the cell's own
+   * colour moved a fifth towards the grid colour: the pixels stay full, a fine grid shows between them. */
+  if (p) {
+    uint16_t on[4], gap[4];
+    for (int v = 0; v < 4; v++) { on[v] = v ? g_pal[v] : g_off; gap[v] = mix(on[v], g_grid, 80); }
+    for (int y = g_ry[r]; y < g_ry[r + 1]; y++) {
+      int hl = y == g_ry[r + 1] - 1;
+      for (int x = 0; x < GW; x++) { int v = d[g_cx[x]] & 3; g_row[x] = (hl || g_gx[x]) ? gap[v] : on[v]; }
+      plat_row(g_row, GW);
+    }
+    return;
+  }
+#endif
   for (int y = g_ry[r]; y < g_ry[r + 1]; y++) {
     if (p && y == g_ry[r + 1] - 1 && (!g_set.size || g_ry[r + 1] - g_ry[r] >= 3)) { for (int x = 0; x < GW; x++) g_row[x] = g_grid; }
     else for (int x = 0; x < GW; x++) {
@@ -488,7 +559,13 @@ static void set_ms(int sod) { t7_ram_write(RTC_M, (uint8_t)((sod / 60) % 60)); t
 void app_clock(uint32_t rtc, int guard)
 {
   int obs = tama_sod();
+#ifdef T7_GAME_KEEP
+  /* test27: with "Clock: Game" too the game's clock is kept on the Paradise's seconds counter while it runs
+   * (only its own time, nothing of the Paradise's) */
+  if (guard || obs < 0) { g_have_ref = 0; return; }
+#else
   if (guard || obs < 0 || !g_set.sync) { g_have_ref = 0; return; }
+#endif
   /* the clock stands (the game asks for the time, or it is being set): leave it alone */
   if (g_have_ref && (uint32_t)obs == g_last_obs && rtc != g_last_cnt) { g_have_ref = 0; g_last_cnt = rtc; return; }
   if (!g_have_ref) { g_ref_cnt = rtc; g_ref_sod = (uint32_t)obs; g_have_ref = 1; g_last_obs = (uint32_t)obs; g_last_cnt = rtc; return; }

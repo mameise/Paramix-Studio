@@ -63,12 +63,26 @@ display time of the menu (settings block byte 0xF07: 0 = 2 minutes, else index +
 never). Both are written to 0xEFE000 and 0xEFF000 with the stamp. Programs that fit go behind the
 Paradise's save (0xF00000..0xFFFFFF, never written by the Paradise) when there is no T18Emu.
 
+Main program of the start device (1.6.9 test13, settings version 9, switch `FELD_AUTO`): DOOM must stay at
+0x0A0000, so the main program can also be one of the list. `main_src` (offset 600) names it: the menu shows it
+first. `vflags` bit 0 (offset 604): start it when switched on instead of showing the menu, once per switching on,
+with the stub's mailbox at 0x20000FFC ("PMXL" a program went back, "PMXM" the menu decided, "PMXR" restart while it
+ran, else the seconds counter at 0x45000304 below 30 means switched on). B held while switching on: the menu.
+Host test: `AUTO_CNT=5 AUTO_MB=... AUTO_GPIO=... ./menu_host ...` (build with `-DFELD_AUTO`).
+
 Location: launcher 0x0B0000, program and catalog from 0x0B1000, slots behind the
 character data. Tropical and Glacier still have firmware code there, so launcher
 and program move to the first free page (0x0B6000). With DOOM, program, catalog
 and slots use the free end of the DOOM program area. With six fields the six
 slots lie behind the menu (up to 0x10F000, where the helper page starts) and
 behind the character data.
+
+## Clock for the programs (PARA_FLASH, 1.6.9 test37)
+
+At its start the menu looks the Paradise's time up in the SRAM (`para_clock`) and puts it in the mailbox 0x20000FC0
+for the programs. When the SRAM has no clock and the mailbox is empty, it takes the base of the Paradise's clock
+from the settings page 0xEFE000 (copy 0xEFF000): days since 2025-01-01 at +0x0C, seconds at +0x10, plus the seconds
+counter 0x45000304 (`para_flash` in `emu/src/emu/paraclock.h`; page CRC and date fields at +0x1C are checked).
 
 ## Build
 
@@ -82,7 +96,7 @@ Without `-DFELD` the same source gives `emu/stub_tpl.bin`.
 PC test without a device:
 
 ```
-cd src/feld && cc -DHOST -w -I. host.c main.c -o menu_host
+cd src/feld && cc -DHOST -DFELD_AUTO -w -I. host.c main.c -o menu_host
 ./menu_host <rom_with_menu.bin> <out.bin> <picture_dir> "<keys>"   # keys: n p a b c
 ```
 

@@ -142,3 +142,28 @@ Paradise's crystal: missing seconds are added, a guest clock ahead skips one ms 
 The Paramix menu uses the Paradise's SRAM, where the Paradise keeps its clock. It looks the clock up at its own
 start and leaves it in the mailbox at 0x20000FC0 (`paraclock.h`: `para_mailbox_put`, `para_mailbox`); a
 program started from the menu takes it from there when its own search finds nothing.
+
+- 1.6.8-test5 APP_SELF: the start check (pram_check: PRAM against the image in the flash) uses the program's own image. A further
+  TamaEmu of the menu has it right behind its guest area (spare_end, the settings there name the same guest and save); before, it
+  compared with 0x0A0000 and copied the main TamaEmu's settings over its own. Its own settings block is never replaced.
+- 1.6.8-test5 BL_GUEST_PWM: the colour Tamas light their screen with T16 channel 2 (0x300796 bit 0, clock 0x3007E4 bit 3). The P's
+  sends Sleep Out every 20 minutes for about 9 s without starting it (PC test: 36 times in a night); the backlight now goes on only
+  with the guest's light, a key or a tone in the last second, and stays on while the LCD stays on.
+
+## Infrared between two Paradise (TC_IRLINK, 1.6.9)
+
+P's and iD L: the bytes the toy writes to its infrared UART (0x300B10, also SIO_TX 0x301704) go out as 'E' frames
+over the UART on the contacts (`src/emu/plink.h`, 460800 8N1). Received bytes come in at the toy's byte rate
+(divisor at 0x300B16/17, 576 kHz clock, 10 bits per byte) with the RX interrupt, only while the receiver is armed
+(0x300B15); the P's also only in a session (its byte 0xDB3, as tamaemu's ir_mode_flag), otherwise the byte is
+lost and the peer-detect flag (0x300287 bit 3) rises. TX ready (0x300B12 bit 1) and the TX interrupt follow the byte
+time. All as in tamaemu's periph.c (Android TamaEmu), the bytes from the platform instead of link.c (no time stamps:
+the devices pass them on at once). State outside `Emu`, so saved sessions stay valid. Not for the Plus Color (its
+infrared is a GPIO) and the 4U/4U+ (their UART talks to the NFC chip).
+
+Checked on the PC with two P's cores in lockstep (host harness): あそぶ, one あそびにいく, the other ともだちをよぶ,
+ふたりで, かくれんぼ: both play, the guest goes home, the host gets Gotchi points. With 15 ms delay each way it still
+works, with 30 ms it ends in つうしん しっぱい.
+
+Room: `boot()` (everything before the translator starts) runs from `.initcode`, the translator's area later, and a
+few rarely used functions are built small (minsize). The translator area is 11772 bytes (before: 11608).

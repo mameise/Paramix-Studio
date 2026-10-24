@@ -54,9 +54,41 @@ __attribute__((noinline, unused)) PARA_ATTR static uint32_t para_clock(uint32_t 
 __attribute__((noinline, unused)) PARA_ATTR static uint32_t para_mailbox(uint32_t cnt)
 {
   volatile uint32_t *m = PARA_MB;
+#ifdef PARA_MB_KEEP
+  if (m[0] != PARA_MB_MAGIC || m[3] != ~m[1] || !m[1] || cnt - m[2] > 400u * 86400u) return 0;   /* test29: kept, see paraback.h */
+#else
   if (m[0] != PARA_MB_MAGIC || m[3] != ~m[1] || !m[1] || cnt - m[2] > 86400u) return 0;
+#endif
   return m[1] + (cnt - m[2]);
 }
+#ifdef PARA_FLASH
+/* 1.6.9 test37 (PARA_FLASH): the Paradise keeps the base of its clock in its settings page 0xEFE000 (copy at 0xEFF000):
+ * days since 2025-01-01 at +0x0C and seconds at +0x10; now = base + the seconds counter 0x45000304, which runs on
+ * while programs run. Found in the TamaParadise runs: the same base as in the SRAM clock (block in the SRAM at
+ * 0x18000B9C is this page). Used when neither the SRAM nor the mailbox give the time (the Paradise restarted and the
+ * mailbox was gone: reported, the clock of V3Emu and Tama-Go was not set now and then). The page must have a good
+ * CRC and its date fields (+0x1C, the time the Paradise lived up to) must lie within a year before that time. */
+__attribute__((noinline, unused)) PARA_ATTR static uint32_t para_flash(uint32_t cnt)
+{
+  for (uint32_t pg = 0x60EFE000u; pg <= 0x60EFF000u; pg += 0x1000u) {
+    const volatile uint8_t *b = (const volatile uint8_t *)pg;
+    uint32_t c = 0;
+    for (uint32_t i = 4; i < 0x1000u; i++) { c ^= b[i]; for (int k = 0; k < 8; k++) c = (c & 1u) ? (c >> 1) ^ 0xA001u : c >> 1; }
+    if ((b[0] | (uint32_t)b[1] << 8) != c || (b[2] | (uint32_t)b[3] << 8) != (~c & 0xFFFFu)) continue;
+    uint32_t days = b[0x0C] | (uint32_t)b[0x0D] << 8 | (uint32_t)b[0x0E] << 16 | (uint32_t)b[0x0F] << 24;
+    uint32_t sek = b[0x10] | (uint32_t)b[0x11] << 8 | (uint32_t)b[0x12] << 16 | (uint32_t)b[0x13] << 24;
+    if (days > 40000u || sek >= 86400u) continue;
+    uint32_t y = b[0x1C] | (uint32_t)b[0x1D] << 8, mo = b[0x1E] | (uint32_t)b[0x1F] << 8, d = b[0x20] | (uint32_t)b[0x21] << 8;
+    uint32_t hh = b[0x22] | (uint32_t)b[0x23] << 8, mi = b[0x24] | (uint32_t)b[0x25] << 8, se = b[0x26] | (uint32_t)b[0x27] << 8;
+    if (y < 2000u || y > 2100u || mo < 1u || mo > 12u || d < 1u || d > 31u || hh > 23u || mi > 59u || se > 59u) continue;
+    uint32_t t = (20089u + days) * 86400u + sek + cnt;   /* 20089: days from 1970 to 2025-01-01 */
+    uint32_t f = (uint32_t)para_days((int32_t)y, (int32_t)mo, (int32_t)d) * 86400u + hh * 3600u + mi * 60u + se;
+    if (f > t + 600u || t - f > 366u * 86400u) continue;
+    return t;
+  }
+  return 0;
+}
+#endif
 __attribute__((noinline, unused)) static void para_mailbox_put(uint32_t t, uint32_t cnt)
 {
   volatile uint32_t *m = PARA_MB;

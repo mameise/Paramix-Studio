@@ -126,6 +126,7 @@ void t7_ir_bridge_rx(const uint8_t *pkt32);
 void t7_ir_bridge_enable(int on);          // Bridge ein/aus (TX-Completion-Fake)
 int  t7_ir_bridge_tx_poll(uint8_t *out32);  // 1 = neues Sende-Paket in out32
 uint32_t t7_ir_activity(void);              // steigt im IR-Verbindungsmenue
+int  t7_ir_tx_take(uint8_t *out32);         // T7_LINK (1.6.9): packet sent just now ($748E), 32 = new packet in out32
 int  t7_ir_tx_pending(void);                // 1 = Firmware wartet auf Sende-Completion
 void t7_ir_tx_complete(void);               // Sende-Completion ausloesen (zeitverzoegert)
 

@@ -14,6 +14,7 @@ u32  hw_buttons(void);
 void hw_push(const u16* fb, u32 stride, u32 x0, u32 y0, u32 x1, u32 y1);
 void hw_back_to_paradise(void);
 void hw_backlight(int on);
+int hw_wake_step(int ph);   /* WAKE_ASYNC: 1 SLPOUT, 2 DISPON, 3 light */
 void hw_bl_pwm_off(void);
 void hw_bl_level(u32 pct);
 void hw_bl_test(u32 m, u32 pct);
@@ -21,7 +22,11 @@ void hw_tone(u32 hz);              /* 0 = off */
 #ifdef HW_OPTS
 extern u32 g_hw_vol, g_hw_dim;     /* 1.6.8: volume 0..3 (2 = as before), brightness 0..3 (0 = full) */
 #endif
-void hw_bl_set(u32 pct);   /* 1.6.8 BL_PWM: light 0..100 % */
+void hw_bl_set(u32 pct);
+#ifdef CLK_ECO
+extern u32 g_hw_clk_sh, g_hw_tone_hz;
+void hw_clk_shift(u32 sh, u32 core_hz);   /* 1.6.9: AHB clock / 2^sh (0..3), SysTick stays 1 ms */
+#endif   /* 1.6.8 BL_PWM: light 0..100 % */
 #ifdef FAST_LCD
 void hw_px_begin(u32 x0, u32 y0, u32 x1, u32 y1);
 void hw_px_row(const u16* r, u32 n);

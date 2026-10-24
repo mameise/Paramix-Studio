@@ -120,6 +120,51 @@ build.sh sets them (REL). Each one keeps the results bit for bit as the referenc
   and were interpreted every time).
 - T18_JT_MUL: multiplicative hash for the indirect jump cache (the old one put 4 of the 10 busiest return
   addresses of the egg scene into one set).
+- 1.6.8-test3 T18_GROW2: grow up with the clock at x60 only for the game minute before a step (age set just before it),
+  the step and its animation in real time, 18 s for it before the next jump (test4, was 25 s); the game kept awake (tg18_set_keep_awake,
+  as Android). x60 all along was too much for the Paradise (slow animation) and let the game's minutes run (hunger,
+  illness). The Param address is only used inside the guest SRAM (PA_OK). On the PC: GROW2=1 with the script command
+  grow (T18_GROW_TEST): Bernd's Tama baby to Pompomtchi in 72 s, hunger 6, mood 30, never asleep.
+- 1.6.9 test14 T18_SUM_FNV: the row check of present() (rotate by 5, xor per pixel pair) repeats its rotations every
+  32 pairs (64 pixels), folded to 16 bits for T18_LINK every 16 pairs: equal changes 32 pixels apart cancel, a row of
+  one colour always gives the same value. Rows that changed stayed old on the panel (AM/PM on the clock, frames in the
+  stats). Now FNV-1a per pixel pair (multiply). PC model (host/ref.c, FNV=1, STALE=1 prints rows that differ from the
+  buffer at the end of each pseq): clock page with A, old 1 to 2 rows, new 0. T18_ROW_RR: one row per picture (by
+  the time) goes out anyway. T18_PRES_FIRST: the row sums at 0x20000D00 are set to 0x5A5A at the start.
+  T18_WAKE_ASYNC (with WAKE_ASYNC in hw.c): the panel comes on in steps from the main loop (SLPOUT, 125 ms, DISPON,
+  20 ms, light, then a whole picture) instead of 145 ms of waiting in hw_backlight. In standby the firmware switches
+  the screen on for about 2 s with each call reminder (PC: every 60 s).
+- 1.6.9 test11 and test12 (T18_PRESENT_GATE, presents at each transfer or gated) were worse on the device (slide from
+  the top, parts missing, old picture left): taken out again in test13, main.c and build.sh are as in test10
+  (T18_PRESENT_IDLE + T18_PRESENT_STABLE). The panel model in host/ref.c (-DT18_PANEL_MODEL -DT18_PRES_PARA,
+  POLICY=old|xfer, GATE=1) stays for later work. The code of test12 is in its handover.
+- 1.6.8-test7 T18_LINK infrared: CONNECTION, TAMAGOTCHI between two Paradise. As the Android LinkManager the IR byte
+  stream goes 1:1 to the other device: ur_tx hands each byte to tg18_link_ir_out (sent as 'I' frames of up to 36
+  bytes, flushed every loop), ur_feed takes them from tg18_link_ir_in at line rate when tg18_link_ir_avail. The parser
+  takes 5A (PC) and A5 (another Paradise) as start, so two Paradise plugged together at the top talk directly; the Studio does not take part. Link block at 0x20000E00 now checked to stay below 0x20000F00 (test6 was 276 bytes and wrote
+  into the spare rows). Checked on the PC: host/pair.py runs two ref cores in lockstep (linkrun): playdate, both
+  connect, the guest appears in the host's room, TOGETHER AGAIN, guest home with PLAYED WITH ....
+- 1.6.8-test6 T18_LINK: Bluetooth visits and marriages (mixing-meets.com) over the UART on the contacts (UART1 0x4000B000,
+  IRQ 37, 460800 8N1 as the flash program). Core: tg18_ble_connect / tg18_ble_from_phone (22 len data into the module's
+  queue, 64 bytes kept for the module's own answers), tg18_link_out (data for the phone, given by the platform), register
+  0x0A bit 0x0004 once connected and set up (as Android radio.c). Device: frames 5A type len data sum ('C' connect, 'W'
+  write, 'P' alive) and A5 .. ('H' hello every second, 'N' notification, 'K' write taken); ring buffer and state at
+  0x20000E00 (the row sums are 16 bit with T18_LINK). PC side: the bookmarklet in src/app.js (pmxBridge) replaces
+  navigator.bluetooth on the page with Web Serial. Checked on the PC: host/ref.c "blereplay <capture> <session>" (as
+  tools/ble/mmphone.py of the Android T18Emu) with Bernd's capture of a visit and marriage: same answers as the real
+  device (F0 0C 70 A1, F0 0D 04 01), the Tama comes home with an egg, the baby hatches. Navigation on the PC: CONNECTION,
+  APP, VISIT; back: A until GO BACK? YES, B. Note: a Tama with a call or flag +0x16 bit 7 set does not open CONNECTION.
+- 1.6.8-test4 T18_DAY_FIX: the firmware counts the days itself (soft clock +0x2C, days since 2007-12-31, one up when the
+  hour goes from 23 to 0) and a new start loads them from its save (CONTINUE): time right, date of leaving. The note
+  (T18_NOTE_SEC) keeps the game's day and the clock's day at leaving (gday, rday; 0xFFFFFFFF in older notes); during the
+  first 5 minutes, when the game shows that day again, it gets the days since added once (not 23:55 to 0:05). A resumed
+  session needs nothing (tg18_set_time moves the day counter itself).
+- 1.6.8-test3 T18_WAKE_START: 0.6 s after the start a sleeping game (screen dark) gets one short C, as the Android
+  T18Emu does when it becomes visible. Before, the screen stayed black until a key.
+- 1.6.8-test1 T18_GROW (with ASK_EXTRA in ask.c): grow up from the settings (Param block address and the Sanrio flag
+  from the Studio in the settings at +428/+432, pictures at +436). Items: the Studio writes changed sectors of the
+  guest flash into the installed program in place (`t18RomWriteGuest` in src/emu.js: mapped blocks, sector table,
+  new pool sectors) and drops the session.
 - test45 T18_SEC_SPARE: spares by the 4 KB sector for empty guest blocks (tables in the Paradise RAM, saved as "T8SS" in
   the map sector). With 6 spare blocks the old way lost the 7th block the firmware writes (photo, diary).
 - test44: RM_N (48) and W_LOG (32, was 64) can be set with -D; TQ_N 32. With 64 the build no longer fit the hole.

@@ -228,14 +228,22 @@ async function emuGuestAsync(read, cfg, progress) {
  */
 const T7_EE = 0xC1000, T7_EE_MAGIC = 0x45453754, T7_SAVE_LEN = 4098;
 function t7Sum(b, o) { let s = 0x7E7E; for (let i = 0; i < 4096; i++) s = (Math.imul(s, 31) + b[o + i]) >>> 0; return s; }
-function t7Slot(img, at) { if (u32(img, at) !== T7_EE_MAGIC || u32(img, at + 12) !== t7Sum(img, at + 0x1000)) return null; return { seq: u32(img, at + 4), have: u32(img, at + 8) & 0xFFFF, at }; }
+// test27: up to test26 the T7Emu could write its pages 2 bytes off (the flash DMA takes words, its buffer lay at ...2):
+// 2 other bytes first, the pages without their last 2. The header sum is over the right pages, so such a slot is found.
+function t7Sum2(b, o) { let s = 0x7E7E; for (let i = 2; i < 4096; i++) s = (Math.imul(s, 31) + b[o + i]) >>> 0; return Math.imul(Math.imul(s, 31) >>> 0, 31) >>> 0; }
+function t7Slot(img, at) {
+  if (u32(img, at) !== T7_EE_MAGIC) return null;
+  const sum = u32(img, at + 12), sh = sum === t7Sum(img, at + 0x1000) ? 0 : sum === t7Sum2(img, at + 0x1000) ? 2 : -1;
+  if (sh < 0) return null;
+  return { seq: u32(img, at + 4), have: u32(img, at + 8) & 0xFFFF, at, sh };
+}
 function t7Newest(img, ee = T7_EE) { const a = t7Slot(img, ee), b = t7Slot(img, ee + 0x2000); if (a && b) return ((a.seq - b.seq) | 0) > 0 ? a : b; return a || b; }
 /** save.bin of the T7Emu app from a 16 MB image (null: the pet has no save yet). base: save area of
  * the T7Emu (0x0C0000, a further one from 1.6.0 its own). */
 function t7SaveOut(img, base = 0xC0000) {
   const s = t7Newest(img, base + 0x1000); if (!s) return null;
   const out = new Uint8Array(T7_SAVE_LEN); out[0] = s.have & 255; out[1] = s.have >> 8;
-  out.set(img.subarray(s.at + 0x1000, s.at + 0x2000), 2);
+  out.set(img.subarray(s.at + 0x1000 + s.sh, s.at + 0x2000), 2);   // shifted slot: the last 2 bytes stay 0
   return out;
 }
 function t7SaveCheck(b) { return b && b.length === T7_SAVE_LEN; }

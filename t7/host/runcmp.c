@@ -3,6 +3,7 @@
 #include "../src/core/t7_internal.h"
 #include "../src/core/t7_sound.h"
 #include <stdio.h>
+#include <stdlib.h>
 void host_set_rom(unsigned char *p, size_t n);
 static unsigned char *rd(const char *f, size_t *n){ FILE*x=fopen(f,"rb"); fseek(x,0,2); *n=ftell(x); fseek(x,0,0); unsigned char*p=malloc(*n); if(fread(p,1,*n,x)){} fclose(x); return p; }
 static uint32_t h(const uint8_t *p, int n, uint32_t s){ while(n--) s = s*16777619u ^ *p++; return s; }
@@ -14,4 +15,8 @@ int main(int c,char**v){ size_t n; unsigned char*rm=rd(v[1],&n); host_set_rom(rm
     int m=(int)(s*500+0.5);
     for(int i=0;i<m;i++){ t7_step_cycles(8000); uint8_t buf[4096]; uint32_t sz=t7_serialize_state(buf,sizeof buf);
       uint32_t hh=h(buf,sz,2166136261u); printf("%ld %08x pc=%04x a=%02x x=%02x y=%02x s=%02x w=%08x d=%08x r=%08x\n",step++,hh,g_cpu.pc,g_cpu.a,g_cpu.x,g_cpu.y,g_cpu.s,h(g_wram,0x600,1),h(g_dram,0x200,1),h(g_cpureg,256,1)); } }
+  if (getenv("CLK")) { for (int i = 0x390; i < 0x3A0; i++) fprintf(stderr, "%02x ", g_wram[i]); fprintf(stderr, "\n"); }
+#if defined(T7_IDLE) || defined(T7_STOP)
+  fprintf(stderr, "idle ok %u, skipped %u cycles of %ld\n", g_t7_idle_ok, g_t7_idle_cyc, step * 8000L);
+#endif
   return 0; }

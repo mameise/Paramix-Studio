@@ -107,11 +107,13 @@ const PROFILES = [
     common: [[8, 0x11], [16, 0xc0], [17, 0xa8], [168, 1], [576, 0x3f], [577, 0x1f], [1856, 1]],
     field: [[[4, 0x0c], [170, 2], [439, 0]], [[4, 4], [170, 1], [439, 1]], [[4, 4], [170, 1], [439, 2]]],
     bag: [0xb4, 0x240, 0x740], tama: 0x104, level: 0x7C },
-  // Jade Forest: one ID (4), three fields in the save (byte 443): LAND, WATER, FOREST (texts 14 to 16 in the ROM)
+  // Jade Forest: one ID (4), three fields in the save (byte 443): LAND, WATER, FOREST (texts 14 to 16 in the ROM).
+  // 1.6.9: the block has 4 bytes more from about 0xf8 on (the firmware's offsets from 0x114 are 4 higher than Land's):
+  // the bag list is at 0x244 and its amounts at 0x744 (count getter LDR [r0,#0x740] from block + 4), the money stays at 0xb4
   { name: 'jade', idPage: 0xD49000, edIds: [4], ids: [0, 0, 0], names: ['LAND', 'WATER', 'FOREST'], h: [2, 0], c: 0x849633DB,
     cols: [rgb(80, 200, 60), rgb(40, 120, 255), rgb(60, 190, 110)], fieldByte: 443,
     common: [[4, 4], [8, 17], [16, 192], [17, 168], [168, 1], [170, 3], [580, 63], [581, 31], [1860, 1]],
-    field: [[[443, 0]], [[443, 1]], [[443, 2]]], bag: [0xb4, 0x240, 0x740], tama: 0x108, level: 0x7C },
+    field: [[[443, 0]], [[443, 1]], [[443, 2]]], bag: [0xb4, 0x244, 0x744], tama: 0x108, level: 0x7C },
   // Tropical and Glacier: same firmware, three fields (byte 499): TROPICAL, ICE (Glacier), FOREST
   { name: 'gen3', idPage: 0xD29000, edIds: [5, 6], ids: [5, 6, 0], names: ['TROPICAL', 'GLACIER', 'FOREST'], h: [3, 1], c: 0x96CB83B8,
     cols: [rgb(255, 150, 60), rgb(150, 220, 255), rgb(60, 190, 110)], fieldByte: 499,
@@ -229,6 +231,8 @@ function feldApps(rom, tpl) {
   r.name0 = str(c + 380);
   const n = Math.min(u32(rom, c + 392), f.version >= 8 ? 12 : 6);
   for (let i = 0; i < n; i++) { const o = i < 6 ? c + 396 + 16 * i : c + 504 + 16 * (i - 6); r.apps.push({ src: u32(rom, o), name: str(o + 4) }); }
+  // 1.6.9 test13 (version 9): main program of the start device out of the list, start when switched on
+  if (f.version >= 9) { r.v9 = true; r.mainSrc = u32(rom, c + 600); r.auto = (u32(rom, c + 604) & 1) === 1; }
   return r;
 }
 /** Saved slots (raw bytes) of a ROM with the menu, for moving them over. */
@@ -754,6 +758,8 @@ function feldApply(rom, opts, saved, emb, E) {
   // DOWNLOAD in the start device (1.6.8, version 7): the flash app placed by appsPlace
   if (u32(f, ci + 4) >= 7) w32(f, ci + 500, launch && opts.dl ? opts.dl : 0);
   else if (launch && opts.dl) throw new Error('menu program too old for the start device');
+  // 1.6.9 test13 (version 9): the main program of the start device (one of the list, shown first) and its autostart
+  if (u32(f, ci + 4) >= 9) { w32(f, ci + 600, launch && opts.mainSrc ? opts.mainSrc : 0); w32(f, ci + 604, launch && opts.auto ? 1 : 0); }
   out.set(f, prog);
   if (cat.length) out.set(cat, catOff);
   // carry over saved slots (the active field lives in the save itself)

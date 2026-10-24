@@ -89,15 +89,53 @@ uint32_t T7_HOT t7_cpu_run(uint32_t budget)
 
   while (cyc < budget) {
     if (b3 && (pc == 0x60C4 || pc == 0x7926)) { T7R_SAVE(); ir_hooks(); T7R_LOAD(); }
-    if (chk && g_irq_pending_any && !fi) {
-      uint32_t pending = ((uint32_t)g_cpureg[0x73] << 8) | g_cpureg[0x74];
-      if (pending) {
-        PROFILE_INC(irq_entries);
-        int idx = __builtin_clz(pending << 16);
-        PUSH(pc >> 8); PUSH(pc & 0xFF); PUSH(PACKP());
-        pc = g_irq_vectors[idx]; fi = 1;
-        g_irq_pending_any = (g_cpureg[0x73] | g_cpureg[0x74]) != 0;
+    if (chk) {
+#ifdef T7_STOP
+      /* test12: halted (STOP): the cycles up to the end or the next sound event pass without instructions; any
+       * IRQ request wakes the CPU (taken only when the I flag allows, as on the chip) */
+      if (g_t7_halted) {
+        if (g_cpureg[0x73] | g_cpureg[0x74]) g_t7_halted = 0;
+        else {
+          uint32_t lim = budget - cyc;
+          if (son) { if (snd <= 0) lim = 1; else if ((uint32_t)snd < lim) lim = (uint32_t)snd; }
+          cyc += lim; g_t7_idle_cyc += lim;
+          if (son && (snd -= (int32_t)lim) <= 0) { g_snd_next = snd; t7_snd_service(); snd = g_snd_next; }
+          continue;                                    /* chk stays set */
+        }
       }
+#endif
+      if (g_irq_pending_any && !fi) {
+        uint32_t pending = ((uint32_t)g_cpureg[0x73] << 8) | g_cpureg[0x74];
+        if (pending) {
+          PROFILE_INC(irq_entries);
+          int idx = __builtin_clz(pending << 16);
+          PUSH(pc >> 8); PUSH(pc & 0xFF); PUSH(PACKP());
+          pc = g_irq_vectors[idx]; fi = 1;
+          g_irq_pending_any = (g_cpureg[0x73] | g_cpureg[0x74]) != 0;
+        }
+      }
+#ifdef T7_IDLE
+      /* test12: the BEQ went back to $CE66 (chk bit 1) and no IRQ came: the passes that fit up to the end or the
+       * next sound event at once, the same state as interpreting them (t7_idle_check, TamaGo-Pebble) */
+      if ((chk & 2u) && pc == T7_IDLE_PC && !fd && g_wram[0x2D] == 0) {
+        uint32_t lim = budget - cyc;
+        if (son) { if (snd <= 0) lim = 0; else if ((uint32_t)snd < lim) lim = (uint32_t)snd; }
+        uint32_t pass = t7_idle_pass_cyc(), n = lim / pass;
+        if (n) {
+          static const uint8_t k[5] = { 0x07, 0x03, 0x0D, 0x17, 0x13 };
+          uint32_t prev = 0;
+          for (int i = 0; i < 5; i++) { uint32_t v = (g_wram[0xC4 + i] + (n - 1u) * k[i]) & 0xFF; prev = v; g_wram[0xC4 + i] = (uint8_t)(v + k[i]); }
+          uint32_t o = prev + 0x13u;
+          fv = (~(prev ^ 0x13u) & (prev ^ o)) & 0x80u; fc = o > 0xFFu;
+          g_wram[0x100 | sp] = 0xCE; g_wram[0x100 | ((sp - 1) & 0xFF)] = 0x74;
+          a = 0; NZ(0);
+          uint32_t s = n * pass;
+          cyc += s; g_t7_idle_cyc += s;
+          if (son && (snd -= (int32_t)s) <= 0) { g_snd_next = snd; t7_snd_service(); snd = g_snd_next; }
+          chk = 1; continue;
+        }
+      }
+#endif
     }
     chk = 0;
 #ifdef T7_COUNT
@@ -159,7 +197,12 @@ uint32_t T7_HOT t7_cpu_run(uint32_t budget)
     case 0x10: BR(!(nzn & 0x80u)); break; case 0x30: BR(nzn & 0x80u); break;
     case 0x50: BR(!fv); break; case 0x70: BR(fv); break;
     case 0x90: BR(!fc); break; case 0xB0: BR(fc); break;
-    case 0xD0: BR(nzz != 0); break; case 0xF0: BR(nzz == 0); break;
+    case 0xD0: BR(nzz != 0); break;
+#ifdef T7_IDLE
+    case 0xF0: BR(nzz == 0); if (pc == T7_IDLE_PC && g_t7_idle_ok) chk |= 2u; break;
+#else
+    case 0xF0: BR(nzz == 0); break;
+#endif
     case 0xEA: break;
     default: c = 2; break;
     }

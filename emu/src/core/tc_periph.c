@@ -21,7 +21,7 @@ static void ioram_w32(Emu *e, uint32_t a, uint32_t v)
     p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
 }
 
-static void cmu_recalc(Emu *e)
+TC_SRAM static void cmu_recalc(Emu *e)
 {
     Cmu *c = &e->cmu;
     uint32_t oscsel  = (c->sccr >> 2) & 3;
@@ -40,7 +40,7 @@ static void cmu_recalc(Emu *e)
 
 static uint32_t mclk(Emu *e) { return e->cmu.mclk_hz ? e->cmu.mclk_hz : e->dev.osc3_hz; }
 
-static void cmu_write32(Emu *e, uint32_t a, uint32_t v)
+TC_SRAM static void cmu_write32(Emu *e, uint32_t a, uint32_t v)
 {
     Cmu *c = &e->cmu;
     uint32_t off = a - CMU_BASE;
@@ -108,9 +108,97 @@ TC_SRAM static void pn_tick(Emu *e)
     if (f) { IOB(0x300286) |= f; itc_scan(e); }
 }
 
+#ifdef TC_IRLINK
+/* ---- 1.6.9: infrared to another Paradise ---------------------------------------------------------
+ * As tamaemu's periph.c (ir_tx_byte, ir_rx_poll, the session gating of the P's and the peer-detect flag),
+ * but the bytes go to the platform (tc_ir_out) and come from it (tc_ir_avail, tc_ir_in) instead of
+ * tamaemu's link.c (no time stamps or collisions: the two devices pass the bytes on at once). State outside
+ * Emu, so saved sessions stay valid. Off until tc_ir_setup (then also the TX-ready bit follows the byte time). */
+#define IR_BAUD_LO (IR_BASE + 6u)
+#define IR_BAUD_HI (IR_BASE + 7u)
+#define SIO_TX   0x301704u
+#define IR_CTX_STATE 0x4E4u
+int  tc_ir_avail(void);
+int  tc_ir_in(void);
+void tc_ir_out(uint8_t b);
+static struct { uint64_t tx_ready_at, rx_next_at; uint32_t mode_flag, ctx_ptr; uint8_t on; } g_ir;
+void tc_ir_setup(uint32_t mode_flag, uint32_t ctx_ptr) { g_ir.mode_flag = mode_flag; g_ir.ctx_ptr = ctx_ptr; g_ir.on = 1; }
+/* 8N1 byte time: the IR divisor clock is 576 kHz (tamaemu: base / (div + 1), 300..1000000 baud, else 115200) */
+TC_SRAM static uint64_t ir_byte_cycles(Emu *e)
+{
+    uint32_t div = (uint32_t)IOB(IR_BAUD_LO) | ((uint32_t)(IOB(IR_BAUD_HI) & 0xF) << 16);
+    uint32_t c = div + 1u > 1920u ? mclk(e) / 11520u : mclk(e) / 1000u * 10u * (div + 1u) / 576u;   /* 32 bit: no 64-bit division on the device */
+    return c ? c : 1u;
+}
+TC_SRAM static void ir_raise(Emu *e, int bit) { IOB(0x300286) |= (uint8_t)(1u << bit); itc_scan(e); }
+TC_SRAM static void ir_tx_done_raise(Emu *e)
+{
+    uint8_t en = IOB(0x300276);
+    if (en & 0x20) ir_raise(e, 5); else if (en & 0x08) ir_raise(e, 3); else if (en & 0x10) ir_raise(e, 4);
+}
+TC_SRAM static void ir_tx_byte(Emu *e, uint8_t b)
+{
+    tc_ir_out(b);
+    IOB(IR_STAT) &= (uint8_t)~0x20u;                 /* TX busy off, TX ready after one byte time */
+    g_ir.tx_ready_at = e->cycles + ir_byte_cycles(e);
+}
+TC_SRAM static uint8_t ram_peek8(Emu *e, uint32_t a)
+{
+    const DeviceProfile *d = &e->dev;
+    if (a - d->a0ram_base < d->a0ram_size) return e->a0ram[a - d->a0ram_base];
+    if (a - d->ivram_base < d->ivram_size) return e->ivram[a - d->ivram_base];
+    if (a - d->dstram_base < d->dstram_size) return e->dstram[a - d->dstram_base];
+    return 0;
+}
+/* session state: a byte (P's: 2 visit/connect, 1 item exchange) or one reached through a context pointer (iD L) */
+TC_SRAM static uint8_t ir_session(Emu *e)
+{
+    if (g_ir.mode_flag) return ram_peek8(e, g_ir.mode_flag);
+    if (!g_ir.ctx_ptr) return 0;
+    uint32_t p = g_ir.ctx_ptr, c = (uint32_t)ram_peek8(e, p) | (uint32_t)ram_peek8(e, p + 1) << 8 | (uint32_t)ram_peek8(e, p + 2) << 16 | (uint32_t)ram_peek8(e, p + 3) << 24;
+    const DeviceProfile *d = &e->dev;
+    if (!c || (c - d->a0ram_base >= d->a0ram_size && c - d->ivram_base >= d->ivram_size && c - d->dstram_base >= d->dstram_size)) return 0;
+    return ram_peek8(e, c + IR_CTX_STATE);
+}
+TC_SRAM static void ir_rx_poll(Emu *e)
+{
+    /* receiver not armed (or the P's not in a session): the byte is lost, but the peer-detect flag rises */
+    if ((g_ir.mode_flag && !ir_session(e)) || !IOB(IR_TRIG)) {
+        while (tc_ir_avail()) {
+            (void)tc_ir_in();
+            if (ir_session(e) != 1) { IOB(0x300287) |= 0x08u; itc_scan(e); }
+        }
+        return;
+    }
+    if (e->cycles < g_ir.rx_next_at) return;
+    if ((IOB(IR_STAT) & 0x01u) && e->cycles < g_ir.rx_next_at + 64u * ir_byte_cycles(e)) return;   /* unread: wait, then overrun */
+    if (!tc_ir_avail()) return;
+    uint8_t b = (uint8_t)tc_ir_in();
+    IOB(SIO_RX) = b; IOB(IR_RXDATA) = b;
+    IOB(IR_STAT) |= 0x01u;
+    g_ir.rx_next_at = e->cycles + ir_byte_cycles(e);  /* one byte per byte time */
+    ir_raise(e, 4);
+}
+TC_SRAM static void ir_tick(Emu *e)
+{
+    if (g_ir.tx_ready_at && e->cycles >= g_ir.tx_ready_at) { g_ir.tx_ready_at = 0; ir_tx_done_raise(e); }
+    if (!e->dev.ir_gpio && !e->dev.nfc_pn512) ir_rx_poll(e);
+}
+TC_SRAM static void ir_write8(Emu *e, uint32_t a, uint8_t v)
+{
+    uint8_t old_trig = IOB(IR_TRIG);
+    e->ioram[a - e->dev.io_base] = v;
+    if (a == IR_BASE) ir_tx_byte(e, v);
+    if (a == IR_TRIG && v && !old_trig) g_ir.rx_next_at = e->cycles + ir_byte_cycles(e);   /* receiver start: one byte time */
+}
+#endif
+
 uint32_t g_tc_rtc_wr;
 void periph_write32(Emu *e, uint32_t a, uint32_t v)
 {
+#ifdef TC_IRLINK
+    if (g_ir.on && a == SIO_TX) { ioram_w32(e, a, v); ir_tx_byte(e, (uint8_t)v); return; }
+#endif
     if (a >= 0x301910 && a <= 0x30192B) g_tc_rtc_wr++;
     if (a - CMU_BASE <= 0x24) { cmu_write32(e, a, v); return; }
     if (a == 0x301900) { if (v & 1) IOB(0x301900) &= (uint8_t)~1u; return; }
@@ -134,6 +222,9 @@ void periph_write8(Emu *e, uint32_t a, uint8_t v)
 #endif
 #ifndef NO_PN
     if (e->dev.nfc_pn512 && a == IR_BASE) { e->ioram[a - e->dev.io_base] = v; pn_host_byte(e, v); return; }
+#endif
+#ifdef TC_IRLINK
+    if (g_ir.on && a >= IR_BASE && a <= IR_LAST && !e->dev.nfc_pn512) { ir_write8(e, a, v); return; }
 #endif
     if (a - CMU_BASE <= 0x27) {
         uint32_t word = a & ~3u;
@@ -187,6 +278,9 @@ uint8_t periph_read8(Emu *e, uint32_t a)
         return v;
     }
     if (a == IR_RXDATA) { uint8_t v = e->ioram[a - e->dev.io_base]; IOB(IR_STAT) &= (uint8_t)~0x01u; return v; }
+#ifdef TC_IRLINK
+    if (a == IR_STAT && g_ir.on) { uint8_t st = e->ioram[a - e->dev.io_base]; return (uint8_t)(e->cycles >= g_ir.tx_ready_at ? st | 0x02u : st & ~0x02u); }
+#endif
     if (a == IR_STAT) return (uint8_t)(e->ioram[a - e->dev.io_base] | 0x02u);
     return e->ioram[a - e->dev.io_base];
 }
@@ -286,7 +380,7 @@ static const uint8_t month_days[13] = {0,0x31,0x28,0x31,0x30,0x31,0x30,0x31,0x31
 #ifdef HOST
 uint32_t g_host_rtc_secs;
 #endif
-static void rtc_count_second(Emu *e)
+TC_SRAM static void rtc_count_second(Emu *e)
 {
 #ifdef HOST
     g_host_rtc_secs++;
@@ -314,13 +408,13 @@ static void rtc_count_second(Emu *e)
  * The weekday moves by the days between the old date and the new one. */
 static uint8_t to_bcd(uint32_t v) { return (uint8_t)(((v / 10u) << 4) | (v % 10u)); }
 static uint32_t from_bcd(uint8_t v) { return (uint32_t)(v >> 4) * 10u + (v & 15u); }
-static int32_t days_from(int32_t y, int32_t m, int32_t d)
+TC_SRAM static int32_t days_from(int32_t y, int32_t m, int32_t d)
 {
     y -= m <= 2; int32_t era = (y >= 0 ? y : y - 399) / 400, yoe = y - era * 400;
     int32_t doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1, doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     return era * 146097 + doe - 719468;
 }
-void periph_rtc_set(Emu *e, uint32_t t)
+TC_SRAM void periph_rtc_set(Emu *e, uint32_t t)
 {
     if ((IOB(0x301908) & 2) || (IOB(0x30190C) & 1)) return;     /* stopped or being set by the game */
     uint32_t days = t / 86400u, sod = t % 86400u;
@@ -338,7 +432,7 @@ void periph_rtc_set(Emu *e, uint32_t t)
 }
 
 /* Advance the guest clock by n seconds (after a pause). */
-void periph_rtc_advance(Emu *e, uint32_t n)
+TC_SRAM void periph_rtc_advance(Emu *e, uint32_t n)
 {
     if ((IOB(0x301908) & 2) || (IOB(0x30190C) & 1)) return;
     while (n--) rtc_count_second(e);
@@ -392,6 +486,9 @@ void periph_rtc_ms(Emu *e)
 void periph_tick(Emu *e, uint32_t cycles)
 {
     rtc_tick(e, cycles);
+#ifdef TC_IRLINK
+    if (g_ir.on) ir_tick(e);
+#endif
 #ifndef NO_PN
     if (e->dev.nfc_pn512) pn_tick(e);
 #endif
@@ -446,6 +543,13 @@ uint32_t periph_next(Emu *e)
         cyc = cyc > t->accum ? cyc - t->accum : 1;
         if (cyc < best) best = cyc;
     }
+#ifdef TC_IRLINK
+    if (g_ir.on) {                                   /* TX done, next received byte */
+        uint64_t now = e->last_tick;
+        if (g_ir.tx_ready_at) { uint64_t d = g_ir.tx_ready_at > now ? g_ir.tx_ready_at - now : 1u; if (d < best) best = d; }
+        if (IOB(IR_TRIG) && tc_ir_avail()) { uint64_t d = g_ir.rx_next_at > now ? g_ir.rx_next_at - now : 1u; if (d < best) best = d; }
+    }
+#endif
     return best ? (uint32_t)best : 1u;
 }
 

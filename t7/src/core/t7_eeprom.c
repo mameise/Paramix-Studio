@@ -230,6 +230,9 @@ void t7_eeprom_update(uint8_t power, uint8_t clk, uint8_t data)
         case ST_WRITE: {
           uint16_t addr = s_address & EEPROM_MASK;
           s_data[addr] = s_read;
+#ifdef T7_EEDBG
+          { extern void t7_eedbg(uint16_t, uint8_t); t7_eedbg(addr, s_read); }
+#endif
           // Mark page dirty for the next flush.
           s_dirty |= (1u << (addr / EEPROM_PAGE_SIZE));
           s_address = (s_address + 1) & EEPROM_MASK;

@@ -66,6 +66,44 @@ copyright and licenses stay in force; the files keep their original notices.
 No WAD file and no DOOM game graphics are part of this repository. The user
 brings their own WAD; the Studio converts it in the browser.
 
+## V1Emu (`v1/`)
+
+- **TamaLIB** by Jean-Christophe Rona, https://github.com/jcrona/tamalib,
+  GNU GPL version 2 or (at your option) any later version (copy in
+  `v1/src/core/LICENSE_tamalib`). The core in `v1/src/core` is TamaLIB with
+  changes for the Paradise (decode table, saving the CPU state, the Digimon's
+  LCD, keys, buzzer and contact P20).
+- The Paradise program (`v1/src/app`) and the icons are by mameise.
+- No ROM of a Tamagotchi or Digimon is in this repository.
+
+## V3Emu (`v3/`)
+
+- **BrickEmuPy** by azya52, https://github.com/azya52/BrickEmuPy, released
+  under **CC0 1.0 Universal** (public domain dedication: the author gave up all
+  copyright, the work may be copied, changed and used for any purpose without
+  asking and without credit). Credit is given here anyway.
+  From it come: the Sunplus SPLB32 core (`cores/SPLB32.py`, the 256
+  instructions translated to C by `v3/gen/py2c.py`, the rest by hand), the
+  HT24LC08 EEPROM (`peripherals/HT24LC08.py`), the infrared byte link
+  (`peripherals/CON_V3_IR.py`) and the positions of the 32 x 30 dots and the
+  ten icon segments of the Connection V3 face (`assets/Tamagotchi_v3.svg`,
+  only the positions, in `v3/src/core/v3lcd.inc`).
+- The C port, the timer and halt speedups, the Paradise program
+  (`v3/src/app`) and the icons are by mameise; with the rest of this
+  repository under the GNU GPL version 3.
+- No ROM of the Connection V3 is in this repository.
+
+## GBEmu (`gb/`)
+
+- **Peanut-GB** by Mahyar Koshkouei, https://github.com/deltabeard/Peanut-GB,
+  **MIT License** (the notice is at the top of `gb/src/core/peanut_gb.h`).
+  Parts of it come from SameBoy by Lior Halphon (MIT), marked in the file.
+  Changed for the Paradise: the ROM is read straight from the flash window
+  (marked "Paramix").
+- The Paradise program (`gb/src/app`) is by mameise; with the rest of this
+  repository under the GNU GPL version 3.
+- No Game Boy game is in this repository.
+
 ## Formats and protocols
 
 - File formats of the Paradise flash (archive, sprites, scenes):

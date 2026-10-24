@@ -44,7 +44,8 @@ int app_bell(void);                                       /* 1 = the bell icon i
 /* Platform (device or PC test) */
 int  plat_store_load(uint8_t *b, uint32_t n);              /* bytes of the settings sector (0 = empty) */
 void plat_store_write(const uint8_t *b, uint32_t n);
-uint32_t plat_rtc(void);                                   /* seconds counter, keeps running while switched off */
+uint32_t plat_rtc(void);
+void plat_bat(char *s);                                    /* BAT_SHOW: "2.84V 80%" (12 bytes) */                                   /* seconds counter, keeps running while switched off */
 void plat_rect(int x0, int y0, int x1, int y1);            /* start a rectangle on the screen */
 void plat_row(const uint16_t *px, int n);                  /* pixels of the rectangle, row by row */
 void plat_rect_end(void);

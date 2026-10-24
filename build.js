@@ -21,6 +21,14 @@ if (!fs.existsSync(eb) || !fs.existsSync(es)) throw new Error('emu/emu.bin oder 
   const v1 = __dirname + '/v1/v1.bin';
   if (!fs.existsSync(v1)) throw new Error('v1/v1.bin fehlt');
   emu = emu.replace('__V1_APP_B64__', fs.readFileSync(v1).toString('base64'));
+  // V3Emu (1.6.9): Connection V3 program (source in v3/src, core from BrickEmuPy). No ROM.
+  const v3 = __dirname + '/v3/v3.bin';
+  if (!fs.existsSync(v3)) throw new Error('v3/v3.bin fehlt');
+  emu = emu.replace('__V3_APP_B64__', fs.readFileSync(v3).toString('base64'));
+  // GBEmu (1.6.9 test36): Game Boy program (source in gb/src, core Peanut-GB). No ROM.
+  const gbb = __dirname + '/gb/gb.bin';
+  if (!fs.existsSync(gbb)) throw new Error('gb/gb.bin fehlt');
+  emu = emu.replace('__GB_APP_B64__', fs.readFileSync(gbb).toString('base64'));
   // T18Emu: TG18 program (source in t18/src). No firmware.
   const t18 = __dirname + '/t18/t18.bin';
   if (!fs.existsSync(t18)) throw new Error('t18/t18.bin fehlt');
@@ -65,12 +73,15 @@ let flash = fs.readFileSync(__dirname + '/src/flash.js', 'utf8');
   }
 }
 const saves = fs.readFileSync(__dirname + '/src/saves.js', 'utf8');
+const visit = fs.readFileSync(__dirname + '/src/visit.js', 'utf8');
+if (visit.includes('</script')) throw new Error('script end tag inside source');
+new (require('vm').Script)(visit, { filename: 'visit.js' });
 if (saves.includes('</script')) throw new Error('script end tag inside source');
 if (flash.includes('</script')) throw new Error('script end tag inside source');
 if (feld.includes('</script')) throw new Error('script end tag inside source');
 if (doom.includes('</script')) throw new Error('script end tag inside source');
 if (core.includes('</script') || app.includes('</script') || emu.includes('</script')) throw new Error('script end tag inside source');
-html = html.replace('__CORE__', () => core).replace('__EMU__', () => emu).replace('__DOOM__', () => doom).replace('__FELD__', () => feld).replace('__SIX__', () => six).replace('__FLASH__', () => flash).replace('__SAVES__', () => saves).replace('__APP__', () => app).split('__VERSION__').join('v' + v);
+html = html.replace('__CORE__', () => core).replace('__EMU__', () => emu).replace('__DOOM__', () => doom).replace('__FELD__', () => feld).replace('__SIX__', () => six).replace('__FLASH__', () => flash).replace('__SAVES__', () => saves).replace('__VISIT__', () => visit).replace('__APP__', () => app).split('__VERSION__').join('v' + v);
 fs.mkdirSync(__dirname + '/dist', { recursive: true });
 fs.writeFileSync(__dirname + '/dist/ParamixStudio.html', html);
 fs.writeFileSync(__dirname + '/dist/index.html', html);

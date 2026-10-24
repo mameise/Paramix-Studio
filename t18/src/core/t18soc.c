@@ -103,6 +103,9 @@ struct tg18 {
     uint8_t rq[128]; uint16_t rq_h, rq_t; uint16_t rq_end[12]; uint8_t rq_eh, rq_et;
     uint8_t rtr[36]; uint8_t rmsg[80]; uint16_t rntr, rnmsg;
     uint8_t rans[2], rzust, rfetch, racn, rstage, rsetup, rlast, rcs;
+#ifdef T18_LINK
+    uint8_t rconn;           /* test6: a phone/page is connected over the link (UART on the Paradise) */
+#endif
     uint8_t rmem[16];
 #endif
     uint32_t clock_mult;     /* game clock speed (1 = real time), not saved */
@@ -648,7 +651,7 @@ static void lcd_refresh_event(tg18_t *t) {
         uint32_t len = (uint32_t)(w * h * 2);
         if (len > 128u * 162u * 2u) len = 128u * 162u * 2u;
         if (t->fb_boot && t->cpu.cycles - t->fb_boot_cyc > (uint64_t)t->cpu_hz * 3) t->fb_boot = 0;   /* safety */
-#ifdef PARADISE
+#if defined(PARADISE) || defined(T18_PRES_PARA)
         /* Paradise: no store watching (translated code writes the buffer directly). The
            panel gets the buffer like the real LCD controller scans it, at most 30 times a
            second; the platform skips pictures that did not change. */
@@ -713,7 +716,19 @@ static void ur_irq(tg18_t *t) {
 /* move bytes from the incoming link queue into the RX FIFO at line rate */
 static void ur_feed(tg18_t *t) {
     uint64_t now = t->cpu.cycles;
+#ifdef T18_LINK
+    /* test7: the infrared of a visit comes from the other Paradise over the link (as the Android T18Emu's WLAN or
+       Bluetooth link: the bytes 1:1, the firmware does the rest), at line rate into the RX FIFO */
+    uint8_t b;
+    while (ur_rx_count(t) < 16 && now >= t->ur_next_rx && tg18_link_ir_in(&b)) {
+        if (R(0xC0060008) & 0x2000) { t->ur_rx[t->ur_rx_w & 63] = b; t->ur_rx_w++; }
+        uint64_t base = t->ur_next_rx > now - ur_byte_cycles(t) ? t->ur_next_rx : now;
+        t->ur_next_rx = base + ur_byte_cycles(t);
+        t->ir_last_activity = now;
+    }
+#else
     (void)now;      /* no IR link on the Paradise: nothing arrives */
+#endif
     ur_irq(t);
 }
 static uint32_t ur_status(tg18_t *t) {
@@ -743,7 +758,11 @@ static void ur_tx(tg18_t *t, uint8_t b) {
     uint64_t now = t->cpu.cycles, bc = ur_byte_cycles(t);
     uint64_t start = t->ur_tx_busy_until > now ? t->ur_tx_busy_until : now;
     t->ur_tx_busy_until = start + bc;
+#ifdef T18_LINK
+    tg18_link_ir_out(b);      /* test7: to the other Paradise */
+#else
     (void)b;
+#endif
     t->ir_tx_count++;
     t->ir_last_activity = now;
     ur_tx_sched(t);
@@ -981,9 +1000,16 @@ static uint8_t *rmem_at(tg18_t *t, uint32_t a, uint32_t n)
 static uint32_t rd32le(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
 static void radio_msg(tg18_t *t, const uint8_t *p, int n)
 {
+#ifdef T18_RADIO_DBG
+    { fprintf(stderr, "RMSG %3d:", n); for (int i = 0; i < n && i < 16; i++) fprintf(stderr, " %02x", p[i]); fprintf(stderr, "\n"); }
+#endif
     if (n < 2) return;
     switch (p[0]) {
-    case 0x22: { static const uint8_t ack[3] = {0x26, 0x22, 0x00}; rq_push(t, ack, 3); break; }
+    case 0x22: {
+#ifdef T18_LINK
+        { int len = p[1]; if (len > n - 2) len = n - 2; if (len > 0) tg18_link_out(p + 2, len); }   /* data for the phone (the platform's function) */
+#endif
+        static const uint8_t ack[3] = {0x26, 0x22, 0x00}; rq_push(t, ack, 3); break; }
     case 0x25: {
         uint8_t a[35]; int pay = n - 2 > 32 ? 32 : n - 2;
         a[0] = 0x21; a[1] = p[1]; a[2] = (uint8_t)pay; memcpy(a + 3, p + 2, (size_t)pay); rq_push(t, a, 3 + pay);
@@ -1045,6 +1071,9 @@ static uint8_t radio_xfer(tg18_t *t, uint8_t b)
         if (b & 1) {
             uint8_t r = (uint8_t)(b - 1); uint16_t w = 0;
             if (r == 0x0A) w = t->racn >= 4 || t->rstage == 2 ? 0x8400 : t->rstage == 1 ? 0x8000 : 0x8040;
+#ifdef T18_LINK
+            if (r == 0x0A && t->rconn && t->rsetup) w |= 0x0004;   /* the driver compares for equality: only after setup (Android radio.c) */
+#endif
             else if (r == 0x08 && !rq_empty(t)) { int k = rq_to_end(t); w = (uint16_t)((k > 31 ? 31 : k) << 6); }
             t->rans[0] = (uint8_t)(w >> 8); t->rans[1] = (uint8_t)w; t->rzust = 1;
         }
@@ -1054,6 +1083,22 @@ static uint8_t radio_xfer(tg18_t *t, uint8_t b)
     if (t->rzust == 2) { t->rzust = 0; return t->rans[1]; }
     return 0;
 }
+#ifdef T18_LINK
+/* test6: the phone side over a link (the Paradise's UART, see app/main.c T18_LINK), as the Android T18Emu's radio.c:
+ * connected flag, data from the phone as 22 len data (one message each), data for the phone through tg18_link_out. */
+void tg18_ble_connect(tg18_t *t, int on) { t->rconn = on ? 1 : 0; }
+int tg18_ble_ready(tg18_t *t) { return t->rsetup; }
+/* 1 when taken; 0 when there is no room yet (the caller tries again later). Phone data before the module's setup is
+ * fine: the firmware sees it waiting and then sets the module up (Android: 292 bytes waited like this). */
+int tg18_ble_from_phone(tg18_t *t, const uint8_t *d, int n)
+{
+    if (n <= 0 || n > 60) return 1;
+    if ((int)(uint16_t)(t->rq_t - t->rq_h) + n + 2 > 128 - 64 || (uint8_t)(t->rq_et - t->rq_eh) >= 10u) return 0;   /* room for a 56 read answer */
+    uint8_t m[62]; m[0] = 0x22; m[1] = (uint8_t)n; memcpy(m + 2, d, (size_t)n);
+    rq_push(t, m, n + 2);
+    return 1;
+}
+#endif
 #endif
 static void io_wr(void *ctx, uint32_t a, uint32_t v, int size) {
     tg18_t *t = (tg18_t *)ctx;
@@ -1272,6 +1317,9 @@ void tg18_run_cycles(tg18_t *t, uint64_t target) {
             uint32_t io = t->idle_addr - 0xF8000000u, ic = t18_sram_rd(io, 1);
             if (ic >= 25 && ic < 0x80) t18_sram_wr(io, 15, 1);
         }
+#ifdef T18_LINK
+        if (tg18_link_ir_avail()) ur_feed(t);
+#endif
         uint64_t stop = target < t->next_event ? target : t->next_event;
         if (stop > t->cpu.cycles) arm7_run(&t->cpu, stop);
         if (t->cpu.halted && t->cpu.cycles < stop) t->cpu.cycles = stop;

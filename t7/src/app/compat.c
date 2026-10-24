@@ -7,7 +7,7 @@
 
 extern const uint8_t *g_rom_xip;      /* main.c: start of the ROM in the cached window */
 extern uint32_t g_rom_size, g_rom_off;
-static uint8_t g_ee[16][256];
+static uint8_t g_ee[16][256] __attribute__((aligned(4)));   /* test27: the flash DMA takes words (was at ...2: pages 2 bytes off) */
 static uint16_t g_have, g_dirty;
 
 void tama_log(const char *fmt, ...) { (void)fmt; }
@@ -59,17 +59,35 @@ void persist_restore_page(int p, const uint8_t *in) { for (int i = 0; i < 256; i
 static uint32_t g_seq; static int g_slot = -1;
 static uint32_t rd32(const volatile uint8_t *h) { return h[0] | (h[1] << 8) | (h[2] << 16) | ((uint32_t)h[3] << 24); }
 static uint32_t sum_pages(const volatile uint8_t *d) { uint32_t s = 0x7E7E; for (int i = 0; i < 4096; i++) s = s * 31u + d[i]; return s; }
+#ifdef T7_EE_SHIFT
+/* test27: up to test26 g_ee could lie at an address ...2; the flash DMA starts at the word below, so the page sector
+ * holds 2 other bytes, then the pages without their last 2 bytes (the header sum is over the right pages).
+ * Such a slot is taken 2 bytes on and written again correctly at the next store. */
+static uint32_t sum_pages2(const volatile uint8_t *d) { uint32_t s = 0x7E7E; for (int i = 2; i < 4096; i++) s = s * 31u + d[i]; return s * 31u * 31u; }
+static uint8_t g_shift[2];
+#endif
 static int slot_ok(uint32_t at, uint32_t *seq)
 {
   const volatile uint8_t *h = XIP_PTR(at);
   if (rd32(h) != EE_MAGIC) return 0;
-  if (rd32(h + 12) != sum_pages(XIP_PTR(at + 0x1000u))) return 0;
+  if (rd32(h + 12) != sum_pages(XIP_PTR(at + 0x1000u))) {
+#ifdef T7_EE_SHIFT
+    if (rd32(h + 12) != sum_pages2(XIP_PTR(at + 0x1000u))) return 0;
+    *seq = rd32(h + 4);
+    return 2;
+#else
+    return 0;
+#endif
+  }
   *seq = rd32(h + 4);
   return 1;
 }
 void eeprom_load(uint32_t at)
 {
   uint32_t s0 = 0, s1 = 0; int a = slot_ok(at, &s0), b = slot_ok(at + 0x2000u, &s1);
+#ifdef T7_EE_SHIFT
+  g_shift[0] = a == 2; g_shift[1] = b == 2;
+#endif
   g_have = 0; g_dirty = 0; g_slot = -1; g_seq = 0;
   if (!a && !b) return;
   g_slot = (a && (!b || (int32_t)(s0 - s1) > 0)) ? 0 : 1;
@@ -79,8 +97,12 @@ void eeprom_load(uint32_t at)
   g_have = (uint16_t)(h[8] | (h[9] << 8));
   const volatile uint8_t *d = XIP_PTR(base + 0x1000u);
   for (int p = 0; p < 16; p++) for (int i = 0; i < 256; i++) g_ee[p][i] = d[p * 256 + i];
+#ifdef T7_EE_SHIFT
+  if (g_shift[g_slot]) { uint8_t *e = &g_ee[0][0]; for (int i = 0; i < 4094; i++) e[i] = d[i + 2]; e[4094] = e[4095] = 0; g_dirty = 1; }
+#endif
 }
 int eeprom_dirty(void) { return g_dirty; }
+uint32_t eeprom_seq(void) { return g_slot < 0 ? 0u : g_seq; }   /* test16: which stored state is in the flash */
 void eeprom_store(uint32_t at, uint8_t *sec4k)
 {
   if (!g_dirty) return;

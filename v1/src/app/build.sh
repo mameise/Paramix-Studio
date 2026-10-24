@@ -3,7 +3,7 @@
 set -e
 cd "$(dirname "$0")"
 E=../../../emu/src/emu
-CF="--target=thumbv7m-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -nostdlib -fno-common -Wall -Wno-unused-function -Wno-unused-variable -fno-builtin-memset -DFAST_LCD -DLCD_FASTCLK -DTONE_FIX -DBL_SLEEP -DSESS_ONCE -DPARA_BACK -DBL_PWM -DBL_MR3RST -I../core $XCF"
+CF="--target=thumbv7m-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -nostdlib -fno-common -Wall -Wno-unused-function -Wno-unused-variable -fno-builtin-memset -DFAST_LCD -DLCD_FASTCLK -DTONE_FIX -DBL_SLEEP -DSESS_ONCE -DPARA_BACK -DPARA_MB_KEEP -DBL_PWM -DBL_MR3RST -DV1_CLK_CHECK -DV1_CARE -DV1_DIRECT -DV1_REGB -DBAT_SHOW -DV1_LINK -DCLK_ECO -DECO_RTC -I../core $XCF"
 O=""
 for f in main.c $E/hw.c $E/ask.c $E/flash.c $E/libc.c ../core/cpu.c ../core/hw.c ../core/tamalib.c; do
   n=$(basename $f .c); [ "$f" = ../core/hw.c ] && n=thw; OPT=-Os; [ "$n" = cpu ] && OPT=-O2; clang $CF $OPT -c $f -o $n.o; O="$O $n.o"; done

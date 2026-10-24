@@ -527,6 +527,27 @@ int t7_ir_bridge_tx_poll(uint8_t *out) {
   return 1;
 }
 
+#ifdef T7_LINK
+/* 1.6.9: the packet as it is sent. $748E (bank 3) sends $32 bytes from $0220 by switching the infrared LED ($3016
+ * bit 3): it sets $32 and $5B to minus the count, sends a preamble, then the bytes ($32 counts up). Taken at the
+ * first LED switch-on of the preamble ($32 == $5B): watching $0220 lost a packet the same as the last one (the game
+ * sends again when there is no answer). Outside the hot loop: t7_io_write calls t7_ir_led_on. */
+static uint8_t s_ir_tx_pkt[32], s_ir_tx_n, s_ir_in;
+void t7_ir_led_on(void)
+{
+  if (g_rom_bank_id != 3 || g_t7_static_off) return;
+  if (g_wram[0x32] != g_wram[0x5B] || !g_wram[0x32]) { s_ir_in = 0; return; }   /* bytes going out, or done */
+  if (s_ir_in || (g_wram[0x220] & 0x0F) != 2) return;
+  s_ir_in = 1;
+  /* as 32 bytes like t7_ir_bridge_tx_poll (the receive side gives the firmware 32 bytes, the sum in the last) */
+  uint8_t n = (uint8_t)(0u - g_wram[0x32]); if (n > 32) n = 32;
+  int sum = 0;
+  for (int i = 0; i < 32; i++) { uint8_t v = i < n ? g_wram[0x220 + i] : 0; s_ir_tx_pkt[i] = v; if (i < 31) sum += v; }
+  if (!s_ir_tx_pkt[31]) s_ir_tx_pkt[31] = (uint8_t)sum;
+  s_ir_tx_n = 32;
+}
+int t7_ir_tx_take(uint8_t *out) { int n = s_ir_tx_n; if (!n) return 0; for (int i = 0; i < 32; i++) out[i] = s_ir_tx_pkt[i]; s_ir_tx_n = 0; return n; }
+#endif
 #ifndef T7_FASTRUN
 uint8_t T7_HOT t7_cpu_step(void) __attribute__((hot, optimize("O2")));
 
@@ -559,6 +580,7 @@ uint8_t t7_cpu_step(void)
       // main.cpp loest die Completion zeitverzoegert aus (~echte IR-Sendedauer).
       s_ir_tx_pending = 1;
     }
+
   }
 
   // Fire pending IRQs before fetching the next instruction.
@@ -770,4 +792,35 @@ uint8_t t7_cpu_step(void)
 }
 #endif
 uint8_t t7_dbg_p(void) { return pack_p(); }
+/* ---- 1.6.9 (test12) battery, taken over from TamaGo-Pebble v0.3.0 (tamago_cpu_idle_skip) ----
+ * The Tama-Go main loop waits at $CE66: JSR to 5 seed routines ($D2ED + 8 i: LDA $C4+i, CLC, ADC #k, STA $C4+i, RTS),
+ * LDA $2D, BEQ $CE66. Until an interrupt nothing ends it, so whole passes are added up at once: seeds + n k, the
+ * stack slots of the last JSR, A = 0, flags as after the last pass. Checked against the ROM bytes at the start
+ * (other ROMs, e.g. Friends: off). */
+uint8_t g_t7_idle_ok, g_t7_halted;
+uint32_t g_t7_idle_cyc, g_t7_keyact;   /* keyact: cycles left without STOP after a key changed (T7_STOP_KEYACT) */
+static const uint8_t IDLE_SIG[19] = { 0x20,0xED,0xD2, 0x20,0xF5,0xD2, 0x20,0xFD,0xD2, 0x20,0x05,0xD3, 0x20,0x0D,0xD3, 0xA5,0x2D, 0xF0,0xED };
+static const uint8_t IDLE_ADD[5] = { 0x07, 0x03, 0x0D, 0x17, 0x13 };
+void t7_idle_check(void)
+{
+  g_t7_idle_ok = 0; g_t7_halted = 0;
+#ifdef T7_IDLE
+  if (!g_static_rom) return;
+  for (int i = 0; i < 19; i++) if (g_static_rom[T7_IDLE_PC - 0xC000u + i] != IDLE_SIG[i]) return;
+  for (int i = 0; i < 5; i++) {
+    const uint8_t *r = &g_static_rom[0xD2ED - 0xC000 + i * 8];
+    if (r[0] != 0xA5 || r[1] != 0xC4 + i || r[2] != 0x18 || r[3] != 0x69 || r[4] != IDLE_ADD[i] || r[5] != 0x85 || r[6] != 0xC4 + i || r[7] != 0x60) return;
+  }
+  g_t7_idle_ok = 1;
+#endif
+}
+#ifdef T7_IDLE
+/* passes that fit in budget cycles (pc at $CE66, no IRQ to take: checked by the caller); returns the cycles */
+static uint32_t t7_idle_pass_cyc(void)
+{
+  return 5u * (opcode_cycles[0x20] + opcode_cycles[0xA5] + opcode_cycles[0x18] + opcode_cycles[0x69] + opcode_cycles[0x85] + opcode_cycles[0x60])
+         + opcode_cycles[0xA5] + opcode_cycles[0xF0];
+}
+#endif
 #include "t7_run.inc"
+
