@@ -67,6 +67,9 @@ extern uint8_t g_irq_pending_any;
  * (bit-identical), T7_STOP halts the CPU when the firmware writes 7 to $3001 (until an IRQ or a key) */
 #define T7_IDLE_PC 0xCE66u
 extern uint8_t g_t7_idle_ok, g_t7_halted;
+#ifdef T7_JSR_HLE
+extern uint8_t g_t7_hle, g_t7_dark;
+#endif
 extern uint32_t g_t7_idle_cyc, g_t7_keyact;
 void t7_idle_check(void);
 

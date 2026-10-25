@@ -12,6 +12,8 @@
  *  48  pics:  count, table offset                 (table: offset u32, width u16, height u16; 8-bit, rows from the top)
  *  56  reserved                                  60 episodes
  * Pics: the range L_COLONPIC .. GETPSYCHEDPIC of the game (91 pics, same order in all versions; TITLEPIC is pic 43).
+ * Spear of Destiny (.SOD, flags bit 1): the same 91 places taken from its own chunks (title from its two halves), then
+ * its faces GODMODEFACE1..3, BJWAITING1..2, BJOUCH (pics 91..96). One episode of 21 floors.
  *
  * Author: mameise
  */
@@ -26,6 +28,27 @@ function w16(b, o, v) { b[o] = v & 255; b[o + 1] = (v >> 8) & 255; }
 function w32(b, o, v) { b[o] = v & 255; b[o + 1] = (v >>> 8) & 255; b[o + 2] = (v >>> 16) & 255; b[o + 3] = (v >>> 24) & 255; }
 
 const NUMSOUNDS = 87;          // audiowl6.h LASTSOUND (shareware and full version)
+const NUMSOUNDS_SOD = 81;      // audiosod.h
+// Spear of Destiny 1.4 (170 chunks): its chunk for each of the 91 places (gfxv_sod.h); TITLE (43) = TITLE1 above TITLE2
+// the game palette of SOD (sodpal.inc of Wolf4SDL, 6-bit RGB): its title has a palette of its own (TITLEPALETTE, chunk
+// 153), the program shows every pic with the game palette, so the title is taken to the nearest colours
+const SOD_PAL_B64 = 'AAAAAAAqACoAACoqKgAAKgAqKhUAKioqFRUVFRU/FT8VFT8/PxUVPxU/Pz8VPz8/Ozs7Nzc3NDQ0MDAwLS0tKioqJiYmIyMjHx8fHBwcGRkZFRUVEhISDg4OCwsLCAgIPwAAOwAAOAAANQAAMgAALwAALAAAKQAAJgAAIgAAHwAAHAAAGQAAFgAAEwAAEAAAPzY2Py4uPycnPx8fPxcXPxAQPwgIPwAAPyoXPyYQPyIIPx4AORsAMxgALRUAJxMAPz82Pz8uPz8nPz8fPz4XPz0QPz0IPz0AOTYAMzEALSsAJycAISEAHBsAFhUAEBAAND8XMT8QLT8IKD8AJDkAIDMAHS0AGCcANj82Lz8uJz8nID8fGD8XED8QCD8IAD8AAD8AADsAADgAADUAATIAAS8AASwAASkAASYAASIAAR8AARwAARkAARYAARMAARAANj8/Lj8/Jz8/Hz8+Fz8/ED8/CD8/AD8/ADk5ADMzAC0tACcnACEhABwcABYWABAQFy8/ECw/CCo/ACc/ACM5AB8zABstABcnNjY/Li8/Jyc/HyA/Fxg/EBA/CAk/AAE/AAA/AAA7AAA4AAA1AAAyAAAvAAAsAAApAAAmAAAiAAAfAAAcAAAZAAAWAAATAAAQCgoKPzgNPzUJPzMGPzACPy0AAA4AAAoAJgA5IAAzHQAtGAAnFAAhEQAcDQAWCgAQPzY/Py4/Pyc/Px8/Pxc/PxA/Pwg/PwA/OAA5MgAzLQAtJwAnIQAhGwAcFgAWEAAQPzo3Pzg0PzYxPzUvPzMsPzEpPy8nPy4kPywgPykcPycYPCUXOiMWNyIVNCAUMh8TLx4SLRwRKhoQKBkPJxgOJBcNIhYMIBQLHRMKGxIJFxAIFQ8HEg4GEAwGDgsFCggDGAAZABkZABgYAAAHAAALDAkEEgASFAAUAAANBwcHExMTFxcXEBAQDAwMDQ0NNj09Ljo6Jzc3HTIyEjAwCC0tCCwsACkpACYmACMjACEhAB8fAB4eAB0dABwcABsbJgAi';
+function b64(s) { if (typeof Buffer !== 'undefined') return new Uint8Array(Buffer.from(s, 'base64')); const t = atob(s), o = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) o[i] = t.charCodeAt(i); return o; }
+function toGamePal(px, pal) {
+  const gp = b64(SOD_PAL_B64), map = new Uint8Array(256);
+  for (let c = 0; c < 256; c++) {
+    let best = 0, bd = 1e9;
+    for (let j = 0; j < 256; j++) { const dr = pal[3 * c] - gp[3 * j], dg = pal[3 * c + 1] - gp[3 * j + 1], db = pal[3 * c + 2] - gp[3 * j + 2], d = 3 * dr * dr + 4 * dg * dg + 2 * db * db; if (d < bd) { bd = d; best = j; } }
+    map[c] = best;
+  }
+  return px.map((v) => map[v]);
+}
+function sodChunk(k) {
+  if (k <= 41) return 37 + k;                  // L_COLONPIC .. L_BJWINSPIC
+  if (k >= 47 && k <= 87) return 54 + k;       // KNIFEPIC .. GOTGATLINGPIC
+  if (k >= 91) return 51 + k;                  // GODMODEFACE1PIC .. BJOUCHPIC
+  return { 42: 90, 43: 79, 44: 91, 45: 92, 46: 29, 88: 142, 89: 148, 90: 149 }[k];
+}
 const PIC_FIRST = { 150: 44, 157: 56 };   // chunk of L_COLONPIC by number of chunks (Activision/GT 1.4, Apogee 1.4)
 const PIC_COUNT = 91;          // L_COLONPIC .. GETPSYCHEDPIC
 // used by the program: STATUSBAR (42, its colour), TITLE (43), weapons, keys, digits, faces, PAUSED, GETPSYCHED (47..90)
@@ -37,17 +60,17 @@ const NEED = ['VSWAP', 'MAPHEAD', 'GAMEMAPS', 'AUDIOHED', 'AUDIOT', 'VGAHEAD', '
 function pickSet(files) {
   const by = {};
   for (const n of Object.keys(files)) {
-    const m = /^([A-Za-z]+)\.(WL1|WL6)$/i.exec(n.replace(/^.*[\\/]/, ''));
+    const m = /^([A-Za-z]+)\.(WL1|WL6|SOD)$/i.exec(n.replace(/^.*[\\/]/, ''));
     if (m) (by[m[2].toUpperCase()] = by[m[2].toUpperCase()] || {})[m[1].toUpperCase()] = files[n];
   }
-  for (const ext of ['WL6', 'WL1']) {
+  for (const ext of ['WL6', 'SOD', 'WL1']) {
     const s = by[ext]; if (!s) continue;
     const miss = NEED.filter((k) => !s[k]);
     if (!miss.length) return { ext, files: s };
   }
   const have = Object.keys(by);
-  if (!have.length) throw new Error('no Wolfenstein 3D files (.WL1 or .WL6)');
-  const ext = have.includes('WL6') ? 'WL6' : 'WL1';
+  if (!have.length) throw new Error('no Wolfenstein 3D files (.WL1, .WL6 or .SOD)');
+  const ext = have.includes('WL6') ? 'WL6' : have.includes('SOD') ? 'SOD' : 'WL1';
   throw new Error('missing: ' + NEED.filter((k) => !by[ext][k]).map((k) => k + '.' + ext).join(', '));
 }
 
@@ -83,6 +106,7 @@ function deplane(d, w, h) {
 /** Build the pack. files: complete set (see pickSet). */
 function build(files) {
   const { ext, files: f } = pickSet(files);
+  const sod = ext === 'SOD', nsnd = sod ? NUMSOUNDS_SOD : NUMSOUNDS;
   const parts = []; let size = 64;
   const add = (b) => { const o = size; parts.push([o, b]); size += b.length; size = (size + 3) & ~3; return o; };
   const hdr = new Uint8Array(64);
@@ -114,31 +138,43 @@ function build(files) {
   }
   w32(hdr, 28, nmaps); w32(hdr, 32, tag); w32(hdr, 36, add(mtab));
   // PC speaker sounds
-  const ah = f.AUDIOHED, at = f.AUDIOT, stab = new Uint8Array(NUMSOUNDS * 8);
-  for (let i = 0; i < NUMSOUNDS && 4 * i + 8 <= ah.length; i++) {
+  const ah = f.AUDIOHED, at = f.AUDIOT, stab = new Uint8Array(nsnd * 8);
+  for (let i = 0; i < nsnd && 4 * i + 8 <= ah.length; i++) {
     const a = u32(ah, 4 * i), b = u32(ah, 4 * i + 4);
     if (b > a && b <= at.length) { w32(stab, 8 * i, add(at.subarray(a, b))); w32(stab, 8 * i + 4, b - a); }
   }
-  w32(hdr, 40, NUMSOUNDS); w32(hdr, 44, add(stab));
+  w32(hdr, 40, nsnd); w32(hdr, 44, add(stab));
   // pictures
   const g = readGraph(f.VGAHEAD, f.VGADICT, f.VGAGRAPH);
-  const first = PIC_FIRST[g.nchunks];
+  const first = sod ? (g.nchunks === 170 ? 0 : undefined) : PIC_FIRST[g.nchunks];
   if (first === undefined) throw new Error('unknown version of VGAHEAD (' + g.nchunks + ' chunks)');
   const st = g.chunk(0);                       // STRUCTPIC: width, height of every pic from chunk 3
-  const pics = []; for (let k = 0; k < PIC_COUNT; k++) pics.push(first + k);   // TITLEPIC is pic 43
+  const pics = []; for (let k = 0; k < PIC_COUNT + (sod ? 6 : 0); k++) pics.push(sod ? sodChunk(k) : first + k);   // TITLEPIC is pic 43
+  const pic = (c) => {
+    const w = s16v(st, 4 * (c - 3)), h = s16v(st, 4 * (c - 3) + 2), d = g.chunk(c);
+    if (!d || w <= 0 || h <= 0 || (w & 3) || d.length < w * h) return null;
+    return { w, h, px: deplane(d, w, h) };
+  };
   const xtab = new Uint8Array(pics.length * 8);
   pics.forEach((c, k) => {
     if (!PIC_USED(k)) return;   // pictures the program never shows stay out (flash)
-    const w = s16v(st, 4 * (c - 3)), h = s16v(st, 4 * (c - 3) + 2), d = g.chunk(c);
-    if (!d || w <= 0 || h <= 0 || (w & 3) || d.length < w * h) return;
-    w32(xtab, 8 * k, add(deplane(d, w, h))); w16(xtab, 8 * k + 4, w); w16(xtab, 8 * k + 6, h);
+    let p = pic(c);
+    if (p && sod && k === 43) {                // the title of SOD comes in two halves
+      const q = pic(c + 1);
+      if (q && q.w === p.w) { const px = new Uint8Array(p.w * (p.h + q.h)); px.set(p.px); px.set(q.px, p.w * p.h); p = { w: p.w, h: p.h + q.h, px }; }
+      const tp = g.chunk(153);                   // TITLEPALETTE
+      if (tp && tp.length >= 768) p.px = toGamePal(p.px, tp);
+    }
+    if (!p) return;
+    w32(xtab, 8 * k, add(p.px)); w16(xtab, 8 * k + 4, p.w); w16(xtab, 8 * k + 6, p.h);
   });
   w32(hdr, 48, pics.length); w32(hdr, 52, add(xtab));
-  w32(hdr, 60, Math.max(1, Math.floor(nmaps / 10)));
-  hdr.set([0x57, 0x33, 0x44, 0x50]); w32(hdr, 4, 1); w32(hdr, 8, ext === 'WL1' ? 1 : 0); w32(hdr, 12, size);
+  const episodes = sod ? 1 : Math.max(1, Math.floor(nmaps / 10));
+  w32(hdr, 60, episodes);
+  hdr.set([0x57, 0x33, 0x44, 0x50]); w32(hdr, 4, 1); w32(hdr, 8, (ext === 'WL1' ? 1 : 0) | (sod ? 2 : 0)); w32(hdr, 12, size);
   const out = new Uint8Array(size); out.set(hdr);
   for (const [o, b] of parts) out.set(b, o);
-  return { pack: out, ext, maps: nmaps, episodes: Math.max(1, Math.floor(nmaps / 10)) };
+  return { pack: out, ext, maps: nmaps, episodes, sod };
 }
 function s16v(b, o) { const v = u16(b, o); return v > 32767 ? v - 65536 : v; }
 root.ParamixWolf = { pickSet, build, readGraph, NEED };

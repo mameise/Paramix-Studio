@@ -35,6 +35,15 @@ No ROM here: bring your own game (.gb). Game Boy Color games are refused by the 
   "Paramix" in the core), GB_FAST shrinks four dots at once (table `g_h5`), GB_SKIP_ADAPT leaves out up to three frames
   in a row when the game falls behind (normally every second frame is drawn). Same picture dot for dot.
 
+- State (GB_STATE, 1.6.11 test2): on leaving (wheel held) the whole Game Boy goes to the flash behind the cartridge
+  RAM (`emu/src/emu/pstate.h`), read once at the next start and dropped right after.
+- Link cable (GB_LINK, 1.6.11 test2, `src/app/gb_link.h`): the serial port between two Paradise plugged together at the
+  top (plink over the contacts, 460800 baud, frames 'G'). The clocking side sends its byte ('M') and keeps the transfer
+  open (PGB_SERIAL_WAIT, marked "Paramix" in the core) until the other side's game is ready to receive and answers with
+  its own byte ('R'); both clocking: 'B', both get 0xFF; no answer within 400 ms: 0xFF. Without a partner everything
+  is as before. Tested: `test/link2.c` (two cores on the PC, a Pokemon trade from the Cable Club to the end), and two
+  devgb.py joined by pipes (LINKW, LINKR) with `test/mklinkrom.py` (an own small program, 256 bytes both ways).
+
 Speed (Unicorn simulation, 96 MHz): Super Mario Land and Kirby's Dream Land 2 at full speed (59.7 frames a second);
 Blargg's cpu_instrs (no HALT at all) at about 75 %.
 

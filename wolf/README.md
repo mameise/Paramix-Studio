@@ -1,10 +1,12 @@
 # Wolfenstein 3D for the Tamagotchi Paradise
 
 Only the program is here. No game data, no graphics, no sounds. Everyone brings their own files of Wolfenstein 3D:
-the shareware (`.WL1`, episode 1) or the full version (`.WL6`, six episodes), version 1.4. The Studio reads them in
+the shareware (`.WL1`, episode 1) or the full version (`.WL6`, six episodes), version 1.4, or Spear of Destiny (`.SOD`,
+21 floors, 1.4). Spear of Destiny is the same source built with `SPEAR` (`SOD=1 sh dev/build.sh` gives `wolfsod.bin`);
+both can be in the menu at the same time. The Studio reads them in
 the browser only and builds one data pack for the flash (`src/wolf.js`).
 
-- `wolf.bin`: the program. The first 64 KB go to the program memory (PRAM) when the Paramix menu starts it, the rest
+- `wolf.bin`, `wolfsod.bin`: the program. The first 64 KB go to the program memory (PRAM) when the Paramix menu starts it, the rest
   (code for the RAM at 0x20001000 and the start values of the data) the program copies from the flash itself.
 - Source in `src`:
   - `w4`: the game from Wolf4SDL (KS-Presto, commit dc8b250), based on the Wolfenstein 3D source by id Software:
@@ -26,7 +28,7 @@ At the next start "Continue" goes on where the game was left.
 
 ## Pack and flash
 
-Pack "W3DP" (see `src/wolf.js`): walls and sprites as in VSWAP (without the digitized sounds), maps as in GAMEMAPS
+Pack "W3DP" (see `src/wolf.js`; flags bit 1 = Spear of Destiny, its pics put in the places of Wolf3D, its title taken to the game palette): walls and sprites as in VSWAP (without the digitized sounds), maps as in GAMEMAPS
 (packed), the PC speaker sounds of AUDIOT, the pictures the program uses (unpacked, rows from the top). In the flash:
 the pack (64 KB aligned; the cached window of 1 MB is put on it, anything behind the first MB is read through the
 uncached window), then the program (128 KB), then 64 KB (4 KB settings, the saved game).

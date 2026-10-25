@@ -33,8 +33,9 @@ volatile const SmsCfg g_cfg = { SMS_MAGIC, 1, 0, 0, 0, 2, {0}, { 0x04, 0x10, 0x0
 #define ROMWIN ((const u8 *)0x10000000u)
 
 /* ---- screen: lines come from the core while a frame runs; every two lines give one row of 128 ---- */
-#define OY 16
-#define OH 96
+/* Master System 128 x 96 from y 16; Game Gear (SMS_GG): 160 x 144 to 128 x 115 from y 6 */
+static int OY = 16, OH = 96;
+#define OH_MAX 115
 static void sms_line(int y, const u8 *lb);
 #define SMS_LINE(y, lb) sms_line((y), (lb))
 #include "../core/sms.h"
@@ -133,12 +134,49 @@ static void psg_quiet(void) { if (g_tone_now) { g_tone_now = 0; hw_tone(0); } }
 /* ---- screen ---- */
 static u16 g_ha[128] __attribute__((aligned(4)));   /* the even line, two dots mixed into one */
 static u16 g_row[128] __attribute__((aligned(4)));
-static u32 g_hash[OH];
+static u32 g_hash[OH_MAX];
 static int g_draw, g_win = -1, g_force;
 static inline u32 mix2(u32 a, u32 b) { return (a & b) + (((a ^ b) & 0xF7DEu) >> 1); }
+static void row_out(int r, u32 h)
+{
+  if (h == g_hash[r] && !g_force) return;   /* the row as it is on the display */
+  g_hash[r] = h;
+  if (g_win != r) { if (g_win >= 0) hw_px_end(); hw_px_begin(0, (u32)(OY + r), 128, (u32)(OY + OH)); }
+  hw_px_row(g_row, 128);
+  g_win = r + 1;
+}
+#ifdef SMS_GG
+/* Game Gear: the 160 x 144 window (from x 48, y 24); 5 dots to 4 across and 5 lines to 4 down: the outer ones as they
+ * are, the middle ones mixed from two (as GBEmu, nothing is cut off) */
+static u16 g_gl[2][128] __attribute__((aligned(4)));
+static void gg_hrow(const u8 *lb, u16 *o)
+{
+  const u16 *pal = g_sms.pal565;
+  for (int k = 0; k < 32; k++, lb += 5, o += 4) {
+    u32 p1 = pal[lb[1]], p2 = pal[lb[2]], p3 = pal[lb[3]];
+    o[0] = pal[lb[0]]; o[1] = (u16)mix2(p1, p2); o[2] = (u16)mix2(p2, p3); o[3] = pal[lb[4]];
+  }
+}
+static u32 row_hash(void) { u32 h = 2166136261u; const u32 *w = (const u32 *)g_row; for (int x = 0; x < 64; x++) h = (h ^ w[x]) * 16777619u; return h; }
+static void gg_line(int y, const u8 *lb)
+{
+  int g = y / 5, l = y % 5, r = g * 4;
+  switch (l) {
+    case 0: gg_hrow(lb, g_row); break;
+    case 1: gg_hrow(lb, g_gl[0]); return;
+    case 2: gg_hrow(lb, g_gl[1]); for (int x = 0; x < 128; x++) g_row[x] = (u16)mix2(g_gl[0][x], g_gl[1][x]); r += 1; break;
+    case 3: gg_hrow(lb, g_gl[0]); for (int x = 0; x < 128; x++) g_row[x] = (u16)mix2(g_gl[1][x], g_gl[0][x]); r += 2; break;
+    default: gg_hrow(lb, g_row); r += 3; break;
+  }
+  if (r < OH) row_out(r, row_hash());
+}
+#endif
 static void sms_line(int y, const u8 *lb)
 {
   const u16 *pal = g_sms.pal565;
+#ifdef SMS_GG
+  if (g_sms.gg) { if (y >= 24 && y < 168) gg_line(y - 24, lb + 48); return; }
+#endif
   if (!(y & 1)) { for (int x = 0; x < 128; x++) g_ha[x] = (u16)mix2(pal[lb[2 * x]], pal[lb[2 * x + 1]]); return; }
   u32 h = 2166136261u;
   for (int x = 0; x < 128; x += 2) {
@@ -147,18 +185,13 @@ static void sms_line(int y, const u8 *lb)
     g_row[x] = (u16)a; g_row[x + 1] = (u16)b;
     h = (h ^ (a | b << 16)) * 16777619u;
   }
-  int r = y >> 1;
-  if (h == g_hash[r] && !g_force) return;   /* the row as it is on the display */
-  g_hash[r] = h;
-  if (g_win != r) { if (g_win >= 0) hw_px_end(); hw_px_begin(0, (u32)(OY + r), 128, OY + OH); }
-  hw_px_row(g_row, 128);
-  g_win = r + 1;
+  row_out(y >> 1, h);
 }
 static void bars(void)
 {
   for (int x = 0; x < 128; x++) g_row[x] = 0;
-  hw_px_begin(0, 0, 128, OY); for (int y = 0; y < OY; y++) hw_px_row(g_row, 128); hw_px_end();
-  hw_px_begin(0, OY + OH, 128, 128); for (int y = OY + OH; y < 128; y++) hw_px_row(g_row, 128); hw_px_end();
+  hw_px_begin(0, 0, 128, (u32)OY); for (int y = 0; y < OY; y++) hw_px_row(g_row, 128); hw_px_end();
+  hw_px_begin(0, (u32)(OY + OH), 128, 128); for (int y = OY + OH; y < 128; y++) hw_px_row(g_row, 128); hw_px_end();
 }
 static void redraw_all(void) { bars(); g_force = 1; for (int i = 0; i < OH; i++) g_hash[i] = 0; }
 
@@ -188,7 +221,7 @@ static void menu_line(int it, const char **a, char *b)
 {
   int e = en(); const char *v = 0; b[0] = 0;
   switch (it) {
-    case M_PAUSE: *a = e ? "PRESS PAUSE" : "PAUSE DRUECKEN"; v = "B"; break;
+    case M_PAUSE: *a = g_sms.gg ? (e ? "PRESS START" : "START DRUECKEN") : (e ? "PRESS PAUSE" : "PAUSE DRUECKEN"); v = "B"; break;
     case M_SND: *a = e ? "SOUND" : "TON"; v = g_set.mute ? (e ? "OFF" : "AUS") : (e ? "ON" : "AN"); break;
     case M_LIGHT: *a = e ? "LIGHT" : "LICHT"; pct(b, LV_PCT[(g_set.r0 & 15u) % LV_N]); break;
     case M_DIM: *a = e ? "DIM AFTER" : "DIMMEN NACH"; v = T_NM[e][g_set.dim <= T_N ? g_set.dim : T_N]; break;
@@ -269,6 +302,36 @@ static u32 sms_keys(u32 b, u32 now)
   return k;
 }
 
+#ifdef SMS_STATE
+/* ---- 1.6.11 test2: the whole machine on leaving (wheel held), read once at the next start ---- */
+#include "../../../emu/src/emu/pstate.h"
+#define STATE_AT (g_cfg.save_off + 0x9000u)
+#define STATE_MAX 0x7000u
+static int g_running;
+static u32 st_tag(void) { return 0x534D0001u ^ (u32)&g_sms ^ ((u32)sizeof(Sms) << 8) ^ ((u32)sizeof(Z80) << 20) ^ g_cfg.rom_len ^ (u32)sms_line; }
+static int st_parts(StPart *pt)
+{
+  pt[0].p = &g_cpu; pt[0].n = sizeof g_cpu; pt[1].p = &g_sms; pt[1].n = sizeof g_sms;
+  pt[2].p = g_ram; pt[2].n = sizeof g_ram; pt[3].p = g_vram; pt[3].n = sizeof g_vram;
+  return 4;
+}
+static void state_store(void) { StPart pt[4]; int n = st_parts(pt); if (g_running) st_store(STATE_AT, STATE_MAX, st_tag(), pt, n, g_sec); }
+static int state_load(void)
+{
+  StPart pt[4]; int n = st_parts(pt);
+  const uint8_t *rom = g_sms.rom; uint32_t rl = g_sms.rom_len; uint8_t *cr = g_sms.cram; uint32_t cl = g_sms.cram_len;
+  int ok = st_load(STATE_AT, STATE_MAX, st_tag(), pt, n);
+  if (ok) {   /* this program's pointers again, the pages and the decoded tiles from the state */
+    g_sms.rom = rom; g_sms.rom_len = rl; g_sms.cram = cr; g_sms.cram_len = cl; g_sms.cram_dirty = 0;
+    g_sms.rp[0] = rom; sms_pages(0); sms_pages(1); sms_pages(2);
+    for (int i = 48; i < 64; i++) g_sms.rp[i] = g_ram + (i & 7) * 0x400;
+    for (uint32_t a = 0; a < 0x4000u; a += 4u) tc_row(a);
+  }
+  st_drop(STATE_AT);
+  return ok;
+}
+#endif
+
 /* ---- leaving ---- */
 static void leave(void)
 {
@@ -276,6 +339,9 @@ static void leave(void)
   if (g_set_dirty) set_store();
   REG(0x20000FF8u) = 0;
   REG(0x20000FFCu) = 0x4C584D50u;        /* "PMXL": back on purpose, the autostart stays off */
+#ifdef SMS_STATE
+  if (g_running) { message(en() ? "SAVING" : "SPEICHERN", ""); state_store(); }
+#endif
   if (g_sms.cram_dirty) cram_store();
 #ifdef PARA_BACK
   para_back_fix(g_sec);
@@ -319,8 +385,14 @@ void Reset_Handler(void)
     leave();
   }
   g_sms.cram = g_cram; g_sms.cram_len = CRAM_MAX;
+#ifdef SMS_GG
+  if (g_cfg.flags & 4u) { g_sms.gg = 1; OY = 6; OH = 115; }   /* flags bit 2: Game Gear */
+#endif
   cram_load();
   sms_reset();
+#ifdef SMS_STATE
+  state_load(); g_running = 1;
+#endif
   redraw_all();
   SYST_RVR = CORE_HZ / 1000u - 1u; SYST_CVR = 0; SYST_CSR = 7;
   __asm__ volatile("cpsie i");

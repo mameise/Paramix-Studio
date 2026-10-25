@@ -133,7 +133,7 @@ void pmx_status (void)
     byte *s = pmx_screen ();
     memset (s + HUD_Y * 128, hud_bg, 32 * 128);
     for (int x = 0; x < 128; x++) s[HUD_Y * 128 + x] = 0x00;
-    if (pmx_face) pmx_drawpic (0, HUD_Y, (int)pmx_face - L_COLONPIC);     /* 24 x 32 */
+    if (pmx_face) pmx_drawpic (0, HUD_Y, chunk_to_pk ((int)pmx_face));     /* 24 x 32 */
     num_big (26, HUD_Y + 2, 3, gamestate.health);                        /* 8 x 16 digits */
     pmx_text (50, HUD_Y + 6, "%", 0x0f);
     num_big (58, HUD_Y + 2, 2, gamestate.ammo > 99 ? 99 : gamestate.ammo);
@@ -141,7 +141,11 @@ void pmx_status (void)
     pmx_drawpic (86, HUD_Y + 2, (gamestate.keys & 2) ? PK_SILVERKEY : PK_NOKEY);
     if (gamestate.weapon >= 0) pmx_drawpic_scaled (96, HUD_Y + 2, PK_KNIFE + gamestate.weapon, 32, 16);
     char line[24];
+#ifdef SPEAR
+    snprintf (line, sizeof line, "%d", gamestate.mapon + 1);
+#else
     snprintf (line, sizeof line, "%d-%d", gamestate.episode + 1, gamestate.mapon + 1);
+#endif
     pmx_text (26, HUD_Y + 22, line, 0x0f);
     snprintf (line, sizeof line, "%d", gamestate.lives);
     pmx_drawpic_scaled (52, HUD_Y + 20, PK_FACE1A, 6, 8);
@@ -287,6 +291,12 @@ void PreloadGraphics (void)
 static const uint16_t PAR[60] = {   /* par times in seconds (wl_inter.c parTimes; 0 = boss or secret floor) */
     90,120,120,210,180,180,150,150,0,0,   90,210,180,120,240,360,60,180,0,0,   90,90,150,150,210,150,120,360,0,0,
     120,120,90,60,270,210,120,270,0,0,   150,90,150,150,240,180,270,210,0,0,   390,240,270,360,300,300,330,330,510,0 };
+#ifdef SPEAR   /* 1.6.11 test2: Spear of Destiny, 21 floors (wl_inter.c parTimes; 0 = boss or secret floor) */
+static const uint16_t PAR_SOD[21] = { 90,210,165,210,0, 270,195,165,285,0, 390,270,165,270,360,0, 360,0, 0,0,0 };
+static int normal_floor (void) { int m = gamestate.mapon; return m != 4 && m != 9 && m != 15 && m < 17; }
+#else
+static int normal_floor (void) { return gamestate.mapon < 8; }
+#endif
 static void line2 (int y, const char *a, const char *b) { pmx_text (6, y, a, C_TEXT); pmx_text (128 - 6 * (int)strlen (b) - 4, y, b, C_HI); }
 void LevelCompleted (void)
 {
@@ -294,12 +304,16 @@ void LevelCompleted (void)
     g_hud_on = 0;
     VL_SetPalette (gamepal, true);
     VL_ClearScreen (VIEWCOLOR);
-    if (gamestate.mapon < 8)
+    if (normal_floor ())
     {
         int sec = gamestate.TimeCount / 70, kr = 0, sr = 0, tr = 0;
         int32_t timeleft = 0;
         if (sec > 99 * 60) sec = 99 * 60;
+#ifdef SPEAR
+        int par = PAR_SOD[gamestate.mapon % 21];
+#else
         int par = PAR[(gamestate.episode * 10 + gamestate.mapon) % 60];
+#endif
         if (gamestate.TimeCount < par * 70) timeleft = par - sec;
         if (gamestate.killtotal) kr = (gamestate.killcount * 100) / gamestate.killtotal;
         if (gamestate.secrettotal) sr = (gamestate.secretcount * 100) / gamestate.secrettotal;
@@ -321,8 +335,15 @@ void LevelCompleted (void)
     }
     else
     {
+#ifdef SPEAR
+        static const char *const BOSS[6] = { "TRANS GROSSE", "BARNACLE WILHELM", "UBERMUTANT", "DEATH KNIGHT", "SECRET TUNNEL AREA", "SECRET CASTLE AREA" };
+        int m = gamestate.mapon, b = m == 4 ? 0 : m == 9 ? 1 : m == 15 ? 2 : m == 17 ? 3 : m == 18 ? 4 : 5;
+        pmx_text_c (30, BOSS[b], C_HI);
+        pmx_text_c (40, b < 4 ? "DEFEATED!" : "COMPLETED!", C_HI);
+#else
         pmx_text_c (30, "SECRET FLOOR", C_HI);
         pmx_text_c (40, "COMPLETED!", C_HI);
+#endif
         pmx_text_c (60, "15000 BONUS!", C_TEXT);
         GivePoints (15000);
         SD_PlaySound (ENDBONUS2SND);
@@ -338,12 +359,13 @@ void Victory (void)
 {
     char v[24];
     int32_t sec = 0, kr = 0, sr = 0, tr = 0, n = 0;
-    for (int i = 0; i < LRpack && i < 8; i++) { sec += LevelRatios[i].time; kr += LevelRatios[i].kill; sr += LevelRatios[i].secret; tr += LevelRatios[i].treasure; n++; }
+    for (int i = 0; i < LRpack && i < 20; i++) { if (!LevelRatios[i].time && !LevelRatios[i].kill && !LevelRatios[i].secret && !LevelRatios[i].treasure) continue; sec += LevelRatios[i].time; kr += LevelRatios[i].kill; sr += LevelRatios[i].secret; tr += LevelRatios[i].treasure; n++; }
     g_hud_on = 0;
     VL_SetPalette (gamepal, true);
     VL_ClearScreen (VIEWCOLOR);
     pmx_text_c (8, "YOU WIN!", C_HI);
     snprintf (v, sizeof v, "%02ld:%02ld", (long)(sec / 60) % 100, (long)(sec % 60)); line2 (30, "TOTAL TIME", v);
+    if (!n) n = 1;
     snprintf (v, sizeof v, "%ld%%", (long)(kr / n)); line2 (44, "KILL", v);
     snprintf (v, sizeof v, "%ld%%", (long)(sr / n)); line2 (54, "SECRET", v);
     snprintf (v, sizeof v, "%ld%%", (long)(tr / n)); line2 (64, "TREASURE", v);

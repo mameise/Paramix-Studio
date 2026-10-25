@@ -136,7 +136,13 @@ static inline void t7_friends_tick(void)
   t7_fire_irq(3);
 }
 static uint32_t s_tbh_accumulator = 0;
+#ifdef T7_TBH_RATE
+/* 1.6.12 test2: the 2 Hz timer of the game clock in real time when the program runs the core slower than 4 MHz
+ * (Paradise: 3.03 MHz for the tempo): at 4 MHz cycles a game second lasted 1.32 s and the clock note jumped it ahead */
+#define TBH_RATE (T7_TBH_RATE)
+#else
 #define TBH_RATE (T7_CLOCK_RATE / 2)
+#endif
 #ifdef T7_VIDEO_CYCLES
 /* Paradise (as the ESP32 port): video IRQ at 60 Hz of emulated time, independent of how
  * often and with how many cycles this is called. */

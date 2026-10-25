@@ -522,16 +522,18 @@ function smsHead(r) {
   }
   return null;
 }
-/** A Master System ROM: 8 KB to 1 MB; by its header, or (some games have none) by the file name ending .sms */
+/** A Master System or Game Gear ROM: 8 KB to 1 MB; by its header, or (some games have none) by the file name ending
+ * .sms or .gg */
 function smsDetect(r, name) {
   if (!r) return false;
   const n = (r.length & 0x3FFF) === 512 ? r.length - 512 : r.length;
   if (n < 0x2000 || n > 0x100000 || (n & 0x1FFF)) return false;
   const h = smsHead(r);
-  if (h) return h.region === 3 || h.region === 4;   // 3 SMS Japan, 4 SMS export (5..7 Game Gear)
-  return /\.sms$/i.test(name || '');
+  if (h) return h.region >= 3 && h.region <= 7;   // 3 SMS Japan, 4 SMS export, 5..7 Game Gear
+  return /\.(sms|gg)$/i.test(name || '');
 }
-function smsGameGear(r) { const h = smsHead(r); return !!h && h.region >= 5 && h.region <= 7; }
+/** 1.6.11 test2: Game Gear (header region 5..7, or a file ending .gg) */
+function smsGameGear(r, name) { const h = smsHead(r); return h ? h.region >= 5 && h.region <= 7 : /\.gg$/i.test(name || ''); }
 /** a short name from the file name: without brackets and the ending, upper case, at most 15 letters */
 function smsTitle(fname) {
   let s = String(fname || '').replace(/\.[^.]*$/, '').replace(/[([].*$/, '').replace(/[^A-Za-z0-9 !'&.-]/g, ' ').toUpperCase();
@@ -539,7 +541,7 @@ function smsTitle(fname) {
   return s.slice(0, 15).trim() || 'MASTER SYSTEM';
 }
 function smsCfgWrite(a, c, x, romOff, saveOff, flags) {
-  w32(a, c + 4, 1); w32(a, c + 8, romOff); w32(a, c + 12, x.rom.length); w32(a, c + 16, saveOff); w32(a, c + 20, (flags & 1) | (x.inv ? 2 : 0));
+  w32(a, c + 4, 1); w32(a, c + 8, romOff); w32(a, c + 12, x.rom.length); w32(a, c + 16, saveOff); w32(a, c + 20, (flags & 1) | (x.inv ? 2 : 0) | (x.gg ? 4 : 0));
   const nm = x.title || 'MASTER SYSTEM'; a.fill(0, c + 24, c + 40); for (let i = 0; i < nm.length && i < 15; i++) a[c + 24 + i] = nm.charCodeAt(i);
   const k = (x.keys && x.keys.length === 9) ? x.keys : SMS_KEYS_DEFAULT; a.fill(0, c + 40, c + 52); k.forEach((v, i) => { a[c + 40 + i] = v & 255; });
 }
@@ -551,14 +553,18 @@ function cfgName(rom, c) { let s = ''; for (let i = 0; i < 15; i++) { const v = 
  * B 2, C 4, wheel press 8), run with forward twice, degrees per wheel step, 0, then the program's own place. */
 const WOLF_APP_B64 = '__WOLF_APP_B64__';
 function wolfEmbedded() { return WOLF_APP_B64.startsWith('__') ? null : b64(WOLF_APP_B64); }
+// 1.6.11 test2: Spear of Destiny, the same program built for SOD (wolf/src, SOD=1); its pack has flags bit 1
+const WOLFSOD_APP_B64 = '__WOLFSOD_APP_B64__';
+function wolfSodEmbedded() { return WOLFSOD_APP_B64.startsWith('__') ? null : b64(WOLFSOD_APP_B64); }
+function wolfSod(p) { return !!p && p.length > 64 && !!(u32(p, 8) & 2); }
 const WOLF_MAGIC = 0x57584D50;   // "PMXW"
 const WOLF_KEYS_DEFAULT = { fire: 1, fwd: 2, back: 4, use: 8, mod: 4, run: true, invert: true, turn: 15 };   // 1.6.10 test1: wheel reversed by default
 function wolfPackOk(p) { return !!p && p.length > 64 && p[0] === 0x57 && p[1] === 0x33 && p[2] === 0x44 && p[3] === 0x50; }
-function wolfInfo(p) { return wolfPackOk(p) ? { shareware: !!(u32(p, 8) & 1), episodes: u32(p, 60), maps: u32(p, 28) } : null; }
+function wolfInfo(p) { return wolfPackOk(p) ? { shareware: !!(u32(p, 8) & 1), sod: !!(u32(p, 8) & 2), episodes: u32(p, 60), maps: u32(p, 28) } : null; }
 function wolfCfgWrite(a, c, x, packOff, saveOff, progOff, flags) {
   const k = Object.assign({}, WOLF_KEYS_DEFAULT, x.keys || {});
   w32(a, c + 4, 1); w32(a, c + 8, packOff); w32(a, c + 12, x.pack.length); w32(a, c + 16, saveOff); w32(a, c + 20, (flags & 1) | (k.invert ? 2 : 0));
-  const nm = 'WOLFENSTEIN 3D'; a.fill(0, c + 24, c + 40); for (let i = 0; i < nm.length; i++) a[c + 24 + i] = nm.charCodeAt(i);
+  const nm = wolfSod(x.pack) ? 'SPEAR OF DESTINY' : 'WOLFENSTEIN 3D'; a.fill(0, c + 24, c + 40); for (let i = 0; i < nm.length; i++) a[c + 24 + i] = nm.charCodeAt(i);
   a[c + 40] = k.fire; a[c + 41] = k.fwd; a[c + 42] = k.back; a[c + 43] = k.use; a[c + 44] = k.mod; a[c + 45] = k.run ? 1 : 0; a[c + 46] = k.turn; a[c + 47] = 0;
   w32(a, c + 48, progOff);
 }
@@ -649,7 +655,14 @@ const V1_ICONS = { ANGEL: [[0x0000,0x0000,0x0000,0x1C38,0x2244,0x4182,0x4422,0x5
 const V1_CLOCK = ['TAMA P1', 'TAMA P1 EN', 'TAMA P2', 'ANGEL', 'MORINO', 'DIGIMON V1', 'DIGIMON V2', 'DIGIMON V3', 'TAMA V3'];   // 1.6.9: V3Emu (V3_CLOCK)
 function v1Clock(r) { return V1_CLOCK.includes(v1Name(r)); }
 function v1Name(r) { if (v3Detect(r)) return 'TAMA V3'; let h = 2166136261; for (const x of r) h = Math.imul(h ^ x, 16777619) >>> 0; return V1_NAMES[h] || (r.length === 0x3000 ? 'TAMA 46' : 'TAMA 48'); }
-function t7Embedded() { return T7_APP_B64.startsWith('__') ? null : b64(T7_APP_B64); }
+function t7Embedded() { if (T7_APP_B64.startsWith('__')) return null; const a = b64(T7_APP_B64); if (!T7X_APP_B64.startsWith('__')) a.x = b64(T7X_APP_B64); return a; }
+/* 1.6.12 test2: second part of T7Emu (t7x.bin, the translator for the JIT) in the save area at +0x8000; the program runs without it */
+const T7X_APP_B64 = '__T7X_APP_B64__', T7X_OFF = 0x8000, T7X_MAX = 0x8000;
+function t7XWrite(out, saveOff, app) {
+  if (!app || !app.x || app.x.length > T7X_MAX) return;
+  out.fill(0xFF, saveOff + T7X_OFF, saveOff + T7X_OFF + T7X_MAX); out.set(app.x, saveOff + T7X_OFF);
+}
+function t7XSame(rom, saveOff, app) { if (!app || !app.x) return true; for (let i = 0; i < app.x.length; i++) if (rom[saveOff + T7X_OFF + i] !== app.x[i]) return false; return true; }
 /** V7 ROM: Tama-Go (640 KB, reset vector in the static part at 0x3FFC) or Tamagotchi Friends
  * (768 KB, 16 KB more in front: reset vector at 0x7FFC, nothing at 0x3FFC). 'go', 'friends' or null. */
 const T7_FRIENDS_SIZE = 0xC0000;
@@ -691,6 +704,29 @@ function t7Cfg(rom, base = APP_OFF) {
     figs.push({ off: u32(rom, f), len: u32(rom, f + 4), name });
   }
   return { version: u32(rom, c + 4), romOff: u32(rom, c + 8), romLen: u32(rom, c + 12), saveOff: u32(rom, c + 16), figs, flags: u32(rom, c + 24 + T7_FIG_MAX * 24) };
+}
+/* 1.6.11 test2: T7Emu builds up to 1.6.8 (and early 1.6.9 tests) could write the pet's save 2 bytes off; their own
+ * check then failed and after a battery change the game started anew. Known builds by length and FNV-1a over the
+ * program from 0x800 (the settings block in front differs per install); also a save slot already written off. */
+const T7_SHIFT_BUILDS = [[45856, 0xdfbdc8e8], [48612, 0xc123d5d6], [48612, 0x7880cbf2], [49792, 0xe8560e2d], [49532, 0x71dd1b4a], [51760, 0x91ab1388], [52976, 0xac37ab35], [53056, 0x74031b17], [54440, 0x16007a7e], [57404, 0xc8392ba4], [57984, 0xc27ec6ad], [58244, 0x6c7b9978], [58300, 0x51abf5c5], [58580, 0x53c0e0bd], [59008, 0xad615a75], [59856, 0xd768658e], [59680, 0xa74ff62c]];
+function fnv1a(b, a, e) { let h = 0x811c9dc5; for (let i = a; i < e; i++) h = Math.imul(h ^ b[i], 0x01000193) >>> 0; return h; }
+function t7EeShifted(rom, ee) {
+  for (const at of [ee, ee + 0x2000]) {
+    if (at + 0x2000 > rom.length || u32(rom, at) !== 0x45453754) continue;
+    let s = 0x7E7E; for (let i = 0; i < 4096; i++) s = (Math.imul(s, 31) + rom[at + 0x1000 + i]) >>> 0;
+    if (s === u32(rom, at + 12)) continue;
+    let s2 = 0x7E7E; for (let i = 2; i < 4096; i++) s2 = (Math.imul(s2, 31) + rom[at + 0x1000 + i]) >>> 0;
+    if (Math.imul(Math.imul(s2, 31) >>> 0, 31) >>> 0 === u32(rom, at + 12)) return true;
+  }
+  return false;
+}
+/** Is the T7Emu at base one that can lose the pet's save (old build, or a save already written off)? */
+function t7Outdated(rom, base = APP_OFF) {
+  const c = t7Cfg(rom, base); if (!c) return false;
+  for (const [len, h] of T7_SHIFT_BUILDS) if (base + len <= rom.length && fnv1a(rom, base + 0x800, base + len) === h) return true;
+  // a save written off counts only while the program is not the current one (the current one reads and rewrites it)
+  const cur = t7Embedded(); if (cur && fnv1a(rom, base + 0x800, base + cur.length) === fnv1a(cur, 0x800, cur.length)) return false;
+  return t7EeShifted(rom, c.saveOff + 0x1000);
 }
 /** What is installed, as input for t7Patch again (to add or remove figures). */
 function t7FromRom(rom) {
@@ -734,6 +770,7 @@ function t7Patch(rom, t7rom, figs, app, stubTpl, opts = {}) {
   const sameFigs = sameRom && oldT7.figs.length === list.length && oldT7.figs.every((f, i) => f.len === list[i].len && f.off === list[i].off);
   if (!sameRom) out.fill(0xFF, SAVE_OFF, SAVE_END);
   else { out.fill(0xFF, T7_EE_END, SAVE_END); if (!sameFigs) out.fill(0xFF, SAVE_OFF, T7_EE); }
+  t7XWrite(out, SAVE_OFF, app);
   return out;
 }
 /**
@@ -757,10 +794,12 @@ function t7Upgrade(rom, app) {
   a.set(rom.subarray(APP_OFF + 0x140, APP_OFF + 0x140 + n), 0x140);
   let same = true;
   for (let i = 0; i < APP_MAX && same; i++) if (rom[APP_OFF + i] !== (i < a.length ? a[i] : 0)) same = false;
-  if (same) return null;
+  const so = u32(rom, APP_OFF + 0x150);
+  if (same && t7XSame(rom, so, app)) return null;
   const out = new Uint8Array(rom);
   out.fill(0x00, APP_OFF, APP_OFF + APP_MAX);
   out.set(a, APP_OFF);
+  t7XWrite(out, so, app);
   return out;
 }
 
@@ -1236,7 +1275,7 @@ function tamaName(guest, dev) {
   if (dev === 'idl' && guest && guest.length >= 0x400004) { const n = IDL_NAMES[u32(guest, 0x400000)]; if (n) return n; }
   return TX_NAMES[dev] || 'TAMAEMU';
 }
-function extraName(x) { const k = extraKind(x); return k === 'tama' ? tamaName(x.guest, x.dev) : k === 't18' ? 'TAMA MEETS' : k === 'v1' ? v1Name(x.rom) : k === 'gb' ? gbTitle(x.rom) : k === 'sms' ? (x.title || 'MASTER SYSTEM') : k === 'wolf' ? 'WOLFENSTEIN 3D' : t7XName(x.rom); }
+function extraName(x) { const k = extraKind(x); return k === 'tama' ? tamaName(x.guest, x.dev) : k === 't18' ? 'TAMA MEETS' : k === 'v1' ? v1Name(x.rom) : k === 'gb' ? gbTitle(x.rom) : k === 'sms' ? (x.title || 'MASTER SYSTEM') : k === 'wolf' ? (wolfSod(x.pack) ? 'SPEAR OF DESTINY' : 'WOLFENSTEIN 3D') : t7XName(x.rom); }
 /** Rough flash use of an extra (for the overview) */
 function extraSize(x) {
   const k = extraKind(x);
@@ -1297,7 +1336,7 @@ function appsPlace(rom, extras, app, opts = {}) {
   const left = new Set(order);
   for (const xi of order) {
     const x = extras[xi];
-    const k = extraKind(x), name = extraName(x);
+    const k = extraKind(x), name = k === 'wolf' && wolfSod(x.pack) ? 'WOLF3D SPEAR' : extraName(x);   // 1.6.11 test2: 12 characters in the menu
     // 1.6.8: clock and NFC per program (x.clock / x.nfc), otherwise the common setting
     const clk = x.clock !== undefined ? x.clock !== false : opts.clock !== false, nfc = x.nfc !== undefined ? x.nfc !== false : opts.nfc !== false;
     const flags = (opts.lang === 'en' ? 1 : 0) | (clk ? 2 : 0) | (nfc ? 0 : 4) | optBits(x.opt);
@@ -1321,6 +1360,7 @@ function appsPlace(rom, extras, app, opts = {}) {
       figs.forEach((f, i) => { const o = c + 24 + i * 24; out.set(f.d, fo); w32(a, o, fo); w32(a, o + 4, f.d.length); for (let q = 0; q < f.name.length && q < 15; q++) a[o + 8 + q] = f.name.charCodeAt(q); fo += (f.d.length + 0xFFF) & ~0xFFF; });
       w32(a, c + 24 + T7_FIG_MAX * 24, flags);
       out.set(a, at);
+      t7XWrite(out, at + 0x10000, apps.t7);
       list.push({ src: xip(at), name, off: at });
       res.push([at, at + size]); if (!pl.hi) top = Math.min(top, at);
     } else if (k === 'gb') {
@@ -1367,7 +1407,8 @@ function appsPlace(rom, extras, app, opts = {}) {
       if (!pack) { res.push([at, at + size]); if (!pl.hi) top = Math.min(top, at); }
     } else if (k === 'wolf') {
       // 1.6.10 test1 Wolf3D: the pack first (64 KB aligned, the base of the cached window), then the program (128 KB), the save
-      const w = apps.wolf || wolfEmbedded(); if (!w) throw new Error('Wolf3D program missing');
+      const sod = wolfSod(x.pack), w = sod ? (apps.wolfsod || wolfSodEmbedded()) : (apps.wolf || wolfEmbedded());
+      if (!w) throw new Error((sod ? 'Spear of Destiny' : 'Wolf3D') + ' program missing');
       if (!wolfPackOk(x.pack)) throw new Error('Wolf3D data missing');
       if (w.length > 0x20000) throw new Error('Wolf3D program too big');
       const pa = (x.pack.length + 0xFFFF) & ~0xFFFF, size = pa + 0x30000, pl = place(size, 0x10000), at = pl.at;
@@ -1541,7 +1582,7 @@ function appsRead(rom, apps) {
     if (c.kind === 't7') { const tc = t7Cfg(rom, off); out.push({ rom: rom.slice(c.romOff, c.romOff + c.romLen), figs: tc ? tc.figs.map((f) => ({ name: f.name, data: rom.slice(f.off, f.off + f.len) })) : [], name: e.name, off, saveOff: c.saveOff, clock: !tc || !!(tc.flags & 2) }); }
     else if (c.kind === 'v1') out.push({ kind: 'v1', rom: rom.slice(c.romOff, c.romOff + c.romLen), name: e.name, off, saveOff: c.saveOff, clock: (u32(rom, off + 0x140 + 20) & 16) ? !!(u32(rom, off + 0x140 + 20) & 2) : true });   // bit 4: the clock bit is meant (test26..28 lost it): else on
     else if (c.kind === 'gb') out.push({ kind: 'gb', rom: rom.slice(c.romOff, c.romOff + c.romLen), name: e.name, off, saveOff: c.saveOff, keys: Array.from(rom.subarray(off + 0x140 + 40, off + 0x140 + 49)), inv: !!(u32(rom, off + 0x140 + 20) & 2), save: rom.slice(c.saveOff, c.saveOff + 0x10000) });
-    else if (c.kind === 'sms') out.push({ kind: 'sms', rom: rom.slice(c.romOff, c.romOff + c.romLen), title: cfgName(rom, off + 0x140) || 'MASTER SYSTEM', name: e.name, off, saveOff: c.saveOff, keys: Array.from(rom.subarray(off + 0x140 + 40, off + 0x140 + 49)), inv: !!(u32(rom, off + 0x140 + 20) & 2), save: rom.slice(c.saveOff, c.saveOff + 0x10000) });
+    else if (c.kind === 'sms') out.push({ kind: 'sms', rom: rom.slice(c.romOff, c.romOff + c.romLen), title: cfgName(rom, off + 0x140) || 'MASTER SYSTEM', gg: !!(u32(rom, off + 0x140 + 20) & 4), name: e.name, off, saveOff: c.saveOff, keys: Array.from(rom.subarray(off + 0x140 + 40, off + 0x140 + 49)), inv: !!(u32(rom, off + 0x140 + 20) & 2), save: rom.slice(c.saveOff, c.saveOff + 0x10000) });
     else if (c.kind === 'wolf') out.push({ kind: 'wolf', pack: rom.slice(c.romOff, c.romOff + c.romLen), name: e.name, off, saveOff: c.saveOff, keys: wolfKeysRead(rom, off + 0x140), save: rom.slice(c.saveOff, c.saveOff + 0x10000) });
     else if (c.kind === 'tama') {
       const g = new Uint8Array(DEVICES[c.dev].size).fill(0xFF);
@@ -1605,6 +1646,6 @@ function embedded() {
   return { app: b64(EMU_APP_B64), stub: b64(EMU_STUB_B64) };
 }
 
-root.ParamixEmu = { smsEmbedded, smsDetect, smsGameGear, smsTitle, SMS_MAGIC, SMS_KEYS_DEFAULT, wolfEmbedded, wolfInfo, wolfPackOk, WOLF_MAGIC, WOLF_KEYS_DEFAULT, gbEmbedded, gbDetect, gbColorOnly, gbTitle, GB_MAGIC, GB_KEYS_DEFAULT, emuOptGet, emuOptSet, v1Embedded, v3Embedded, v3Detect, v1Detect, v1Name, v1Clock, v1Patch, v1FromRom, v1Upgrade, V1_MAGIC, installApp, dlcStores, dlcRoute, dlcAdd, dlcFree, dlcSlots, dlcRecord, dlcPut, dlcName, emuDetect, sceneTable, packGuest, emuPatch, emuUpgrade, emuRemove, t7Embedded, t7Detect, t7Kind, appsPlace, appsRead, appsClear, appReserved, extraKind, extraName, extraSize, extraCfg, t7XName, T7X_SAVE, APPX_MAX, t7FigDetect, t7FigData, t7FigName, t7Cfg, t7FromRom, t7Room, t7Patch, t7Upgrade, t7Wall, T7_MAGIC, t18Embedded, t18Detect, t18FromRom, t18Items, t18ItemAdd, t18ItemDel, t18ItemCount, t18RoomReset, t18Points, t18iScan, t18RomWriteGuest, T18_ADULTS, t18AdultFind, t18PicMake, t18PicsWrite, t18PicsRead, t18PicRgba, t18Addrs, t18Cfg, t18Free, t18Low, t18Patch, t18Upgrade, t18Wall, t18ClockGet, t18ClockSet, emuClockGet, emuClockSet, tamaName, emuNfcGet, emuNfcSet, T18_MAGIC, T18_XIP_OFF, T18_SAVE_LEN, OPT_LV, autoGet, autoGetOld, autoSet, STUB_OFF, installedOrigs, embedded, DEVICES, GUEST_OFF, BIG_OFF };
+root.ParamixEmu = { t7Outdated, wolfSod, wolfSodEmbedded, smsEmbedded, smsDetect, smsGameGear, smsTitle, SMS_MAGIC, SMS_KEYS_DEFAULT, wolfEmbedded, wolfInfo, wolfPackOk, WOLF_MAGIC, WOLF_KEYS_DEFAULT, gbEmbedded, gbDetect, gbColorOnly, gbTitle, GB_MAGIC, GB_KEYS_DEFAULT, emuOptGet, emuOptSet, v1Embedded, v3Embedded, v3Detect, v1Detect, v1Name, v1Clock, v1Patch, v1FromRom, v1Upgrade, V1_MAGIC, installApp, dlcStores, dlcRoute, dlcAdd, dlcFree, dlcSlots, dlcRecord, dlcPut, dlcName, emuDetect, sceneTable, packGuest, emuPatch, emuUpgrade, emuRemove, t7Embedded, t7Detect, t7Kind, appsPlace, appsRead, appsClear, appReserved, extraKind, extraName, extraSize, extraCfg, t7XName, T7X_SAVE, APPX_MAX, t7FigDetect, t7FigData, t7FigName, t7Cfg, t7FromRom, t7Room, t7Patch, t7Upgrade, t7Wall, T7_MAGIC, t18Embedded, t18Detect, t18FromRom, t18Items, t18ItemAdd, t18ItemDel, t18ItemCount, t18RoomReset, t18Points, t18iScan, t18RomWriteGuest, T18_ADULTS, t18AdultFind, t18PicMake, t18PicsWrite, t18PicsRead, t18PicRgba, t18Addrs, t18Cfg, t18Free, t18Low, t18Patch, t18Upgrade, t18Wall, t18ClockGet, t18ClockSet, emuClockGet, emuClockSet, tamaName, emuNfcGet, emuNfcSet, T18_MAGIC, T18_XIP_OFF, T18_SAVE_LEN, OPT_LV, autoGet, autoGetOld, autoSet, STUB_OFF, installedOrigs, embedded, DEVICES, GUEST_OFF, BIG_OFF };
 if (typeof module !== 'undefined') module.exports = root.ParamixEmu;
 })(typeof window !== 'undefined' ? window : globalThis);

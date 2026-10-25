@@ -106,6 +106,25 @@ def shot(name):
 if os.environ.get('PMB'):   # test: the Paradise's time in the mailbox (seconds since 1970, local)
     _t = int(os.environ['PMB']); _c = int(os.environ.get('RTC0', '5000'))
     u.mem_write(0x20000FC0, struct.pack('<IIII', 0x4B4C4350, _t, _c, (~_t) & 0xFFFFFFFF))
+# 1.6.11 test2 GB_LINK: two of these joined by pipes, one exchange per ms (LINKW: pipe to write, LINKR: pipe to read)
+LK = {'tx': bytearray(), 'n0': 0}
+if os.environ.get('LINKW'):
+    def _uw(uc, acc, a, sz, v, ud):
+        LK['n0'] += 1
+        if LK['n0'] > 1: LK['tx'].append(v & 0xFF)     # the first is the baud divisor
+    u.hook_add(UC_HOOK_MEM_WRITE, _uw, begin=0x4000B000, end=0x4000B000)
+    LK['w'] = os.fdopen(os.open(os.environ['LINKW'], os.O_RDWR), 'wb', buffering=0); LK['r'] = os.fdopen(os.open(os.environ['LINKR'], os.O_RDWR), 'rb', buffering=0)   # (O_RDWR: no wait for the other end)
+def link_ms():
+    d = bytes(LK['tx']); LK['tx'] = bytearray()
+    LK['w'].write(struct.pack('<H', len(d)) + d)
+    h = LK['r'].read(2)
+    while len(h) < 2: h += LK['r'].read(2 - len(h))
+    n = struct.unpack('<H', h)[0]; got = b''
+    while len(got) < n: got += LK['r'].read(n - len(got))
+    if got:
+        a = syms['g_pl']; rt = u.mem_read(a + 257, 1)[0]
+        for b in got: u.mem_write(a + rt, bytes([b])); rt = (rt + 1) & 0xFF
+        u.mem_write(a + 257, bytes([rt]))
 sp, rst = struct.unpack('<II', bytes(u.mem_read(0, 8)))
 u.reg_write(UC_ARM_REG_SP, sp)
 pc = rst; gms = syms['g_ms']; rtc0 = int(os.environ.get('RTC0', '5000'))
@@ -119,6 +138,7 @@ while state['ms'] < total_ms and 'back' not in state:
         print('error', ex, hex(u.reg_read(UC_ARM_REG_PC))); break
     pc = u.reg_read(UC_ARM_REG_PC)
     state['ms'] += 1
+    if 'w' in LK: link_ms()
     v = struct.unpack('<I', u.mem_read(gms, 4))[0]; u.mem_write(gms, struct.pack('<I', v + 1))
     # 1.6.9 test13 T7_KEYQ: the GPIO as the keys say (pressed = 0) and the tick's press counter
     km = keys(); u.mem_write(0x40018000, struct.pack('<I', 0xFFFFFFFF & ~(((km & 1) << 9) | ((km & 2) << 10) | ((km & 4) << 8) | ((km & 8) << 5))))

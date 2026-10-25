@@ -76,6 +76,25 @@ def _ahb(uc, acc, a, sz, v, ud):
     state['sh'] = v & 7
     if os.environ.get('ECOLOG'): print('AHB', v & 7, 'at ms', state['ms'])
 u.hook_add(UC_HOOK_MEM_WRITE, _ahb, begin=0x45000010, end=0x45000013)
+# 1.6.12 test1 T7_PW: system clock source (0x4500000C: 0 IHRC 12 MHz, 4 PLL; status in bits 6:4), PLL locked flag,
+# RTC on with 1 s, deep sleep (PMU_CTRL bit 1, then WFI): the time runs on to the next RTC second or a key change
+u.mem_write(0x4500000C, struct.pack('<I', 0x44)); u.mem_write(0x45000008, struct.pack('<I', 0x55)); u.mem_write(0x45000200, struct.pack('<I', 0x80))
+state['ihrc'] = 0; state['pw'] = {'full': 0, 'ihrc': 0, 'sleep': 0}
+def _clk(uc, acc, a, sz, v, ud):
+    state['ihrc'] = (v & 7) == 0
+    uc.mem_write(0x4500000C, struct.pack('<I', (v & 7) | ((v & 7) << 4)))
+    if os.environ.get('ECOLOG'): print('CLKSRC', v & 7, 'at ms', state['ms'])
+u.hook_add(UC_HOOK_MEM_WRITE, _clk, begin=0x4500000C, end=0x4500000F)
+def _pmu(uc, acc, a, sz, v, ud):
+    # deep sleep: the time jumps to the next RTC second (or a key change) at once; the code after the WFI sees it
+    if v & 2 and not state.get('dsleep'):
+        k0 = keys(); t = state['ms']
+        while True:
+            t += 1
+            if t % 1000 == 0 or t >= total_ms or any(t / 1000.0 >= kt > state['ms'] / 1000.0 for kt, _ in KS): break
+        state['dsleep'] = t
+        uc.mem_write(0x45000304, struct.pack('<I', rtc0 + t // 1000))
+u.hook_add(UC_HOOK_MEM_WRITE, _pmu, begin=0x45000300, end=0x45000303)
 if os.environ.get('MEMW'):
     _mw = int(os.environ['MEMW'], 16)
     u.hook_add(UC_HOOK_MEM_WRITE, lambda uc, acc, a, sz, v, ud: print('W %08x = %08x at ms %d' % (a, v, state['ms'])), begin=_mw, end=_mw + 0x3F)
@@ -86,6 +105,7 @@ def shot(name):
         for x in range(128):
             v = fb[y][x]; im.putpixel((x, y), (((v >> 11) & 31) << 3, ((v >> 5) & 63) << 2, (v & 31) << 3))
     im.save(os.path.join(out, name))
+_RSAVE = [UC_ARM_REG_R0 + i for i in range(13)] + [UC_ARM_REG_SP, UC_ARM_REG_LR, UC_ARM_REG_XPSR]
 sp, rst = struct.unpack('<II', bytes(u.mem_read(0, 8)))
 u.reg_write(UC_ARM_REG_SP, sp)
 pc = rst; gms = syms['g_ms']; rtc0 = int(os.environ.get('RTC0', '5000'))
@@ -94,14 +114,31 @@ si = 0
 while state['ms'] < total_ms and 'back' not in state:
     u.mem_write(0x45000304, struct.pack('<I', rtc0 + state['ms'] // 1000))
     try:
-        u.emu_start(pc | 1, 0xFFFFFFF0, count=max(1, RT >> state['sh'])); state['shms'][min(state['sh'], 3)] += 1
+        _sh = 3 if state['ihrc'] else state['sh']
+        u.emu_start(pc | 1, 0xFFFFFFF0, count=max(1, RT >> _sh)); state['shms'][min(_sh, 3)] += 1
+        state['pw']['ihrc' if state['ihrc'] else 'full'] += 1
     except UcError as ex:
         print('error', ex, hex(u.reg_read(UC_ARM_REG_PC))); break
     pc = u.reg_read(UC_ARM_REG_PC)
+    _ds = state.pop('dsleep', 0)
+    if _ds:
+        n = _ds - state['ms']; state['ms'] = _ds
+        state['pw']['sleep'] += n
+        if os.environ.get('DBGSLEEP'): print('slept', n, 'to ms', state['ms'], 'pc', hex(pc), 'g_ms', struct.unpack('<I', u.mem_read(syms['g_ms'], 4))[0], 'emu', struct.unpack('<I', u.mem_read(syms['g_t7st'], 4))[0])
+        u.mem_write(0x45000304, struct.pack('<I', rtc0 + state['ms'] // 1000))
+        km = keys(); u.mem_write(0x40018000, struct.pack('<I', 0xFFFFFFFF & ~(((km & 1) << 9) | ((km & 2) << 10) | ((km & 4) << 8) | ((km & 8) << 5))))
+        continue
     state['ms'] += 1
     _ts = int(os.environ.get('TICKSLOW', '0'))   # test27: a slow ms tick at a lower clock (device fault model)
     if not (_ts and state['sh'] > 0 and state['ms'] % _ts):
         v = struct.unpack('<I', u.mem_read(gms, 4))[0]; u.mem_write(gms, struct.pack('<I', v + 1))
+        if 'g_ms_raw' in syms: _r = syms['g_ms_raw']; u.mem_write(_r, struct.pack('<I', struct.unpack('<I', u.mem_read(_r, 4))[0] + 1))
+        # 1.6.12 test4 (T7_TONE_ISR): the tick plays the tone queue; here called like the interrupt would
+        if 'tq_isr_on' in syms and u.mem_read(syms['tq_isr_on'], 1)[0]:
+            _regs = [u.reg_read(r) for r in _RSAVE]
+            u.reg_write(UC_ARM_REG_SP, (_regs[13] - 64) & ~7); u.reg_write(UC_ARM_REG_LR, 0xFFF1)
+            u.emu_start(syms['tq_pump'] | 1, 0xFFF0, count=200000)
+            for r, v in zip(_RSAVE, _regs): u.reg_write(r, v)
     # 1.6.9 test13 T7_KEYQ: the GPIO as the keys say (pressed = 0) and the tick's press counter
     km = keys(); u.mem_write(0x40018000, struct.pack('<I', 0xFFFFFFFF & ~(((km & 1) << 9) | ((km & 2) << 10) | ((km & 4) << 8) | ((km & 8) << 5))))
     if 'g_kin' in syms:
@@ -113,11 +150,15 @@ while state['ms'] < total_ms and 'back' not in state:
     if os.environ.get('CLOG') and state['ms'] % int(os.environ['CLOG']) == 0:
         _w = bytes(u.mem_read(syms['g_wram'], 0x600)); _sa = int(os.environ.get('CSEC', '0x396'), 16)
         _eb = struct.unpack('<3I', bytes(u.mem_read(syms['g_eco_bad'], 4)) + bytes(u.mem_read(syms['g_eco_fix'], 8))) if 'g_eco_bad' in syms else ()
+        if os.environ.get('DBGSYM'):
+            for _d in os.environ['DBGSYM'].split(','):
+                _s, _l = _d.split(':'); print('  ', _s, bytes(u.mem_read(syms[_s], int(_l, 0))).hex())
         print('clock', state['ms'], 'rtc', rtc0 + state['ms'] // 1000, 'game %02d:%02d:%02d' % (_w[0x306], _w[0x307], _w[_sa]), 'sh', state['sh'], 'eco_bad/fix', _eb)
 st = struct.unpack('<4I', bytes(u.mem_read(syms['g_t7st'], 16)))
 print('emulated ms', st[0], 'dropped ms', st[1])
 (os.environ.get('TONES') and print('tones:', state['tone']));print('ms', state['ms'], 'tones', len(state['tone']), 'flash writes', state['flashw'], 'back' if 'back' in state else '', 'pc', hex(pc))
 print('ms per clock step (96, 48, 24, 12 MHz):', state['shms'])
+print('power ms: full', state['pw']['full'], 'ihrc', state['pw']['ihrc'], 'deep sleep', state['pw']['sleep'])
 open(os.path.join(out, 'flash_after.bin'), 'wb').write(fl)
 for _n in os.environ.get('SYMDUMP', '').split(','):
     if ':' in _n:

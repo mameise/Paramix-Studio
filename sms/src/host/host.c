@@ -30,6 +30,7 @@ int main(int argc, char **argv)
   FILE *f = fopen(argv[1], "rb"); size_t n = fread(rom, 1, sizeof rom, f); fclose(f);
   int frames = atoi(argv[2]); const char *dir = argv[3];
   if ((n & 0x3FFF) == 512) { memmove(rom, rom + 512, n - 512); n -= 512; }
+  { size_t L = strlen(argv[1]); g_sms.gg = L > 3 && !strcmp(argv[1] + L - 3, ".gg"); }
   g_sms.rom = rom; g_sms.rom_len = (uint32_t)n; g_sms.cram = cram; g_sms.cram_len = sizeof cram;
   sms_reset();
   const char *keys = getenv("KEYS"), *shots = getenv("SHOTS");

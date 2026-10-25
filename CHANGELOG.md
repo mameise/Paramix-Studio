@@ -2,6 +2,26 @@
 
 Versions are listed newest first.
 
+## 1.6.13 (2026-10-25)
+
+- T7Emu: much less power with the screen off.
+- T7Emu: runs the game code translated (JIT), much less CPU load also with the screen on.
+- T7Emu: the game clock no longer skips seconds.
+- T7Emu: sound volume in steps (Off, Quiet, Medium, Loud).
+- T7Emu: cleaner tones (no clicks between notes, even note timing).
+- T7Emu: a short wheel press right after the screen was dark no longer closes the program.
+
+## 1.6.12 (2026-10-24)
+
+- Game Gear: your own Game Gear games in the Paramix menu.
+- Game Boy and Master System: holding the wheel saves the game, the next start continues there.
+- Game Boy and Master System: restart the game in the settings.
+- Game Boy: two Paradise plugged together work like a link cable, e.g. to trade Pokémon.
+- Spear of Destiny from your own game files, next to Wolfenstein 3D.
+- Warning when a program on the device is outdated.
+- Save export and import also for T18Emu, Game Boy, Master System and Wolfenstein 3D (.sav of Game Boy and Master System as in other emulators).
+- Fix: T7Emu date after a battery change.
+
 ## 1.6.11 (2026-10-24)
 
 - Master System: your own Master System games in the Paramix menu, with sound.

@@ -16,7 +16,8 @@ typedef struct {
   /* VDP */
   uint8_t reg[16], status, latch, first, code, rbuf, vint, lint, vs_frame;
   uint16_t addr; int lcount; int line;
-  uint8_t cramv[32]; uint16_t pal565[32];
+  uint8_t cramv[64]; uint16_t pal565[32];
+  uint8_t gg, gg_latch;                              /* Game Gear: 12 bit colours in two bytes, START on port 0 */
   /* PSG */
   uint16_t tone[3]; uint8_t vol[4], noise, psg_latch, psg_on;
   uint32_t frames;
@@ -91,6 +92,11 @@ static void tc_row(uint32_t a)
   hi = ((n >> 16) & 0xFu) | ((n >> 20) & 0xFu) << 8 | ((n >> 24) & 0xFu) << 16 | ((n >> 28) & 0xFu) << 24;
   g_tc[t * 2] = lo; g_tc[t * 2 + 1] = hi;
 }
+static void pal_gg(uint32_t i)   /* Game Gear: ----BBBB GGGGRRRR, 4 bits each */
+{
+  uint32_t lo = g_sms.cramv[i * 2u], hi = g_sms.cramv[i * 2u + 1u], r = lo & 15u, g = lo >> 4, b = hi & 15u;
+  g_sms.pal565[i] = (uint16_t)((r << 1 | r >> 3) << 11 | (g << 2 | g >> 2) << 5 | (b << 1 | b >> 3));
+}
 static void pal_set(uint32_t i, uint8_t v)
 {
   static const uint8_t c5[4] = { 0, 10, 21, 31 }, c6[4] = { 0, 21, 42, 63 };
@@ -101,7 +107,10 @@ static void vdp_data_w(uint8_t v)
 {
   Sms *s = &g_sms;
   s->first = 0;
-  if (s->code == 3) pal_set(s->addr & 31u, v);
+  if (s->code == 3) {
+    if (s->gg) { uint32_t a = s->addr & 63u; if (!(a & 1u)) s->gg_latch = v; else { s->cramv[a - 1u] = s->gg_latch; s->cramv[a] = v; pal_gg(a >> 1); } }
+    else pal_set(s->addr & 31u, v);
+  }
   else { uint32_t a = s->addr & 0x3FFFu; if (g_vram[a] != v) { g_vram[a] = v; tc_row(a); } }
   s->rbuf = v;
   s->addr = (uint16_t)((s->addr + 1u) & 0x3FFFu);
@@ -156,7 +165,13 @@ static void psg_w(uint8_t v)
 static uint8_t sms_in(uint32_t p)
 {
   p &= 0xFFu;
-  if (p < 0x40u) return 0xFF;
+  if (p < 0x40u) {
+    if (g_sms.gg && p < 0x08u) {   /* Game Gear: START (pressed = 0), export, NTSC; the link port idle */
+      static const uint8_t lk[8] = { 0, 0x7F, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0xFF };
+      return p ? lk[p] : (uint8_t)(((g_sms.pad & SMS_PAUSE) ? 0 : 0x80u) | 0x40u);
+    }
+    return 0xFF;
+  }
   if (p < 0x80u) return (p & 1u) ? (uint8_t)(((228 - g_cpu.cyc) * 171 / 228) & 0xFF) : vdp_vcount();
   if (p < 0xC0u) return (p & 1u) ? vdp_status_r() : vdp_data_r();
   if (!(p & 1u)) { uint32_t k = g_sms.pad; return (uint8_t)~(k & 0x3Fu); }
@@ -250,9 +265,9 @@ static void render_line(int y)
 static void sms_reset(void)
 {
   Sms *s = &g_sms;
-  const uint8_t *rom = s->rom; uint32_t len = s->rom_len; uint8_t *cr = s->cram; uint32_t cl = s->cram_len;
+  const uint8_t *rom = s->rom; uint32_t len = s->rom_len; uint8_t *cr = s->cram; uint32_t cl = s->cram_len; uint8_t gg = s->gg;
   uint8_t *p = (uint8_t *)s; for (unsigned i = 0; i < sizeof *s; i++) p[i] = 0;
-  s->rom = rom; s->rom_len = len; s->cram = cr; s->cram_len = cl;
+  s->rom = rom; s->rom_len = len; s->cram = cr; s->cram_len = cl; s->gg = gg;
   s->banks = 1; while (s->banks * 0x4000u < len) s->banks <<= 1;
   for (int i = 0; i < 256; i++) { uint32_t v = 0; for (int k = 0; k < 8; k++) if (i & (0x80 >> k)) v |= 1u << (k * 4); g_spread[i] = v; }
   for (unsigned i = 0; i < sizeof g_ram; i++) g_ram[i] = 0;
@@ -278,7 +293,7 @@ static void sms_frame(int draw)
 {
   Sms *s = &g_sms;
   static uint32_t pause_old;
-  if ((s->pad & SMS_PAUSE) && !pause_old) g_cpu.nmi = 1;
+  if ((s->pad & SMS_PAUSE) && !pause_old && !s->gg) g_cpu.nmi = 1;
   pause_old = s->pad & SMS_PAUSE;
   s->vs_frame = s->reg[9];
   for (int y = 0; y < 262; y++) {

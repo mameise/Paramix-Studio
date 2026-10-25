@@ -476,6 +476,9 @@ static const uint8_t opcode_cycles[256] = {
   [0xF1] = 5, [0xF5] = 4, [0xF6] = 6, [0xF8] = 2, [0xF9] = 4, [0xFD] = 4,
   [0xFE] = 7,
 };
+#ifdef T7_JIT
+const uint8_t *const t7_opcode_cycles = opcode_cycles;
+#endif
 
 // `hot` attribute tells GCC this is a frequently-called function — it
 // optimises it more aggressively (inlining decisions, branch ordering)
@@ -516,6 +519,9 @@ void t7_ir_bridge_enable(int on) { s_ir_bridge_en = on; }
 
 // TX-Capture: liefert das Sende-Paket aus $0220, wenn es gueltig (byte0&0F==2)
 // und seit dem letzten Poll geaendert ist. 1 = neues Paket in out[32].
+#ifdef T7_FREESTANDING
+__attribute__((minsize))
+#endif
 int t7_ir_bridge_tx_poll(uint8_t *out) {
   static uint8_t last[32];
   if ((g_wram[0x220] & 0x0F) != 2) return 0;
@@ -798,9 +804,19 @@ uint8_t t7_dbg_p(void) { return pack_p(); }
  * stack slots of the last JSR, A = 0, flags as after the last pass. Checked against the ROM bytes at the start
  * (other ROMs, e.g. Friends: off). */
 uint8_t g_t7_idle_ok, g_t7_halted;
+#ifdef T7_JSR_HLE
+/* 1.6.12 test1 (battery, Tama-Go only, checked against the ROM bytes): bit 0 the delay $D460 (LDX #$D1, INX/BNE 47
+ * times, RTS) done at once when it ends inside the run (the same state and cycles as interpreted); bit 1 the sprite
+ * blit $E4CD left out while g_t7_dark is set (the screen is off: nothing to see; the picture comes back with the
+ * next frame, the game state is the same apart from the random seeds) */
+uint8_t g_t7_hle, g_t7_dark;
+#endif
 uint32_t g_t7_idle_cyc, g_t7_keyact;   /* keyact: cycles left without STOP after a key changed (T7_STOP_KEYACT) */
 static const uint8_t IDLE_SIG[19] = { 0x20,0xED,0xD2, 0x20,0xF5,0xD2, 0x20,0xFD,0xD2, 0x20,0x05,0xD3, 0x20,0x0D,0xD3, 0xA5,0x2D, 0xF0,0xED };
 static const uint8_t IDLE_ADD[5] = { 0x07, 0x03, 0x0D, 0x17, 0x13 };
+#ifdef T7_FREESTANDING
+__attribute__((minsize))
+#endif
 void t7_idle_check(void)
 {
   g_t7_idle_ok = 0; g_t7_halted = 0;
@@ -813,6 +829,16 @@ void t7_idle_check(void)
   }
   g_t7_idle_ok = 1;
 #endif
+#ifdef T7_JSR_HLE
+  g_t7_hle = 0;
+  if (!g_static_rom || g_t7_static_off) return;   /* Tama-Go only */
+  static const uint8_t DLY[6] = { 0xA2,0xD1, 0xE8, 0xD0,0xFD, 0x60 };
+  static const uint8_t BLT[19] = { 0xA5,0x84, 0x85,0x88, 0xA5,0x6D, 0x85,0x79, 0xA5,0x6E, 0x85,0x7A, 0xA5,0x6F, 0x85,0x7B, 0x20,0xF1,0xE5 };
+  int ok = 1; for (int i = 0; i < 6; i++) if (g_static_rom[0xD460 - 0xC000 + i] != DLY[i]) ok = 0;
+  if (ok) g_t7_hle |= 1u;
+  ok = 1; for (int i = 0; i < 19; i++) if (g_static_rom[0xE4CD - 0xC000 + i] != BLT[i]) ok = 0;
+  if (ok) g_t7_hle |= 2u;
+#endif
 }
 #ifdef T7_IDLE
 /* passes that fit in budget cycles (pc at $CE66, no IRQ to take: checked by the caller); returns the cycles */
@@ -821,6 +847,9 @@ static uint32_t t7_idle_pass_cyc(void)
   return 5u * (opcode_cycles[0x20] + opcode_cycles[0xA5] + opcode_cycles[0x18] + opcode_cycles[0x69] + opcode_cycles[0x85] + opcode_cycles[0x60])
          + opcode_cycles[0xA5] + opcode_cycles[0xF0];
 }
+#endif
+#ifdef T7_JIT
+#include "t7_jit.h"
 #endif
 #include "t7_run.inc"
 

@@ -219,6 +219,12 @@ TC_INIT static void backlight_on(void){
 u32 g_hw_vol = 2u, g_hw_dim = 0u;
 static const u8 VOL_SH[4] = { 5, 7, 5, 3 };
 #endif
+#ifdef HW_VOL5
+/* 1.6.12 test3 (T7Emu): volume in 5 steps by the pulse length: 0 off, 1 1/32 of the period (as before), 2 1/8,
+ * 3 1/4, 4 1/2 (a square wave, the loudest the buzzer gets) */
+u32 g_hw_vol5 = 1u;
+static const u8 VOL5_SH[5] = { 5, 5, 3, 2, 1 };
+#endif
 #ifdef CLK_ECO
 u32 g_hw_clk_sh;   /* 1.6.9 test22: AHB clock divided by 2^sh (eco.h); the tone timer runs on the divided clock too */
 u32 g_hw_tone_hz;
@@ -226,10 +232,21 @@ u32 g_hw_tone_hz;
 #else
 #define TONE_CLK 72000000u
 #endif
+#ifdef HW_TONE_IRQSAFE
+/* 1.6.12 test4 (T7Emu): the tone is also set from the SysTick (T7_TONE_ISR); a call from the main loop must not be
+ * cut in the middle of the register writes */
+static void hw_tone_raw(u32 hz);
+void hw_tone(u32 hz){ u32 pm; __asm__ volatile("mrs %0, primask\n cpsid i" : "=r"(pm) :: "memory"); hw_tone_raw(hz); __asm__ volatile("msr primask, %0" :: "r"(pm) : "memory"); }
+static void hw_tone_raw(u32 hz){
+#else
 void hw_tone(u32 hz){
+#endif
   static u32 on;
 #ifdef HW_OPTS
   if(!g_hw_vol) hz = 0;
+#endif
+#ifdef HW_VOL5
+  if(!g_hw_vol5) hz = 0;
 #endif
 #ifdef CLK_ECO
   g_hw_tone_hz = hz;
@@ -237,6 +254,8 @@ void hw_tone(u32 hz){
   if(!hz){ REG(CT7+0x34)=0; REG(CT7+0x00)=0; on=0; return; }
 #ifdef HW_OPTS
   u32 per = TONE_CLK / hz, mr0 = per - (per >> VOL_SH[g_hw_vol & 3u]);
+#elif defined(HW_VOL5)
+  u32 per = TONE_CLK / hz, mr0 = per - (per >> VOL5_SH[g_hw_vol5 > 4u ? 4u : g_hw_vol5]);
 #else
   u32 per = TONE_CLK / hz, mr0 = per - per/32u;
 #endif

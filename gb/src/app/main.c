@@ -402,6 +402,51 @@ static u32 gb_keys(u32 b, u32 now)
   return gb;
 }
 
+#ifdef GB_LINK
+/* ---- 1.6.11 test2: link cable between two Paradise (plink over the contacts), e.g. trading in Pokemon ---- */
+#include "../../../emu/src/emu/plink.h"
+static void gl_send2(u8 k, u8 b) { u8 d[2] = { k, b }; plink_send('G', d, 2); }
+static void gl_poll2(void);
+#define GL_SEND(k, b) gl_send2((k), (b))
+#define GL_POLL() gl_poll2()
+#define GL_NOW() g_ms
+#define GL_PARTNER() (g_pl.last_rx && g_ms - g_pl.last_rx < 2500u)
+#include "gb_link.h"
+static void gl_got2(u8 ty, const u8 *d, int n) { if (ty == 'G' && n == 2) gl_got(d[0], d[1]); }
+static void gl_poll2(void) { plink_poll(g_ms, 0, gl_got2); }
+#endif
+
+#ifdef GB_STATE
+/* ---- 1.6.11 test2: the whole Game Boy on leaving (wheel held), read once at the next start ---- */
+#include "../../../emu/src/emu/pstate.h"
+#define STATE_AT (g_cfg.save_off + 0x9000u)
+#define STATE_MAX 0x7000u
+static int g_running;
+static u32 st_tag(void) { return 0x47420001u ^ (u32)&g_gb ^ ((u32)sizeof(struct gb_s) << 8) ^ g_cfg.rom_len ^ (u32)lcd_line; }
+static int st_parts(StPart *pt)
+{
+  int n = 0; pt[n].p = &g_gb; pt[n++].n = sizeof g_gb;
+#ifdef GB_SOUND
+  pt[n].p = g_ch; pt[n++].n = sizeof g_ch;
+#endif
+  return n;
+}
+static void state_store(void) { StPart pt[2]; int n = st_parts(pt); if (g_running) st_store(STATE_AT, STATE_MAX, st_tag(), pt, n, g_sec); }
+static int state_load(void)
+{
+  StPart pt[2]; int n = st_parts(pt);
+  struct gb_s keep = g_gb;                         /* the pointers of this program stay */
+  int ok = st_load(STATE_AT, STATE_MAX, st_tag(), pt, n);
+  if (ok) {
+    g_gb.gb_rom_read = keep.gb_rom_read; g_gb.gb_cart_ram_read = keep.gb_cart_ram_read; g_gb.gb_cart_ram_write = keep.gb_cart_ram_write;
+    g_gb.gb_error = keep.gb_error; g_gb.gb_serial_tx = keep.gb_serial_tx; g_gb.gb_serial_rx = keep.gb_serial_rx;
+    g_gb.gb_bootrom_read = keep.gb_bootrom_read; g_gb.display.lcd_draw_line = keep.display.lcd_draw_line; g_gb.direct.priv = keep.direct.priv;
+  }
+  st_drop(STATE_AT);
+  return ok;
+}
+#endif
+
 /* ---- leaving ---- */
 static void leave(void)
 {
@@ -409,6 +454,9 @@ static void leave(void)
   if (g_set_dirty) set_store();
   REG(0x20000FF8u) = 0;
   REG(0x20000FFCu) = 0x4C584D50u;        /* "PMXL": back on purpose, the autostart stays off */
+#ifdef GB_STATE
+  if (g_running) { message(en() ? "SAVING" : "SPEICHERN", ""); state_store(); }
+#endif
   if (g_cram_dirty) cram_store();
 #ifdef PARA_BACK
   para_back_fix(g_sec);
@@ -455,6 +503,12 @@ void Reset_Handler(void)
   h5_init();
 #endif
   gb_init_lcd(&g_gb, lcd_line);
+#ifdef GB_LINK
+  plink_init(); gb_init_serial(&g_gb, gl_tx, gl_rx);
+#endif
+#ifdef GB_STATE
+  state_load(); g_running = 1;
+#endif
   push(1);
   SYST_RVR = CORE_HZ / 1000u - 1u; SYST_CVR = 0; SYST_CSR = 7;
   __asm__ volatile("cpsie i");
@@ -526,6 +580,9 @@ void Reset_Handler(void)
       if (g_err) { message(en() ? "GAME BOY ERROR" : "GAME BOY FEHLER", ""); g_err = 0; }
       if (bl && g_frame_drawn && now - last_push >= 30u) { last_push = now; push(0); }
     }
+#ifdef GB_LINK
+    gl_tick();
+#endif
     if (g_cram_dirty && !cram_ms) cram_ms = now ? now : 1;
     if (cram_ms && now - cram_ms > 3000u && now - last_in > 1000u) { cram_ms = 0; cram_store(); }
     if (bl && !g_dimmed && g_set.dim < T_N && now - last_in > T_MS[g_set.dim]) { g_dimmed = 1; colours(); push(1); }
@@ -540,4 +597,7 @@ __attribute__((section(".vectors"), used))
 const void *const g_vectors[16 + 64] = { (void *)0x18020000u, (void *)Reset_Handler,
   [2 ... 10] = (void *)Default_Handler, [11] = (void *)Irq_Off, [12 ... 13] = (void *)Default_Handler, [14] = (void *)Irq_Off,
   [15] = (void *)SysTick_Handler, [16 ... 79] = (void *)Irq_Off
+#ifdef GB_LINK
+  , [16 + 37] = (void *)plink_irq
+#endif
 };

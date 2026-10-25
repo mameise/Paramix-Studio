@@ -26,11 +26,19 @@ int pmx_pack_open (void)
     P = plat_pack (); PF = plat_pack_far (); g_win = plat_pack_win ();
     if (!P || P[0] != 'W' || P[1] != '3' || P[2] != 'D' || P[3] != 'P') return 0;
     pmx_shareware = rd32 (8) & 1;
+#ifdef SPEAR
+    if (!(rd32 (8) & 2)) return 0;   /* 1.6.11 test2: the Spear of Destiny program needs a pack of the .SOD files */
+    pmx_episodes = 1;
+#else
+    if (rd32 (8) & 2) return 0;
+#endif
     n_pages = rd32 (16); PMSpriteStart = (word)rd32 (20); pages_tab = rd32 (24);
     n_maps = rd32 (28); rlew = rd32 (32); maps_tab = rd32 (36);
     n_snd = rd32 (40); snd_tab = rd32 (44);
     n_pics = rd32 (48); pics_tab = rd32 (52);
+#ifndef SPEAR
     pmx_episodes = (int)rd32 (60);
+#endif
     if (pmx_episodes < 1) pmx_episodes = 1;
     if (pmx_episodes > 6) pmx_episodes = 6;
     ChunksInFile = PMSoundStart = (word)n_pages;

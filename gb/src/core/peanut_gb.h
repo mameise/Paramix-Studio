@@ -553,7 +553,9 @@ enum gb_init_error_e
 enum gb_serial_rx_ret_e
 {
 	GB_SERIAL_RX_SUCCESS = 0,
-	GB_SERIAL_RX_NO_CONNECTION = 1
+	GB_SERIAL_RX_NO_CONNECTION = 1,
+	/* Paramix (PGB_SERIAL_WAIT): the answer is not there yet, ask again at the next instruction */
+	GB_SERIAL_RX_WAIT = 2
 };
 
 union cart_rtc
@@ -1124,6 +1126,11 @@ void __gb_write(struct gb_s *gb, uint_fast16_t addr, uint8_t val)
 
 		case 0x02:
 			gb->hram_io[IO_SC] = val;
+#ifdef PGB_SERIAL_WAIT
+			/* Paramix: writing the start bit begins a new transfer (the link sees each one) */
+			if(val & SERIAL_SC_TX_START)
+				gb->counter.serial_count = 0;
+#endif
 			return;
 
 		/* Timer Registers */
@@ -3439,10 +3446,20 @@ void __gb_step_cpu(struct gb_s *gb)
 				/* If RX failed, do not change SB if using external
 				 * clock, or set to 0xFF if using internal clock. */
 				uint8_t rx;
-
+#ifdef PGB_SERIAL_WAIT
+				enum gb_serial_rx_ret_e rr = gb->gb_serial_rx != NULL ? gb->gb_serial_rx(gb, &rx) : GB_SERIAL_RX_NO_CONNECTION;
+				if(rr == GB_SERIAL_RX_WAIT)
+				{
+					/* Paramix: keep the transfer just before its end (asked again after the next
+					 * instruction; a HALT waits 4 cycles at a time), nothing changes yet */
+					gb->counter.serial_count = SERIAL_CYCLES - 4;
+				}
+				else if(rr == GB_SERIAL_RX_SUCCESS)
+#else
 				if(gb->gb_serial_rx != NULL &&
 					(gb->gb_serial_rx(gb, &rx) ==
 						GB_SERIAL_RX_SUCCESS))
+#endif
 				{
 					gb->hram_io[IO_SB] = rx;
 
@@ -3468,6 +3485,9 @@ void __gb_step_cpu(struct gb_s *gb)
 					 * not shifted, so SB is not modified. */
 				}
 
+#ifdef PGB_SERIAL_WAIT
+				if(rr != GB_SERIAL_RX_WAIT)
+#endif
 				gb->counter.serial_count = 0;
 			}
 		}

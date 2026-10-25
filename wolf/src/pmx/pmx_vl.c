@@ -8,7 +8,11 @@
 
 #define RGB(r, g, b) {(r)*255/63, (g)*255/63, (b)*255/63, 0}
 SDL_Color gamepal[] = {
+#ifdef SPEAR
+#include "sodpal.inc"
+#else
 #include "wolfpal.inc"
+#endif
 };
 #undef RGB
 
@@ -146,7 +150,27 @@ void pmx_drawpic_scaled (int x, int y, int k, int dw, int dh)
     }
 }
 /* the game's chunk numbers (gfxv_wl6.h) to the pack's pics */
-static int chunk_to_pk (int chunk) { return chunk - L_COLONPIC; }
+int chunk_to_pk (int c)
+{
+#ifdef SPEAR   /* 1.6.11 test2 Spear of Destiny: the pack keeps the order of Wolf3D, the faces of SOD come after */
+    if (c >= L_COLONPIC && c <= L_BJWINSPIC) return c - L_COLONPIC;
+    if (c >= KNIFEPIC && c <= GOTGATLINGPIC) return c - KNIFEPIC + PK_KNIFE;
+    if (c >= GODMODEFACE1PIC && c <= BJOUCHPIC) return PK_SOD_GOD1 + c - GODMODEFACE1PIC;
+    switch (c)
+    {
+        case STATUSBARPIC: return PK_STATUSBAR;
+        case TITLE1PIC: return PK_TITLE;
+        case PG13PIC: return PK_PG13;
+        case CREDITSPIC: return PK_CREDITS;
+        case HIGHSCORESPIC: return PK_HIGHSCORES;
+        case PAUSEDPIC: return PK_PAUSED;
+        case GETPSYCHEDPIC: return PK_GETPSYCHED;
+    }
+    return -1;
+#else
+    return c - L_COLONPIC;
+#endif
+}
 void VWB_DrawPic (int x, int y, int chunknum) { pmx_drawpic (x * 128 / 320, y * 128 / 320, chunk_to_pk (chunknum)); }
 void VWB_DrawPicScaledCoord (int x, int y, int chunknum) { pmx_drawpic (x, y, chunk_to_pk (chunknum)); }
 

@@ -126,6 +126,19 @@ static uint32_t timer_hz(int t)
   return (g_cpureg[0x30] & 0x01) ? s_t1_fast : 32768u;
 }
 
+#ifdef T7_SND_LAZY
+/* 1.6.12 test1 (battery): a timer whose IRQ is masked (0: IRQ 0, $3070 bit 7; 1: IRQ 12, $3071 bit 3) gets no events:
+ * its interrupt would do nothing (t7_fire_irq drops masked ones). The Tama-Go keeps both timers running while silent
+ * (3322 and 512 events a second, nearly half of the work with the screen off). When the mask opens, the timer's next
+ * overflow is put where it would be (the first one after now), so the IRQs come at the same cycles as before. */
+static inline int tmr_masked(int t) { return t == 0 ? !(g_cpureg[0x70] & 0x80) : !(g_cpureg[0x71] & 0x08); }
+static void tmr_catch_up(int t, uint64_t now)
+{
+  if (!s_run[t] || s_due[t] > now || !s_per[t]) return;
+  uint64_t k = (now - s_due[t]) / s_per[t] + 1u;
+  s_due[t] += k * s_per[t];
+}
+#endif
 static void reschedule(void)
 {
   uint64_t cnow = snd_now();
@@ -133,6 +146,9 @@ static void reschedule(void)
   uint64_t best = (uint64_t)0x7FFFFFFF << 16;
   for (int t = 0; t < 2; t++) {
     if (!s_run[t]) continue;
+#ifdef T7_SND_LAZY
+    if (tmr_masked(t)) continue;
+#endif
     uint64_t d = s_due[t] > now ? s_due[t] - now : 0;
     if (d < best) best = d;
   }
@@ -151,6 +167,9 @@ static void reschedule(void)
 
 static void recalc_timer(int t, int restart)
 {
+#ifdef T7_SND_LAZY
+  tmr_catch_up(t, snd_now() << 16);   /* the overflows so far with the old period */
+#endif
   uint8_t ctl = g_cpureg[0x31];
   uint8_t src = t == 0 ? (ctl >> 4) : (ctl & 0x0F);
   uint32_t pre = t == 0 ? (g_cpureg[0x32] | (g_cpureg[0x33] << 8))
@@ -213,6 +232,9 @@ void t7_snd_io_write(uint8_t reg, uint8_t value)
       render_now();
       s_dac = (g_cpureg[0x65] & 0x02) ? (int32_t)(int8_t)g_cpureg[0x60] : 0;
       return;
+#ifdef T7_SND_LAZY
+    case 0x70: case 0x71: { uint64_t now = snd_now() << 16; tmr_catch_up(0, now); tmr_catch_up(1, now); } break;
+#endif
     default: return;
   }
   reschedule();
@@ -222,8 +244,13 @@ void t7_snd_io_write(uint8_t reg, uint8_t value)
 void T7_HOT t7_snd_service(void)
 {
   uint64_t now = snd_now() << 16;
+#ifdef T7_SND_LAZY
+  if (s_run[0] && !tmr_masked(0)) while (s_due[0] <= now) { s_due[0] += s_per[0]; t7_fire_irq(0);  g_snd_irq0++; }
+  if (s_run[1] && !tmr_masked(1)) while (s_due[1] <= now) { s_due[1] += s_per[1]; t7_fire_irq(12); g_snd_irq12++; }
+#else
   if (s_run[0]) while (s_due[0] <= now) { s_due[0] += s_per[0]; t7_fire_irq(0);  g_snd_irq0++; }
   if (s_run[1]) while (s_due[1] <= now) { s_due[1] += s_per[1]; t7_fire_irq(12); g_snd_irq12++; }
+#endif
   if (s_smp_per) {
     uint64_t c = now >> 16;
     if (c >= s_smp_due) {

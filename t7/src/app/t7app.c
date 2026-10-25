@@ -51,11 +51,11 @@ static const uint16_t PAL_BG[BG_N] = { 0xFFFF, 0xAE66, 0x9DE1, 0xB79A, 0xFD80, 0
 static const char *const BG_DE[BG_N] = { "Weiss", "Gruen", "GB-Gruen", "Mint", "Amber", "Blau", "Dunkelgruen", "Tuerkis", "Gelb", "Orange", "Rosa", "Lila", "Schwarz", "Rot" };
 static const char *const BG_EN[BG_N] = { "White", "Green", "GB green", "Mint", "Amber", "Blue", "Dark green", "Turquoise", "Yellow", "Orange", "Pink", "Purple", "Black", "Red" };
 #ifdef BL_PWM
-static const T7Set SET_DEF = { 1, 0, 90, 70, 0, 0, 0, 3, 3, 1, 2, 1, 0xFF, 3, 3, 5 };
+static const T7Set SET_DEF = { 1, 0, 90, 70, 0, 0, 0, 3, 3, 1, 2, 1, 0xFF, 3, 3, 5, PW_DEF, 0xFF, 0xFF, 0xFF };
 #else
-static const T7Set SET_DEF = { 1, 0, 90, 70, 0, 0, 0, 3, 3, 1, 2, 1, 0xFF, 1, 2, 5 };
+static const T7Set SET_DEF = { 1, 0, 90, 70, 0, 0, 0, 3, 3, 1, 2, 1, 0xFF, 1, 2, 5, PW_DEF, 0xFF, 0xFF, 0xFF };
 #endif
-T7Set g_set = { 1, 0, 90, 70, 0, 0, 0, 3, 3, 1, 2, 1, 0xFF, 1, 2, 5 };
+T7Set g_set = { 1, 0, 90, 70, 0, 0, 0, 3, 3, 1, 2, 1, 0xFF, 1, 2, 5, PW_DEF, 0xFF, 0xFF, 0xFF };
 static int g_lang;                                /* 0 German, 1 English */
 static int g_dimp;                                /* dimmed: colours at this percent, 0 = normal */
 int app_lang(void) { return g_lang; }
@@ -156,6 +156,12 @@ enum { M_FIG, M_BG, M_INK, M_G1, M_G2, M_SIZE, M_PIX, M_GRID, M_PVIS, M_GHOST, M
   M_GP, M_CARE,
 #endif
   M_LANG,
+#if defined(T7_PW) && !defined(T7_FIXED)
+  M_PW, M_PWST,
+#endif
+#if defined(T7_JIT) && !defined(T7_FIXED)
+  M_JIT,
+#endif
 #ifdef BAT_SHOW
   M_BAT,   /* test17: the battery (shown, nothing to change) */
 #endif
@@ -212,7 +218,12 @@ static void item_text(int it, const char **label, char *val)
   case M_GRID: *label = tr("Gitter", "Grid"); num(val, g_set.grid, "%"); break;
   case M_PVIS: *label = tr("Pixel-Sicht", "Pixel view"); num(val, g_set.pixvis, "%"); break;
   case M_GHOST: *label = "Icons"; num(val, g_set.ghost, "%"); break;
+#ifdef T7_VOL
+  case M_SND: { static const char *const de[T7_VOL_N] = { "Aus", "Leise", "Mittel", "Laut" }, *const en[T7_VOL_N] = { "Off", "Quiet", "Medium", "Loud" };
+    *label = tr("Ton", "Sound"); b = (g_lang ? en : de)[g_set.sound % T7_VOL_N]; } break;
+#else
   case M_SND: *label = tr("Ton", "Sound"); b = onoff(g_set.sound); break;
+#endif
 #ifdef BL_PWM
   case M_BL: *label = tr("Licht", "Light"); num(val, app_bl_pct(), "%"); break;
 #endif
@@ -227,6 +238,16 @@ static void item_text(int it, const char **label, char *val)
 #endif
 #ifdef BAT_SHOW
   case M_BAT: *label = tr("Batterie", "Battery"); plat_bat(val); break;
+#endif
+#if defined(T7_PW) && !defined(T7_FIXED)
+  case M_PW: *label = tr("Strom sparen", "Power save"); { int m = app_pw(); b = m == 0 ? "Normal" : m == 1 ? tr("Stark", "Strong") : "Maximal"; } break;
+  case M_PWST: *label = tr("Schlaf/12M", "Sleep/12M"); { int v = plat_pw_pct(), a = v / 1000, c = v % 1000, n = 0;   /* test: shares since the start */
+      char t[4]; int k;
+      k = 0; do { t[k++] = (char)('0' + a % 10); a /= 10; } while (a); while (k) val[n++] = t[--k]; val[n++] = '%'; val[n++] = ' ';
+      k = 0; do { t[k++] = (char)('0' + c % 10); c /= 10; } while (c); while (k) val[n++] = t[--k]; val[n++] = '%'; val[n] = 0; } break;
+#endif
+#if defined(T7_JIT) && !defined(T7_FIXED)
+  case M_JIT: *label = "JIT"; b = plat_jit(app_jit()) < 0 ? tr("fehlt", "missing") : app_jit() ? tr("An", "On") : tr("Aus", "Off"); break;
 #endif
   }
   if (b) { int n = 0; while (b[n] && n < 15) { val[n] = b[n]; n++; } val[n] = 0; }
@@ -297,7 +318,17 @@ static void change(int it)
   case M_GRID: g_set.grid = (uint8_t)(g_set.grid >= 100 ? 0 : (g_set.grid / 25) * 25 + 25); break;
   case M_PVIS: g_set.pixvis = (uint8_t)(g_set.pixvis >= 10 ? 0 : g_set.pixvis + 1); break;
   case M_GHOST: g_set.ghost = (uint8_t)(g_set.ghost >= 10 ? 0 : g_set.ghost + 1); break;
+#ifdef T7_VOL
+  case M_SND: g_set.sound = (uint8_t)((g_set.sound + 1) % T7_VOL_N); plat_vol(g_set.sound); break;
+#else
   case M_SND: g_set.sound ^= 1; break;
+#endif
+#if defined(T7_PW) && !defined(T7_FIXED)
+  case M_PW: g_set.pw = (uint8_t)((app_pw() + 1) % 3); break;
+#endif
+#if defined(T7_JIT) && !defined(T7_FIXED)
+  case M_JIT: g_set.r3 = (uint8_t)((g_set.r3 == 0xFFu ? 0u : g_set.r3) ^ 1u); plat_jit(app_jit()); break;
+#endif
   case M_LIGHT:
     g_set.light = (uint8_t)((g_set.light + 1) % (T7_T_N + 1));
     if (g_set.light < T7_T_N && g_set.r2 && g_set.r2 - 1 <= g_set.light) g_set.r2 = (uint8_t)(g_set.light + 2 <= T7_T_N ? g_set.light + 2 : 0);   /* off stays after dimming */
@@ -407,6 +438,11 @@ static void store_load(void)
     static const uint8_t m[5] = { 0, 3, 4, 6, 9 }; g_set.r0 = m[g_set.r0 % 5]; g_set.r1 = 3;
   }
   hw_bl_set((unsigned int)app_bl_pct());
+#endif
+#ifdef T7_VOL
+  if (g_set.sound == T7_VOL_N) g_set.sound = T7_VOL_N - 1;   /* maximal of the test builds: loud */
+  else if (g_set.sound > T7_VOL_N) g_set.sound = 1;
+  plat_vol(g_set.sound);
 #endif
   if (r32(b + 32) == CK_MAGIC) { g_ck_cnt = r32(b + 36); g_ck_sod = r32(b + 40); g_ck_md = r32(b + 44); g_ck_have = 1; }
 }
@@ -660,6 +696,11 @@ void app_setup_fill(uint32_t rtc)
   g_fill_done = 1;
   uint32_t sod, y = 0, m, d, have = 1, el;
   if (para_hard()) { uint32_t now = para_now(rtc); el = now % 86400u; civil(now / 86400u, &y, &m, &d); y = 0; }
+#ifdef T7_CK_WRAP
+  /* 1.6.12: after a battery change the Paradise's seconds counter starts at 0 again, below the noted one: the
+   * difference wrapped to about 136 years and the game got a date far off; now the noted time as it was */
+  else if (g_ck_have && rtc < g_ck_cnt) { el = g_ck_sod; m = (g_ck_md >> 8) & 0xFF; d = g_ck_md & 0xFF; }
+#endif
   else if (g_ck_have) { el = g_ck_sod + (rtc - g_ck_cnt); m = (g_ck_md >> 8) & 0xFF; d = g_ck_md & 0xFF; }
   else if (g_cfg->wall_ymd) { el = g_cfg->wall_sod + (rtc - g_cfg->wall_cnt); y = g_cfg->wall_ymd >> 16; m = (g_cfg->wall_ymd >> 8) & 0xFF; d = g_cfg->wall_ymd & 0xFF; }
   else { have = 0; el = 0; m = 1; d = 1; }

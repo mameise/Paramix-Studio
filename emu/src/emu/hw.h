@@ -19,6 +19,9 @@ void hw_bl_pwm_off(void);
 void hw_bl_level(u32 pct);
 void hw_bl_test(u32 m, u32 pct);
 void hw_tone(u32 hz);              /* 0 = off */
+#ifdef HW_VOL5
+extern u32 g_hw_vol5;               /* 1.6.12 test3: 0 off .. 4 loudest, 1 as before */
+#endif
 #ifdef HW_OPTS
 extern u32 g_hw_vol, g_hw_dim;     /* 1.6.8: volume 0..3 (2 = as before), brightness 0..3 (0 = full) */
 #endif

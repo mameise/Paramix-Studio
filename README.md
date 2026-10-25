@@ -179,12 +179,16 @@ back (the state is saved). A short press on the wheel opens the settings: A
 goes to the next line, B changes it, C goes back or closes. Figure, background
 colour, Tama colour, light and dark grey, screen (Large fills the width, Pixel
 exact keeps every pixel the same size), pixel look, grid, pixel view, icons,
-sound, light (5 to 100 %), dim after, dim to (1 to 50 %), screen off after, clock and language. The settings stay on the device. When the
+sound (off, quiet, medium, loud), light (5 to 100 %), dim after, dim to (1 to 50 %), screen off after, clock and language. The settings stay on the device. When the
 game asks for the time, T7Emu fills it in (the Paradise's time, or the local
 time written along by the Studio, or after a restart the game time from before);
 birthday and name follow. The game clock follows the Paradise clock (see "How
 the emulators behave"). If T7Emu hangs: start with A and C, release them and
 press the wheel within the first 3 seconds.
+
+Since 1.6.13 T7Emu translates the game code while it runs (much less work for the chip) and saves power with the
+screen off: it runs slower and sleeps between the seconds; a call still rings and lights the screen. The game clock
+no longer skips seconds.
 
 Updating: open the ROM in a newer Studio and save it. Written with "Keep
 saves", the Tama-Go keeps its save as long as its ROM is the same.
@@ -373,7 +377,9 @@ into the Paramix menu (switch the menu on in the tab "Menu"). The screen is shru
 is cut off. The keys are set in the tab for all games (default: A left, C right, B = B, wheel press = A, wheel up and
 down, A+C Start). On the device: A+B+C together opens the settings (with Select and sound), holding the wheel for 2 s
 saves and goes back. Battery saves of the games are kept. Sound: the Paradise's buzzer plays one tone at a time (the
-melody or the effect). Program and details: `gb/`.
+melody or the effect). Since 1.6.12: holding the wheel keeps the whole game, the next start continues exactly there;
+"Restart game" in the settings; two Paradise plugged together at the top work like a link cable (e.g. trading
+Pokémon). Program and details: `gb/`.
 
 ### Wolfenstein 3D (1.6.10)
 Tab "Wolf3D": choose all files of your own Wolfenstein 3D together, the shareware (.WL1, episode 1) or the full
@@ -383,15 +389,18 @@ below a status bar with face, health, ammo, keys, weapon, floor, lives and score
 on the buzzer (no music). Keys as DOOM on the Paradise, set in the tab: A fire, B forward, C back, wheel turns (degrees
 per step to choose), wheel press doors and switches, hold C + wheel weapon, B twice quickly run. Fixed: A+C menu,
 holding the wheel for 2 s saves the game and goes back to the Paradise; "Continue" goes on at the next start.
+Since 1.6.12 also Spear of Destiny (.SOD, 21 floors), as a second entry next to Wolfenstein 3D.
 Game from Wolf4SDL (GPL), program and details: `wolf/`.
 
 ### Master System (1.6.11)
-Tab "Master System": choose your own Sega Master System games (.sms; Game Gear games do not work). They go into the
+Tab "Master System": choose your own Sega Master System games (.sms). They go into the
 Paramix menu (switch the menu on in the tab "Menu"). The screen is shrunk from 256 x 192 to 128 x 96, nothing is cut
 off. The keys are set in the tab for all games (default: A left, C right, B button 1, wheel press button 2, wheel up
 and down, A+C Pause). On the device: A+B+C together opens the settings (with Pause and sound), holding the wheel for
 2 s saves and goes back. Battery saves of the games are kept. Sound: the buzzer plays the loudest tone channel.
-Own emulator (Z80, video chip, Sega mapper), program and details: `sms/`.
+Since 1.6.12 also Game Gear games (.gg, 160 x 144 shrunk to 128 x 115, START on A+C), the whole game kept when
+holding the wheel, and "Restart game" in the settings. Own emulator (Z80, video chip, Sega mapper), program and
+details: `sms/`.
 
 ### Simulated visit for the Paradise itself (1.6.9)
 Under "Device" the Studio can play a second Paradise over the dongle, so one device is enough for a playdate.
@@ -590,6 +599,9 @@ it in the app if needed), the TamaEmu save as a .sav and the T7Emu save as a .bi
 (the save.bin of the T7Emu app). Import: a .sav or a T7Emu .bin goes into the
 ROM (then save the ROM or write it to the device), a .tamasave goes straight to
 a connected device.
+Since 1.6.12 every program in the list has export and import: T18Emu the firmware with its save (.bin, as a
+firmware for T18Emu), Game Boy and Master System the cartridge RAM (.sav, as other emulators use it; a kept game
+state is dropped), Wolfenstein 3D and Spear of Destiny their saved game (.bin). An imported save wins over "Keep saves".
 T7Emu saves written up to 1.6.8 may lie 2 bytes off in the flash (the page buffer was not word aligned, the flash DMA
 takes words); the export finds them too and gives the right save.bin, and T7Emu from 1.6.9 reads them itself
 (switch `T7_EE_SHIFT`).
@@ -637,7 +649,7 @@ Pages, Source "GitHub Actions" publishes the page as a website as well.
 | `test/` | tests (`visit_test.js`: the simulated visit with a test key) |
 
 Every shipped binary (`emu/emu.bin`, `t7/t7.bin`, `t18/t18.bin`, `emu/stub_tpl.bin`, `doom/*.bin`,
-`doom/mcuwad.wasm`, `gb/gb.bin`, `sms/sms.bin`, `v1/v1.bin`, `v3/v3.bin`, `wolf/wolf.bin`, `feld/*.bin`, `six/six.bin`, `flash/flashapp.bin`) is built from the source
+`doom/mcuwad.wasm`, `gb/gb.bin`, `sms/sms.bin`, `v1/v1.bin`, `v3/v3.bin`, `wolf/wolf.bin`, `wolf/wolfsod.bin`, `feld/*.bin`, `six/six.bin`, `flash/flashapp.bin`) is built from the source
 next to it; the build commands are in the README of each folder.
 
 ## Credits and license

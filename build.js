@@ -17,6 +17,8 @@ if (!fs.existsSync(eb) || !fs.existsSync(es)) throw new Error('emu/emu.bin oder 
   const t7 = __dirname + '/t7/t7.bin';
   if (!fs.existsSync(t7)) throw new Error('t7/t7.bin fehlt');
   emu = emu.replace('__T7_APP_B64__', fs.readFileSync(t7).toString('base64'));
+  const t7x = __dirname + '/t7/t7x.bin';   // 1.6.12 test2: second part (JIT)
+  if (fs.existsSync(t7x)) emu = emu.replace('__T7X_APP_B64__', fs.readFileSync(t7x).toString('base64'));
   // V1Emu: E0C6S46/48 program (source in v1/src, core TamaLIB). No ROM.
   const v1 = __dirname + '/v1/v1.bin';
   if (!fs.existsSync(v1)) throw new Error('v1/v1.bin fehlt');
@@ -37,6 +39,10 @@ if (!fs.existsSync(eb) || !fs.existsSync(es)) throw new Error('emu/emu.bin oder 
   const wb = __dirname + '/wolf/wolf.bin';
   if (!fs.existsSync(wb)) throw new Error('wolf/wolf.bin fehlt');
   emu = emu.replace('__WOLF_APP_B64__', fs.readFileSync(wb).toString('base64'));
+  // Spear of Destiny (1.6.11 test2): the same program built for SOD. No game data.
+  const wsb = __dirname + '/wolf/wolfsod.bin';
+  if (!fs.existsSync(wsb)) throw new Error('wolf/wolfsod.bin fehlt');
+  emu = emu.replace('__WOLFSOD_APP_B64__', fs.readFileSync(wsb).toString('base64'));
   // T18Emu: TG18 program (source in t18/src). No firmware.
   const t18 = __dirname + '/t18/t18.bin';
   if (!fs.existsSync(t18)) throw new Error('t18/t18.bin fehlt');

@@ -456,6 +456,9 @@ void T7_HOT t7_io_write(uint16_t addr, uint8_t value)
       // Originalton: Timer ($3031-$3035) und DAC ($3060/$3065) mitfuehren
       if (g_snd_on && ((reg >= 0x30 && reg <= 0x35) || reg == 0x60 || reg == 0x65))
         t7_snd_io_write(reg, value);
+#ifdef T7_SND_LAZY
+      if (g_snd_on && (reg == 0x70 || reg == 0x71)) t7_snd_io_write(reg, value);   /* IRQ mask: the timers' events again */
+#endif
       break;
   }
 }

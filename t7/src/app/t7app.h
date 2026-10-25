@@ -18,7 +18,16 @@ typedef struct {
 /* Settings on the device (wheel, short press). Stored with the clock note in their own sector. */
 typedef struct {
   uint8_t bg, ink, g1, g2, size, pixel, grid, pixvis, ghost, sound, light, sync, lang, r0, r1, r2;
+  uint8_t pw, r3, r4, r5;   /* 1.6.12 test1 (T7_PW): power saving while the screen is off, 0 normal, 1 strong (12 MHz),
+                               2 maximal (12 MHz and deep sleep between the seconds); others (older settings: 0xFF) = PW_DEF */
 } T7Set;
+#define PW_DEF 1u
+#ifdef T7_FIXED
+/* 1.6.12 test4: power save maximal and the JIT always (tested over night: the call still rings and lights the screen) */
+static inline int app_pw(void) { return 2; }
+#else
+static inline int app_pw(void) { extern T7Set g_set; return g_set.pw <= 2u ? g_set.pw : (int)PW_DEF; }
+#endif
 extern T7Set g_set;
 /* 1.6.6: light = time without a key until the screen dims (0..6: 10 s .. 10 min, 7 = never),
  * r0 = dim level (1, 5, 10, 25, 50 %), r2 = time until the screen goes off (0 = never, 1..7 = 10 s .. 10 min,
@@ -45,6 +54,21 @@ int app_bell(void);                                       /* 1 = the bell icon i
 int  plat_store_load(uint8_t *b, uint32_t n);              /* bytes of the settings sector (0 = empty) */
 void plat_store_write(const uint8_t *b, uint32_t n);
 uint32_t plat_rtc(void);
+#ifdef T7_JIT
+/* 1.6.12 test2: r3 bit 0 = JIT off (0xFF of older settings: on) */
+#ifdef T7_FIXED
+static inline int app_jit(void) { return 1; }
+#else
+static inline int app_jit(void) { extern T7Set g_set; return g_set.r3 == 0xFFu || !(g_set.r3 & 1u); }
+#endif
+int  plat_jit(int on);                                     /* switch, -1: the second part is missing */
+#endif
+int  plat_pw_pct(void);                                   /* T7_PW: % asleep * 1000 + % at 12 MHz, since the start */
+#ifdef T7_VOL
+/* 1.6.12 test3: g_set.sound = volume 0 off, 1 quiet (as before), 2 medium, 3 loud (test5: maximal 1/2 was quieter than loud, gone) */
+#define T7_VOL_N 4
+void plat_vol(int v);
+#endif
 void plat_bat(char *s);                                    /* BAT_SHOW: "2.84V 80%" (12 bytes) */                                   /* seconds counter, keeps running while switched off */
 void plat_rect(int x0, int y0, int x1, int y1);            /* start a rectangle on the screen */
 void plat_row(const uint16_t *px, int n);                  /* pixels of the rectangle, row by row */

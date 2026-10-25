@@ -484,6 +484,7 @@ function keepPlan(F, E, menu, opts = {}) {
     }
     const guestR = [];   // 1.6.8: TamaEmu firmware areas; sectors the Studio changed there (download items) come from the image
     const mine = opts.mine || null;
+    const mineIn = (a, b) => { if (!mine) return false; for (let x = a & ~(SECTOR - 1); x < b; x += SECTOR) if (mine.has(x)) return true; return false; };
     // TamaEmu: settings block at 0x0A0140 (guest size and block map decide the layout)
     const kind = F.appKind(img), dkind = F.appKind(view);
     const T7 = 0x37584D50, t7i = u32(img, 0xA0140) === T7, t7d = u32(view, 0xA0140) === T7;
@@ -527,12 +528,14 @@ function keepPlan(F, E, menu, opts = {}) {
         if (mag === T18) {
           const c = off + 0x140, ns = Math.min(u32(img, c + 12), 64), bl = [];
           for (let i = 0; i < 128; i++) { const b = img[c + 16 + 2 * i] | (img[c + 17 + 2 * i] << 8); if (b !== 0xFFFF) bl.push(b); }
+          const nMap = bl.length;
           for (let i = 0; i < ns; i++) bl.push(img[c + 272 + 2 * i] | (img[c + 273 + 2 * i] << 8));
           if (img[c + 400] & 4) bl.push(0xFD, 0xFE);
           xT18.push(...bl);
           if (!ad.some((d) => d.src === a.src)) continue;
           const dv = changed.has(off) ? await dev.read(off, SECTOR) : img.subarray(off, off + SECTOR);
-          if (u32(dv, 0x140) === T18 && t18SameGrown(dv, 0x140, img, c) && !opts.emuChanged) {
+          const fwMine = !!opts.t18Imp && bl.slice(0, nMap).some((b) => b < 0x100 && mineIn(b << 16, (b + 1) << 16));   // 1.6.11 test2: an imported firmware with its save
+          if (u32(dv, 0x140) === T18 && t18SameGrown(dv, 0x140, img, c) && !opts.emuChanged && !fwMine) {
             const so = u32(img, c + 8); ranges.push([so, so + 0x24000]);
             for (let i = 0; i < ns; i++) { const b = img[c + 272 + 2 * i] | (img[c + 273 + 2 * i] << 8); t18keepX.push([b << 16, (b + 1) << 16]); }
           } else notes.push(note('noteEmu'));
@@ -559,14 +562,14 @@ function keepPlan(F, E, menu, opts = {}) {
           const sameG = [0x140, 0x148, 0x14C, 0x150].every((k) => u32(dv, k) === u32(img, off + k));
           const ro = u32(img, off + 0x148), rl = u32(img, off + 0x14C), so = u32(img, off + 0x150);
           let sameRom = sameG; for (let x = ro & ~0xFFF; sameRom && x < ro + rl; x += SECTOR) if (changed.has(x)) sameRom = false;
-          if (sameRom) ranges.push([so, so + 0x9000]); else notes.push(note('noteEmu'));
+          if (sameRom && !mineIn(so, so + 0x10000)) ranges.push([so, so + 0x10000]); else if (!sameRom) notes.push(note('noteEmu'));   // 1.6.11 test2: with the state behind the cartridge RAM; an imported save (changed by the Studio) wins
           continue;
         }
         if (mag === 0x57584D50) {   // Wolf3D (1.6.10 test1): settings and the saved game stay with the same pack at the same place
           const sameW = [0x140, 0x148, 0x14C, 0x150].every((k) => u32(dv, k) === u32(img, off + k));
           const ro = u32(img, off + 0x148), rl = u32(img, off + 0x14C), so = u32(img, off + 0x150);
           let samePack = sameW; for (let x = ro & ~0xFFF; samePack && x < ro + rl; x += SECTOR) if (changed.has(x)) samePack = false;
-          if (samePack) ranges.push([so, so + 0x10000]); else notes.push(note('noteEmu'));
+          if (samePack && !mineIn(so, so + 0x10000)) ranges.push([so, so + 0x10000]); else if (!samePack) notes.push(note('noteEmu'));
           continue;
         }
         if (mag === 0x31584D50) {   // V1Emu (1.6.8): the session stays with the same ROM at the same place

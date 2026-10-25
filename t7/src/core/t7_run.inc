@@ -32,6 +32,9 @@ uint32_t T7_HOT t7_cpu_run(uint32_t budget)
   const int son = g_snd_on;
   int32_t snd = g_snd_next;
   uint32_t cyc = 0;
+#ifdef T7_JIT
+  uint32_t lp = pc + 0x8000u;          /* pc of the last interpreted instruction: blocks start only where a run of code starts */
+#endif
   uint32_t chk = 1, b3 = (g_rom_bank_id == 3 && !g_t7_static_off);   /* look at IRQs / IR hooks only when something changed */
 
 #define T7R_SAVE() do { CPU.pc = (uint16_t)pc; CPU.a = (uint8_t)a; CPU.x = (uint8_t)x; CPU.y = (uint8_t)y; CPU.s = (uint8_t)sp; \
@@ -138,6 +141,27 @@ uint32_t T7_HOT t7_cpu_run(uint32_t budget)
 #endif
     }
     chk = 0;
+#ifdef T7_JIT
+    /* 1.6.12 test2: translated ROM code, when the interpreter would run all of the block now (t7_jit.c) */
+    if (g_t7j_on && !fd && pc >= 0x4000u) {
+      T7JEnt *je = t7_jit_get((uint32_t)(uintptr_t)(rp[pc >> 8] + (pc & 0xFFu)), pc, rp, b3 | (((pc - lp - 1u) & 0xFFFFu) > 2u ? 2u : 0u));
+      if (je && cyc + je->pre < budget && (!son || snd > (int32_t)je->all)) {
+        T7J js;
+        js.a = a; js.x = x; js.y = y; js.s = sp; js.nzn = nzn; js.nzz = nzz; js.fc = fc; js.fv = fv; js.fi = fi;
+        js.snd = snd; js.wram = g_wram; js.rp = rp; js.wp = wp; js.cyc = 0; js.rem = (int32_t)(budget - cyc); js.son = (uint32_t)son;
+        t7_jit_run(&js, je->code);
+        a = js.a; x = js.x; y = js.y; sp = js.s; nzn = js.nzn; nzz = js.nzz; fc = js.fc; fv = js.fv; fi = js.fi; pc = js.pc;
+        cyc += js.cyc;
+        if (js.io) {                         /* ended after an I/O write: as WR, then the IRQ check */
+          snd = g_snd_next; chk = 1; b3 = (g_rom_bank_id == 3 && !g_t7_static_off);
+          if (son && (snd -= (int32_t)js.io) <= 0) { g_snd_next = snd; t7_snd_service(); snd = g_snd_next; }
+        } else snd = js.snd;
+        lp = pc + 0x8000u;
+        continue;
+      }
+      lp = pc;
+    }
+#endif
 #ifdef T7_COUNT
     { extern volatile uint32_t g_t7_ninstr; g_t7_ninstr++; }
 #endif
@@ -189,7 +213,25 @@ uint32_t T7_HOT t7_cpu_run(uint32_t budget)
     case 0x28: UNPACKP(PULL()); chk = 1; break;
     case 0x4C: pc = A_ABS(); break;
     case 0x6C: pc = A_IND(); break;
+#ifdef T7_JSR_HLE
+    case 0x20: { uint32_t _t = A_ABS(); uint32_t _r = (pc - 1) & 0xFFFF;
+      if (g_t7_hle && (_t == 0xD460u || _t == 0xE4CDu)) {
+        if (_t == 0xE4CDu && (g_t7_hle & 2u) && g_t7_dark) {      /* blit, screen off: JSR + RTS only */
+          g_wram[0x100 | sp] = (uint8_t)(_r >> 8); g_wram[0x100 | ((sp - 1) & 0xFF)] = (uint8_t)_r;
+          c += opcode_cycles[0x60]; break;
+        }
+        if (_t == 0xD460u && (g_t7_hle & 1u)) {                   /* delay: whole when its RTS runs in this run */
+          uint32_t pre = c + opcode_cycles[0xA2] + 47u * (opcode_cycles[0xE8] + opcode_cycles[0xD0]), all = pre + opcode_cycles[0x60];
+          if (cyc + pre < budget && (!son || snd > (int32_t)all)) {
+            g_wram[0x100 | sp] = (uint8_t)(_r >> 8); g_wram[0x100 | ((sp - 1) & 0xFF)] = (uint8_t)_r;
+            x = 0; nzn = 0; nzz = 0; c = all; break;
+          }
+        }
+      }
+      PUSH(_r >> 8); PUSH(_r & 0xFF); pc = _t; } break;
+#else
     case 0x20: { uint32_t _t = A_ABS(); uint32_t _r = (pc - 1) & 0xFFFF; PUSH(_r >> 8); PUSH(_r & 0xFF); pc = _t; } break;
+#endif
     case 0x60: { uint32_t _l = PULL(); uint32_t _h = PULL(); pc = ((_l | (_h << 8)) + 1) & 0xFFFF; } break;
     case 0x40: { UNPACKP(PULL()); uint32_t _l = PULL(); uint32_t _h = PULL(); pc = _l | (_h << 8); } chk = 1; break;
     case 0x00: pc = (pc + 1) & 0xFFFF; PUSH(pc >> 8); PUSH(pc & 0xFF); PUSH(PACKP() | 0x10u);

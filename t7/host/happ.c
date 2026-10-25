@@ -19,6 +19,7 @@ static uint32_t g_rtc = 1000000, g_ms;
 static T7Cfg cfg = { T7_MAGIC, 1, 0, 0, 0, 0, {{0}}, 0 };
 static const uint8_t *figs[T7_FIG_MAX];
 uint32_t plat_rtc(void) { return g_rtc; }
+void plat_vol(int v) { (void)v; }
 void plat_bat(char *s) { const char *t = "2.84V 80%"; int i = 0; while ((s[i] = t[i])) i++; }
 void plat_rect(int x0, int y0, int x1, int y1) { rx0 = x0; rx1 = x1; ry = y0; (void)y1; }
 void plat_row(const uint16_t *px, int n) { for (int i = 0; i < n && rx0 + i < 128; i++) fb[ry][rx0 + i] = px[i]; ry++; }
