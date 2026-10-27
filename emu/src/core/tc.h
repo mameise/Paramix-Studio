@@ -7,9 +7,15 @@
 #include <stdbool.h>
 /* Only needed at startup: placed at the end of the image, the translator takes the space afterwards */
 #if defined(__arm__) && !defined(TC_HOST)
+#ifdef EMU_OVL
+/* 1.6.13 test10: start code for size (the program image is full) */
+#define TC_INIT __attribute__((section(".initcode"), noinline, minsize))
+#define TC_INIT_LAST __attribute__((section(".initcode_z"), noinline, minsize))
+#else
 #define TC_INIT __attribute__((section(".initcode"), noinline))
 /* at the very end: writes the fixed routines to the start of the area */
 #define TC_INIT_LAST __attribute__((section(".initcode_z"), noinline))
+#endif
 /* 1.6.8: rarely run code, small (0x20000000 is only 4 KB, mirrored; the SRAM is full) */
 #define TC_SRAM __attribute__((noinline, minsize))
 #else

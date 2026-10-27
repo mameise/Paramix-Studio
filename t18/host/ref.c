@@ -134,7 +134,7 @@ static void hole_free(void) { g_pool_n = 0; }
 /* 1.6.9 (test11): the Paradise's panel on the PC. The core hands the scanned buffer 30 times a second (T18_PRES_PARA);
  * the policy of main.c decides when rows go to the panel (POLICY=old: T18_PRESENT_IDLE+STABLE, POLICY=calm:
  * T18_PRESENT_CALM). pshot writes what the panel shows (backlight off: darkened). */
-int t18_new_off; static uint32_t MQ = 16; static int m_xfer; static void m_present(int force); static uint32_t m_ms; static uint32_t m_src, m_len; static uint16_t m_panel[128][128]; static uint32_t m_sum[128]; static int m_on, m_calm;
+int t18_new_off; static uint32_t MQ = 16; static int m_xfer; static void m_present(int force); extern int m_endidle; static uint32_t m_ms; static uint32_t m_src, m_len; static uint16_t m_panel[128][128]; static uint32_t m_sum[128]; static int m_on, m_calm;
 static void m_present_cb(void *u, uint32_t src, uint32_t len) { (void)u; if (getenv("SRCLOG") && (src != m_src || len != m_len)) fprintf(stderr, "src %08x len %u at %u\n", src, len, m_ms); m_src = src; m_len = len; if (m_xfer && m_on) m_present(0); }
 static const uint16_t *m_row(uint32_t a) { uint32_t o = a - 0xF8000000u; static uint16_t tmp[128]; if (o >= T18_SRAM_SIZE - 256u) { memset(tmp, 0, 256); return tmp; } for (int i = 0; i < 256; i++) ((uint8_t *)tmp)[i] = *t18_sram_rp(o + i); return tmp; }
 static int m_gate, m_full = 1; static uint32_t m_gate_ms;
@@ -165,10 +165,19 @@ static void m_tick(void) {
     int on = tg18_power(T) && tg18_backlight(T) > 0;
     if (m_xfer) { static int bl = -1; m_on = on; if (on != bl) { bl = on; if (on) { if (m_gate) m_full = 1; else m_present(1); } } return; }
     if (!m_calm) {
-        static int bl = -1; if (on != bl) { if (getenv("BLLOG")) fprintf(stderr, "bl %d at %u (power %d light %d)\n", on, m_ms, tg18_power(T), tg18_backlight(T)); bl = on; m_on = on; if (on) { if (m_gate) m_full = 1; else m_present(1); } }
+        static int bl = -1; if (on != bl) { if (getenv("BLLOG")) { uint32_t r_[4] = {0};
+#ifdef T18_BLDBG
+            void tg18_bl_regs(tg18_t *, uint32_t *); tg18_bl_regs(T, r_);   /* timer B (the light's PWM) */
+#endif
+            fprintf(stderr, "bl %d at %u (power %d light %d) tb %x %x %x %x\n", on, m_ms, tg18_power(T), tg18_backlight(T), r_[0], r_[1], r_[2], r_[3]); } bl = on; m_on = on; if (on) { if (m_gate) m_full = 1; else m_present(1); } }
         uint64_t ic = c->idle_cycles, cy = c->cycles; uint32_t tn = m_ms; int waited = (ic - ic0) * 4u > cy - cy0;
         static uint32_t ht, h_last;
-        if (m_on && m_len && waited && tn - pt >= 33u) { pt = tn; ht = tn; m_present(0); }
+        if (getenv("NEEDEND") && !m_endidle) waited = 0;
+        if (getenv("CONFIRM")) { static uint32_t ch; static int cd; int w = waited; waited = 0;
+            if (!w) cd = 0; else if (m_on && m_len && tn - pt >= 33u) { uint32_t h = m_hash(1); if (cd && h == ch) { waited = 1; cd = 0; } else { cd = 1; ch = h; } } }
+        if (m_on && m_len && waited && tn - pt >= 33u) { pt = tn; ht = tn; if (getenv("PLOG")) { static int k; char fn[64]; snprintf(fn, sizeof fn, "%s%04d_%d.raw", getenv("PLOG"), k++, m_endidle); FILE *o = fopen(fn, "wb"); uint32_t rows = m_len / 256u; for (uint32_t y = 0; y < 128; y++) fwrite(y < rows ? m_row(m_src + y * 256u) : m_panel[0], 2, 128, o); fclose(o); } m_present(0); }
+        else if (getenv("STABLE32")) { static uint32_t st, sh, shown;
+            if (m_on && m_len && tn - st >= 32u) { st = tn; uint32_t h = m_hash(1); if ((h == sh && h != shown && tn - pt >= 33u) || tn - pt >= 5000u) { pt = tn; shown = h; m_present(0); } sh = h; } }
         else if (m_on && m_len && tn - ht >= 250u) { ht = tn; uint32_t h = m_hash(3); if ((h == h_last && tn - pt >= 250u) || tn - pt >= 5000u) { pt = tn; m_present(0); } h_last = h; }
         ic0 = ic; cy0 = cy; return;
     }
@@ -196,7 +205,15 @@ static void m_tick(void) {
     if (getenv("PDBG")) fprintf(stderr, "present t=%u quiet=%d same=%u busy=%u shown=%u\n", tn, quiet, tn - t_same, tn - t_busy, tn - t_shown);
     m_present(full); full = 0; h_shown = h; t_shown = tn; (void)pt;
 }
-static void m_run_ms(double ms) { static int sp; if (!sp) sp = getenv("SPEED") ? atoi(getenv("SPEED")) : 100; for (uint32_t i = 0; i < (uint32_t)(ms / 4); i++) { tg18_run_us(T, 4000); m_ms += 400u / (uint32_t)sp; m_tick(); } }
+int m_endidle = 1; static int m_pn;
+static void m_seclog(void) { static int on = -1; static uint32_t hl, tl; if (on < 0) on = getenv("SECLOG") != 0; if (!on) return;
+    uint32_t h = 0x811C9DC5u; for (int y = 66; y < 80; y++) for (int x = 78; x < 95; x++) h = (h ^ m_panel[y][x]) * 16777619u;
+    if (h != hl) { fprintf(stderr, "sec %u +%u\n", m_ms, m_ms - tl); hl = h; tl = m_ms; } }
+static void m_run_ms(double ms) { static int sp, eu = -1; if (!sp) sp = getenv("SPEED") ? atoi(getenv("SPEED")) : 100; if (eu < 0) eu = getenv("ENDUS") ? atoi(getenv("ENDUS")) : 0;
+    for (uint32_t i = 0; i < (uint32_t)(ms / 4); i++) {
+        if (eu) { arm7_t *c = tg18_cpu(T); tg18_run_us(T, 4000 - eu); uint64_t i0 = c->idle_cycles, c0 = c->cycles; tg18_run_us(T, eu); m_endidle = (c->idle_cycles - i0) * 2u >= c->cycles - c0; }
+        else tg18_run_us(T, 4000);
+        m_ms += 400u / (uint32_t)sp; m_tick(); m_seclog(); } }
 static void m_shot(const char *fn) { FILE *o = fopen(fn, "wb"); for (int y = 0; y < 128; y++) for (int x = 0; x < 128; x++) { uint16_t v = m_panel[y][x]; if (!m_on) v = (uint16_t)((v >> 2) & 0x39E7); fwrite(&v, 2, 1, o); } fclose(o); }
 #endif
 int main(int argc, char **argv)
@@ -279,7 +296,25 @@ int main(int argc, char **argv)
         else if (!strcmp(cmd, "mpress")) {   /* mpress <keys> [ms]: as press, the panel model running */
             int m = 0; for (char *p = a; *p; p++) m |= *p == 'A' ? 1 : *p == 'B' ? 2 : *p == 'C' ? 4 : 0;
             double ms = 150; sscanf(l, "%*s %*s %lf", &ms); tg18_set_buttons(T, m); m_run_ms(ms); tg18_set_buttons(T, 0); }
+        else if (!strcmp(cmd, "mdown")) { int m = 0; for (char *p = a; *p; p++) m |= *p == 'A' ? 1 : *p == 'B' ? 2 : *p == 'C' ? 4 : 0; tg18_set_buttons(T, m); }   /* keys held from now (test11) */
+        else if (!strcmp(cmd, "mup")) tg18_set_buttons(T, 0);
+#ifdef T18_BLDBG
+        else if (!strcmp(cmd, "irqt")) {   /* irqt <n>: raise interrupt n for 1 ms, the device accesses meanwhile */
+            extern int t18_iotrace; void tg18_irq_dbg(tg18_t *, int, int);
+            t18_iotrace = 1; tg18_irq_dbg(T, atoi(a), 1); tg18_run_us(T, 300); tg18_irq_dbg(T, atoi(a), 0); tg18_run_us(T, 700); t18_iotrace = 0; fprintf(stderr, "-- end irq %s\n", a); }
+        else if (!strcmp(cmd, "trace")) { extern int t18_iotrace; t18_iotrace = atoi(a); }
+        else if (!strcmp(cmd, "reg")) { uint32_t tg18_reg_dbg(tg18_t *, uint32_t); unsigned a_ = (unsigned)strtoul(a, 0, 16); fprintf(stderr, "reg %08x = %08x\n", a_, tg18_reg_dbg(T, a_)); }
+#endif
         else if (!strcmp(cmd, "pshot")) m_shot(a);
+        else if (!strcmp(cmd, "slowrun")) {   /* slowrun <ms> <pct>: the emulation at pct % of real time, time dropped as in main.c */
+            double ms = atof(a), pct = 88; sscanf(l, "%*s %*s %lf", &pct); double emu = 0, real = 0, lag = 0; uint32_t lost = 0;
+            for (real = 0; real < ms; real += 4) {
+                emu += 4 * pct / 100.0;
+                while (emu >= 4) { tg18_run_us(T, 4000); emu -= 4; m_tick(); }
+                m_ms += 4; m_seclog();
+                lag += 4 - 4 * pct / 100.0;
+                if (lag > 250) { uint32_t d = (uint32_t)(lag - 250); lag -= d; lost += d; if (lost >= 1000) { tg18_advance_offline(T, lost / 1000); lost %= 1000; } }
+            } }
         else if (!strcmp(cmd, "fdur")) {   /* fdur <ms>: how long each distinct picture of the buffer stays (4 ms steps) */
             double ms = atof(a); uint32_t hl = 0, t0 = 0, k2 = 0;
             for (uint32_t t = 0; t < (uint32_t)ms; t += 4) { tg18_run_us(T, 4000); uint32_t h = m_len ? m_hash(1) : 0;

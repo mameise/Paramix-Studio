@@ -27,6 +27,13 @@ Switches in the program: `V3_CLOCK` (the Paradise's time at the start), `V3_LINK
 The core's infrared (`v3_ir_rx`, `v3_ir_tx`) was checked against CON_V3_IR.py with the same script of port writes
 and clock steps (sent bytes and receiver level the same).
 
-Switches in the core: `V3_FREESTANDING` (no libc), `V3_BATCH` (0: no skipping while stopped, for comparing).
+Switches in the core: `V3_FREESTANDING` (no libc), `V3_BATCH` (0: no skipping while stopped, for comparing),
+`V3_TMFAST` (1.6.13 test12: the timers in closed form and 32-bit arithmetic; an event whose flags are masked is left
+to the next sync, the flag registers sync when read or written; checked equal to the plain core on the host, step by
+step and in 1 ms runs, `V3_SAVESYNC` makes the plain core sync before a save for that comparison).
+
+Power (`V3_PW`, test12, as TamaEmu `EMU_PW`): screen dark, no key, tone, menu or link traffic: 12 MHz from the
+internal RC, deep sleep until the next RTC second or a key, then the toy's time runs in one go (up to 5 s behind,
+never dropped). A tone while dark: from there in real time. `BAT_SMOOTH`: steadier battery reading.
 
 Author: mameise

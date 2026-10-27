@@ -14,6 +14,10 @@ typedef unsigned int u32; typedef unsigned short u16; typedef unsigned char u8;
 static inline void dsb(void){ __asm__ volatile("dsb":::"memory"); }
 
 #ifndef TC_INIT
+#ifdef EMU_OVL
+#define TC_INIT __attribute__((section(".initcode"), noinline, minsize))
+#else
 #define TC_INIT __attribute__((section(".initcode"), noinline))
+#endif
 #endif
 #endif

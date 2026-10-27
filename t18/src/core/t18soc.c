@@ -648,6 +648,9 @@ static void lcd_refresh_event(tg18_t *t) {
     if (((ctl >> 4) & 0xF) == 0xD && (ctl & 1)) {
         uint32_t src = R(0xD050033C);
         int w = (R(0xD0500154) & 0x3FF) + 1, h = (R(0xD0500144) & 0x3FF) + 1;
+#ifdef T18_SRCLOG
+        { static uint32_t ls; if (src != ls) { fprintf(stderr, "LCDSRC %llu %08x %dx%d\n", (unsigned long long)t->cpu.cycles, src, w, h); ls = src; } }
+#endif
         uint32_t len = (uint32_t)(w * h * 2);
         if (len > 128u * 162u * 2u) len = 128u * 162u * 2u;
         if (t->fb_boot && t->cpu.cycles - t->fb_boot_cyc > (uint64_t)t->cpu_hz * 3) t->fb_boot = 0;   /* safety */
@@ -774,8 +777,26 @@ static void tmr_sync(tg18_t *t, int i);
 static void tmr_sched(tg18_t *t, int i);
 static void events_recalc(tg18_t *t);
 /* master ticks per CPU cycle at system clock hz, divided by the boost */
+#ifdef T18_CPU_SLOW
+static uint32_t cpu_cost(tg18_t *t, uint32_t hz);
+static uint8_t t18_cpu_k = T18_CPU_SLOW;
+void tg18_set_cpu_k(tg18_t *t, int k)
+{
+    if (k < 4) k = 4;
+    if (k > 8) k = 8;
+    t18_cpu_k = (uint8_t)k;
+    t->cpu.cyc_mult = cpu_cost(t, t->sys_hz ? t->sys_hz : 12000000u);
+}
+#endif
 static uint32_t cpu_cost(tg18_t *t, uint32_t hz) {
     uint32_t m = t->cpu_hz / hz;
+#ifdef T18_CPU_SLOW
+    /* 1.6.13 test5: the CPU at 4/k of its clock (timers and clocks unchanged). The firmware polls in its main
+     * loop between pictures (a quarter of its instructions in the room, measured); with fewer cycles that polling
+     * shrinks, the pictures come the same (ref: the same work per picture), the device keeps up.
+     * test6: k set by the platform (tg18_set_cpu_k), T18_CPU_SLOW at the start. */
+    m = (m * t18_cpu_k + 2u) / 4u;
+#endif
     uint32_t b = t->cpu_boost > 1 ? (uint32_t)t->cpu_boost : 1u;
     m = m / b;
     return m < 1 ? 1 : m;
@@ -859,10 +880,18 @@ static uint32_t mem_rd(tg18_t *t, uint32_t a, int size) {
     }
     return 0;
 }
+#ifdef T18_BLDBG
+int t18_iotrace;
+#define IOTR(k, a, v) do { if (t18_iotrace) fprintf(stderr, "%c %08x %08x pc %08x\n", k, (unsigned)(a), (unsigned)(v), (unsigned)t->cpu.r[15]); } while (0)
+#include <stdio.h>
+#else
+#define IOTR(k, a, v)
+#endif
 static uint32_t io_rd(void *ctx, uint32_t a, int size) {
     tg18_t *t = (tg18_t *)ctx;
     uint32_t v;
     if (!is_io(a)) return mem_rd(t, a, size);
+    IOTR('r', a, R(a & ~3u));
     switch (a & ~3u) {
     case 0xD000003C: v = (R(0xD000001C) & 0x8000) ? 2 : 1; break;
     case 0xD0000064: v = 0; break;
@@ -910,7 +939,44 @@ int tg18_io_fast(void *ctx, uint32_t a, uint32_t *v) {
     case 0xD0100028: *v = intc_vec(t, 0); return 1;
     case 0xC0000020: *v = (R(0xC0000020) & ~0xE0u) | ((t->buttons & 1) ? 0x20 : 0) | ((t->buttons & 2) ? 0x40 : 0) | ((t->buttons & 4) ? 0x80 : 0); return 1;
     case 0xC0000040: case 0xD0100038: *v = reg_get(t, a); return 1;
+#ifdef T18_IO_FASTW
+    case 0xD00000B4: *v = reg_get(t, a); return 1;
+#endif
     }
+    return 0;
+}
+#endif
+#ifdef T18_IO_FASTW
+/* 1.6.13 test5: word stores the firmware makes thousands of times a second while it loads pictures (the hatching:
+ * interrupt enable around each flash transfer, 0xD00000B4), straight from the translator's slow path in the PRAM
+ * (io_wr is in the flash window). The same as io_wr does for these. 1 = done. */
+int tg18_io_fastw(void *ctx, uint32_t a, uint32_t v)
+{
+    tg18_t *t = (tg18_t *)ctx;
+    if (t->trace) return 0;
+    switch (a) {
+    case 0xD0100030: case 0xD0100034: case 0xD0100038: *reg(t, a) = v; intc_update(t); return 1;
+    case 0xD00000B4: *reg(t, a) = v; return 1;
+    }
+    return 0;
+}
+#endif
+#ifdef T18_IO_DIRECT
+/* 1.6.13 test5: the registers tg18_io_fast reads plainly (timers but not their count, 0xC0000040, 0xD0100038): where
+ * their value lies, for loads straight from translated code. 0 = not one of these. */
+uint32_t *tg18_io_plain(void *ctx, uint32_t a)
+{
+    tg18_t *t = (tg18_t *)ctx;
+    if (a & 3u) return 0;
+    if ((a - 0xC0020000u < 0xC0u && (a & 0x1Fu) != 0x10u) || a == 0xC0000040u || a == 0xD0100038u) return reg(t, a);
+    if (a == 0xD00000B4u || (a >= 0xC0150010u && a <= 0xC015001Cu)) return reg(t, a);   /* flash transfer set-up */
+    return 0;
+}
+/* ... and those a store only keeps (as io_wr / tg18_sf_fast do for them) */
+uint32_t *tg18_io_plain_w(void *ctx, uint32_t a)
+{
+    tg18_t *t = (tg18_t *)ctx;
+    if (a == 0xD00000B4u || (a >= 0xC0150010u && a <= 0xC015001Cu && !(a & 3u))) return reg(t, a);
     return 0;
 }
 #endif
@@ -1102,6 +1168,7 @@ int tg18_ble_from_phone(tg18_t *t, const uint8_t *d, int n)
 #endif
 static void io_wr(void *ctx, uint32_t a, uint32_t v, int size) {
     tg18_t *t = (tg18_t *)ctx;
+    if (is_io(a)) IOTR('w', a, v);
     if (!is_io(a)) {
         uint32_t o = a - 0xF8000000u;
         if (o < T18_SRAM_SIZE && o + (uint32_t)size <= T18_SRAM_SIZE) t18_sram_wr(o, v, size);   /* the hole */
@@ -1329,9 +1396,20 @@ void tg18_run_cycles(tg18_t *t, uint64_t target) {
 void tg18_run_us(tg18_t *t, uint32_t us) {
     tg18_run_cycles(t, t->cpu.cycles + (uint64_t)us * t->cpu_hz / 1000000u);
 }
+void tg18_run_us_off(tg18_t *t, uint32_t us, void (*on)(void)) {
+    uint64_t target = t->cpu.cycles + (uint64_t)us * t->cpu_hz / 1000000u;
+    rtc_rebase(t);
+    while (t->cpu.cycles < target && !t->power) off_run(t, target);
+    if (t->cpu.cycles < target) { if (on) on(); tg18_run_cycles(t, target); }
+}
 uint64_t tg18_cycles(tg18_t *t) { return t->cpu.cycles; }
 
-void tg18_set_buttons(tg18_t *t, int mask) { t->buttons = mask; }
+void tg18_set_buttons(tg18_t *t, int mask) {
+#ifdef T18_KEY_NOIDLE
+    extern uint64_t t18_idle_hold;
+    if (mask != t->buttons) t18_idle_hold = t->cpu.cycles + (uint64_t)t->cpu_hz * T18_KEY_NOIDLE / 1000u;   /* ms */
+#endif
+    t->buttons = mask; }
 
 /* ---------------- state ---------------- */
 #define ST_MAGIC 0x54313853u  /* 'S81T' */
@@ -1463,14 +1541,30 @@ int tg18_attention(tg18_t *t) {
 int tg18_backlight(tg18_t *t) {
     if (!t->power) return 0;
     uint32_t ctrl = TREG(1, 0), pwm = TREG(1, 4);
+#ifdef T18_BL_STRICT
+    /* 1.6.13 test11: the light comes from timer B's PWM output. The firmware wakes every minute for about 2 s with the
+     * timer not set up at all (registers 0): on the device the light stays off; here it counted as full light and the
+     * screen flashed up (Bernd: about 45 s after going dark). A compare at or below the reload (screen dark: 0xCBEA
+     * against 0xCBEB) is no light either. */
+    if (!(ctrl & 0x2000) || !(pwm & 0x8000)) return 0;
+    uint32_t pre = TREG(1, 8) & 0xFFFF, cmp = TREG(1, 0xC) & 0xFFFF;
+    uint32_t period = 0x10000 - pre;
+    if (!period || cmp <= pre) return 0;
+#else
     if (!(ctrl & 0x2000) || !(pwm & 0x8000)) return 255;
     uint32_t pre = TREG(1, 8) & 0xFFFF, cmp = TREG(1, 0xC) & 0xFFFF;
     uint32_t period = 0x10000 - pre;
     if (!period) return 255;
+#endif
     uint32_t high = cmp > pre ? 0x10000 - cmp : period;
     int lvl = (int)(high * 255 / period);
     return lvl;
 }
+#ifdef T18_BLDBG
+void tg18_bl_regs(tg18_t *t, uint32_t *r) { for (int i = 0; i < 4; i++) r[i] = TREG(1, (uint32_t)i * 4u); }
+uint32_t tg18_reg_dbg(tg18_t *t, uint32_t a) { return R(a); }
+void tg18_irq_dbg(tg18_t *t, int n, int on) { set_irq(t, n, on); }
+#endif
 uint32_t tg18_sysclk(tg18_t *t) { return t->sys_hz; }
 uint32_t tg18_boot_count(tg18_t *t) { return t->boot_count; }
 

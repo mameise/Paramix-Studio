@@ -140,6 +140,9 @@
 
 /* Cart section sizes */
 #define ROM_BANK_SIZE   0x4000
+#ifndef PGB_BANKSET	/* Paramix: called when the switchable ROM bank changes */
+#define PGB_BANKSET(gb) ((void)0)
+#endif
 #define WRAM_BANK_SIZE  0x1000
 #define CRAM_BANK_SIZE  0x2000
 #define VRAM_BANK_SIZE  0x2000
@@ -811,7 +814,9 @@ PGB_READ_ATTR uint8_t __gb_read(struct gb_s *gb, uint16_t addr)
 	case 0x5:
 	case 0x6:
 	case 0x7:
-#ifdef PGB_ROM	/* Paramix */
+#if defined(PGB_ROM) && defined(PGB_ROMOFF)	/* Paramix GB_TRIM: offset of the switchable bank, set when it changes */
+		return PGB_ROM[addr + PGB_ROMOFF];
+#elif defined(PGB_ROM)	/* Paramix */
 		if(gb->mbc == 1 && gb->cart_mode_select)
 			return PGB_ROM[addr + ((gb->selected_rom_bank & 0x1F) - 1) * ROM_BANK_SIZE];
 		else
@@ -928,6 +933,7 @@ void __gb_write(struct gb_s *gb, uint_fast16_t addr, uint8_t val)
 				(gb->selected_rom_bank & 0x100) | val;
 			gb->selected_rom_bank =
 				gb->selected_rom_bank & gb->num_rom_banks_mask;
+			PGB_BANKSET(gb);
 			return;
 		}
 
@@ -971,6 +977,7 @@ void __gb_write(struct gb_s *gb, uint_fast16_t addr, uint8_t val)
 			gb->selected_rom_bank = (val & 0x01) << 8 | (gb->selected_rom_bank & 0xFF);
 
 		gb->selected_rom_bank = gb->selected_rom_bank & gb->num_rom_banks_mask;
+		PGB_BANKSET(gb);
 		return;
 
 	case 0x4:
@@ -980,6 +987,7 @@ void __gb_write(struct gb_s *gb, uint_fast16_t addr, uint8_t val)
 			gb->cart_ram_bank = (val & 3);
 			gb->selected_rom_bank = ((val & 3) << 5) | (gb->selected_rom_bank & 0x1F);
 			gb->selected_rom_bank = gb->selected_rom_bank & gb->num_rom_banks_mask;
+			PGB_BANKSET(gb);
 		}
 		else if(gb->mbc == 3)
 		{
@@ -1004,6 +1012,7 @@ void __gb_write(struct gb_s *gb, uint_fast16_t addr, uint8_t val)
 
 		/* Set banking mode select. */
 		gb->cart_mode_select = val;
+		PGB_BANKSET(gb);
 		return;
 
 	case 0x8:
@@ -3736,6 +3745,7 @@ void gb_reset(struct gb_s *gb)
 	gb->cart_ram_bank = 0;
 	gb->enable_cart_ram = 0;
 	gb->cart_mode_select = 0;
+	PGB_BANKSET(gb);
 
 	/* Use values as though the boot ROM was already executed. */
 	if(gb->gb_bootrom_read == NULL)

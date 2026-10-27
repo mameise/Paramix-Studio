@@ -7,6 +7,7 @@
  * wrote it, and on leaving.
  * Author: mameise */
 #include "../../../emu/src/emu/hw.h"
+#include "../../../emu/src/emu/exitkey.h"
 #include "../../../emu/src/emu/flash.h"
 #define PARA_ATTR
 #include "../../../emu/src/emu/paraclock.h"
@@ -422,7 +423,7 @@ void Reset_Handler(void)
         continue;
       }
     }
-    if (b & BTN_WHEEL) { if (!wheel_ms) wheel_ms = now ? now : 1; else if (now - wheel_ms > 2000u) leave(); } else wheel_ms = 0;
+    if (b & BTN_WHEEL) { if (!wheel_ms) wheel_ms = now ? now : 1; else if (EXIT_NOW(now - wheel_ms, 2000u)) leave(); } else wheel_ms = 0;
     if ((b & (BTN_A | BTN_B | BTN_C)) == (BTN_A | BTN_B | BTN_C) && !g_menu && !menu_lock) {
       psg_quiet(); g_menu = 1; menu_lock = 1; g_msel = 1; g_mtop = 0; menu_items(); menu_draw(); mk0 = BTN_A | BTN_B | BTN_C; g_sms.pad = 0;
     }

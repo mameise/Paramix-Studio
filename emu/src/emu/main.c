@@ -2,21 +2,56 @@
  * Tamagotchi core (tamaemu, GPL-3.0) directly on the device.
  * Long press on the wheel: save state and return to the Paradise. */
 #include "hw.h"
+#include "exitkey.h"
 #include "ask.h"
 #include "flash.h"
 #include "../core/tc.h"
 #include "state.h"
 #ifdef TC_IRLINK
 #define PL_ATTR __attribute__((noinline, minsize))
+#ifdef EMU_TONE_Q
+#define PL_INIT_ATTR __attribute__((section(".initcode"), noinline, minsize))   /* test20: room for the tone queue */
+#endif
 #include "plink.h"
 #ifdef CLK_ECO
 #include "eco.h"
 #endif
 /* 1.6.9: the guest's infrared bytes to the other Paradise ('E' frames over the contacts) and back */
-static u8 g_irq[512], g_irtx[60], g_irtxn;
+static u8 g_irq[512], g_irtxn;
 static u16 g_irh, g_irt;
 int tc_ir_avail(void) { return g_irh != g_irt; }
 int tc_ir_in(void) { if (g_irh == g_irt) return -1; u8 b = g_irq[g_irh & 511u]; g_irh++; return b; }
+#ifdef LK_SYNC
+/* 1.7.1 LK_SYNC: two iD L (or P's) only connect when each answers within about 10 ms of the other's game time. The
+ * emulators run on their own: a busy moment (drawing, translating, the flash) put one of them 20 ms or more behind and
+ * the visit failed ("FAILED"). Now, while infrared bytes go back and forth, each frame ('F') carries how many game ms
+ * the sender has run; the one that is more than LK_SLACK ms ahead waits here for the other (at most 500 ms without a
+ * frame from it). Without bytes for 2 s each runs on its own again. */
+#define LK_SLACK 3
+static volatile u32 g_ms;
+static u8 g_irtx[64];                     /* [0..3] game ms run, then the bytes */
+static u32 g_lk_run, g_lk_off, g_lk_peer, g_lk_act; static u8 g_lk_on;
+__attribute__((minsize)) void tc_ir_out(u8 b) { g_lk_act = g_ms; if (g_irtxn < 60u) g_irtx[4 + g_irtxn++] = b; }   /* a few bytes per ms: sent after each game ms */
+__attribute__((noinline, minsize)) static void ir_got(u8 ty, const u8 *d, int n)
+{
+  if (ty != 'F') return;                       /* our frames carry at least the 4 bytes */
+  u32 p; memcpy(&p, d, 4);
+  if (!g_lk_on) { g_lk_on = 1; g_lk_off = p - g_lk_run; }   /* a new exchange: both counts from here */
+  g_lk_peer = p;
+  if (n > 4) g_lk_act = g_ms;
+  for (int i = 4; i < n; i++) if ((u16)(g_irt - g_irh) < 512u) { g_irq[g_irt & 511u] = d[i]; g_irt++; }
+}
+/* after each game ms */
+__attribute__((noinline, minsize)) static void ir_link_tick(u32 now)
+{
+  g_lk_run++;
+  if (now - g_lk_act >= 2000u) g_lk_on = 0;
+  else { memcpy(g_irtx, &g_lk_run, 4); plink_send('F', g_irtx, 4 + g_irtxn); g_irtxn = 0; }
+  do { plink_poll(g_ms, 0, ir_got); hw_wdt_feed(); }
+  while (g_lk_on && g_ms - g_pl.last_rx < 500u && (int32_t)(g_lk_run + g_lk_off - g_lk_peer) > LK_SLACK);
+}
+#else
+static u8 g_irtx[60];
 __attribute__((minsize)) void tc_ir_out(u8 b) { g_irtx[g_irtxn++] = b; if (g_irtxn >= sizeof g_irtx) { plink_send('E', g_irtx, g_irtxn); g_irtxn = 0; } }
 __attribute__((noinline, minsize)) static void ir_got(u8 ty, const u8 *d, int n)
 {
@@ -25,10 +60,38 @@ __attribute__((noinline, minsize)) static void ir_got(u8 ty, const u8 *d, int n)
 }
 __attribute__((noinline, minsize)) static void ir_link_tick(u32 now) { if (g_irtxn) { plink_send('E', g_irtx, g_irtxn); g_irtxn = 0; } plink_poll(now, 0, ir_got); }
 #endif
+#endif
+#ifdef LK_SYNC
+#define PARA_ATTR __attribute__((section(".initcode"), minsize))   /* 1.7.1: start code, small (room for LK_SYNC) */
+#else
 #define PARA_ATTR __attribute__((section(".initcode")))
+#endif
+#ifdef EMU_OVL
+/* 1.6.13 test10: code that only runs in the settings or when leaving lives in the overlay at the end of the program
+ * image, inside the translator's room: ovl_load copies it back from the flash when it is needed (the translator starts
+ * over afterwards). The translator gets that much more room. */
+#ifdef LK_SYNC
+#define OVL_FN __attribute__((section(".ovltext"), noinline, minsize))   /* 1.7.1: settings and leaving, small */
+#else
+#define OVL_FN __attribute__((section(".ovltext"), noinline))
+#endif
+#define OVL_RO __attribute__((section(".ovlrodata")))
+#define PB_ATTR __attribute__((section(".ovltext")))
+#else
+#define OVL_FN
+#define OVL_RO
+#endif
 #include "paraclock.h"
 #ifdef PARA_BACK
+#ifdef EMU_TONE_Q
+#define PB_MARK_ATTR __attribute__((section(".initcode"), minsize))   /* test20: only at the start (in the PRAM image) */
+#endif
 #include "paraback.h"
+#ifdef BAT_GUARD
+#define BAT_PIC_ATTR OVL_FN __attribute__((minsize))   /* test23: in the overlay, PRAM is full */
+#include "batt.h"
+static volatile u8 g_bat_go;
+#endif
 #endif
 uint32_t jit_used(void);
 
@@ -71,6 +134,116 @@ static u32 g_run_ms, g_hold_ms;           /* see clock_sync */
 typedef int32_t s32;
 #define CORE_HZ 96000000u
 static void systick_init(void){ SYST_RVR = CORE_HZ/1000u - 1u; SYST_CVR = 0; SYST_CSR = 7; }
+#ifdef EMU_PW
+/* ---- 1.6.13 test10: power saving while the guest sleeps (as T7Emu T7_PW and T18Emu T18_PW) ----
+ * Screen dark and the guest asleep on its 32 kHz clock (it only counts its time): the chip runs from its internal
+ * 12 MHz RC with PLL and crystal off (datasheet: 1.6 mA instead of 9 to 12 mA) and goes to deep sleep (0.4 mA) once
+ * the emulation has caught up; the RTC (1 s, set by the Paradise) or a key wakes it, the ms tick continues from the
+ * RTC. The guest's sleeping time then passes in a tight loop (pw_steps), never dropped. */
+#define OSC_CTRL REG(0x45000000u)
+#define OSC_STAT REG(0x45000008u)
+#define SYS_CLKCFG REG(0x4500000Cu)
+#define SYS_AHBCP REG(0x45000010u)
+#define ISO_CTRL REG(0x45000200u)
+#define PMU_CTRL REG(0x45000300u)
+#define GP0(o) REG(0x40018000u + (o))
+#define NVIC_ISER0 REG(0xE000E100u)
+#define NVIC_ICER0 REG(0xE000E180u)
+#define NVIC_ICPR0 REG(0xE000E280u)
+#define PW_KEYS 0xF00u                     /* P0.8 wheel, P0.9 A, P0.10 C, P0.11 B */
+#define PW_IRQS ((1u << 2) | (1u << 26))   /* RTC, GPIO0 */
+static int g_pw_low;
+static u32 g_pw_rtc, g_pw_rtcms, g_pw_skip;
+static volatile u8 g_pw_rtcw;              /* the RTC woke the chip (its interrupt ran) */
+static u8 g_pw_kw;                         /* woken by a key before the next RTC second: that part of a second is not counted yet */
+__attribute__((used, noinline)) void pw_rtc_irq(void) { PMU_CTRL = (PMU_CTRL & ~0x47u) | 0x10u; g_pw_rtcw = 1; }   /* RTC_FLAG: write 1 */
+__attribute__((used, noinline)) void pw_gpio_irq(void) { GP0(0x20) = PW_KEYS; }
+__attribute__((noinline, minsize)) static void pw_full(void)
+{
+  if (!g_pw_low) return;
+  OSC_CTRL |= 1u << 4;                                          /* crystal on (the PLL's source, as hw_init sets it) */
+  for (u32 t = 0; !(OSC_STAT & (1u << 4)) && t < 2000000u; t++) {}
+  OSC_CTRL |= 1u << 15;                                         /* PLL on */
+  for (u32 t = 0; !(OSC_STAT & (1u << 6)) && t < 2000000u; t++) {}
+  SYS_CLKCFG = 4u;                                              /* system clock from the PLL */
+  for (u32 t = 0; ((SYS_CLKCFG >> 4) & 7u) != 4u && t < 2000000u; t++) {}
+  SYST_RVR = CORE_HZ / 1000u - 1u; SYST_CVR = 0;
+  g_pw_low = 0;
+}
+__attribute__((noinline, minsize)) static void pw_low(void)
+{
+  if (g_pw_low) return;
+  SYS_AHBCP = 0;
+  SYS_CLKCFG = 0;                                               /* system clock from the IHRC (12 MHz) */
+  for (u32 t = 0; ((SYS_CLKCFG >> 4) & 7u) != 0u && t < 2000000u; t++) {}
+  if (((SYS_CLKCFG >> 4) & 7u) != 0u) { SYS_CLKCFG = 4u; return; }   /* did not switch: stay as it was */
+  OSC_CTRL &= ~((1u << 15) | (1u << 4));                        /* PLL and crystal off */
+  SYST_RVR = 12000000u / 1000u - 1u; SYST_CVR = 0;
+  g_pw_low = 1;
+}
+#ifdef EMU_TONE_Q
+/* test20: tone queue (as T18_TONE_Q): changes with their game time, played on the real clock 150 ms after the first of
+ * a sequence; late by more than 200 ms the timing starts anew. A tone always at the full clock (the buzzer's timer
+ * counts the system clock: at 12 MHz a call began as a long low tone). */
+#ifdef EMU_TQ_DROP
+#define TQ_N 64u   /* test22: a call melody caught up from seconds behind fits */
+static u32 tq_drop;   /* game ms dropped so far: the queue's game time stays continuous */
+#else
+#define TQ_N 32u
+#endif
+#define TQ_LAT 250u
+static u32 tq_t[TQ_N]; static u16 tq_hz[TQ_N]; static u32 tq_h, tq_w, tq_g0, tq_r0, tq_on, tq_last;
+static void pw_full(void);
+__attribute__((minsize)) static void tq_put(u32 hz, u32 gms) {
+#ifdef EMU_TQ_DROP
+  gms -= tq_drop;
+#endif
+  if (tq_w - tq_h >= TQ_N) tq_h++; tq_t[tq_w % TQ_N] = gms; tq_hz[tq_w % TQ_N] = (u16)(hz > 0xFFFFu ? 0xFFFFu : hz); tq_w++; }
+__attribute__((noinline, minsize)) static void tq_pump(void)
+{
+  u32 now = g_ms;
+  while (tq_h != tq_w) {
+    u32 i = tq_h % TQ_N;
+    if (!tq_on) { tq_on = 1; tq_g0 = tq_t[i]; tq_r0 = now + TQ_LAT; }
+    s32 late = (s32)(now - (tq_r0 + (tq_t[i] - tq_g0)));
+    if (late < 0) return;
+    if (late > 200) { tq_g0 = tq_t[i]; tq_r0 = now; }
+    u32 hz = tq_hz[i];
+    if (hz) { pw_full();
+#ifdef CLK_ECO
+      if (g_hw_clk_sh) hw_clk_shift(0, CORE_HZ);   /* the lower eco clock would lower the tone as well */
+#endif
+    }
+    hw_tone(hz); tq_h++; tq_last = now;
+  }
+  if (!g_hw_tone_hz && now - tq_last > 1000u) tq_on = 0;   /* quiet for a second: the next note starts a new sequence */
+}
+#endif
+/* deep sleep until the next RTC second or a key; returns the seconds that passed */
+__attribute__((noinline, minsize)) static u32 pw_sleep(void)
+{
+  u32 iso = ISO_CTRL;
+  if (!(iso & 0x80u) || (iso & 7u) != 0u) { __asm__ volatile("wfi"); return 0; }   /* the RTC is not on 1 s: no deep sleep */
+  ISO_CTRL = iso & ~8u;                                         /* RTC_WKP 0: the RTC interrupt wakes */
+  GP0(0x0C) &= ~PW_KEYS; GP0(0x10) |= PW_KEYS; GP0(0x20) = PW_KEYS; GP0(0x18) |= PW_KEYS;   /* edges, both */
+  NVIC_ICPR0 = PW_IRQS; NVIC_ISER0 = PW_IRQS;
+  u32 r0 = REG(0x45000304u), csr = SYST_CSR;
+  SYST_CSR = 0;
+  g_pw_rtcw = 0;
+  PMU_CTRL = (PMU_CTRL & ~0x47u) | 2u;                          /* DSLEEP_EN */
+  __asm__ volatile("dsb\n wfi\n isb" ::: "memory");
+  PMU_CTRL = PMU_CTRL & ~0x47u;
+  NVIC_ICER0 = PW_IRQS; GP0(0x18) &= ~PW_KEYS; GP0(0x20) = PW_KEYS;
+  ISO_CTRL = (ISO_CTRL & ~8u) | (iso & 8u);
+  SYST_CVR = 0; SYST_CSR = csr;
+  /* woken by the RTC: wait until the counter (32 kHz domain) shows the new second (as T18Emu test3) */
+  u32 r = REG(0x45000304u);
+  if (g_pw_rtcw) for (u32 t = 0; r == r0 && t < 200000u; t++) r = REG(0x45000304u);
+  u32 n = r - r0;
+  if (!n) g_pw_kw = 1;
+  return n > 3600u ? 0u : n;
+}
+#endif
 
 /* XIP window: 1 MB cached from 0x10000000, base freely selectable. */
 #define XIP_BASE_REG REG(0x4002F004u)
@@ -118,6 +291,13 @@ static u32 pram_check(u32 end, int fix){
   if(n && fix){ __asm__ volatile("dsb\n isb" ::: "memory"); }
   return n;
 }
+#ifdef EMU_OVL
+extern uint8_t __ovl_start[], __ovl_end[];
+void jit_pram_load(uint32_t dst, const void *src, uint32_t n);
+/* the overlay back from this program's image in the flash (the translator wrote its code over it); the translator
+ * then starts over */
+__attribute__((noinline, minsize)) static void ovl_load(void){ jit_pram_load((u32)__ovl_start, (const void *)(app_flash() + (u32)__ovl_start), (u32)(__ovl_end - __ovl_start)); g_emu.jit_flush = 1; }
+#endif
 /* Startup display: until the guest has sent a frame, two rows of numbers (hex)
  * are shown at the bottom. Shows on the device how far startup gets. */
 #if !defined(CLEAN) || defined(MESS)
@@ -294,11 +474,26 @@ static void push_dirty(Emu *e){
 #endif
 }
 
-static void leave_go(int save){
+#ifdef BAT_GUARD
+/* test21: battery empty: everything saved (guest flash, run state), then off until new batteries (BAT_GUARD) */
+OVL_FN static void bat_end(void){
+  st_save(&g_emu, &g_sc, g_gram);
+  BAT_PIC_SHOW();
+  hw_backlight(0);
+  for(;;){ hw_wdt_feed(); __asm__ volatile("wfi"); }
+}
+#endif
+__attribute__((minsize)) static void leave_go(int save){
+#ifdef EMU_PW
+  pw_full();
+#endif
 #ifdef CLK_ECO
   hw_clk_shift(0, CORE_HZ);
 #endif
   hw_tone(0);
+#ifdef EMU_OVL
+  ovl_load();
+#endif
   REG(0x20000FF8u)=0;                    /* start counter of the home hooks */
   REG(0x20000FFCu)=0x4C584D50u;          /* "PMXL": back on purpose, the autostart of the stub stays off (v0.9.4) */
   if(save)
@@ -443,7 +638,7 @@ typedef struct { u32 rv; u16 hun, hap, pts, med; u8 hmax, mul, add, mask; } EmuC
 /* test32: the happy bar (iD L: friend level, Plus Color: HAPPY!, P's: ring, 4U: love) only as far as the game itself
  * lets it grow, read from each firmware's own code: mul * (medals in med, bits of mask) + add; mask 0 (4U): 100 once
  * the stage byte med is above 2, else 30 */
-static const EmuCare CARE[] = {
+OVL_RO static const EmuCare CARE[] = {
   { 0x00C2F0ECu, 0x8125u, 0x812Cu, 0x8138u, 0x815Eu, 4, 10, 10, 0x7F },   /* Plus Color v040 */
   { 0x024CA8FEu, 0x8225u, 0x8228u, 0x8238u, 0x826Cu, 4, 20, 19, 0x0F },   /* iD L v050 */
   { 0x024CA942u, 0x8225u, 0x822Cu, 0x8238u, 0x8270u, 4, 20, 19, 0x0F },   /* iD L v050 (2011-02-24) */
@@ -454,8 +649,8 @@ static const EmuCare CARE[] = {
   { 0x024F6256u, 0x11A1u, 0x11A8u, 0x11B4u, 0x11E2u, 6, 0, 0, 0 },        /* 4U+ */
   { 0x024C680Au, 0x12A9u, 0x12B0u, 0x12BCu, 0x12EAu, 6, 0, 0, 0 },        /* 4U v001 */
 };
-static const EmuCare *care_find(Emu *e){ u32 v=mem_read32(e, e->dev.ttbr_reset); for(u32 i=0;i<sizeof CARE/sizeof CARE[0];i++) if(CARE[i].rv==v) return &CARE[i]; return 0; }
-static u8 *care_p(Emu *e, u32 a){ return (a & 0x8000u) ? e->dstram+(a & 0x7FFFu) : e->a0ram+a; }
+OVL_FN static const EmuCare *care_find(Emu *e){ u32 v=mem_read32(e, e->dev.ttbr_reset); for(u32 i=0;i<sizeof CARE/sizeof CARE[0];i++) if(CARE[i].rv==v) return &CARE[i]; return 0; }
+OVL_FN static u8 *care_p(Emu *e, u32 a){ return (a & 0x8000u) ? e->dstram+(a & 0x7FFFu) : e->a0ram+a; }
 #endif
 static u32 g_ovl;                         /* speed display on (short wheel press) */
 /* Timing (v0.8.20): cycles from SysTick (g_ms * 96000 + elapsed part of the current ms).
@@ -471,7 +666,15 @@ static u32 g_btn_ms;                      /* last key (GFLUSH_IDLE) */
 #ifdef HW_OPTS
 static u32 g_scr_ms; static int g_scr_dark;   /* 1.6.8: screen off after (Studio), off now */
 static const u16 OPT_SM[8]={0,10,20,30,60,120,300,600};   /* screen off after, seconds */
-static void opt_apply(u32 f){ g_hw_vol=(0x0312u>>(((f>>16)&3u)*4u))&15u; g_hw_dim=(f>>18)&3u; g_scr_ms=OPT_SM[(f>>20)&7u]*1000u;
+#ifdef EMU_DIM
+/* 1.6.13 test10: dimming as in T7Emu and T18Emu (bits 12-14 dim after, 8-11 dim to, set on the device): the light goes
+ * down to the chosen percent after that time without a key; the first key then only brings the light back */
+static u32 g_dim_ms, g_dim_t; static int g_dimd;
+#endif
+__attribute__((minsize)) static void opt_apply(u32 f){ g_hw_vol=(0x0312u>>(((f>>16)&3u)*4u))&15u; g_hw_dim=(f>>18)&3u; g_scr_ms=OPT_SM[(f>>20)&7u]*1000u;
+#ifdef EMU_DIM
+  g_dim_ms=OPT_SM[(f>>12)&7u]*1000u; g_dimd=0;
+#endif
 #ifdef BL_PWM
   hw_bl_set(opt_light_pct(f));   /* 1.6.8: the light, not the colours */
 #endif
@@ -483,9 +686,20 @@ static void opt_apply(u32 f){ g_hw_vol=(0x0312u>>(((f>>16)&3u)*4u))&15u; g_hw_di
 #define OPT_MAGIC 0x4F584D50u   /* "PMXO" */
 static u32 g_opt, g_optsec[4];
 static u32 opt_studio(void){ return (g_cfg.version>=4u ? g_cfg.flags : 0u) & 0xF7F0000u; }
+#ifdef EMU_DIM
+/* the device-only bits (dim 8-14, language 0-1) stay when the Studio's bits were changed */
+static void opt_load(void){ u32 *s=g_optsec; flash_read(OPT_SEC, s, 16);
+  int ok = s[0]==OPT_MAGIC && s[3]==(s[0]^s[1]^s[2]) && !(s[2]&~0xF7F7F03u);
+  g_opt = ok && s[1]==opt_studio() ? s[2] : opt_studio() | (ok ? s[2] & 0x7F03u : 0u); }
+#else
 static void opt_load(void){ u32 *s=g_optsec; flash_read(OPT_SEC, s, 16);
   g_opt = (s[0]==OPT_MAGIC && s[1]==opt_studio() && s[3]==(s[0]^s[1]^s[2]) && !(s[2]&~0xF7F0000u)) ? s[2] : opt_studio(); }
-static void opt_store(void){ u32 *s=g_optsec; s[0]=OPT_MAGIC; s[1]=opt_studio(); s[2]=g_opt; s[3]=s[0]^s[1]^s[2];
+#endif
+#ifdef ASK_LANG
+/* test10: the language of the settings, set on the device (bits 0-1: 0 as the Studio, 1 German, 2 English) */
+#define EMU_EN() ((g_opt & 3u) ? (g_opt & 3u) == 2u : (g_cfg.flags & 1u) != 0u)
+#endif
+OVL_FN static void opt_store(void){ u32 *s=g_optsec; s[0]=OPT_MAGIC; s[1]=opt_studio(); s[2]=g_opt; s[3]=s[0]^s[1]^s[2];
   hw_tone(0); flash_prog4k(OPT_SEC, s); }   /* the DMA takes 4 KB from here: only the first 16 bytes count */
 #endif
 #endif
@@ -574,8 +788,32 @@ static void pram_wtest(void){
 extern u32 __bss_start, __bss_end, __ram_end;
 /* v0.9.3: keep the guest clock on the Paradise's own seconds counter. g_run_ms: ms the guest ran, plus the
  * dropped ones already added in the main loop (1.6.8). Called every 1024 ms. */
+#ifdef EMU_DATE_FIX
+/* test20: the games keep the date in their own RAM (iD L: year, month, day, hour, minute at dstram 0x27E) and take only
+ * the time from the clock chip: with the clock from the Paradise the time was right, the date stayed the game's own
+ * (1/2 instead of 10/26). The clock record is found by the time the game copied in (hour and minute as on the chip,
+ * a month and a day before them); found exactly once, its month and day are set. */
+static u32 g_date_n;
+__attribute__((noinline, minsize)) static int date_fix(Emu *e){
+  const u8 *io = e->ioram - e->dev.io_base;
+  #define BCD(x) (((x) >> 4) * 10u + ((x) & 15u))
+  u32 h = BCD(io[0x301918]), mi = BCD(io[0x301914]), d = BCD(io[0x30191C]), mo = BCD(io[0x301920]);
+  u8 *b = e->dstram; u32 n = 0, at = 0;
+  for (u32 i = 2; i + 1 < e->dev.dstram_size; i++)
+    if (b[i] == h && b[i + 1] == mi && b[i - 1] >= 1u && b[i - 1] <= 31u && b[i - 2] >= 1u && b[i - 2] <= 12u) { n++; at = i; }
+  if (n != 1) return 0;
+  b[at - 2] = (u8)mo; b[at - 1] = (u8)d;
+  return 1;
+}
+#endif
 __attribute__((noinline, minsize)) static void clock_sync(Emu *e){
   u32 run_ms = g_run_ms;
+#ifdef BAT_GUARD
+  if (bat_guard_tick()) g_bat_go = 1;
+#endif
+#ifdef EMU_DATE_FIX
+  if (g_date_n < 150u && para_hard() && g_cfg.device == 1u) {   /* iD L only (checked there) */ g_date_n++; if (date_fix(e)) g_date_n = 150u; }
+#endif
   static u32 r0, m0, have; static s32 owe;
   u32 r = REG(0x45000304u);
 #ifndef CLOCK_DOUBLE
@@ -600,9 +838,27 @@ __attribute__((noinline, minsize)) static void clock_sync(Emu *e){
     r0=r; m0=run_ms;
   }
 }
+#ifdef EMU_PW
+static u32 g_cy_rest;                     /* rest of the guest cycles per ms (see the main loop) */
+/* one ms of the sleeping guest, as in the main loop: its cycles, its clock */
+__attribute__((noinline)) static void pw_step(Emu *e){
+  u32 mhz = e->cmu.mclk_hz ? e->cmu.mclk_hz : e->dev.osc3_hz;
+  u32 t = mhz + g_cy_rest, cy_ms = t / 1000u; g_cy_rest = t % 1000u;
+  tc_run(e, e->cycles + cy_ms);
+#ifdef RTC_MS
+  if(g_hold_ms && ((g_run_ms + 1u) & 15u)==0u) g_hold_ms--; else periph_rtc_ms(e);
+#endif
+  if(((++g_run_ms) & 1023u)==0u) clock_sync(e);
+}
+#endif
 /* 1.6.9: everything up to the translator runs once, from the startup area (.initcode, later the translator's):
  * frees PRAM for the infrared link */
-__attribute__((section(".initcode"), noinline)) static void boot(void){
+#ifdef EMU_OVL
+__attribute__((section(".initcode"), noinline, minsize))
+#else
+__attribute__((section(".initcode"), noinline))
+#endif
+static void boot(void){
   u32 swf=0, swk=0, swn=0;
   /* the Paradise's clock, before its SRAM is overwritten (the stack is in the top 4 KB) */
   u32 pcnt=REG(0x45000304u), para=para_clock(pcnt, 0, 0x1F000u, 0, 0);
@@ -722,6 +978,30 @@ __attribute__((section(".initcode"), noinline)) static void boot(void){
   }
   st_pages(e, &g_sc);                     /* spare pages for written empty blocks (after a restore as well) */
 }
+#if defined(OPT_MENU) && defined(EMU_OVL)
+/* 1.6.8: wheel short: settings (the game stands still meanwhile); 1.6.13 test10: from the overlay */
+OVL_FN static void menu_run(Emu *e){
+#ifdef EMU_CARE
+#ifdef ASK_LANG
+        const EmuCare *c=care_find(e); int en=EMU_EN();
+        const char *cx[2]={ c ? "GOTCHI POINTS" : 0, c ? "PFLEGE VOLL|FULL CARE" : 0 };
+        u32 n=hw_opts_menu_xn(g_opt, en, cx, 2);
+        if(n & 3u) en=(n & 3u)==2u;   /* the language may have been changed in the menu */
+#else
+        const EmuCare *c=care_find(e); int en=(int)(g_cfg.flags & 1u);
+        const char *cx[2]={ c ? "GOTCHI POINTS" : 0, c ? (en ? "FULL CARE" : "PFLEGE VOLL") : 0 };
+        u32 n=hw_opts_menu_xn(g_opt, en, cx, 2);
+#endif
+        if(n & 0x80000000u){ u8 *p=care_p(e,c->pts);
+          if(n & (1u<<28)){ u8 *h=care_p(e,c->hun); if(*h<c->hmax) *h=c->hmax; { u32 m=*care_p(e,c->med), cap; if(c->mask){ m&=c->mask; cap=0; while(m){ cap+=c->mul; m&=m-1u; } cap+=c->add; } else cap=m>2u?100u:30u; h=care_p(e,c->hap); if(*h<cap) *h=(u8)cap; } }
+          else { u32 v=p[0]|(u32)p[1]<<8|(u32)p[2]<<16; if(hw_num_edit("GOTCHI POINTS",&v,5,99999u,en)){ p[0]=(u8)v; p[1]=(u8)(v>>8); p[2]=(u8)(v>>16); p[3]=0; } }
+          n&=0x0FFFFFFFu; }
+#else
+        u32 n=hw_opts_menu(g_opt, (int)(g_cfg.flags & 1u));
+#endif
+        if(n!=g_opt){ g_opt=n; opt_apply(n); opt_store(); }
+}
+#endif
 /* test26 CLK_ECO: the main loop for size (the 64 KB were full); the hot paths (core, JIT, LCD push) stay -O2 */
 #ifdef CLK_ECO
 __attribute__((minsize))
@@ -770,20 +1050,77 @@ void Reset_Handler(void){
 #else
     u32 now=g_ms;
 #endif
-    if((s32)(now-emu_ms) > 100){                                  /* too far behind: drop time */
+#ifdef BAT_GUARD
+    if(g_bat_go){ pw_full();
+#ifdef CLK_ECO
+      hw_clk_shift(0, CORE_HZ);
+#endif
+      hw_tone(0); ovl_load(); bat_end(); }
+#endif
+#ifdef EMU_PW
+    /* screen dark, no key, tone or link traffic: 12 MHz from the internal RC, deep sleep once caught up (below). The
+     * guest's time runs on behind (nobody sees it); more than 2.5 s behind: full clock until caught up */
+    int pw_quiet = !g_bl && !g_hw_tone_hz && !periph_tone_hz(e) && !wheel_ms
+#ifdef EMU_TONE_Q
+      && tq_h == tq_w
+#endif
+#ifdef TC_IRLINK
+      && !(g_pl.last_rx && now-g_pl.last_rx<30000u) && !g_irtxn
+#endif
+      && !hw_buttons();
+    if(pw_quiet && (s32)(now-emu_ms)<2500){   /* after a deep sleep 1 s behind: caught up at 12 MHz */
+#ifdef CLK_ECO
+      if(!g_pw_low) hw_clk_shift(0, CORE_HZ);
+#endif
+      pw_low();
+    } else pw_full();
+    { u32 r=REG(0x45000304u);                                                      /* when the RTC last stepped */
+      if(r!=g_pw_rtc){
+        /* after a wake by a key the part of a second slept is still missing: the step comes exactly whole seconds
+         * after the last one measured */
+        if(g_pw_kw){ u32 t=g_pw_rtcms + (r-g_pw_rtc)*1000u;
+          __asm__ volatile("cpsid i" ::: "memory"); if((s32)(t-g_ms)>0) g_ms=t; __asm__ volatile("cpsie i" ::: "memory");
+          now=g_ms; g_pw_kw=0; }
+        g_pw_rtc=r; g_pw_rtcms=now; } }
+    /* the screen dark: the guest's time passes in a tight loop up to the last ms (that one runs the whole loop: keys,
+     * light, saves), within 40 ms of real time; up to 5 s behind before time is dropped */
+    if(pw_quiet){ u32 t1=g_ms;
+      while((s32)(now-emu_ms)>=2 && g_ms-t1<40u && !e->stopped
+#ifdef EMU_TONE_Q
+            && !periph_tone_hz(e)   /* test20: a tone (a call) begins: out to the main loop, which plays it at full clock */
+#endif
+            ){ pw_step(e); emu_ms++; g_pw_skip++; } }
+    if((s32)(now-emu_ms) > (g_bl ? 100 : 5000)){
+#else
+    if((s32)(now-emu_ms) > 100){
+#endif                                  /* too far behind: drop time */
       u32 d=now-emu_ms-100; dropped += d; emu_ms = now-100;
+#ifdef EMU_TQ_DROP
+      tq_drop += d;   /* test22: else the note before the jump lasted as long as the jump (the long tone at a call) */
+#endif
       { static u32 lost; lost += d; if(lost>=1000u){ periph_rtc_advance(e, lost/1000u); lost%=1000u; } }   /* guest clock stays correct anyway */
 #ifndef CLOCK_DOUBLE
       g_run_ms += d;   /* 1.6.8: those ms are paid already, the comparison with the seconds counter below must not add them a second time */
 #endif
     }
     if(emu_ms == now){                     /* caught up: sleep until the next tick */
+#ifdef EMU_TONE_Q
+      tq_pump();
+#endif
       idle += SYST_CVR;
       /* Only sleep once the SysTick interrupt is known to arrive. Otherwise poll the
        * counter directly (COUNTFLAG) so the loop never gets stuck in wfi. */
       { static u32 g0=0xFFFFFFFFu; static int tick_ok;
         if(g0==0xFFFFFFFFu) g0=g_ms;
         if(!tick_ok && g_ms!=g0) tick_ok=1;
+#ifdef EMU_PW
+        if(tick_ok && pw_quiet && g_pw_low && !hw_buttons()){
+          /* deep sleep until the next RTC second or a key; the ms tick then continues from the time of the last RTC step */
+          if(pw_sleep()){ u32 r=REG(0x45000304u), t=g_pw_rtcms + (r-g_pw_rtc)*1000u;
+            __asm__ volatile("cpsid i" ::: "memory"); if((s32)(t-g_ms)>0) g_ms=t; __asm__ volatile("cpsie i" ::: "memory");
+            g_pw_rtc=r; g_pw_rtcms=t; }
+        } else
+#endif
         if(tick_ok) __asm__ volatile("wfi");
         else { u32 m=g_ms; if((SYST_CSR & 0x10000u) && g_ms==m) g_ms++; } }
       continue;
@@ -795,8 +1132,12 @@ void Reset_Handler(void){
     u32 mhz = e->cmu.mclk_hz ? e->cmu.mclk_hz : e->dev.osc3_hz;
     /* v0.9.3: carry the rest of the division. With the 32768 Hz clock (the guest sleeping)
      * mhz/1000 gave 32 instead of 32.768 cycles per ms: the guest clock lost 2.3 percent. */
+#ifdef EMU_PW
+    u32 cy_ms; { u32 t = mhz + g_cy_rest; cy_ms = t / 1000u; g_cy_rest = t % 1000u; }
+#else
     static u32 cy_rest;
     u32 cy_ms; { u32 t = mhz + cy_rest; cy_ms = t / 1000u; cy_rest = t % 1000u; }
+#endif
 #if defined(CLEAN) && !defined(MESS)
     u32 tr_stop=tc_run(e, e->cycles + cy_ms);
 #else
@@ -843,6 +1184,10 @@ void Reset_Handler(void){
       static u32 pend_ms;
       if(e->flash_dirty && !pend) pend_ms=now;
 #endif
+#ifdef EMU_PW
+      /* the ms passed in pw_steps count as quiet ones; the next one is a step of 250 */
+      if(g_pw_skip){ if(pend){ quiet+=g_pw_skip; quiet-=(quiet+1u)%250u; } g_pw_skip=0; }
+#endif
       if(e->flash_dirty){ e->flash_dirty=false; quiet=0; pend=1; }
       #ifdef GFLUSH_STEP
       /* v0.8.22: after 3 s without new writes, at most one changed 4 KB part to flash every 250 ms,
@@ -854,7 +1199,11 @@ void Reset_Handler(void){
       /* 1.6.6: with the screen always on it never went dark, and a guest that writes again within 10 minutes
        * was never saved (power gone = save gone). Now also when no key was pressed for 20 s, and at the latest
        * 10 minutes after the first unsaved write. */
-      else if(pend && ++quiet>3000u && (quiet % 250u)==0u && (!g_bl || quiet>600000u || now-g_btn_ms>20000u || now-pend_ms>600000u) && !e->flash_busy && !e->flash_state){ if(st_flush_step(e, &g_sc)){ pend=0; g_n_gflash++; } } }
+      else if(pend && ++quiet>3000u && (quiet % 250u)==0u && (!g_bl || quiet>600000u || now-g_btn_ms>20000u || now-pend_ms>600000u) && !e->flash_busy && !e->flash_state
+#ifdef LK_SYNC
+        && !g_lk_on   /* not while a visit runs: writing stops the emulator */
+#endif
+        ){ if(st_flush_step(e, &g_sc)){ pend=0; g_n_gflash++; } } }
 #else
       else if(pend && ++quiet>3000u && (quiet % 250u)==0u && (!g_bl || quiet>600000u) && !e->flash_busy && !e->flash_state){ if(st_flush_step(e, &g_sc)){ pend=0; g_n_gflash++; } } }
 #endif
@@ -870,6 +1219,9 @@ void Reset_Handler(void){
       if(lock){ if(b) b=0; else lock=0; } }
 #ifdef CLK_ECO
     /* test26: screen dark, no key, no tone, no link traffic for 30 s: a lower clock (eco.h) */
+#ifdef EMU_PW
+    if(!g_pw_low)
+#endif
     eco_poll(now, !g_bl && !b && !g_hw_tone_hz && !(g_pl.last_rx && now-g_pl.last_rx<30000u), (int)(now-emu_ms), CORE_HZ);
 #endif
     /* v0.9.5: guest screen dark right after the start (its own screen saver ran out while the clock
@@ -883,6 +1235,9 @@ void Reset_Handler(void){
     /* screen off after a while without a key (set in the Studio): the first key only wakes it */
     { static int swallow;
       if(g_scr_dark && b){ g_scr_dark=0; swallow=1; g_btn_ms=now; }
+#ifdef EMU_DIM
+      if(b){ if(g_dimd && g_bl){ swallow=1; g_btn_ms=now; } g_dim_t=now; }
+#endif
       if(swallow){ if(b) b=0; else swallow=0; } }
 #endif
     periph_buttons(e,(uint8_t)(b&7));
@@ -892,17 +1247,35 @@ void Reset_Handler(void){
     { static u32 t_start; if(!t_start) t_start=now?now:1;
       if(g_restored && (b&BTN_WHEEL) && now-t_start<3000u){
         /* 1.6.6: ask first (a press meant for the speed display lost the game) */
-        if(hw_ask_reset((int)(g_cfg.flags & 1u))){ st_drop(&g_sc); leave_nosave(); }
+#ifdef EMU_OVL
+        ovl_load();
+#endif
+#ifdef ASK_LANG
+        if(hw_ask_reset(EMU_EN())){
+#else
+        if(hw_ask_reset((int)(g_cfg.flags & 1u))){
+#endif
+          st_drop(&g_sc); leave_nosave(); }
         g_restored=0; b=0; e->lcd.dx0=0; e->lcd.dy0=0; e->lcd.dx1=127; e->lcd.dy1=59; LCD_ALL(); } }
     #ifndef NOWHEEL
-    if(b&BTN_WHEEL){ if(!wheel_ms) wheel_ms=now?now:1; else if(now-wheel_ms>1500) leave(); }
+    if(b&BTN_WHEEL){ if(!wheel_ms) wheel_ms=now?now:1; else if(EXIT_NOW(now-wheel_ms, 1500u)) leave(); }
 #if defined(OPT_MENU)
     /* 1.6.8: wheel short: settings (the game stands still meanwhile) */
     else { if(wheel_ms && now-wheel_ms<1000u){
+#ifdef EMU_OVL
+        ovl_load(); menu_run(e);
+#else
 #ifdef EMU_CARE
+#ifdef ASK_LANG
+        const EmuCare *c=care_find(e); int en=EMU_EN();
+        const char *cx[2]={ c ? "GOTCHI POINTS" : 0, c ? "PFLEGE VOLL|FULL CARE" : 0 };
+        u32 n=hw_opts_menu_xn(g_opt, en, cx, 2);
+        if(n & 3u) en=(n & 3u)==2u;   /* the language may have been changed in the menu */
+#else
         const EmuCare *c=care_find(e); int en=(int)(g_cfg.flags & 1u);
         const char *cx[2]={ c ? "GOTCHI POINTS" : 0, c ? (en ? "FULL CARE" : "PFLEGE VOLL") : 0 };
         u32 n=hw_opts_menu_xn(g_opt, en, cx, 2);
+#endif
         if(n & 0x80000000u){ u8 *p=care_p(e,c->pts);
           if(n & (1u<<28)){ u8 *h=care_p(e,c->hun); if(*h<c->hmax) *h=c->hmax; { u32 m=*care_p(e,c->med), cap; if(c->mask){ m&=c->mask; cap=0; while(m){ cap+=c->mul; m&=m-1u; } cap+=c->add; } else cap=m>2u?100u:30u; h=care_p(e,c->hap); if(*h<cap) *h=(u8)cap; } }
           else { u32 v=p[0]|(u32)p[1]<<8|(u32)p[2]<<16; if(hw_num_edit("GOTCHI POINTS",&v,5,99999u,en)){ p[0]=(u8)v; p[1]=(u8)(v>>8); p[2]=(u8)(v>>16); p[3]=0; } }
@@ -911,7 +1284,12 @@ void Reset_Handler(void){
         u32 n=hw_opts_menu(g_opt, (int)(g_cfg.flags & 1u));
 #endif
         if(n!=g_opt){ g_opt=n; opt_apply(n); opt_store(); }
-        g_scr_dark=0; g_btn_ms=g_ms; e->lcd.dx0=0; e->lcd.dy0=0; e->lcd.dx1=127; e->lcd.dy1=127; LCD_ALL(); } wheel_ms=0; }
+#endif
+        g_scr_dark=0; g_btn_ms=g_ms;
+#ifdef EMU_DIM
+        g_dim_t=g_ms;
+#endif
+        e->lcd.dx0=0; e->lcd.dy0=0; e->lcd.dx1=127; e->lcd.dy1=127; LCD_ALL(); } wheel_ms=0; }
 #elif defined(CLEAN) && !defined(MESS)
     else wheel_ms=0;
 #else
@@ -971,7 +1349,19 @@ void Reset_Handler(void){
           }
         t0=now; e0=emu_ms; d0=dropped; f0=jit_st_flush; i0=idle; b0=jit_st_blocks; v0=st_n_evict; g0=st_n_step; ce0=g_cy_emu; cd0=g_cy_disp; } }
 #endif
-#ifdef TONE_FIX
+#if defined(TONE_FIX) && defined(EMU_TONE_Q)
+    /* test20: as T18Emu and T7Emu: the tone changes go into a queue with the game time and are played on the real
+     * clock (tq_pump), so a slow moment of the emulator no longer stretches or swallows notes */
+    { static u32 tone, offc; u32 t=periph_tone_hz(e);
+#ifdef EMU_TONE_GAP
+      /* test22: a pause of 4 ms or more is a pause (the B key: four notes with 8 ms between them, bridged they ran
+       * into one sliding tone); shorter ones are still bridged */
+      if(t && tone && offc>=4u){ tq_put(0, emu_ms-offc); tone=0; }
+#endif
+      if(t){ offc=0; if(t!=tone){ tone=t; tq_put(t, emu_ms); } }
+      else if(tone && ++offc>=30u){ tone=0; tq_put(0, emu_ms - 29u); } }
+    tq_pump();
+#elif defined(TONE_FIX)
     /* Guest sound to the buzzer. Short gaps (under 30 ms of guest time) are bridged,
      * otherwise the timer keeps restarting and it crackles. */
     { static u32 tone, offc; u32 t=periph_tone_hz(e);
@@ -996,7 +1386,7 @@ void Reset_Handler(void){
         if(black) on=0; }
 #endif
 #ifdef HW_OPTS
-      if(g_scr_ms && now-g_btn_ms>g_scr_ms) g_scr_dark=1;
+      if(g_scr_ms && (s32)(now-g_btn_ms)>(s32)g_scr_ms) g_scr_dark=1;   /* signed: right after the menu */
       if(g_scr_dark) on=0;
 #endif
 #ifdef BL_GUEST_PWM
@@ -1012,9 +1402,18 @@ void Reset_Handler(void){
         else if(gl || now-g_btn_ms<1000u || (tone_ms && now-tone_ms<1000u)) ok=1;
         if(!ok) on=0; }
 #endif
-      if(on){ dark=0; if(!bl){ bl=1; hw_backlight(1); e->lcd.dx0=0; e->lcd.dy0=0; e->lcd.dx1=127; e->lcd.dy1=127; LCD_ALL(); } }
+      if(on){ dark=0; if(!bl){ bl=1; hw_backlight(1); e->lcd.dx0=0; e->lcd.dy0=0; e->lcd.dx1=127; e->lcd.dy1=127; LCD_ALL();
+#ifdef EMU_DIM
+          g_dim_t=now;   /* the game lit the screen (a call): full light, the dim time starts again */
+#endif
+        } }
       else if(bl && ++dark>500u){ bl=0; hw_backlight(0); }
       g_bl=bl; }
+#ifdef EMU_DIM
+    /* signed: after the menu g_dim_t is later than now */
+    if(g_dimd && ((s32)(now-g_dim_t)<=(s32)g_dim_ms || !g_bl)){ g_dimd=0; hw_bl_set(opt_light_pct(g_opt)); }   /* a key, the menu, dark */
+    else if(!g_dimd && g_dim_ms && g_bl && (s32)(now-g_dim_t)>(s32)g_dim_ms){ g_dimd=1; hw_bl_set(opt_dim_pct(g_opt)); }
+#endif
 #ifdef SESS_AUTO
 #ifndef SESS_T1
 #define SESS_T1 600000u    /* screen dark: 10 minutes after the last time at the earliest */
@@ -1026,7 +1425,11 @@ void Reset_Handler(void){
     { static u32 last; static int bl0=1;
       int went=bl0 && !g_bl; bl0=g_bl;
       if(((went && now-last>SESS_T1) || (now-last>SESS_T2 && now-g_btn_ms>10000u)) && !e->flash_busy && !e->flash_state){
-        hw_tone(0); st_save(e, &g_sc, g_gram); last=now; } }
+        hw_tone(0);
+#ifdef EMU_OVL
+        ovl_load();
+#endif
+        st_save(e, &g_sc, g_gram); last=now; } }
 #endif
     { volatile u32* st=g_st; st[0]=0x53544154u; st[1]=now; st[2]=(u32)e->cycles; st[3]=(u32)(e->cycles>>32);
       st[4]=e->cmu.mclk_hz; st[5]=e->flash_lost_writes; st[6]=e->pc; st[7]=e->halted; st[8]=jit_used();
@@ -1042,5 +1445,8 @@ const void* const g_vectors[16+64] = { (void*)0x18020000u, (void*)Reset_Handler,
   [15] = (void*)SysTick_Handler, [16 ... 79] = (void*)Irq_Off
 #ifdef TC_IRLINK
   , [16 + 37] = (void*)plink_irq
+#endif
+#ifdef EMU_PW
+  , [16 + 2] = (void*)pw_rtc_irq, [16 + 26] = (void*)pw_gpio_irq
 #endif
 };

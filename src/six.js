@@ -29,7 +29,7 @@ const P_FM = 0x800, P_FM_FN = 0x830, P_PMAP = 0x1B0, P_BG = 0x1C0, P_CHILD = 0x1
 const FN_TAB = [0, 1, 5], FN_BG = 2, FN_CHILD = 3, FN_PMAP = 4;
 // Region B (0xF00000, unused by the firmware): cells of the rain pictures (Tropical/Glacier). Header
 // "SIXB", count, per picture: sprite id and 64 offsets into the data (0xFFFFFFFF = cell in the archive).
-const B_OFF = 0xF00000, B_END = 0x1000000, B_MAGIC = 0x42584953;
+const B_OFF = 0xF00000, B_END = 0xFF0000, B_MAGIC = 0x42584953;   // 1.6.13 test13: 0xFF0000 stays free for the rescue start (was 0x1000000)
 // Tropical maps reduced to 128 colours to make room (look the same)
 const TROP_MAPS = [[1118, 7], [1132, 7], [1146, 7]];
 const K_COLORS = 128;
@@ -343,7 +343,7 @@ function sixStrip(rom) {
   for (const o of K.planet.calls) out.set(branch(XIP(f(o)), K.planet.fn, true), f(o));
   if (info.fieldMenu) fmStrip(out, K);
   out.fill(0xFF, SIX_OFF, SIX_OFF + 0x1000);
-  if (u32(out, B_OFF) === B_MAGIC) out.fill(0xFF, B_OFF, B_END);
+  if (u32(out, B_OFF) === B_MAGIC) out.fill(0xFF, B_OFF, 0x1000000);
   if (info.kind === 'jade') return out;
   const T = C.openRom(out), tabs = dpSplit(T.files[0]);
   const ix = words(tabs[4]), cw = words(tabs[5]);

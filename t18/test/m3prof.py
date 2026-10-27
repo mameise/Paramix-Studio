@@ -6,7 +6,7 @@ for l in subprocess.run(['arm-none-eabi-nm', '-S', '--size-sort', elf], capture_
     p = l.split()
     if len(p) == 4 and p[2] in 'tTwW': syms_s.append((int(p[0], 16), int(p[1], 16), p[3]))
 syms_s.sort(); starts = [x[0] for x in syms_s]
-jc = syms.get('JC', 0xFFFFFFF0); print('JC', hex(jc))
+jc = syms.get('JC', syms.get('__jc_start', 0xFFFFFFF0)); print('JC', hex(jc))
 cnt = collections.Counter()
 calls = [0]
 samp = []
@@ -41,7 +41,9 @@ if os.environ.get('CODE'):
     u.hook_add(UC_HOOK_CODE, hc)
 else: u.hook_add(UC_HOOK_BLOCK, hb)
 run(0)
-cmd(5, 2026, 10, 15, 8, 0, 0)
+if os.environ.get('LOADST'):   # 1.6.13 test4: start from a ref state
+    _b = open(os.environ['LOADST'], 'rb').read(); u.mem_write(0x60FC0000, _b); cmd(7, len(_b) - 0x20000)
+else: cmd(5, 2026, 10, 15, 8, 0, 0)
 cmd(1, int(float(sys.argv[3]) * 1000))
 ON[0] = True
 cmd(1, int(float(sys.argv[4]) * 1000))

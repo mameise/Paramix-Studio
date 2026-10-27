@@ -3,7 +3,7 @@
 set -e
 cd "$(dirname "$0")"
 E=../../../emu/src/emu
-CF="--target=thumbv7m-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -nostdlib -fno-common -Wall -Wno-unused-function -Wno-unused-variable -fno-builtin-memset -DFAST_LCD -DLCD_FASTCLK -DTONE_FIX -DBL_SLEEP -DSESS_ONCE -DPARA_BACK -DPARA_MB_KEEP -DBL_PWM -DBL_MR3RST -DBAT_SHOW -DV3_FREESTANDING -DV3_ICONS -DV3_LINK -DV3_CLOCK -DCLK_ECO -DECO_RTC -DV3_SETX -DV3_CARE -DASK_NUM -DV3_CLK_RETRY -DPARA_FLASH -DPARA_FLASH_LATE -I../core $XCF"
+CF="--target=thumbv7m-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -nostdlib -fno-common -Wall -Wno-unused-function -Wno-unused-variable -fno-builtin-memset -DFAST_LCD -DEXIT_KEY -DLCD_FASTCLK -DTONE_FIX -DBL_SLEEP -DSESS_ONCE -DPARA_BACK -DPARA_MB_KEEP -DBL_PWM -DBL_MR3RST -DBAT_SHOW -DV3_FREESTANDING -DV3_ICONS -DV3_LINK -DV3_CLOCK -DCLK_ECO -DECO_RTC -DV3_SETX -DV3_CARE -DASK_NUM -DV3_CLK_RETRY -DPARA_FLASH -DPARA_FLASH_LATE -DV3_TMFAST -DV3_PW -DBAT_SMOOTH -DHW_OPTS -DV3_VOL -DV3_TONE_Q -DV3_CALL_WAKE -DTONE_SAFE -DV3_EE2 -DBAT_GUARD -DBAT_PIC -I../core $XCF"
 O=""
 for f in main.c $E/hw.c $E/ask.c $E/flash.c $E/libc.c ../core/v3cpu.c; do
   n=$(basename $f .c); OPT=-Os; [ "$n" = v3cpu ] && OPT=-O2; clang $CF $OPT -c $f -o $n.o; O="$O $n.o"; done

@@ -576,6 +576,14 @@ static void handle(const u8* f, u32 flen){
     arm_for_dump();
 #endif
     u32 base=off & ~0xFFFu;
+#ifdef FW_PRECHECK
+    /* 1.6.13 test16: the CRC sent along must match the buffer before anything is erased (a lost or doubled data
+       packet): otherwise nothing is written, status 2, the tool sends the sector again */
+    if(plen>=4){
+      u32 want=rd32(pl), have=crc32_buf(0xFFFFFFFFu, sec, 0x1000u)^0xFFFFFFFFu;
+      if(have!=want){ u8* p=reply_head(11,seq,off,0,8); wr32(p,have); wr32(p+4,2); send_frame(28+8); return; }
+    }
+#endif
     prog_sector_fu(base, SECBUF);            /* erase + program (our own code) */
 #if ANZEIGE && HALTBILD
     /* Bar based on counted sectors (keeps the display moving forward, since the

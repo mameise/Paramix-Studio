@@ -10,6 +10,9 @@
 #ifndef PL_ATTR
 #define PL_ATTR __attribute__((noinline))
 #endif
+#ifndef PL_INIT_ATTR
+#define PL_INIT_ATTR PL_ATTR
+#endif
 
 #define PL_U1 0x4000B000u
 #define PL_DATA REG(PL_U1 + 0x00)
@@ -32,7 +35,7 @@ __attribute__((used)) static void plink_irq(void)
 {
   while (PL_LSR & 1u) { u8 b = (u8)PL_DATA; u8 nt = (u8)(g_pl.rt + 1u); if (nt != g_pl.rh) { g_pl.rx[g_pl.rt] = b; g_pl.rt = nt; } }
 }
-PL_ATTR static void plink_init(void)
+PL_INIT_ATTR static void plink_init(void)
 {
   g_pl.rh = g_pl.rt = 0; g_pl.st = 0; g_pl.hello = 0; g_pl.last_rx = 0;
   PL_IER = 0;

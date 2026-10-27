@@ -30,7 +30,7 @@ SECTIONS {
     *(.rodata*)
     . = ALIGN(4);
   } > PRAM
-  .stack (NOLOAD) : { __stack_bottom = .; . += 0x600; __stack_top = .; } > HOLE
+  .stack (NOLOAD) : { __stack_bottom = .; . += 0x5D0; __stack_top = .; } > HOLE   /* 1.6.13 test6: 0x600 -> 0x5E0 (804 bytes used, measured); test21: 0x5D0 (16 bytes for BAT_GUARD) */
   .data : { __data_start = .; *(.ramfunc*) *(.data*) . = ALIGN(4); __data_end = .; } > HOLE AT > PRAM
   __data_load = LOADADDR(.data);
   .init : { KEEP(*(.initcode)) KEEP(*(.initdata*)) KEEP(*(.initcode_z)) . = ALIGN(4); } > PRAM

@@ -174,7 +174,11 @@ static void tm_sync(void);
 /* ---- SFRs ---- */
 static int sfr_read(int a)
 {
+#ifdef V3_TMFAST
+  if (a == 0x0C || (a >= 0x10 && a <= 0x15) || a == 0x01 || a == 0x18 || a == 0x38) tm_sync();
+#else
   if (a == 0x0C || (a >= 0x10 && a <= 0x15)) tm_sync();
+#endif
   switch (a) {
   case 0x00: return (int)(S.rom_bank >> 15);
   case 0x04: return S.cpu_div;
@@ -210,6 +214,9 @@ static void sfr_write(int a, int v)
 {
   v &= 0xFF;
   int sy = a == 0x0C || a == 0x0F || (a >= 0x10 && a <= 0x15) || a == 0x38;
+#ifdef V3_TMFAST
+  sy |= a == 0x01 || a == 0x02 || a == 0x18 || a == 0x12 || a == 0x16 || a == 0x13 || a == 0x17;
+#endif
   if (sy) tm_sync();
   switch (a) {
   case 0x00: S.rom_bank = (uint32_t)(v & 0x0F) << 15; break;
@@ -346,16 +353,100 @@ static void timers(int64_t t)
  * program reads or sets them; in between nothing of them is seen, so the run is the same as tick by tick */
 static void tm_next(void)
 {
-  uint64_t n = 0xFFFFFFFFu; const int64_t X = (int64_t)0xFFFF << 7;
+  uint64_t n = 0xFFFFFFFFu; const int64_t XM = (int64_t)0xFFFF << 7;
   int m0 = S.timer_ctrl & 0x60, m1 = S.timer_ctrl & 0x03;
-  if (m0 == 0x20) { int64_t d = X - S.tm0 + 1; if (d < 1) d = 1; if ((uint64_t)d < n) n = (uint64_t)d; }
-  else if (m0 == 0x40) { int64_t k = (X - S.tm0) >= 0 ? ((X - S.tm0) >> 7) + 1 : 1, d = S.tm0_cnt + (k - 1) * SUB_DIV; if (d < 1) d = 1; if ((uint64_t)d < n) n = (uint64_t)d; }
-  if (m1 == 0x01) { int64_t d = X - S.tm1 + 1; if (d < 1) d = 1; if ((uint64_t)d < n) n = (uint64_t)d; }
-  else if (m1 == 0x02) { int64_t k = (X - S.tm1) >= 0 ? ((X - S.tm1) >> 7) + 1 : 1, d = S.tm1_cnt + (k - 1) * SUB_DIV; if (d < 1) d = 1; if ((uint64_t)d < n) n = (uint64_t)d; }
+  if (m0 == 0x20) { int64_t d = XM - S.tm0 + 1; if (d < 1) d = 1; if ((uint64_t)d < n) n = (uint64_t)d; }
+  else if (m0 == 0x40) { int64_t k = (XM - S.tm0) >= 0 ? ((XM - S.tm0) >> 7) + 1 : 1, d = S.tm0_cnt + (k - 1) * SUB_DIV; if (d < 1) d = 1; if ((uint64_t)d < n) n = (uint64_t)d; }
+  if (m1 == 0x01) { int64_t d = XM - S.tm1 + 1; if (d < 1) d = 1; if ((uint64_t)d < n) n = (uint64_t)d; }
+  else if (m1 == 0x02) { int64_t k = (XM - S.tm1) >= 0 ? ((XM - S.tm1) >> 7) + 1 : 1, d = S.tm1_cnt + (k - 1) * SUB_DIV; if (d < 1) d = 1; if ((uint64_t)d < n) n = (uint64_t)d; }
   { int64_t d = S.t1k_cnt; if (d < 1) d = 1; if ((uint64_t)d < n) n = (uint64_t)d; }
   S.next = (uint32_t)n;
 }
+#ifdef V3_TMFAST
+/* 1.6.13 test12: the same timers without a pass per 32 kHz step and without 64-bit arithmetic where the values fit in
+ * 32 bits (the counters stay int64 in the state, so saves keep their layout). The overflows of a counter are handled
+ * after all its steps instead of between them: nothing else is read in between, so the result is the same. Out of
+ * the usual range: the code above. */
+#define TM_OK(v) ((v) > -0x40000000LL && (v) < 0x40000000LL)
+static int tm_step32(int64_t *cnt, int64_t *tm, int m, int32_t t, int slow)   /* 1: done, 0: take the code above */
+{
+  if (!TM_OK(*cnt) || !TM_OK(*tm)) return 0;
+  int32_t c = (int32_t)*cnt - t;
+  if (c > 0) { *cnt = c; return 1; }
+  if (!slow) { *cnt = V3_TICKS; *tm += t; return 1; }              /* main clock: one pass */
+  uint32_t n = (uint32_t)(-c) / SUB_DIV + 1u;
+  *cnt = (int64_t)c + (int64_t)n * SUB_DIV; *tm += (int64_t)n * V3_TICKS;
+  (void)m; return 1;
+}
+static void timers_fast(uint32_t t)
+{
+  if (t >= 0x40000000u) { timers(t); return; }
+  int m0 = S.timer_ctrl & 0x60, m1 = S.timer_ctrl & 0x03;
+  if (m0) {
+    if (m0 == 0x60 || !TM_OK(S.tm0_cnt) || !TM_OK(S.tm0)) goto slow;
+  }
+  if (m1) {
+    if (m1 == 0x03 || !TM_OK(S.tm1_cnt) || !TM_OK(S.tm1)) goto slow;
+  }
+  if (!TM_OK(S.t1k_cnt)) goto slow;
+  if (m0) {
+    tm_step32(&S.tm0_cnt, &S.tm0, m0, (int32_t)t, m0 == 0x40);
+    while (S.tm0 > ((int64_t)0xFFFF << 7)) {
+      S.tm0 -= (int64_t)(0x10000 - S.tm0_rel) << 7;
+      S.ireq |= 0x10; S.wakeupreq |= 0x04;
+      if ((S.a0c & 0x08) && (S.a0c & 0x40) && S.snd_env[0]) S.snd_tog[0] ^= 1;
+      if ((S.a1c & 0x08) && (S.a1c & 0x40) && S.snd_env[1]) S.snd_tog[1] ^= 1;
+    }
+  }
+  if (m1) {
+    tm_step32(&S.tm1_cnt, &S.tm1, m1, (int32_t)t, m1 == 0x02);
+    while (S.tm1 > ((int64_t)0xFFFF << 7)) {
+      S.tm1 -= (int64_t)(0x10000 - S.tm1_rel) << 7;
+      S.ireq |= 0x20; S.wakeupreq |= 0x10;
+      S.nmireq |= 0x02;
+      if (S.nmi_ctrl & 0x02) nmi_enter();
+      if ((S.a0c & 0x10) && (S.a0c & 0x40) && S.snd_env[0]) S.snd_tog[0] ^= 1;
+      if ((S.a1c & 0x10) && (S.a1c & 0x40) && S.snd_env[1]) S.snd_tog[1] ^= 1;
+    }
+  }
+  { int32_t c = (int32_t)S.t1k_cnt - (int32_t)t;
+    if (c <= 0) {
+      uint32_t n = (uint32_t)(-c) / T1K_DIV + 1u, o = S.t1khz, h = TB_H[S.time_base & 3], l = TB_L[(S.time_base & 0x0C) >> 2];
+      c += (int32_t)(n * T1K_DIV); S.t1khz = o + n;
+      /* a step onto a multiple of h + 1 (h = 2^k - 1): the bits above h changed (n < 2^31) */
+      if (!h || ((o + n) & ~h) != (o & ~h) || n > h) { S.ireq |= 0x08; S.wakeupreq |= 0x08; }
+      if (!l || ((o + n) & ~l) != (o & ~l) || n > l) { S.ireq |= 0x04; S.wakeupreq |= 0x02; }
+    }
+    S.t1k_cnt = c; }
+  return;
+slow:
+  timers(t);
+}
+static void tm_next_fast(void)
+{
+  const int32_t XM = 0xFFFF << 7;
+  if (!TM_OK(S.tm0) || !TM_OK(S.tm1) || !TM_OK(S.tm0_cnt) || !TM_OK(S.tm1_cnt) || !TM_OK(S.t1k_cnt)) { tm_next(); return; }
+  uint32_t n = 0x10000000u; int32_t tm0 = (int32_t)S.tm0, tm1 = (int32_t)S.tm1;
+  int m0 = S.timer_ctrl & 0x60, m1 = S.timer_ctrl & 0x03;
+  /* an event nobody would see before the next sync (its flags masked, no NMI) is left to that sync: the flags then
+   * read the same (the flag registers sync when read or written) */
+  if (!(S.int_ctrl & 0x10) && !(S.wakeup_ctrl & 0x04)) m0 = 0;
+  if (!(S.int_ctrl & 0x20) && !(S.wakeup_ctrl & 0x10) && !(S.nmi_ctrl & 0x02)) m1 = 0;
+  if (m0 == 0x20) { int32_t d = XM - tm0 + 1; if (d < 1) d = 1; if ((uint32_t)d < n) n = (uint32_t)d; }
+  else if (m0 == 0x40) { int32_t k = (XM - tm0) >= 0 ? ((XM - tm0) >> 7) + 1 : 1; int64_t d = S.tm0_cnt + (int64_t)(k - 1) * SUB_DIV; if (d < 1) d = 1; if ((uint64_t)d < n) n = (uint32_t)d; }
+  if (m1 == 0x01) { int32_t d = XM - tm1 + 1; if (d < 1) d = 1; if ((uint32_t)d < n) n = (uint32_t)d; }
+  else if (m1 == 0x02) { int32_t k = (XM - tm1) >= 0 ? ((XM - tm1) >> 7) + 1 : 1; int64_t d = S.tm1_cnt + (int64_t)(k - 1) * SUB_DIV; if (d < 1) d = 1; if ((uint64_t)d < n) n = (uint32_t)d; }
+  { uint32_t o = S.t1khz, j = 0xFFFFFFFFu, h = TB_H[S.time_base & 3], l = TB_L[(S.time_base & 0x0C) >> 2];
+    if ((S.int_ctrl & 0x08) || (S.wakeup_ctrl & 0x08)) j = ((o | h) + 1u) - o;          /* steps to the next flag */
+    if ((S.int_ctrl & 0x04) || (S.wakeup_ctrl & 0x02)) { uint32_t k = ((o | l) + 1u) - o; if (k < j) j = k; }
+    if (j > 0x1000u) j = 0x1000u;
+    int64_t d = S.t1k_cnt + (int64_t)(j - 1u) * T1K_DIV; if (d < 1) d = 1; if ((uint64_t)d < n) n = (uint32_t)d; }
+  S.next = n;
+}
+static void tm_sync(void) { if (S.pend) { timers_fast(S.pend); S.pend = 0; } tm_next_fast(); }
+#else
 static void tm_sync(void) { if (S.pend) { timers(S.pend); S.pend = 0; } tm_next(); }
+#endif
 uint32_t v3_step(void)
 {
   if (S.cpu_enbl) {
@@ -378,6 +469,22 @@ uint32_t v3_step(void)
 static int64_t g_debt;
 uint64_t v3_run(uint64_t ticks)
 {
+#ifdef V3_TMFAST
+  /* test12: the usual call (1 ms) in 32-bit arithmetic, the same steps */
+  if (ticks < 0x20000000u && g_debt < 0x20000000 && g_debt > -0x20000000) {
+    int32_t d = 0, want = (int32_t)ticks - (int32_t)g_debt;
+    while (d < want) {
+      if (V3_BATCH && !S.cpu_enbl && !(S.wakeup_ctrl & S.wakeupreq) && S.ir_rxstep == IR_IDLE) {
+        uint32_t k = (uint32_t)(want - d) / SUB_DIV;
+        if (S.clk32k) { uint32_t e = (S.next - S.pend - 1u) / SUB_DIV; if (e < k) k = e; }
+        if (k > 1) { k--; if (S.clk32k) S.pend += k * SUB_DIV; d += (int32_t)(k * SUB_DIV); if (S.ir_txs < 0x40000000) S.ir_txs += (int32_t)(k < 0x8000u ? k * SUB_DIV : 0x40000000u); continue; }
+      }
+      d += (int32_t)v3_step();
+    }
+    g_debt = d - want;
+    return (uint64_t)d;
+  }
+#endif
   uint64_t d = 0; int64_t want = (int64_t)ticks - g_debt;
   while ((int64_t)d < want) {
     if (V3_BATCH && !S.cpu_enbl && !(S.wakeup_ctrl & S.wakeupreq) && S.ir_rxstep == IR_IDLE) {
@@ -429,12 +536,17 @@ uint32_t v3_tone_hz(void)
   return 0;
 }
 uint8_t *v3_eeprom(void) { return S.ee; }
+/* test21: the EEPROM inside a saved state (v3_state_save), for a broken settings sector */
+const uint8_t *v3_state_ee(const uint8_t *b) { return b + 56 + __builtin_offsetof(V3S, ee); }
 int v3_eeprom_dirty(int clear) { int d = S.ee_dirty; if (clear) S.ee_dirty = 0; return d; }
 uint8_t *v3_ram(void) { return S.ram; }
 #define V3_SV_MAGIC 0x31535633u   /* "3VS1" */
 uint32_t v3_state_size(void) { return 4u + 13u * 4u + (uint32_t)sizeof(V3S); }
 void v3_state_save(uint8_t *b)
 {
+#if defined(V3_TMFAST) || defined(V3_SAVESYNC)
+  tm_sync();                            /* the deferred timer events in (the same state, written out) */
+#endif
   uint32_t r[14] = { V3_SV_MAGIC, (uint32_t)A, (uint32_t)X, (uint32_t)Y, (uint32_t)SP, (uint32_t)PC, (uint32_t)NF, (uint32_t)VF, (uint32_t)BF, (uint32_t)DF, (uint32_t)IF, (uint32_t)ZF, (uint32_t)CF, 0 };
   memcpy(b, r, 56); memcpy(b + 56, &S, sizeof S);
 }

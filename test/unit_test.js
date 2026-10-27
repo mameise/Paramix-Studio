@@ -130,8 +130,10 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
         else if (f.type === 6) { const c = FL.crc32(mem, f.off, u(0)); out = new Uint8Array([c & 255, c >>> 8 & 255, c >>> 16 & 255, c >>> 24]); }
         else if (f.type === 13) { out = new Uint8Array(16); out[12] = 1; }
         else if (f.type === 9) out = new Uint8Array(4);
-        else if (f.type === 10) sec.set(p, f.off & 0xFFF);
-        else if (f.type === 11) { mem.set(sec, f.off & ~0xFFF); out = new Uint8Array(8); }
+        else if (f.type === 10) { sec.set(p, f.off & 0xFFF); if (mem.spoil && !--mem.spoil) sec[f.off & 0xFFF] ^= 0x55; }   // a packet that arrives wrong
+        else if (f.type === 11) {
+          if (mem.precheck && FL.crc32(sec) !== u(0)) { out = new Uint8Array(8); const c = FL.crc32(sec); out.set([c & 255, c >>> 8 & 255, c >>> 16 & 255, c >>> 24, 2]); mem.prechecked = (mem.prechecked || 0) + 1; }
+          else { mem.set(sec, f.off & ~0xFFF); out = new Uint8Array(8); const c = FL.crc32(sec); out.set([c & 255, c >>> 8 & 255, c >>> 16 & 255, c >>> 24]); } }
         setImmediate(() => io.onData(devSide.frame(f.type, f.seq, f.off, out)));
       }
     };
@@ -156,6 +158,71 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
   const fam = new Uint8Array(img); fam[0xD49000] = 2; fam[0x200001] = 0x43;
   r = await dev.write(fam, { onlyChanged: true, keep }, null);
   ok(mem[0xD49000] === 1 && mem[0x200001] === 0x43 && (r.notes || []).some((n) => n.code === 'noteEdKept'), 'flash: same family (Land device, Water ROM): device keeps its edition and save');
+  // 1.6.13 test13: rescue start (second load table at 0xFFE000, the flash app at 0xFF0000), written first
+  {
+    const app = new Uint8Array(0x9000).map((_, i) => (i * 7) & 255), hdr = new Uint8Array(mem.subarray(0, 0x1000));
+    hdr.set([0x13, 0, 0, 0], 8); hdr[0x10] = 0; hdr[0x11] = 0x10; hdr[0x12] = 0; hdr[0x13] = 0x60; hdr.set([0, 0, 0x4F, 0x4B], 0x80);
+    mem.set(hdr, 0);
+    const rb = FL.rescueBlock(app, hdr), u = (b, o) => (b[o] | b[o + 1] << 8 | b[o + 2] << 16 | b[o + 3] << 24) >>> 0, t = rb.subarray(0xE000);
+    ok(Buffer.from(t.subarray(0, 8)).toString() === 'SONIXDEV' && u(t, 8) === 0x12 && u(t, 0x10) === 0x60FF0000 && u(t, 0x14) === 0xE000 && u(t, 0x24) === FL.crc32(rb, 0, 0xE000) && u(t, 0x80) === 0 && rb[0x9000] === 0xFF, 'rescue: second table points at the flash app, CRC over 0xE000');
+    const img2 = new Uint8Array(mem); img2[0x200002] = 0x44;
+    r = await dev.write(img2, { onlyChanged: true, keep: null, rescueApp: app }, null);
+    ok(r.written === 12 && mem[0x200002] === 0x44 && FL.crc32(mem, 0xFF0000, 0x10000) === FL.crc32(rb) && !r.notes.length, 'rescue: written along with the image');
+    r = await dev.write(img2, { onlyChanged: true, keep: null, rescueApp: app }, null);
+    ok(r.written === 0, 'rescue: nothing to write the second time');
+    { // test18: an image read from a device with the rescue start of an earlier Studio (other flash app): renewed
+      const app2 = new Uint8Array(0x9100).map((_, i) => (i * 5 + 1) & 255), rb2 = FL.rescueBlock(app2, hdr), rd = new Uint8Array(mem);
+      r = await dev.write(rd, { onlyChanged: true, keep: null, rescueApp: app2 }, null);
+      ok(r.written > 0 && FL.crc32(mem, 0xFF0000, 0x10000) === FL.crc32(rb2), 'rescue: older rescue start in the image is renewed (' + r.written + ')');
+      r = await dev.write(new Uint8Array(mem), { onlyChanged: true, keep: null, rescueApp: app }, null);
+      ok(FL.crc32(mem, 0xFF0000, 0x10000) === FL.crc32(rb), 'rescue: and back');
+    }
+    const busy = new Uint8Array(img2); busy[0xFF8000] = 1;
+    const crcB = FL.crc32(mem); let e3 = ''; try { await dev.write(busy, { onlyChanged: true, keep: null, rescueApp: app }, null); } catch (e) { e3 = e.code; }
+    ok(e3 === 'noRescueRoom' && FL.crc32(mem) === crcB, 'rescue: 0xFF0000 in use, nothing written');
+    r = await dev.write(busy, { onlyChanged: true, keep: null, rescueApp: app, rescueNeeded: false }, null);
+    ok(r.notes.some((n) => n.code === 'noRescue') && mem[0xFF8000] === 1, 'rescue: not needed, left out with a note');
+    mem.set(rb, 0xFF0000);
+    const kept = await dev.rescueTest(app, null);
+    ok(mem[0] === 0xFF && Buffer.compare(Buffer.from(kept), Buffer.from(hdr)) === 0, 'rescue test: header cleared and returned');
+    await dev.rescueRestore(kept, null);
+    ok(Buffer.from(mem.subarray(0, 8)).toString() === 'SONIXDEV' && FL.crc32(mem, 0, 0x1000) === FL.crc32(hdr), 'rescue test: header written back');
+    // test15: a T18Emu with its hot window at 0xFF0000 gives the block up; its save (stored map, spares) stays
+    {
+      const m3 = new Uint8Array(mem); m3.fill(0xFF, 0xF00000, 0x1000000); m3.fill(0xFF, 0xA0000, 0xB0000);
+      const c = 0xA0140, put16 = (b, o, v) => { b[o] = v & 255; b[o + 1] = v >> 8; }, put32 = (b, o, v) => { b[o] = v & 255; b[o + 1] = v >>> 8 & 255; b[o + 2] = v >>> 16 & 255; b[o + 3] = v >>> 24; };
+      put32(m3, c, 0x38584D50); put32(m3, c + 4, 1); put32(m3, c + 8, 0xC0000); put32(m3, c + 12, 3); put32(m3, c + 400, 4);
+      for (let i = 0; i < 128; i++) put16(m3, c + 16 + 2 * i, 0xFFFF);
+      put16(m3, c + 16 + 2 * 0x12, 0xFF); put16(m3, c + 16 + 2 * 0x40, 0xF0); put16(m3, c + 16 + 2 * 0x05, 0xF1); put16(m3, c + 16 + 2 * 0x06, 0xE0);
+      for (let i = 0; i < 64; i++) put16(m3, c + 272 + 2 * i, 0xFFFF);
+      put16(m3, c + 272, 0xE1); put16(m3, c + 274, 0xE2); put16(m3, c + 276, 0xE3);
+      m3.fill(0x12, 0xFF0000, 0x1000000); m3.fill(0x40, 0xF00000, 0xF10000); m3.fill(0x05, 0xF10000, 0xF20000); m3.fill(0x06, 0xE00000, 0xE10000);
+      // stored map on the device: guest 6 written into spare 0 (0xE1)
+      put32(m3, 0xC0000, 0x504D3854); for (let i = 0; i < 128; i++) put16(m3, 0xC0004 + 2 * i, (m3[c + 16 + 2 * i] | m3[c + 17 + 2 * i] << 8)); put16(m3, 0xC0004 + 2 * 6, 0xE1); m3.fill(0, 0xC0004 + 256, 0xC0004 + 320); m3[0xC0004 + 256] = 1;
+      m3.fill(0x66, 0xE10000, 0xE20000); m3[0xC1000] = 0x77;
+      const io3 = fakeDevice(m3), d3 = (await FL.connect(io3, new Uint8Array(16), {})).dev;
+      const rom3 = new Uint8Array(m3); rom3.fill(0xFF, 0xC0000, 0xE4000); rom3.fill(0xFF, 0xE10000, 0xE20000);   // the ROM as the Studio has it: no save
+      const T18keep = FL.keepPlan(F, E, null, {});
+      const rr = await d3.write(rom3, { onlyChanged: true, keep: T18keep, rescueApp: app, t18Bases: [0xA0000] }, null);
+      const g = (i) => m3[c + 16 + 2 * i] | m3[c + 17 + 2 * i] << 8, sm = (i) => m3[0xC0004 + 2 * i] | m3[0xC0005 + 2 * i] << 8;
+      ok(rr.rescue && FL.crc32(m3, 0xFF0000, 0x10000) === FL.crc32(FL.rescueBlock(app, m3.subarray(0, 0x1000))) && g(0x12) === 0xF0 && g(0x40) === 0xE3 && sm(0x12) === 0xF0 && sm(0x40) === 0xE3 && sm(6) === 0xE1
+        && m3[0xF00000] === 0x12 && m3[0xE30000] === 0x40 && m3[0xE10000] === 0x66 && m3[0xC1000] === 0x77 && (m3[c + 12] === 2) && m3[c + 276] === 0xFF, 'rescue: T18Emu block at 0xFF0000 moved, save kept');
+      const rr2 = await d3.write(rom3, { onlyChanged: true, keep: T18keep, rescueApp: app, t18Bases: [0xA0000] }, null);
+      ok(rr2.written === 0 && m3[0xE10000] === 0x66, 'rescue: second write with the old ROM changes nothing');
+    }
+    // test16: a flash app that checks the buffer first: a spoilt packet means the sector is sent again, nothing wrong written
+    { mem.precheck = true; mem.spoil = 3; const img5 = new Uint8Array(mem); img5[0x300000] = 0x99; img5[0x300800] = 0x98;
+      const r5 = await dev.write(img5, { onlyChanged: true, keep: null, rescueApp: app }, null);
+      ok(mem.prechecked === 1 && mem[0x300000] === 0x99 && mem[0x300800] === 0x98 && r5.written >= 1, 'flash: buffer checked before erasing, sector sent again');
+      mem.precheck = false; }
+    // RESCUE_FIRST: the header is cleared once the rescue start is checked, the rest follows, the header comes back last
+    const seen = []; const w0 = io.write; io.write = async (d) => { await w0(d); seen.push(mem[0], mem[0x200003]); };
+    const img3 = new Uint8Array(mem); img3[0x200003] = 0x45;
+    r = await dev.write(img3, { onlyChanged: true, keep: null, rescueApp: app, rescueFirst: true }, null);
+    io.write = w0;
+    let cleared = -1; for (let i = 0; i < seen.length; i += 2) if (seen[i] === 0xFF) { cleared = i; break; }
+    ok(r.written === 2 && cleared >= 0 && seen[cleared + 1] !== 0x45 && mem[0] === 0x53 && mem[0x200003] === 0x45, 'rescue first: header off before the write, back at the end');
+  }
   // field slots: same layout is kept, another layout gets the stored fields moved over
   {
     const fs4 = require('fs');
@@ -208,6 +275,25 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
   // 1.6.10 test1: the Wolf3D pack from made-up files (test/wolf_test.js)
   const r = require('child_process').spawnSync(process.execPath, [__dirname + '/wolf_test.js'], { encoding: 'utf8' });
   ok(r.status === 0, 'Wolf3D pack (wolf_test.js)' + (r.status ? ': ' + r.stdout.split('\n').filter((l) => l.startsWith('FAIL')).join('; ') : ''));
+  const E = require('../src/emu.js');
+  { // 1.7.1 GB_TRIM: equal end banks once, the whole game back from the image (made-up game)
+    const g = new Uint8Array(32 * 0x4000); for (let i = 0; i < 20 * 0x4000; i++) g[i] = (i * 7 + (i >> 14)) & 255;   // banks 20..31: zeros
+    const tr = E.gbTrim(g);
+    ok(tr.banks === 32 && tr.rom.length === 21 * 0x4000, 'GB_TRIM: 11 equal end banks left out');
+    ok(Buffer.from(E.gbUntrim(tr.rom, 32 << 16)).equals(Buffer.from(g)), 'GB_TRIM: the whole game again');
+    const g2 = g.slice(); g2[31 * 0x4000 + 5] = 1; ok(E.gbTrim(g2).banks === 0, 'GB_TRIM: different last bank: kept whole');
+    ok(E.gbTrim(g.subarray(0, 23 * 0x4000)).banks === 0, 'GB_TRIM: less than 64 KB to save: kept whole');
+    ok(E.gbUntrim(g, 0) === g, 'GB_TRIM: old image (no bank count): as it is'); }
+  { // 1.7.1 GUEST_SPARSE: almost empty cold blocks of a TamaEmu in the menu as spare pages (made-up iD L)
+    const g = new Uint8Array(0x800000).fill(0xFF);
+    for (const b of [0x00, 0x0b, 0x0e, 0x40, 0x41]) g.fill(b, b << 16, (b + 1) << 16);
+    g.fill(0x11, 0x040000, 0x042000); g.fill(0x22, 0x050000, 0x052000); g.fill(0x23, 0x054000, 0x056000);   // 4: 1 part, 5: 2 parts
+    g.fill(0x33, 0x060000, 0x066000);                                                                       // 6: 3 parts (stays)
+    g.fill(0x44, 0x0d0000, 0x0d2000);                                                                       // 0x0d: 1 part, but hot
+    const p0 = E.packGuest(g, 'idl'), p1 = E.packGuest(g, 'idl', { sparse: true });
+    ok(p0.pages.length === 0 && p1.blocks === p0.blocks - 2 && p1.pages.length === 3, 'GUEST_SPARSE: two cold blocks as 3 pages (' + p0.blocks + ' -> ' + p1.blocks + ')');
+    ok(p1.map[4] === 0xFF && p1.map[5] === 0xFF && p1.map[6] !== 0xFF && p1.map[0x0d] !== 0xFF, 'GUEST_SPARSE: hot and fuller blocks stay');
+    ok(p1.pages.every((x) => Buffer.from(x.data).equals(Buffer.from(g.subarray(x.v << 13, (x.v + 1) << 13)))), 'GUEST_SPARSE: the pages hold the parts'); }
   console.log(fails ? fails + ' failed' : 'all good');
   process.exit(fails ? 1 : 0);
 });

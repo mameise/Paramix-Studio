@@ -156,7 +156,7 @@ img, canvas { image-rendering: pixelated; }
 .flash { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--line); }
 .seg { display: block; height: 100%; }
 .seg.fw, .dot.fw { background: #8a9bb8; } .seg.doom, .dot.doom { background: #d9480f; } .seg.emu, .dot.emu { background: var(--sky); } .seg.wolf, .dot.wolf { background: #6b8e23; } .seg.gb, .dot.gb { background: #c9a227; } .seg.sms, .dot.sms { background: #0f8a7e; }
-.seg.slots, .dot.slots { background: var(--grass); } .seg.save, .dot.save { background: #b38be0; } .seg.free, .dot.free { background: transparent; }
+.seg.slots, .dot.slots { background: var(--grass); } .seg.save, .dot.save { background: #b38be0; } .seg.free, .dot.free { background: transparent; } .seg.resv, .dot.resv { background: #c4c4c4; }
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line); }
 .device { margin-bottom: 12px; }
 .device .tools { margin: 8px 0; }
@@ -272,6 +272,7 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
     <h3 data-t="h4t"></h3><p data-t="h4"></p>
     <h3 data-t="h5t"></h3><p data-t="h5"></p>
     <h3 data-t="h6t"></h3><p data-t="h6"></p>
+    <h3 data-t="h7t"></h3><p data-t="h7"></p>
   </section>
   <section class="plan device" id="device" hidden>
     <div class="plan-h" data-t="devTitle"></div>
@@ -287,6 +288,13 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <label class="check"><input type="checkbox" id="devOnly" checked> <span data-t="devOnly"></span></label>
       <label class="check"><input type="checkbox" id="devKeep" checked> <span data-t="devKeep"></span></label>
       <button class="btn small" id="btnDevStop" data-t="devStop" hidden></button>
+    </div>
+    <div class="tools" id="rescueResume" hidden>
+      <button class="btn small primary" id="btnResume" data-t="resResume"></button>
+    </div>
+    <div class="tools" id="rescueBox" hidden>
+      <button class="btn small" id="btnRescueTest" data-t="resTest" disabled></button>
+      <button class="btn small" id="btnRescueBack" data-t="resBack" disabled></button>
     </div>
     <div class="tools">
       <button class="btn small" id="btnSaveRead" data-t="devSaveRead" disabled></button>
@@ -543,6 +551,10 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
         <label class="check"><input type="checkbox" id="bagOn"> <span data-t="bagOn"></span></label>
         <label class="check"><input type="checkbox" id="tamaOn"> <span data-t="tamaOn"></span></label>
         <span class="hint" data-t="feldHint"></span>
+      </div>
+      <div class="tools">
+        <label class="check"><span data-t="exitKey"></span> <select id="exitKey"></select></label>
+        <span class="hint" data-t="exitHint"></span>
       </div>
       <div class="tools" id="sixRow" hidden>
         <label class="check"><input type="checkbox" id="sixOn"> <span id="sixOnTxt" data-t="sixOn"></span></label>

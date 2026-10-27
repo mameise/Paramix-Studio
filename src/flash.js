@@ -72,6 +72,11 @@ const MSG = {
   notAccepted: 'sector {a} not accepted. Keep the device switched on and write again',
   differs: 'sector {a} differs after writing. Keep the device switched on and write again',
   checkFail: 'check failed at {a}. Keep the device switched on and write again',
+  rescueBusy: 'the rescue area (0xFF0000) is in use',
+  rescueFail: 'the rescue start was not written correctly',
+  noRescue: 'no rescue start: 0xFF0000 is in use',
+  noRescueRoom: 'no room for the write protection (rescue start, top 64 KB of the flash). Nothing was written. Remove a program from the start device and write again',
+  rescueMode: 'the last write was cut off. The device waits in the flash screen: write again',
   noAnswer: 'no answer. Put the device on the download screen and try again',
   lost: 'the device stopped answering before writing. Nothing was written. Switch the Paradise off and on, put it on the download screen, connect again and write again',
   appSilent: 'the flash app was sent but does not answer. Try again',
@@ -229,6 +234,136 @@ async function loadApp(link, img, progress) {
   }
 }
 
+// ------------------------------------------------------------------ rescue start
+/*
+ * 1.6.13 test13 (PARA_RESCUE): a second load table at 0xFFE000 starts our flash app from 0xFF0000 (not encrypted,
+ * CRC-32 of 0xE000 bytes) when the device's own table or firmware does not check out. A device whose own table or firmware is broken (write cut off) then shows the flash screen and
+ * can be written again from the Studio, without the download screen.
+ * RESCUE_FIRST: before writing, the device's own table is cleared once the rescue start is in place, so the device
+ * comes up in the flash app whenever the write is cut off; the table is written back last. Only after the test
+ * on the device (rescueTest) showed that the ROM takes the second table.
+ */
+const PARA_RESCUE = true, RESCUE_FIRST = true, SECTOR_RETRY = true;   // SECTOR_RETRY: test16, see putSector   // test15: RESCUE_FIRST on (test13 on the device: the ROM took the second table)
+const RESCUE_OFF = 0xFF0000, RESCUE_TAB = 0xFFE000, RESCUE_CODE = 0xE000;
+/* test23 BAT_PIC: the Paradise's "battery empty" picture in the last sector of the rescue block (0xFFF000), for the
+ * emulators to show before they switch off on empty batteries: "BAT1", byte count, 16 colours (RGB565), then one byte
+ * per run (colour << 4 | length - 1), 128 x 128 row by row. The sprite's number differs by edition. */
+const BAT_PIC = true, BATPIC_OFF = 0xFFF000, BATPIC_IDX = { 'Land': 53, 'Water': 53, 'Sky': 53, 'Jade Forest': 54, 'Tropical': 56, 'Glacier': 56 };
+function batPic(img) {
+  const C = root.ParamixCore || (typeof require !== 'undefined' ? require('./core.js') : null);
+  if (!BAT_PIC || !C) return null;
+  try {
+    const ctx = C.openRom(img), i = BATPIC_IDX[ctx.edition];
+    if (i === undefined || !ctx.entries[i]) return null;
+    const s = C.spriteDecode(ctx.entries[i]).subs[0];
+    if (s.w !== 128 || s.h !== 128) return null;
+    const pal = [], px = new Uint8Array(128 * 128);
+    for (let k = 0; k < px.length; k++) {
+      const d = s.data, c = d[4 * k + 3] ? ((((d[4 * k] * 31 + 127) / 255) | 0) << 11) | ((((d[4 * k + 1] * 63 + 127) / 255) | 0) << 5) | (((d[4 * k + 2] * 31 + 127) / 255) | 0) : 0xFFFF;
+      let j = pal.indexOf(c); if (j < 0) { if (pal.length >= 16) return null; j = pal.push(c) - 1; }
+      px[k] = j;
+    }
+    const out = new Uint8Array(SECTOR).fill(0xFF); let n = 0;
+    for (let k = 0; k < px.length; ) {
+      let r = 1; while (r < 16 && k + r < px.length && px[k + r] === px[k]) r++;
+      if (40 + n >= SECTOR) return null;
+      out[40 + n++] = (px[k] << 4) | (r - 1); k += r;
+    }
+    w32(out, 0, 0x31544142); w32(out, 4, n);
+    for (let j = 0; j < 16; j++) { const c = pal[j] || 0; out[8 + 2 * j] = c & 255; out[9 + 2 * j] = c >> 8; }
+    return out;
+  } catch (e) { return null; }
+}
+function rescueBlock(app, hdr, pic) {
+  if (!app || app.length > RESCUE_CODE || !hdr || hdr.length < SECTOR || String.fromCharCode(...hdr.subarray(0, 8)) !== 'SONIXDEV') return null;
+  const b = new Uint8Array(BLOCK64).fill(0xFF);
+  b.set(app, 0);
+  if (pic && pic.length === SECTOR) b.set(pic, BATPIC_OFF - RESCUE_OFF);   // test23: not part of the start (CRC_CHK_SUM covers the code only)
+  const t = new Uint8Array(hdr.subarray(0, SECTOR));
+  w32(t, 0x08, u32(t, 0x08) & ~1);                        // LOAD_CFG: not encrypted (CRC check stays on)
+  w32(t, 0x10, 0x60000000 + RESCUE_OFF);                  // ADDR_USERCODE
+  w32(t, 0x14, RESCUE_CODE);                              // SIZE_USERCODE
+  w32(t, 0x24, crc32(b, 0, RESCUE_CODE));                 // CRC_CHK_SUM
+  t.fill(0, 0x80, 0x84);                                  // encrypter mark off
+  b.set(t, RESCUE_TAB - RESCUE_OFF);
+  return b;
+}
+const allFF = (d, a, n) => { for (let i = a; i < a + n; i++) if (d[i] !== 0xFF) return false; return true; };
+/* test18 RESCUE_OLD: a rescue start of an earlier Studio (other flash app) is ours too and is renewed. Before, an image
+ * read from such a device counted 0xFF0000 as taken and the Studio refused to write at all ("no room"). */
+const RESCUE_OLD = true;
+function isRescue(d, base = 0) {
+  const t = base + RESCUE_TAB - RESCUE_OFF;
+  return String.fromCharCode(...d.subarray(t, t + 8)) === 'SONIXDEV' && u32(d, t + 0x10) === 0x60000000 + RESCUE_OFF && u32(d, t + 0x14) === RESCUE_CODE;
+}
+/** The image with the rescue start, or null when 0xFF0000 holds something else. */
+function withRescue(img, app) {
+  const rb = rescueBlock(app, img.subarray(0, SECTOR), batPic(img));
+  if (!rb) return null;
+  let same = true; for (let i = 0; i < BLOCK64; i++) if (img[RESCUE_OFF + i] !== rb[i]) { same = false; break; }
+  if (same) return img;
+  if (!allFF(img, RESCUE_OFF, BLOCK64) && !(RESCUE_OLD && isRescue(img, RESCUE_OFF))) return null;
+  const out = new Uint8Array(img); out.set(rb, RESCUE_OFF); return out;
+}
+
+/*
+ * test15: T18Emu installed before test13 with its hot window has a firmware block at 0xFF0000. That block's guest
+ * moves into the hot slot of the least used one (0xF0 up), that one's guest into T18Emu's last spare (which must be
+ * unused), and the spare list gets one shorter: 0xFF0000 is free, the save stays. Only guest blocks the game never
+ * wrote (stored map = settings map) move; the stored map ("T8MP" in its save area) is patched after the save was
+ * taken from the device. moves: [{ c, so, ns, list: [{ g, from, to }] }]
+ */
+const T18M = 0x38584D50, T8MP = 0x504D3854, T8SS = 0x53533854, T8_SOFF = 4 + 256 + 64;
+const rd16 = (b, o) => b[o] | (b[o + 1] << 8);
+const wr16 = (b, o, v) => { b[o] = v & 255; b[o + 1] = (v >>> 8) & 255; };
+function t18Relocate(image, bases) {
+  const moves = [];
+  for (const base of bases || []) {
+    const c = base + 0x140; if (u32(image, c) !== T18M) continue;
+    const ns = Math.min(u32(image, c + 12), 64), so = u32(image, c + 8);
+    const mapIdx = (b) => { for (let i = 0; i < 128; i++) if (rd16(image, c + 16 + 2 * i) === b) return i; return -1; };
+    let sp0 = false; for (let i = 0; i < ns; i++) if (rd16(image, c + 272 + 2 * i) === 0xFF) sp0 = true;
+    const top = mapIdx(0xFF);
+    if (top < 0 && !sp0) continue;
+    if (sp0 || ns < 2) return null;
+    const S = rd16(image, c + 272 + 2 * (ns - 1)), list = [];
+    let L = -1, gl = -1;
+    if (image[c + 400] & 4) for (let b = 0xF0; b <= 0xFC; b++) { const g = mapIdx(b); if (g >= 0) { L = b; gl = g; break; } }
+    const mv = (from, to, g) => { image.copyWithin(to << 16, from << 16, (from + 1) << 16); wr16(image, c + 16 + 2 * g, to); list.push({ g, from, to }); };
+    if (L >= 0) { mv(L, S, gl); mv(0xFF, L, top); } else mv(0xFF, S, top);
+    image.fill(0xFF, 0xFF0000, 0x1000000);
+    w32(image, c + 12, ns - 1); wr16(image, c + 272 + 2 * (ns - 1), 0xFFFF);
+    moves.push({ c, so, ns, S, list });
+  }
+  return moves;
+}
+/* the device's settings block (d at dc) as it reads after the moves of the T18Emu at c (for comparing) */
+function t18Moved(d, dc, moves, c) {
+  const m = moves && moves.find((x) => x.c === c); if (!m) return { d, dc };
+  const t = new Uint8Array(d.subarray(dc, dc + 0x200));
+  for (const { g, from, to } of m.list) if (rd16(t, 16 + 2 * g) === from) wr16(t, 16 + 2 * g, to);
+  if (u32(t, 12) === m.ns && rd16(t, 272 + 2 * (m.ns - 1)) === m.S) { w32(t, 12, m.ns - 1); wr16(t, 272 + 2 * (m.ns - 1), 0xFFFF); }
+  return { d: t, dc: 0 };
+}
+/* after the save was taken over: the moved guests must be unwritten and the last spare unused; patch the stored map */
+function t18MovesFinish(image, moves) {
+  const secs = new Set();
+  for (const m of moves) {
+    const t8 = u32(image, m.so) === T8MP;
+    if (t8) {
+      if (image[m.so + 4 + 256 + m.ns - 1]) return null;   // the spare is in use
+      if (u32(image, m.so + T8_SOFF) === T8SS) for (let r = 0; r < 19; r++) for (let j = 0; j < 16; j++) { const v = image[m.so + T8_SOFF + 132 + 16 * r + j]; if (v && ((v - 1) >> 4) === m.ns - 1) return null; }
+      for (const { g, from, to } of m.list) { const v = rd16(image, m.so + 4 + 2 * g); if (v !== from && v !== to) return null; }   // the game wrote that block (to: moved before)
+      for (const { g, to } of m.list) wr16(image, m.so + 4 + 2 * g, to);
+      secs.add(m.so);
+    }
+    secs.add(m.c & ~0xFFF);
+    for (const { to } of m.list) for (let s = to << 16; s < (to + 1) << 16; s += SECTOR) secs.add(s);
+  }
+  for (let s = 0xFF0000; s < 0x1000000; s += SECTOR) secs.add(s);
+  return secs;
+}
+
 // ------------------------------------------------------------------ device
 class Paradise {
   constructor(link) { this.link = link; this.info = null; }
@@ -300,25 +435,108 @@ class Paradise {
     throw fe('lost');
   }
   /** Write single 4 KB sectors (Map address -> data), checked one by one. */
-  async writeSectors(map, progress, cancel) {
+  async writeSectors(map, progress, cancel, guard) {
     this.ready();
-    const list = [...map.keys()].sort((a, b) => a - b);
+    let jobs = [...map.keys()].sort((a, b) => a - b).map((s) => [s, map.get(s)]), extra = 0;
+    // test15: with the rescue start on the device, its own table is off while the pages are written, back last
+    if (guard && PARA_RESCUE && RESCUE_FIRST && !map.has(0)) {
+      const hdr = await this.read(0, SECTOR), rb = rescueBlock(guard, hdr, BAT_PIC ? new Uint8Array(await this.read(BATPIC_OFF, SECTOR)) : null);   // test23: the picture there as it is
+      if (rb && await this.crc(RESCUE_OFF, BLOCK64) === crc32(rb)) { jobs = [[0, new Uint8Array(SECTOR).fill(0xFF)]].concat(jobs, [[0, hdr]]); extra = 2; }
+    }
     const st = await this.writeState();
     if (!(st.payload.length >= 16 && u32(st.payload, 12))) await this.link.request(WRITE_TEST, 0, undefined, 15000);
     await this.link.request(WRITE_BEGIN, 0, new Uint8Array(36), 15000);
     const blk = this.block;
     let n = 0;
-    for (const s of list) {
-      if (cancel && cancel()) throw fe('cancelledWrite');
-      const d = map.get(s);
-      for (let o = 0; o < SECTOR; o += blk) await this.link.request(WRITE_DATA, s + o, d.subarray(o, o + blk), 15000);
-      const c = await this.link.request(WRITE_COMMIT, s, u32le(crc32(d, 0, SECTOR)), 15000);
-      if (c.payload.length !== 8) throw fe('notAccepted', { a: hex(s) });
-      if (u32(c.payload, 4) || u32(c.payload, 0) !== crc32(d, 0, SECTOR)) throw fe('differs', { a: hex(s) });
-      n++; if (progress) progress('write', n, list.length);
+    for (let q = 0; q < jobs.length; q++) {
+      if (cancel && cancel()) {   // the table always comes back
+        if (!extra || n === jobs.length - 1) throw fe('cancelledWrite');
+        if (n) { jobs = jobs.slice(0, n).concat([jobs[jobs.length - 1]]); cancel = null; }
+        else throw fe('cancelledWrite');
+      }
+      const [s, d] = jobs[q];
+      await this.putSector(s, d);
+      n++; if (progress) progress('write', n, jobs.length);
     }
     await this.link.request(WRITE_FINISH, 0, undefined, 15000);
-    return n;
+    return n - extra;
+  }
+  /** The steps that move T18Emu's block from 0xFF0000 on the device (see write), as [address, 4 KB] in order. */
+  async t18Pre(image, moves) {
+    const out = [];
+    for (const m of moves) {
+      const cs = m.c & ~(SECTOR - 1), co = m.c - cs, dc = new Uint8Array(await this.read(cs, SECTOR));
+      if (u32(dc, co) !== T18M || u32(dc, co + 12) !== m.ns || rd16(dc, co + 272 + 2 * (m.ns - 1)) !== m.S) continue;   // another T18Emu on the device
+      if (!m.list.every(({ g, from }) => rd16(dc, co + 16 + 2 * g) === from)) continue;
+      const dt = new Uint8Array(await this.read(m.so, SECTOR)), t8 = u32(dt, 0) === T8MP;
+      const blk = (b) => { for (let a = b << 16; a < (b + 1) << 16; a += SECTOR) out.push([a, image.slice(a, a + SECTOR)]); };
+      // with a stored map that map is what T18Emu follows: only it changes here, the settings block (in the sector with
+      // the program's start) comes later with the rest, after the rescue start is in place and the table is off
+      const step = (k) => {
+        const { g, to } = m.list[k];
+        blk(to);
+        if (t8) { wr16(dt, 4 + 2 * g, to); out.push([m.so, dt.slice()]); return; }
+        if (k === 0) { w32(dc, co + 12, m.ns - 1); wr16(dc, co + 272 + 2 * (m.ns - 1), 0xFFFF); }
+        wr16(dc, co + 16 + 2 * g, to); out.push([cs, dc.slice()]);
+      };
+      for (let k = 0; k < m.list.length; k++) step(k);
+    }
+    return out;
+  }
+  /**
+   * One 4 KB sector: data packets, then the commit with the sector's CRC-32; the device erases, programs, reads back
+   * and compares. test16 (SECTOR_RETRY): a lost answer is asked again (both steps can be repeated without harm), and a
+   * flash app that checks the buffer first (status 2: the buffer does not match, nothing written) gets the sector again.
+   */
+  async putSector(s, d) {
+    const blk = this.block, want = crc32(d, 0, SECTOR);
+    const ask = async (type, off, pl, ms) => {
+      for (let t = 0; ; t++) {
+        try { return await this.link.request(type, off, pl, ms); }
+        catch (e) { if (!(SECTOR_RETRY && e instanceof TimeoutError && t < 2)) throw e; }
+      }
+    };
+    for (let t = 0; t < (SECTOR_RETRY ? 3 : 1); t++) {
+      for (let o = 0; o < SECTOR; o += blk) await ask(WRITE_DATA, s + o, d.subarray(o, o + blk), SECTOR_RETRY ? 5000 : 15000);
+      const c = await ask(WRITE_COMMIT, s, u32le(want), 15000);
+      if (c.payload.length !== 8) throw fe('notAccepted', { a: hex(s) });
+      const st = u32(c.payload, 4);
+      if (st === 2 && SECTOR_RETRY) continue;   // the device's buffer did not match: send again
+      if (st || u32(c.payload, 0) !== want) throw fe('differs', { a: hex(s) });
+      return;
+    }
+    throw fe('differs', { a: hex(s) });
+  }
+  /** Rescue start in place on the device? 'ok', 'free' (0xFF0000 empty) or 'busy'. */
+  async rescueState(block) {
+    if (await this.crc(RESCUE_OFF, BLOCK64) === crc32(block)) return 'ok';
+    if (RESCUE_OLD && isRescue(new Uint8Array(await this.read(RESCUE_TAB, SECTOR)), RESCUE_OFF - RESCUE_TAB)) return 'free';   // an older one: renewed
+    return (await this.usedSectors(RESCUE_OFF, FLASH_SIZE)).length ? 'busy' : 'free';
+  }
+  async rescueInstall(block, progress, cancel) {
+    const m = new Map(); for (let s = 0; s < BLOCK64; s += SECTOR) m.set(RESCUE_OFF + s, block.subarray(s, s + SECTOR));
+    await this.writeSectors(m, progress, cancel);
+    if (await this.crc(RESCUE_OFF, BLOCK64) !== crc32(block)) throw fe('rescueFail');
+  }
+  /**
+   * Test on the device (1.6.13 test13): rescue start in place, then the device's own table (sector 0) cleared.
+   * Returns the cleared sector 0, to be written back with rescueRestore after the restart.
+   */
+  async rescueTest(app, progress, cancel) {
+    this.ready();
+    const hdr = await this.read(0, SECTOR), block = rescueBlock(app, hdr);
+    if (!block) throw fe('notParadise');
+    const st = await this.rescueState(block);
+    if (st === 'busy') throw fe('rescueBusy');
+    if (st === 'free') await this.rescueInstall(block, progress, cancel);
+    await this.writeSectors(new Map([[0, new Uint8Array(SECTOR).fill(0xFF)]]), progress, cancel);
+    return hdr;
+  }
+  async rescueRestore(hdr, progress, cancel) {
+    this.ready();
+    if (String.fromCharCode(...hdr.subarray(0, 8)) !== 'SONIXDEV') throw fe('notParadise');
+    await this.writeSectors(new Map([[0, hdr.subarray(0, SECTOR)]]), progress, cancel);
+    if (await this.crc(0, SECTOR) !== crc32(hdr, 0, SECTOR)) throw fe('checkFail', { a: hex(0) });
   }
   /** Whole flash (16 MB). */
   async dump(progress, cancel) {
@@ -351,33 +569,74 @@ class Paradise {
     if (img.length !== FLASH_SIZE) throw fe('size');
     if (String.fromCharCode(...img.subarray(0, 8)) !== 'SONIXDEV') throw fe('notParadise');
     this.ready();
-    let image = img, notes = [], kept = 0, changed = null;
-    if (opts.onlyChanged || opts.keep) changed = await this.changed(image, progress, cancel);
+    let image = img, notes = [], kept = 0, changed = null, rescue = false, moves = null;
+    if (PARA_RESCUE && opts.rescueApp) {   // test13: the rescue start goes along (first), when 0xFF0000 is free
+      let r = withRescue(image, opts.rescueApp);
+      if (!r) {   // test15: an old T18Emu layout gives 0xFF0000 up
+        const w = new Uint8Array(image); moves = t18Relocate(w, opts.t18Bases);
+        if (moves && moves.length) r = withRescue(w, opts.rescueApp);
+        if (!r) moves = null;
+      }
+      if (r) { image = r; rescue = true; }
+      else if (opts.rescueNeeded !== false) throw fe('noRescueRoom');
+      else notes.push(note('noRescue'));
+    }
+    if (opts.onlyChanged || opts.keep || rescue) changed = await this.changed(image, progress, cancel);
     if (opts.keep) {
-      const k = await opts.keep(this, image, changed);
+      const k = await opts.keep(this, image, changed, moves);
       image = k.image; notes = k.notes; kept = k.kept;
       for (const s of k.protectedSectors) changed.delete(s);
     }
+    if (moves) {
+      if (image === img) image = new Uint8Array(image);
+      const secs = t18MovesFinish(image, moves);
+      if (!secs) throw fe('noRescueRoom');
+      for (const x of secs) if (await this.crc(x, SECTOR) !== crc32(image, x, SECTOR)) changed.add(x); else changed.delete(x);
+    }
+    if (rescue) {   // the save ranges of "keep saves" reach to the end of the flash: the rescue start wins there
+      const rb = rescueBlock(opts.rescueApp, image.subarray(0, SECTOR), batPic(image));
+      if (image === img) image = new Uint8Array(image);
+      image.set(rb, RESCUE_OFF);
+      for (let s = RESCUE_OFF; s < FLASH_SIZE; s += SECTOR) if (await this.crc(s, SECTOR) !== crc32(image, s, SECTOR)) changed.add(s); else changed.delete(s);
+    }
+    if (opts.onImage) await opts.onImage(image);   // test15: what is written, for going on after a cut
     const st = await this.writeState();
     if (!(st.payload.length >= 16 && u32(st.payload, 12))) { if (progress) progress('prepare', 0, 1); await this.link.request(WRITE_TEST, 0, undefined, 15000); }
     let order = sectorOrder();
+    if (rescue) order = order.filter((s) => s >= RESCUE_OFF).concat(order.filter((s) => s < RESCUE_OFF));
     if (opts.onlyChanged) {
       order = order.filter((s) => changed.has(s));
-      if (!order.length) { await this.link.request(WRITE_FINISH, 0, undefined, 15000); return { written: 0, kept, notes, image }; }
-    }
+      if (!order.length) { await this.link.request(WRITE_FINISH, 0, undefined, 15000); return { written: 0, kept, notes, image, rescue }; }
+    } else if (changed) order = order.filter((s) => s >= 0x11000 || s === 0 || changed.has(s));   // test15: the firmware at 0x1000 only when it differs
+    // RESCUE_FIRST: the device's table off while the rest is written (the ROM starts the rescue then), back at the end
+    const clear0 = (opts.rescueFirst !== undefined ? opts.rescueFirst : RESCUE_FIRST) && rescue && order.some((s) => s && s < RESCUE_OFF);
+    if (clear0 && order[order.length - 1] !== 0) order.push(0);
+    // test15: a moved T18Emu block goes to its new place before the rescue start overwrites 0xFF0000, in steps that
+    // each leave the device's T18Emu whole (cut anywhere: it still finds every block): new copy, settings, stored map
+    const pre = moves ? await this.t18Pre(image, moves) : [];
+    const preDone = new Set(); { const last = new Map(); for (const [a, d] of pre) last.set(a, d); for (const [a, d] of last) if (crc32(d) === crc32(image, a, SECTOR)) preDone.add(a); }
+    order = order.filter((s) => !preDone.has(s));
+    const nRes = order.filter((s) => s >= RESCUE_OFF).length;
     const begin = new Uint8Array(36); begin.set(await sha256(image)); w32(begin, 32, crc32(image));
     const pos = await this.link.request(WRITE_BEGIN, 0, begin, 15000);
     let start = !opts.onlyChanged && pos.payload.length >= 4 ? u32(pos.payload, 0) : 0;
     if (start >= order.length) start = 0;
     const blk = this.block;
     let written = 0;
+    for (const [a, d] of pre) {
+      if (cancel && cancel()) throw fe('cancelledWrite');
+      await this.putSector(a, d);
+      written++;
+    }
     for (let i = start; i < order.length; i++) {
       if (cancel && cancel()) throw fe('cancelledWrite');
       const s = order[i];
-      for (let o = 0; o < SECTOR; o += blk) await this.link.request(WRITE_DATA, s + o, image.subarray(s + o, s + o + blk), 15000);
-      const c = await this.link.request(WRITE_COMMIT, s, u32le(crc32(image, s, SECTOR)), 15000);
-      if (c.payload.length !== 8) throw fe('notAccepted', { a: hex(s) });
-      if (u32(c.payload, 4)) throw fe('differs', { a: hex(s) });
+      if (clear0 && i === Math.max(start, nRes)) {
+        if (await this.crc(RESCUE_OFF, BLOCK64) !== crc32(image, RESCUE_OFF, BLOCK64)) throw fe('rescueFail');
+        const ff = new Uint8Array(SECTOR).fill(0xFF);
+        await this.putSector(0, ff);
+      }
+      await this.putSector(s, image.subarray(s, s + SECTOR));
       written++;
       if (progress) progress('write', i + 1 - start, order.length - start);
     }
@@ -386,7 +645,7 @@ class Paradise {
       if (progress) progress('check', off + BLOCK64, FLASH_SIZE);
     }
     await this.link.request(WRITE_FINISH, 0, undefined, 15000);
-    return { written, kept, notes, image };
+    return { written, kept, notes, image, rescue };
   }
 }
 const u32le = (v) => { const b = new Uint8Array(4); w32(b, 0, v); return b; };
@@ -439,7 +698,7 @@ function t18SameGrown(d, dc, n, nc) {
   return eq(8, 4) && eq(16, 256) && eq(272, 2 * nd) && (nn === nd ? eq(272, 128) : true);
 }
 function keepPlan(F, E, menu, opts = {}) {
-  return async (dev, img, changed) => {
+  return async (dev, img, changed, moves) => {
     const ed = F.edition(img);
     if (!ed) throw fe('unknownEd');
     // 1.6.6: Land/Water/Sky and Tropical/Glacier are the same firmware; the edition ID page only follows the
@@ -535,7 +794,8 @@ function keepPlan(F, E, menu, opts = {}) {
           if (!ad.some((d) => d.src === a.src)) continue;
           const dv = changed.has(off) ? await dev.read(off, SECTOR) : img.subarray(off, off + SECTOR);
           const fwMine = !!opts.t18Imp && bl.slice(0, nMap).some((b) => b < 0x100 && mineIn(b << 16, (b + 1) << 16));   // 1.6.11 test2: an imported firmware with its save
-          if (u32(dv, 0x140) === T18 && t18SameGrown(dv, 0x140, img, c) && !opts.emuChanged && !fwMine) {
+          const mvd = t18Moved(dv, 0x140, moves, c);
+          if (u32(dv, 0x140) === T18 && t18SameGrown(mvd.d, mvd.dc, img, c) && !opts.emuChanged && !fwMine) {
             const so = u32(img, c + 8); ranges.push([so, so + 0x24000]);
             for (let i = 0; i < ns; i++) { const b = img[c + 272 + 2 * i] | (img[c + 273 + 2 * i] << 8); t18keepX.push([b << 16, (b + 1) << 16]); }
           } else notes.push(note('noteEmu'));
@@ -598,7 +858,7 @@ function keepPlan(F, E, menu, opts = {}) {
       // spares must be empty unless the save that uses them is kept (they may lie in the Paradise save range)
       for (let i = 0; i < ns; i++) t18blocks.push(img[c + 272 + 2 * i] | (img[c + 273 + 2 * i] << 8));
       if (img[c + 400] & 4) t18blocks.push(0xFD, 0xFE);   // hot window (1.6.6): second copy of the flash part
-      const same = t18d && t18SameGrown(view, c, img, c);
+      const mvd = t18Moved(view, c, moves, c), same = t18d && t18SameGrown(mvd.d, mvd.dc, img, c);
       if (same && !opts.emuChanged) {
         ranges.push([0xC0000, 0xC0000 + 0x24000]);   // map, clock note, session (the program's flash part at 0x0F0000 comes from the image)
         for (let i = 0; i < ns; i++) { const b = img[c + 272 + 2 * i] | (img[c + 273 + 2 * i] << 8); t18keep.push([b << 16, (b + 1) << 16]); }
@@ -688,6 +948,6 @@ async function serialOpen(port) {
   return io;
 }
 
-root.ParamixFlash = { linkKey: LINK_KEY, connect, keepPlan, Link, Paradise, serialOpen, embedded, buildPdlo, crc32, sectorOrder, EDITIONS, FLASH_SIZE, BAUD, TimeoutError };
+root.ParamixFlash = { linkKey: LINK_KEY, rescueBlock, withRescue, batPic, t18Relocate, RESCUE_OFF, PARA_RESCUE, connect, keepPlan, Link, Paradise, serialOpen, embedded, buildPdlo, crc32, sectorOrder, EDITIONS, FLASH_SIZE, BAUD, TimeoutError };
 if (typeof module !== 'undefined') module.exports = root.ParamixFlash;
 })(typeof window !== 'undefined' ? window : globalThis);

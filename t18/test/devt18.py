@@ -18,7 +18,7 @@ u = Uc(UC_ARCH_ARM, UC_MODE_THUMB | UC_MODE_MCLASS)
 # flash window 0x10000000 = flash 0x11000.. (base 0x60011000)
 APPOFF = int(os.environ.get('APPOFF', '0xA0000'), 16)   # test29: a program in the menu
 u.mem_map(0, 0x10000); u.mem_write(0, bytes(fl[APPOFF:APPOFF + 0x10000]))
-u.mem_map(0x18000000, 0x20000); u.mem_map(0x20000000, 0x1000)
+u.mem_map(0x18000000, 0x20000); u.mem_map(0x20000000, 0x2000 if os.environ.get('RAM8K') else 0x1000)
 u.mem_map(0x10000000, 0x1000000)
 # the flash window as measured on the device (1.6.6): 1 MB from the base register (0x4002F004), beyond that
 # something else (here zeros); NOT updated on flash writes (like a cache that keeps old lines). WIN16=1: old model
@@ -112,7 +112,15 @@ def h_erase(uc):
 def h_back(uc): state['back'] = 1; uc.emu_stop()
 def h_nop(uc): ret(uc)
 def h_fatal(uc): print('FATAL code', uc.reg_read(UC_ARM_REG_R0), 'info', hex(uc.reg_read(UC_ARM_REG_R1)), 'lr', hex(uc.reg_read(UC_ARM_REG_LR))); state['back'] = 1; uc.emu_stop()
-H = {'hw_px_begin': h_begin, 'hw_px_row': h_row, 'hw_px_end': h_nop, 'hw_tone': h_tone, 'hw_buttons': h_btn,
+PANLOG = os.environ.get('PANLOG'); PAN = {'n': 0, 'last': None}
+def h_end(uc):
+    # 1.6.13 test3: every picture the panel got (PANLOG=dir): what the user saw, frame by frame
+    if PANLOG:
+        d = struct.pack('<16384H', *[v for r in fb for v in r])
+        if d != PAN['last']:
+            PAN['last'] = d; open(os.path.join(PANLOG, 'p%05d_%07d.raw' % (PAN['n'], state['ms'])), 'wb').write(d); PAN['n'] += 1
+    ret(uc)
+H = {'hw_px_begin': h_begin, 'hw_px_row': h_row, 'hw_px_end': h_end, 'hw_tone': h_tone, 'hw_buttons': h_btn,
      'flash_update4k': h_upd, 'flash_erase4k': h_erase, 'hw_back_to_paradise': h_back, 'hw_init': h_nop,
      'hw_backlight': h_nop, 'hw_bl_pwm_off': h_nop, 'hw_wdt_feed': h_nop}
 if not os.environ.get('FATALDRAW'): H['fatal'] = h_fatal
@@ -223,6 +231,40 @@ def _ahb(uc, acc, a, sz, v, ud):
     state['sh'] = v & 7
     if os.environ.get('ECOLOG'): print('AHB', v & 7, 'at ms', state['ms'])
 u.hook_add(UC_HOOK_MEM_WRITE, _ahb, begin=0x45000010, end=0x45000013)
+# 1.6.13 test1 T18_PW (as devt7.py): system clock source (0x4500000C: 0 IHRC 12 MHz, 4 PLL; status in bits 6:4), PLL
+# locked, RTC on with 1 s, deep sleep (PMU_CTRL bit 1, then WFI): the time runs on to the next RTC second or a key change
+u.mem_write(0x4500000C, struct.pack('<I', 0x44)); u.mem_write(0x45000008, struct.pack('<I', 0x55)); u.mem_write(0x45000200, struct.pack('<I', 0x80))
+state['ihrc'] = 0; state['pw'] = {'full': 0, 'ihrc': 0, 'sleep': 0}
+def _clk(uc, acc, a, sz, v, ud):
+    state['ihrc'] = (v & 7) == 0
+    uc.mem_write(0x4500000C, struct.pack('<I', (v & 7) | ((v & 7) << 4)))
+    if os.environ.get('ECOLOG'): print('CLKSRC', v & 7, 'at ms', state['ms'])
+u.hook_add(UC_HOOK_MEM_WRITE, _clk, begin=0x4500000C, end=0x4500000F)
+def _pmu(uc, acc, a, sz, v, ud):
+    if v & 2 and not state.get('dsleep'):
+        t = state['ms']
+        while True:
+            t += 1
+            if t % 1000 == 0 or t >= total_ms or any(t / 1000.0 >= kt > state['ms'] / 1000.0 for kt, _ in KS): break
+        state['dsleep'] = t
+        if t % 1000 == 0 and 'g_pw_rtcw' in syms: uc.mem_write(syms['g_pw_rtcw'], b'\x01')   # the RTC interrupt ran
+        if int(os.environ.get('RTCLAG', '0')):
+            # 1.6.13 test3: the counter shows the new second only a few reads after the wake (32 kHz domain)
+            state['rtc_new'] = rtc0 + t // 1000; state['rtclag'] = int(os.environ['RTCLAG'])
+        else: uc.mem_write(0x45000304, struct.pack('<I', rtc0 + t // 1000))
+u.hook_add(UC_HOOK_MEM_WRITE, _pmu, begin=0x45000300, end=0x45000303)
+def _rtcrd(uc, acc, a, sz, v, ud):
+    if 'rtc_new' in state:
+        if state['rtclag'] > 0: state['rtclag'] -= 1
+        else: uc.mem_write(0x45000304, struct.pack('<I', state.pop('rtc_new')))
+u.hook_add(UC_HOOK_MEM_READ, _rtcrd, begin=0x45000304, end=0x45000307)
+RTCLAGMS = int(os.environ.get('RTCLAGMS', '0'))
+if RTCLAGMS:
+    # 1.6.13 test3: the counter shows a new second only RTCLAGMS ms after it began (the RTC interrupt comes on time)
+    def _rtcms(uc, acc, a, sz, v, ud):
+        eff = state.get('dsleep') or state['ms']
+        uc.mem_write(0x45000304, struct.pack('<I', rtc0 + max(eff - RTCLAGMS, 0) // 1000))
+    u.hook_add(UC_HOOK_MEM_READ, _rtcms, begin=0x45000304, end=0x45000307)
 while state['ms'] < total_ms and 'back' not in state:
     u.mem_write(0x45000304, struct.pack('<I', rtc0 + state['ms'] // 1000))
     try:
@@ -238,13 +280,24 @@ while state['ms'] < total_ms and 'back' not in state:
             if u.reg_read(UC_ARM_REG_PRIMASK) & 1 or not systick_on(): state['pend'] = 1
             else: irq_enter(pc); pc = u.reg_read(UC_ARM_REG_PC)
         else:
-            u.emu_start(pc | 1, 0xFFFFFFF0, count=max(1, RT >> state['sh'])); state['shms'][min(state['sh'], 3)] += 1
+            _sh = int(os.environ.get('IHRCSH', '3')) if state['ihrc'] else state['sh']
+            u.emu_start(pc | 1, 0xFFFFFFF0, count=max(1, RT >> _sh)); state['shms'][min(_sh, 3)] += 1
+            state['pw']['ihrc' if state['ihrc'] else 'full'] += 1
     except UcError as ex:
         print('error', ex, hex(u.reg_read(UC_ARM_REG_PC))); break
     pc = u.reg_read(UC_ARM_REG_PC)
+    _ds = state.pop('dsleep', 0)
+    if _ds:
+        n = _ds - state['ms']; state['ms'] = _ds; state['pw']['sleep'] += n
+        if os.environ.get('DBGSLEEP'): print('slept', n, 'to ms', state['ms'])
+        if state['ms'] % 1000 == 0:
+            st = struct.unpack('<8I', bytes(u.mem_read(st_sym, 32)))
+            print('%4d s: emulated %4d ms (deep sleep)' % (state['ms'] // 1000, st[0] - last[0]), flush=True); last = st
+        continue
     state['ms'] += 1
     if not IRQ:
         v = struct.unpack('<I', u.mem_read(gms, 4))[0]; u.mem_write(gms, struct.pack('<I', v + 1))
+        if 'g_ms_raw' in syms: _r = syms['g_ms_raw']; u.mem_write(_r, struct.pack('<I', struct.unpack('<I', u.mem_read(_r, 4))[0] + 1))
     if os.environ.get('JSTAT') and state['ms'] % int(os.environ['JSTAT']) == 0 and state['ms'] <= 400:
         js = struct.unpack('<8I', bytes(u.mem_read(syms['t18_jit_stat'], 32))); jb = struct.unpack('<I', bytes(u.mem_read(syms['t18_jit_bytes'], 4)))[0]
         print('ms', state['ms'], 'blocks', js[0], 'flushes', js[3], 'bytes', jb, 'gpc', hex(struct.unpack('<I', bytes(u.mem_read(syms['g_tg'] + 60, 4)))[0]))
@@ -254,6 +307,7 @@ while state['ms'] < total_ms and 'back' not in state:
         if lo <= gpc < hi and state.get('gpcn', 0) < 20: state['gpcn'] = state.get('gpcn', 0) + 1; print('guest pc', hex(gpc), 'at ms', state['ms'], 'stage', struct.unpack('<I', bytes(u.mem_read(syms['g_stage'], 4)))[0])
     if si < len(SH) and state['ms'] >= SH[si] * 1000: shot('shot_%02d.png' % si); si += 1
     if PROF: prof_on[0] = PROF[0] <= state['ms'] < PROF[1]
+    if os.environ.get('HISTRESET') and state['ms'] == int(os.environ['HISTRESET']): u.mem_write(0x20001000, bytes(256))   # test5: slow access histogram from here
     if state['ms'] % 1000 == 0:
         st = struct.unpack('<8I', bytes(u.mem_read(st_sym, 32)))
         if 'g_pres_n' in syms: pn = struct.unpack('<I', bytes(u.mem_read(syms['g_pres_n'], 4)))[0]; print('      pictures', pn - state.get('pn', 0)); state['pn'] = pn
@@ -278,6 +332,7 @@ if PROF:
     tot = sum(pc_cnt.values())
     for k, v in pc_cnt.most_common(25): print('  %-24s %5.1f%%' % (k, 100.0 * v / tot))
 print('ms per clock step (96, 48, 24, 12 MHz):', state['shms'])
+print('power ms: full', state['pw']['full'], 'ihrc', state['pw']['ihrc'], 'deep sleep', state['pw']['sleep'])
 open(os.path.join(out, 'flash_after.bin'), 'wb').write(fl)
 if JWLOG is not None:
     open(os.environ['JWLOG'], 'w').write('\n'.join('%x %04x' % w for w in JWLOG))

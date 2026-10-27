@@ -270,6 +270,11 @@ After the start the toy's clock is checked against the Paradise's time and set a
 switch `V1_CLK_CHECK`; a resumed P2 kept its old time). Register B of the toy is kept with the running state
 (1.6.9, `V1_REGB`; it was 0 after a resume).
 
+Since 1.7.0 V1Emu behaves like the other emulators: sound in four steps (off, normal, loud, quiet) played in real
+time (`V1_VOL`, `V1_TONE_Q`), the screen comes on when the toy calls (`V1_CALL_WAKE`), deep sleep with the screen dark
+(`V1_PW`, as V3Emu: internal 12 MHz clock, the toy's time is run in one go after each RTC second), the battery
+display smoothed and the empty battery handled as described under Battery.
+
 ### V3Emu (1.6.9, test version)
 The Tamagotchi Connection V3: ROM of 512 KB (Sunplus SPLB32, a 6502, as BrickEmuPy reads it). Choose it like a
 V1Emu ROM ("Choose firmware or ROM"); the Studio treats it as a V1Emu (same settings block and save layout) and puts
@@ -365,7 +370,7 @@ part (under ▾ it only says how).
 | --- | --- |
 | T18Emu | CONNECTION, TAMAGOTCHI: playdate, gift, marriage (switch `T18_LINK`) |
 | T7Emu (Tama-Go) | connection, TAMA-GO, VISIT or GAME; B on the visiting one (`T7_LINK`) |
-| TamaEmu (P's, iD L) | P's: あそぶ, あそびにいく on one, ともだちをよぶ on the other (`TC_IRLINK`) |
+| TamaEmu (P's, iD L) | P's: あそぶ, あそびにいく on one, ともだちをよぶ on the other; iD L: connection, iDL, PLAY (or SWAP ITEM) on both, B on one (`TC_IRLINK`, `LK_SYNC` since 1.7.1: the two emulators keep in step while they exchange) |
 | V1Emu (Digimon) | choose and start the battle (`V1_LINK`, not yet checked with a real battle) |
 | V3Emu | the connection in the game on both (`V3_LINK`, not yet checked on two devices) |
 
@@ -379,7 +384,8 @@ down, A+C Start). On the device: A+B+C together opens the settings (with Select 
 saves and goes back. Battery saves of the games are kept. Sound: the Paradise's buzzer plays one tone at a time (the
 melody or the effect). Since 1.6.12: holding the wheel keeps the whole game, the next start continues exactly there;
 "Restart game" in the settings; two Paradise plugged together at the top work like a link cable (e.g. trading
-Pokémon). Program and details: `gb/`.
+Pokémon). Since 1.7.1 equal banks at the end of a game are stored once (Pokémon Red and Blue: 256 KB less, `GB_TRIM`).
+Program and details: `gb/`.
 
 ### Wolfenstein 3D (1.6.10)
 Tab "Wolf3D": choose all files of your own Wolfenstein 3D together, the shareware (.WL1, episode 1) or the full
@@ -443,8 +449,13 @@ Morino, Tamaotch, Umino, Yasashii, Digimon V1 to V3; Digimon: hunger and strengt
 The settings of T7Emu, V1Emu, TamaEmu and T18Emu (wheel short) show the battery, e.g. "2.84V 80%", and the
 home screen of a start device shows it bottom right. It is measured as the Paradise firmware does it: SAR ADC at
 0x4003A000, channel 4 (P0.6), volts = sample x 3.3 / 1024; below 2.2 V the Paradise switches off (0 %), 3.0 V and
-more count as full. Shared code `emu/src/emu/batt.h`, switch `BAT_SHOW`. Not yet checked on the device; "?" means no
-reading came.
+more count as full. Shared code `emu/src/emu/batt.h`, switch `BAT_SHOW`. "?" means no reading came.
+
+Empty batteries (1.7.0, switches `BAT_GUARD`, `BAT_PIC`): every emulator reads the battery every 20 s; twice in a row
+below 2.21 V it saves everything, shows the Paradise's own "battery empty" picture for about 3 s and switches off, as
+the Paradise does at 2.2 V. New batteries: it continues where it was. The Studio puts the picture (sprite 53 of Land,
+Water and Sky, 54 of Jade Forest, 56 of Tropical and Glacier) into the last sector of the write protection block
+(0xFFF000, "BAT1", 16 colours, run lengths).
 
 ### How the emulators behave (TamaEmu, T7Emu, T18Emu)
 
@@ -454,6 +465,7 @@ Starting and leaving:
 | --- | --- | --- | --- |
 | Start | A and C on the home screen | same | same |
 | Wheel long (about 1.5 s) | save the state, back to the Paradise | same | same |
+| Other way back (1.7.0) | tab "Menu", "Back from programs": wheel and A, wheel and C, or the wheel 5 s, for all emulators, Game Boy and Master System | same | same |
 | Wheel short | nothing | settings menu | nothing |
 | Wheel in the first 3 s after a resumed start | asks first (A yes, B no); yes drops the saved state, back to the Paradise; next start fresh from the Tama's own save | same | same |
 | Autostart on, hold B while the Paradise starts | the Paradise starts instead of the emulator | same | same |
@@ -519,6 +531,8 @@ to the end first.
   as further programs. Choosing the same firmware again does not add it twice.
 - The room behind the Paradise's save (from 0xF00000) is used for programs as
   long as there is no T18Emu (which needs it).
+- A colour Tama in the menu (1.7.1, `GUEST_SPARSE`): almost empty firmware blocks that the game hardly reads
+  are kept as 8 KB parts, iD L about 250 KB and P's up to 450 KB less room.
 - Main program with DOOM (1.6.9): DOOM stays at its place, but the star in the
   Emulator tab can make any program of the menu the main one. It is shown first
   and, with "Start when switched on" under ▾, starts instead of the menu after a
@@ -529,6 +543,11 @@ to the end first.
 Tab "Menu": tick "Several saves (with field choice)", "Items and Tamapoints"
 and/or "Change Tama". On the device, hold A and C on the home screen: wheel
 selects, B confirms, C goes back.
+
+"Back from programs" (1.7.0): how to get back from the emulators, Game Boy and Master System to the Paradise or the
+menu: hold the wheel (as before), hold wheel and A, hold wheel and C, or hold the wheel 5 s. The Studio writes the
+choice into every program (the last word of its vector table, 0x13C, "EX" and the mode; `emu/src/emu/exitkey.h`).
+The menu itself, while the screen is dark, sleeps deeply until a key or the wheel (1.7.0, `FELD_PW`).
 
 - Several saves: the menu keeps several saves and switches between them; a new
   save starts on a field of your choice.
@@ -605,6 +624,20 @@ state is dropped), Wolfenstein 3D and Spear of Destiny their saved game (.bin). 
 T7Emu saves written up to 1.6.8 may lie 2 bytes off in the flash (the page buffer was not word aligned, the flash DMA
 takes words); the export finds them too and gives the right save.bin, and T7Emu from 1.6.9 reads them itself
 (switch `T7_EE_SHIFT`).
+
+How to import a save (1.7.0):
+1. Read the ROM from the device ("Device", read), or open the dump you read last.
+2. Tab "Save": "Import" and choose the file. It goes to the program it belongs to (a T7Emu .bin to T7Emu, a TamaEmu
+   .sav to the TamaEmu with that firmware, a T18Emu .bin, .sav or .zip of the T18Emu app to T18Emu), whatever the list
+   shows. An emulator added in this session counts too.
+3. Write to the device with "Keep saves" on. Only the imported save is replaced; the Paradise's own save and the saves
+   of all other programs stay as they are on the device.
+Without "Keep saves" every save comes from the file, the Paradise's too: from a fresh read that is the same, from an
+older file everything goes back to that file. When a program is added or removed in the same write, other programs
+may get a new place. T7Emu, V1Emu, TamaEmu and T18Emu take their save along then (TamaEmu and T18Emu: the Studio
+reads the sectors of their flash that changed on the device and puts them into the new place; the pet continues
+from its own save, as after a battery change). If the device does not hold the loaded ROM, the Studio asks before
+writing. Exporting all saves first is still a good idea.
 
 Slot (1.6.8): with the menu's "Several saves" (or the field switch) the menu keeps further saves in
 slots. "Slot" picks which one: export takes it out of the ROM (unpacked), write to device puts the

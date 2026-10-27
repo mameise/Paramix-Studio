@@ -2,6 +2,26 @@
 
 Versions are listed newest first.
 
+## 1.7.1 (2026-10-27)
+
+- Start device: a colour Tama in the menu (iD L, P's) takes up to 450 KB less room.
+- Game Boy: games with empty banks at the end take less room (Pokémon Red and Blue: 256 KB less).
+- Fix: TamaEmu: visits between two iD L or two P's failed when connecting.
+
+## 1.7.0 (2026-10-27)
+
+- Studio: write protection. A write that is cut off (battery, reset, PC off) can be finished, the device starts in the flash screen.
+- Studio: a save goes to the right program on import, also a save of the T18Emu app; saves move along when a program gets another place.
+- Studio: more room in a start device, the programs are arranged so that they fit.
+- Tab Menu: choose how to get back from the emulators, Game Boy and Master System.
+- All emulators: settings for dimming, screen off and language on the device, sound in four steps, the screen comes on when the Tama calls, much less power with the screen dark.
+- All emulators: on empty batteries everything is saved and the emulator switches off with the battery picture.
+- TamaEmu and T18Emu: faster, T18Emu with smoother pictures.
+- T7Emu: fast taps no longer pile up, the clock keeps better time.
+- Fix: T7Emu: the Tama could be gone after a battery change.
+- Fix: TamaEmu (iD L): the date is taken from the Paradise too.
+- Fix: importing a T7Emu save could say that T7Emu is missing.
+
 ## 1.6.13 (2026-10-25)
 
 - T7Emu: much less power with the screen off.

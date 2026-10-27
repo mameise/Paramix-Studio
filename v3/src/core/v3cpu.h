@@ -16,7 +16,8 @@ uint32_t v3_step(void);                    /* one instruction (or one 32 kHz ste
 void v3_set_keys(uint32_t mask);           /* bit 0 left (A), 1 middle (B), 2 right (C) */
 const uint8_t *v3_vram(int *mode);         /* the LCD RAM (0x200 bytes); mode 0 off, 1 on, 2 all on */
 uint32_t v3_tone_hz(void);                 /* square tone of the buzzer now, 0 = quiet */
-uint8_t *v3_eeprom(void);                  /* 1 KB */
+uint8_t *v3_eeprom(void);
+const uint8_t *v3_state_ee(const uint8_t *b);   /* test21 */                  /* 1 KB */
 int v3_eeprom_dirty(int clear);
 uint32_t v3_state_size(void);
 void v3_state_save(uint8_t *b);

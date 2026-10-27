@@ -104,6 +104,14 @@ typedef struct {
 } arm7_state_t;
 void arm7_save(arm7_t *c, arm7_state_t *s);
 void arm7_load(arm7_t *c, const arm7_state_t *s);
+#ifdef T18_RAW_LABEL
+/* 1.6.13 test4: the firmware's label routine (Thumb "strh r0,[r5]" after a call of its per-pixel routine) writes
+ * colour table numbers into the picture first (blue box behind the name on a call); the panel keeps what was there
+ * at those pixels until the full picture draws them (as the Android T18Emu). t18_raw_pc: that strh (1 = unknown). */
+extern uint32_t t18_raw_pc;
+extern volatile uint32_t t18_raw_n, t18_raw_lo, t18_raw_hi;   /* stores seen, lowest and highest address */
+extern uint16_t t18_raw_v[4];                                 /* values written (a few colour table numbers) */
+#endif
 
 #ifdef T18_JIT
 int t18_jit_try(arm7_t *c, uint64_t target);

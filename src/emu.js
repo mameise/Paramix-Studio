@@ -43,7 +43,11 @@ const RESET_VEC = { 0x024FDFE6: 'ps', 0x024F6256: '4u', 0x024C680A: '4u-plain' }
 const HOT = {
   pc:  [0x25, 0x21, 0x04, 0x02, 0x01, 0x03, 0x05, 0x20, 0x22, 0x23, 0x24, 0x26, 0x27, 0x28, 0x29, 0x2a],
   idl: [0x0b, 0x0e, 0x0d, 0x19, 0x08, 0x09, 0x16, 0x18, 0x0c, 0x17, 0x4f, 0x50, 0x40, 0x15, 0x4c, 0x4d],   // v0.8.17 after measuring (0x08/0x09 added)
-  ps: [], '4u': [], '4u-plain': [],
+  // 1.6.13 test10: the blocks P's, 4U+ and 4U read most (measured in the device simulation: menus, status, letter
+  // and room scenes); before, these took the first blocks in order and their hottest code was read uncached
+  ps: [0x14, 0x1d, 0x40, 0x1a, 0x1e, 0x53, 0x16, 0x20, 0x1b, 0x15, 0x50, 0x26, 0x51, 0x55, 0x41, 0x52],
+  '4u': [0x0d, 0x10, 0x40, 0x53, 0x14, 0x23, 0x0e, 0x50, 0x51, 0x0f, 0x4f, 0x41, 0x55, 0x52, 0x4d, 0x19],
+  '4u-plain': [0x0f, 0x13, 0x4f, 0x40, 0x0d, 0x10, 0x4c, 0x4d, 0x4e, 0x52, 0x41, 0x50, 0x18, 0x51],
 };
 
 const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
@@ -96,7 +100,34 @@ function sceneTable(d) {
 }
 
 /** Pack the firmware into 64 KB blocks. Returns { map, blob, blocks }. */
-function packGuest(fw, dev) {
+/* 1.7.1 GUEST_SPARSE: a TamaEmu in the menu (opts.sparse) keeps the almost empty firmware blocks (at most two 8 KB
+ * parts with data, never read in the device simulation: menus, games, status, shop) as spare pages instead of whole
+ * 64 KB blocks. The device reads them over its spare page table as it does since 1.6.6 for written blocks; the hot
+ * blocks stay as they are, so the speed is the same. iD L 4 blocks (about 250 KB less), P's 7 (up to about 450 KB). */
+const GUEST_SPARSE = true, SPARSE_MAX = 2, SPARSE_PG = 16;
+const SPARSE_SKIP = { idl: [0x5b], '4u': [0x56] };   // read now and then in the simulation (170 s of play): stays a whole block
+/* a block that may go into spare pages: not the parameter block, not hot, not read in the simulation, no download item
+ * store (the Studio writes items there, the device keeps its spare pages) */
+function sparseOk(dev, b) {
+  const D = DEVICES[dev]; if (!D || b === D.par || (HOT[dev] || []).includes(b) || (SPARSE_SKIP[dev] || []).includes(b)) return false;
+  return !(DLC_DEV[dev] || []).some((k) => b >= k.base >> 16 && b <= (k.base + k.n * k.size - 1) >> 16);
+}
+/* GUEST_SPARSE: the firmware parts a TamaEmu in the menu keeps as spare pages, back into its guest (as SV.emuGuestAsync
+ * reads them; only blocks that can be paged and at most SPARSE_MAX parts, so the pet's own writes elsewhere stay on the
+ * device as before) */
+function guestPagesIn(rom, c, g) {
+  if (!GUEST_SPARSE || !c.spareEnd) return;
+  const lo = (c.guestOff + c.guestSize + 0x1FFF) & ~0x1FFF, hi = c.spareEnd & ~0x1FFF;
+  if (hi < lo + 0x4000 || hi > rom.length) return;
+  const data = lo + 0x2000, n = Math.min(64, (hi - data) >> 13);
+  let x = (0x50584D50 ^ Math.imul(n, 0x9E3779B1)) >>> 0;
+  const vp = []; for (let i = 0; i < 64; i++) { const v = rom[lo + 16 + 2 * i] | (rom[lo + 17 + 2 * i] << 8); vp.push(v); x = (((x << 5) | (x >>> 27)) ^ v) >>> 0; }
+  if (u32(rom, lo) !== 0x50584D50 || u32(rom, lo + 4) !== n || u32(rom, lo + 8) !== x) return;
+  const per = new Map();
+  for (let i = 0; i < n; i++) { const v = vp[i]; if (v === 0xFFFF || (v << 13) >= g.length) continue; const b = v >> 3; if (c.map[b] !== 0xFF || !sparseOk(c.dev, b)) continue; if (!per.has(b)) per.set(b, []); per.get(b).push([v, i]); }
+  for (const [, l] of per) if (l.length <= SPARSE_MAX) for (const [v, i] of l) g.set(rom.subarray(data + (i << 13), data + ((i + 1) << 13)), v << 13);
+}
+function packGuest(fw, dev, opts = {}) {
   const D = DEVICES[dev];
   const g = new Uint8Array(D.size); g.fill(0xFF); g.set(fw.subarray(0, Math.min(fw.length, D.size)));
   const n = D.size >> 16;
@@ -118,6 +149,14 @@ function packGuest(fw, dev) {
       paged.push(c); nb--; np += c.p.length;
     }
     if (need(nb, np) > room) throw new Error('firmware too big: ' + used.length + ' blocks');
+    used = used.filter((b) => !paged.some((c) => c.b === b));
+  } else if (GUEST_SPARSE && opts.sparse) {
+    let np = 0;
+    for (const b of used) {
+      if (!sparseOk(dev, b)) continue;
+      const p = parts(b); if (p.length > SPARSE_MAX || np + p.length > SPARSE_PG) continue;
+      paged.push({ b, p }); np += p.length;
+    }
     used = used.filter((b) => !paged.some((c) => c.b === b));
   }
   const order = HOT[dev].filter((b) => used.includes(b)).concat(used.filter((b) => !HOT[dev].includes(b)));
@@ -246,7 +285,7 @@ function emuUpgrade(rom, app) {
   const go = u32(a, ci + 8);
   if (!(go === GUEST_OFF && u32(a, ci + 152) <= GUEST_END) && !(go === BIG_OFF && u32(a, ci + 152) <= BIG_END)) return null;
   let same = true;
-  for (let i = 0; i < APP_MAX && same; i++) if (rom[APP_OFF + i] !== (i < a.length ? a[i] : 0)) same = false;
+  for (let i = 0; i < APP_MAX && same; i++) if ((i < 0x13C || i > 0x13F) && rom[APP_OFF + i] !== (i < a.length ? a[i] : 0)) same = false;   // test24: 0x13C the way back (Studio)
   if (same) return null;
   const out = new Uint8Array(rom);
   out.fill(0x00, APP_OFF, APP_OFF + APP_MAX);
@@ -499,8 +538,29 @@ function gbDetect(r) {
 }
 function gbColorOnly(r) { return r[0x143] === 0xC0; }
 function gbTitle(r) { let s = ''; for (let i = 0x134; i < 0x144; i++) { const c = r[i]; if (!c || c > 0x7E) break; if (c >= 0x20) s += String.fromCharCode(c); } return s.trim().toUpperCase() || 'GAME BOY'; }
-function gbCfgWrite(a, c, x, romOff, saveOff, flags) {
-  w32(a, c + 4, 1); w32(a, c + 8, romOff); w32(a, c + 12, x.rom.length); w32(a, c + 16, saveOff); w32(a, c + 20, (flags & 1) | (x.inv ? 2 : 0));
+/* 1.7.1 GB_TRIM: banks at the end of a game that are all the same (Pokémon Red/Blue: 18 banks of zeros, 288 KB) are
+ * stored once; the program reads every bank behind it from that one (flags bits 16..31: the game's bank count). The
+ * switchable bank is looked up when the game switches it, not on every read, so the game runs as fast as before. */
+const GB_TRIM = true, GB_BANK = 0x4000;
+function gbTrim(rom) {
+  const n = rom.length / GB_BANK;
+  if (!GB_TRIM || n < 8 || n !== Math.floor(n) || n > 0xFFFF) return { rom, banks: 0 };
+  const same = (i, j) => { for (let k = 0; k < GB_BANK; k++) if (rom[i * GB_BANK + k] !== rom[j * GB_BANK + k]) return false; return true; };
+  let l = n - 1; while (l > 1 && same(l - 1, n - 1)) l--;
+  if (n - 1 - l < 4) return { rom, banks: 0 };     // less than 64 KB: kept whole
+  return { rom: rom.subarray(0, (l + 1) * GB_BANK), banks: n };
+}
+/* the whole game again from a stored one (flags bits 16..31) */
+function gbUntrim(rom, flags) {
+  const n = flags >>> 16, have = rom.length / GB_BANK;
+  if (!n || n <= have || have !== Math.floor(have) || !have) return rom;
+  const out = new Uint8Array(n * GB_BANK); out.set(rom);
+  const last = rom.subarray(rom.length - GB_BANK);
+  for (let i = have; i < n; i++) out.set(last, i * GB_BANK);
+  return out;
+}
+function gbCfgWrite(a, c, x, romOff, saveOff, flags, tr) {
+  w32(a, c + 4, 1); w32(a, c + 8, romOff); w32(a, c + 12, tr ? tr.rom.length : x.rom.length); w32(a, c + 16, saveOff); w32(a, c + 20, (flags & 1) | (x.inv ? 2 : 0) | (tr && tr.banks ? tr.banks << 16 : 0));
   const nm = gbTitle(x.rom); a.fill(0, c + 24, c + 40); for (let i = 0; i < nm.length && i < 15; i++) a[c + 24 + i] = nm.charCodeAt(i);
   const k = (x.keys && x.keys.length === 9) ? x.keys : GB_KEYS_DEFAULT; a.fill(0, c + 40, c + 52); k.forEach((v, i) => { a[c + 40 + i] = v & 255; });
 }
@@ -641,7 +701,7 @@ function v1Upgrade(rom, app) {
     if (r) v1IconsWrite(a, 0x140, r);
     if (r && v1Name(r) === 'YASASHII') w32(a, 0x140 + 20, u32(a, 0x140 + 20) | 128);   // test31: segment = column
     if (r) { const nm = v1Name(r); a.fill(0, 0x140 + 24, 0x140 + 40); for (let i = 0; i < nm.length && i < 15; i++) a[0x140 + 24 + i] = nm.charCodeAt(i); if (v1Clock(r)) w32(a, 0x140 + 20, u32(a, 0x140 + 20) | 8); } }   // test31: a newly known ROM (tama.bin) gets its name and clock
-  let same = true; for (let i = 0; i < APP_MAX && same; i++) if (rom[APP_OFF + i] !== (i < a.length ? a[i] : 0)) same = false;
+  let same = true; for (let i = 0; i < APP_MAX && same; i++) if ((i < 0x13C || i > 0x13F) && rom[APP_OFF + i] !== (i < a.length ? a[i] : 0)) same = false;   // test24: 0x13C the way back (Studio)
   if (same) return null;
   const out = new Uint8Array(rom); out.fill(0x00, APP_OFF, APP_OFF + APP_MAX); out.set(a, APP_OFF);
   return out;
@@ -793,7 +853,7 @@ function t7Upgrade(rom, app) {
   const n = 24 + T7_FIG_MAX * 24 + 4;
   a.set(rom.subarray(APP_OFF + 0x140, APP_OFF + 0x140 + n), 0x140);
   let same = true;
-  for (let i = 0; i < APP_MAX && same; i++) if (rom[APP_OFF + i] !== (i < a.length ? a[i] : 0)) same = false;
+  for (let i = 0; i < APP_MAX && same; i++) if ((i < 0x13C || i > 0x13F) && rom[APP_OFF + i] !== (i < a.length ? a[i] : 0)) same = false;   // test24: 0x13C the way back (Studio)
   const so = u32(rom, APP_OFF + 0x150);
   if (same && t7XSame(rom, so, app)) return null;
   const out = new Uint8Array(rom);
@@ -830,6 +890,9 @@ const T18_HOT_GUEST = T18_HOT_V2 ? [0x12, 0x14, 0x15, 0x13, 0x1A, 0x00, 0x16, 0x
   : [0x12, 0x14, 0x15, 0x13, 0x1A, 0x00, 0x16, 0x18, 0x19, 0x01, 0x1B, 0x17, 0x5E, 0x63];
 const T18_HOT_SLOTS = [0xFF, 0xFC, 0xFB, 0xFA, 0xF9, 0xF8, 0xF7, 0xF6, 0xF5, 0xF4, 0xF3, 0xF2, 0xF1, 0xF0];
 const T18_AREAS = [[0x830000, 0xD40000], [0xF00000, 0x1000000]];
+/* 1.6.13 test13 (RESCUE_RES): the top 64 KB (0xFF0000) stay free for the rescue start (flash.js); an installation that
+ * already has a block there keeps it (its save belongs to that layout) */
+const RESCUE_RES = true, RESCUE_BLK = 0xFF;
 const T18_APP_B64 = '__T18_APP_B64__', T18_XIP_B64 = '__T18_XIP_B64__';
 /** The program: PRAM part, with the flash part as .xip */
 function t18Embedded() {
@@ -926,20 +989,28 @@ function t18Patch(rom, fw, app, stubTpl, opts = {}) {
   if (oldTama || oldT7) { work.fill(0xFF, GUEST_OFF, GUEST_END); if (oldTama && u32(rom, APP_OFF + 0x148) === BIG_OFF) work.fill(0xFF, BIG_OFF, BIG_END); }
   let used = []; for (let i = 0; i < 128; i++) if (!isFF(fw, i << 16, 0x10000)) used.push(i);
   let free = t18Free(work, !!opts.launch);
+  const resv = RESCUE_RES && !opts.noResv && !(old && old.map.concat(old.spare).includes(RESCUE_BLK));
+  if (resv) free = free.filter((b) => b !== RESCUE_BLK);
   if (free.length < used.length + T18_SPARE_MIN) throw new Error('not enough room: the firmware needs ' + (used.length + T18_SPARE_MIN) + ' blocks of 64 KB, ' + free.length + ' are free');
   // hot window: the whole MB at 0xF00000 free and still room enough without 0xFD/0xFE
-  const hot = opts.hotWindow !== false && [...Array(16).keys()].every((i) => free.includes(0xF0 + i)) && free.length - 2 >= used.length + T18_SPARE_MIN;
+  const hot = opts.hotWindow !== false && [...Array(resv ? 15 : 16).keys()].every((i) => free.includes(0xF0 + i)) && free.length - 2 >= used.length + T18_SPARE_MIN;
   if (hot) {
     const rest = free.filter((b) => b < 0xF0);
-    free = T18_HOT_SLOTS.concat(rest);
+    free = (resv ? T18_HOT_SLOTS.filter((b) => b !== RESCUE_BLK) : T18_HOT_SLOTS).concat(rest);
     used = T18_HOT_GUEST.filter((g) => used.includes(g)).concat(used.filter((g) => !T18_HOT_GUEST.includes(g)));
+  }
+  if (opts.holes) {
+    // test25: the smallest gaps first; the largest free run stays for a TamaEmu in the menu (it needs one piece)
+    const nh = hot ? (resv ? T18_HOT_SLOTS.filter((b) => b !== RESCUE_BLK) : T18_HOT_SLOTS).length : 0, rest = free.slice(nh), set = new Set(rest);
+    const run = (b) => { let lo = b, hi = b; while (set.has(lo - 1)) lo--; while (set.has(hi + 1)) hi++; return hi - lo + 1; };
+    free = free.slice(0, nh).concat(rest.map((b) => [run(b), b]).sort((x, y) => x[0] - y[0] || y[1] - x[1]).map((x) => x[1]));
   }
   const out = opts.extra ? new Uint8Array(work) : installApp(work, app, stubTpl);
   if (opts.extra) { out.fill(0x00, APP_OFF, APP_OFF + APP_MAX); out.set(app, APP_OFF); }
   const map = new Array(128).fill(0xFFFF);
   used.forEach((g, k) => { const b = free[k]; map[g] = b; out.set(fw.subarray(g << 16, (g + 1) << 16), b << 16); });
   // spares: up to T18_SPARE_WANT, but 4 blocks (256 KB) stay free for the menu's field saves if possible
-  const nsp = Math.max(T18_SPARE_MIN, Math.min(T18_SPARE_WANT, free.length - used.length - 4));
+  const nsp = Math.max(T18_SPARE_MIN, Math.min(opts.spares || T18_SPARE_WANT, free.length - used.length - 4));   // test25: opts.spares (fewer when the rest does not fit)
   const spare = free.slice(used.length, used.length + nsp);
   const c = APP_OFF + 0x140;
   if (u32(out, c) !== T18_MAGIC) throw new Error('settings block missing in the program');
@@ -1205,7 +1276,7 @@ function t18Upgrade(rom, app, stubTpl) {
     && (!hotw || rom.subarray(T18_XIP_HOT, T18_XIP_HOT + app.xip.length).every((v, i) => v === app.xip[i]));
   if (!xipSame) a[0x140 + 400] |= 2;
   let same = xipSame;
-  for (let i = 0; i < APP_MAX && same; i++) if (rom[APP_OFF + i] !== (i < a.length ? a[i] : 0)) same = false;
+  for (let i = 0; i < APP_MAX && same; i++) if ((i < 0x13C || i > 0x13F) && rom[APP_OFF + i] !== (i < a.length ? a[i] : 0)) same = false;   // test24: 0x13C the way back (Studio)
   if (same) return null;
   const out = new Uint8Array(rom);
   out.fill(0x00, APP_OFF, APP_OFF + APP_MAX);
@@ -1268,6 +1339,9 @@ function appReserved(rom) {
  */
 const TX_STATE = 0x50000, TX_SPARE = 0x90000, T18X_SAVE = (T18_SAVE_LEN + 0xFFFF) & ~0xFFFF;
 const TX_NAMES = { pc: 'PLUS COLOR', idl: 'ID L', ps: 'PS', '4u': '4U+', '4u-plain': '4U' };
+/* GUEST_SPARSE: the room for spare pages grows by the firmware's own pages (the pool for the guest's writes stays as it
+ * was, 64 pages at most) */
+function txSpare(pk, txs) { const t = txs || TX_SPARE, np = pk.pages.length; return np ? Math.max(t, Math.min(t + (np << 13), 0x84000)) : t; }
 function extraKind(x) { return x.kind || (v1Detect(x.rom) ? 'v1' : 't7'); }
 /* 1.6.8: iD L versions by their reset vector (all run as iD L): Japanese 1.0, English, 15th anniversary, Princess Spacy */
 const IDL_NAMES = { 0x024CA8FE: 'ID L JP', 0x024CA942: 'ID L JP', 0x024CAA72: 'ID L', 0x024BD18A: 'ID L 15TH', 0x024C14F6: 'ID L SPACY' };
@@ -1277,11 +1351,12 @@ function tamaName(guest, dev) {
 }
 function extraName(x) { const k = extraKind(x); return k === 'tama' ? tamaName(x.guest, x.dev) : k === 't18' ? 'TAMA MEETS' : k === 'v1' ? v1Name(x.rom) : k === 'gb' ? gbTitle(x.rom) : k === 'sms' ? (x.title || 'MASTER SYSTEM') : k === 'wolf' ? (wolfSod(x.pack) ? 'SPEAR OF DESTINY' : 'WOLFENSTEIN 3D') : t7XName(x.rom); }
 /** Rough flash use of an extra (for the overview) */
-function extraSize(x) {
+function extraSize(x, txs) {
   const k = extraKind(x);
-  if (k === 'tama') { try { return packGuest(x.guest, x.dev).blob.length + TX_SPARE + 0x10000 + TX_STATE; } catch (e) { return 0; } }
+  if (k === 'tama') { try { const pk = packGuest(x.guest, x.dev, { sparse: true }); return ((pk.blob.length + txSpare(pk, txs) + 0xFFFF) & ~0xFFFF) + 0x10000 + TX_STATE; } catch (e) { return 0; } }
   if (k === 'v1') return v3Detect(x.rom) ? 0x92000 : 0x12000 + x.rom.length;
-  if (k === 'gb' || k === 'sms') return ((x.rom.length + 0xFFFF) & ~0xFFFF) + 0x20000;
+  if (k === 'gb') return ((gbTrim(x.rom).rom.length + 0xFFFF) & ~0xFFFF) + 0x20000;
+  if (k === 'sms') return ((x.rom.length + 0xFFFF) & ~0xFFFF) + 0x20000;
   if (k === 'wolf') return ((x.pack.length + 0xFFFF) & ~0xFFFF) + 0x30000;
   if (k === 't18') { let n = 0; for (let i = 0; i < 128; i++) if (!isFF(x.fw, i << 16, 0x10000)) n++; return (n + T18_SPARE_WANT) * 0x10000 + 0x10000 + T18X_SAVE; }
   return 0x20000 + ((x.rom.length + 0xFFFF) & ~0xFFFF) + (x.figs || []).reduce((n, f) => n + ((f.data.length + 0xFFF) & ~0xFFF), 0);
@@ -1295,7 +1370,10 @@ function extraSize(x) {
  * after the other below the lowest one, gaps above stayed empty); Game Boy and Master System games apart from their
  * program. The list keeps its order. */
 const APPS_PACK = true;
-function appsPlace(rom, extras, app, opts = {}) {
+/* test13: the rescue block (0xFF0000) is kept free only when everything fits without it */
+/* test15: no longer only when it fits: the block is the write protection, the Studio does not write without it */
+function appsPlace(rom, extras, app, opts = {}) { return appsPlace0(rom, extras, app, opts); }
+function appsPlace0(rom, extras, app, opts = {}) {
   const apps = app instanceof Uint8Array ? { t7: app } : app;
   const out = new Uint8Array(rom), list = [], res = appReserved(out).concat(opts.keep || []);
   if (extras.length > APPX_MAX) throw new Error('at most ' + APPX_MAX + ' more programs');
@@ -1309,13 +1387,14 @@ function appsPlace(rom, extras, app, opts = {}) {
   // start device (1.6.8): the Paradise never writes behind its save (0xF00000..0xFFFFFF); without T18Emu (it takes that
   // MB itself) programs that fit go there first
   const hiOk = !!opts.launch && !extras.some((x) => extraKind(x) === 't18') && u32(out, APP_OFF + 0x140) !== T18_MAGIC;
-  const fitsHi = (at, size) => at >= 0xF00000 && at + size <= 0x1000000 && isFF(out, at, size) && !res.some(([a, b]) => a < at + size && b > at);
-  const findHi = (size, align) => { if (!hiOk) return -1; let at = (0x1000000 - size) & ~(align - 1); while (at >= 0xF00000 && !fitsHi(at, size)) at -= align; return fitsHi(at, size) ? at : -1; };
+  const hiEnd = RESCUE_RES && !opts.noResv ? RESCUE_BLK << 16 : 0x1000000;   // test13: the rescue start's block stays free
+  const fitsHi = (at, size) => at >= 0xF00000 && at + size <= hiEnd && isFF(out, at, size) && !res.some(([a, b]) => a < at + size && b > at);
+  const findHi = (size, align) => { if (!hiOk) return -1; let at = (hiEnd - size) & ~(align - 1); while (at >= 0xF00000 && !fitsHi(at, size)) at -= align; return fitsHi(at, size) ? at : -1; };
   const place = (size, align) => { const h = findHi(size, align); return h >= 0 ? { at: h, hi: true } : { at: find(size, align), hi: false }; };
   // 1.6.8: no room: how much is missing for this program and the ones after it (not just the name of the one that hit it)
-  const freeKB = () => { let n = 0; for (let a = floor; a + 0x10000 <= ceil; a += 0x10000) if (fits(a, 0x10000)) n++; if (hiOk) for (let a = 0xF00000; a < 0x1000000; a += 0x10000) if (fitsHi(a, 0x10000)) n++; return n * 64; };
+  const freeKB = () => { let n = 0; for (let a = floor; a + 0x10000 <= ceil; a += 0x10000) if (fits(a, 0x10000)) n++; if (hiOk) for (let a = 0xF00000; a < hiEnd; a += 0x10000) if (fitsHi(a, 0x10000)) n++; return n * 64; };
   const noRoom = (i) => {
-    let need = opts.dlApp ? 0x10000 : 0; for (let j = 0; j < extras.length; j++) if (left.has(j) && !kept.has(extras[j])) need += extraSize(extras[j]);
+    let need = opts.dlApp ? 0x10000 : 0; for (let j = 0; j < extras.length; j++) if (left.has(j) && !kept.has(extras[j])) need += extraSize(extras[j], opts.txSpare);
     const miss = Math.max(64, Math.ceil((need / 1024 - freeKB()) / 64) * 64);
     return Object.assign(new Error('no room: about ' + miss + ' KB missing'), { room: true, missing: miss });
   };
@@ -1366,7 +1445,7 @@ function appsPlace(rom, extras, app, opts = {}) {
     } else if (k === 'gb') {
       // 1.6.9 test36 GBEmu: the ROM first (64 KB aligned, the base of the cached window), then program, settings, cartridge RAM
       const gb = apps.gb || gbEmbedded(); if (!gb) throw new Error('GBEmu missing');
-      const ra = (x.rom.length + 0xFFFF) & ~0xFFFF, size = ra + 0x20000;
+      const tr = gbTrim(x.rom), ra = (tr.rom.length + 0xFFFF) & ~0xFFFF, size = ra + 0x20000;
       let pl, at, po;
       if (pack) {   // test3: the game and the program (with its save) each where there is room
         pl = place(ra, 0x10000); at = pl.at; if (at < 0) throw noRoom(xi);
@@ -1377,8 +1456,8 @@ function appsPlace(rom, extras, app, opts = {}) {
       const a = new Uint8Array(0x10000); a.set(gb);
       const c = 0x140;
       if (u32(a, c) !== GB_MAGIC) throw new Error('settings block missing in the program');
-      gbCfgWrite(a, c, x, at, po + 0x10000, flags);
-      out.set(x.rom, at);
+      gbCfgWrite(a, c, x, at, po + 0x10000, flags, tr);
+      out.set(tr.rom, at);
       out.set(a, po);
       if (x.save && x.save.length) { const sv = new Uint8Array(0x10000).fill(0xFF); sv.set(x.save.subarray(0, 0x10000)); out.set(sv, po + 0x10000); }
       else out.fill(0xFF, po + 0x10000, po + 0x20000);
@@ -1455,8 +1534,8 @@ function appsPlace(rom, extras, app, opts = {}) {
       res.push([at, at + size]); if (!pl.hi) top = Math.min(top, at);
     } else if (k === 'tama') {
       if (!apps.tama) throw new Error('TamaEmu missing');
-      const { map, blob, pages } = packGuest(x.guest, x.dev);
-      const gLen = (blob.length + TX_SPARE + 0xFFFF) & ~0xFFFF, size = gLen + 0x10000 + TX_STATE;
+      const pk = packGuest(x.guest, x.dev, { sparse: true }), { map, blob, pages } = pk;
+      const gLen = (blob.length + txSpare(pk, opts.txSpare) + 0xFFFF) & ~0xFFFF, size = gLen + 0x10000 + TX_STATE;   // test25: opts.txSpare (less room for spare pages when tight, as the main TamaEmu)
       const pl = place(size, 0x40000), gOff = pl.at;
       if (gOff < 0) throw noRoom(xi);
       const gEnd = gOff + gLen, img = gEnd, st = gEnd + 0x10000;
@@ -1496,7 +1575,7 @@ function appsPlace(rom, extras, app, opts = {}) {
       const img = find(0x10000 + T18X_SAVE, 0x10000);
       if (img < 0) throw noRoom(xi);
       work.fill(0, img, img + 0x10000 + T18X_SAVE);
-      const r = t18Patch(work, x.fw, apps.t18, null, { lang: opts.lang, clock: clk, launch: true, extra: true, opt: x.opt });
+      const r = t18Patch(work, x.fw, apps.t18, null, { lang: opts.lang, clock: clk, launch: true, extra: true, opt: x.opt, noResv: opts.noResv });
       const w2 = r.rom, c = APP_OFF + 0x140;
       const a = w2.slice(APP_OFF, APP_OFF + 0x10000);
       w32(a, 0x140 + 8, img + 0x10000);   // its own save area
@@ -1535,7 +1614,10 @@ function appsPlace(rom, extras, app, opts = {}) {
     for (let i = 0; i < add; i++) { const b = cand[i]; out[c + 272 + 2 * (ns + i)] = b & 255; out[c + 273 + 2 * (ns + i)] = b >> 8; res.push([b << 16, (b + 1) << 16]); if (b < 0xF0) top = Math.min(top, b << 16); }
     if (add > 0) w32(out, c + 12, ns + add);
   }
-  return { rom: out, list, low: top, dl };
+  // test17 ROOM_REAL: the room really left (empty 64 KB blocks a program may use), for the overview
+  let free = 0; for (let a = floor; a + 0x10000 <= ceil; a += 0x10000) if (fits(a, 0x10000)) free++;
+  if (opts.launch) for (let a = 0xF00000; a < hiEnd; a += 0x10000) if (fitsHi(a, 0x10000)) free++;
+  return { rom: out, list, low: top, dl, freeKB: free * 64 };
 }
 /** Settings of an extra program at off: { kind, ... } or null */
 function extraCfg(rom, off) {
@@ -1552,6 +1634,26 @@ function extraCfg(rom, off) {
     return dev ? { kind: 'tama', dev, guestOff: gOff, guestSize: gLen, saveOff, map: rom.slice(off + 0x158, off + 0x1D8), spareEnd: u32(rom, off + 0x140 + 152) } : null;
   }
   return null;
+}
+/* test25 HI_ORPHAN: start device: blocks behind the Paradise's save (0xF00000..0xFEFFFF) that no program uses any more
+ * (left there by an earlier removal; they kept T18Emu from its fast window there) become free again. Used: what the
+ * program at 0x0A0000 reserves, the programs still listed (keep: their offsets) with all their parts, the menu (menuOff). */
+function hiFree(rom, keep, menuOff) {
+  const used = new Set(), mark = (a, b) => { for (let o = a & ~0xFFFF; o < b; o += 0x10000) used.add(o >>> 16); };
+  for (const [a, b] of appReserved(rom)) mark(a, b);
+  mark(APP_OFF, APP_OFF + 0x10000); if (menuOff) mark(menuOff, menuOff + 0x10000);
+  const progs = (keep || []).slice(); if (u32(rom, APP_OFF + 0x140) !== 0xFFFFFFFF) progs.push(APP_OFF);   // the program at 0x0A0000 with all its parts too
+  for (const off of progs) {
+    const c = extraCfg(rom, off); if (!c) { if (off === APP_OFF && !isFF(rom, APP_OFF + 0x140, 4) && u32(rom, APP_OFF + 0x140) !== T18_MAGIC) return rom; continue; }   // unknown: leave everything
+    mark(off, off + 0x10000);
+    if (c.kind === 't18') { for (const b of c.map.concat(c.spare)) if (b !== 0xFFFF) used.add(b); mark(c.saveOff, c.saveOff + T18X_SAVE); if (c.flags & T18F_HOTWIN) mark(0xFD0000, 0xFF0000); }
+    else if (c.kind === 'tama') { mark(c.guestOff, c.spareEnd); mark(off, off + 0x10000 + TX_STATE); }
+    else if (c.kind === 't7') { mark(c.romOff, c.romOff + c.romLen); mark(c.saveOff, c.saveOff + 0x10000); mark(off, off + 0x20000); const tc = t7Cfg(rom, off); if (tc) for (const f of tc.figs) mark(f.off, f.off + f.len); }
+    else { mark(c.romOff, c.romOff + c.romLen); mark(c.saveOff, c.saveOff + 0x10000); mark(off, off + 0x20000); }
+  }
+  let out = rom;
+  for (let b = 0xF0; b < RESCUE_BLK; b++) if (!used.has(b) && !isFF(out, b << 16, 0x10000)) { if (out === rom) out = new Uint8Array(rom); out.fill(0xFF, b << 16, (b + 1) << 16); }
+  return out;
 }
 /** Free what the extra programs listed (from appsRead) use. */
 function appsClear(rom, old) {
@@ -1581,12 +1683,13 @@ function appsRead(rom, apps) {
     const c = extraCfg(rom, off); if (!c) continue;
     if (c.kind === 't7') { const tc = t7Cfg(rom, off); out.push({ rom: rom.slice(c.romOff, c.romOff + c.romLen), figs: tc ? tc.figs.map((f) => ({ name: f.name, data: rom.slice(f.off, f.off + f.len) })) : [], name: e.name, off, saveOff: c.saveOff, clock: !tc || !!(tc.flags & 2) }); }
     else if (c.kind === 'v1') out.push({ kind: 'v1', rom: rom.slice(c.romOff, c.romOff + c.romLen), name: e.name, off, saveOff: c.saveOff, clock: (u32(rom, off + 0x140 + 20) & 16) ? !!(u32(rom, off + 0x140 + 20) & 2) : true });   // bit 4: the clock bit is meant (test26..28 lost it): else on
-    else if (c.kind === 'gb') out.push({ kind: 'gb', rom: rom.slice(c.romOff, c.romOff + c.romLen), name: e.name, off, saveOff: c.saveOff, keys: Array.from(rom.subarray(off + 0x140 + 40, off + 0x140 + 49)), inv: !!(u32(rom, off + 0x140 + 20) & 2), save: rom.slice(c.saveOff, c.saveOff + 0x10000) });
+    else if (c.kind === 'gb') out.push({ kind: 'gb', rom: gbUntrim(rom.slice(c.romOff, c.romOff + c.romLen), u32(rom, off + 0x140 + 20)), name: e.name, off, saveOff: c.saveOff, keys: Array.from(rom.subarray(off + 0x140 + 40, off + 0x140 + 49)), inv: !!(u32(rom, off + 0x140 + 20) & 2), save: rom.slice(c.saveOff, c.saveOff + 0x10000) });
     else if (c.kind === 'sms') out.push({ kind: 'sms', rom: rom.slice(c.romOff, c.romOff + c.romLen), title: cfgName(rom, off + 0x140) || 'MASTER SYSTEM', gg: !!(u32(rom, off + 0x140 + 20) & 4), name: e.name, off, saveOff: c.saveOff, keys: Array.from(rom.subarray(off + 0x140 + 40, off + 0x140 + 49)), inv: !!(u32(rom, off + 0x140 + 20) & 2), save: rom.slice(c.saveOff, c.saveOff + 0x10000) });
     else if (c.kind === 'wolf') out.push({ kind: 'wolf', pack: rom.slice(c.romOff, c.romOff + c.romLen), name: e.name, off, saveOff: c.saveOff, keys: wolfKeysRead(rom, off + 0x140), save: rom.slice(c.saveOff, c.saveOff + 0x10000) });
     else if (c.kind === 'tama') {
       const g = new Uint8Array(DEVICES[c.dev].size).fill(0xFF);
       for (let b = 0; b < (g.length >> 16); b++) { let k = c.map[b]; if (k === 0xFF) continue; if (k === 0xFE) k = b; g.set(rom.subarray(c.guestOff + (k << 16), c.guestOff + (k << 16) + 0x10000), b << 16); }
+      guestPagesIn(rom, c, g);
       const fl = u32(rom, off + 0x140 + 156);
       out.push({ kind: 'tama', dev: c.dev, guest: g, name: e.name, off, saveOff: c.saveOff, clock: !!(fl & 2), nfc: !(fl & 4), opt: optOf(fl) });
     } else if (c.kind === 't18') { const fw = t18FromRom(rom, off); if (fw) out.push({ kind: 't18', fw, name: e.name, off, saveOff: c.saveOff, clock: !!(u32(rom, off + 0x140 + 400) & 2), opt: optOf(u32(rom, off + 0x140 + 400)) }); }
@@ -1646,6 +1749,6 @@ function embedded() {
   return { app: b64(EMU_APP_B64), stub: b64(EMU_STUB_B64) };
 }
 
-root.ParamixEmu = { t7Outdated, wolfSod, wolfSodEmbedded, smsEmbedded, smsDetect, smsGameGear, smsTitle, SMS_MAGIC, SMS_KEYS_DEFAULT, wolfEmbedded, wolfInfo, wolfPackOk, WOLF_MAGIC, WOLF_KEYS_DEFAULT, gbEmbedded, gbDetect, gbColorOnly, gbTitle, GB_MAGIC, GB_KEYS_DEFAULT, emuOptGet, emuOptSet, v1Embedded, v3Embedded, v3Detect, v1Detect, v1Name, v1Clock, v1Patch, v1FromRom, v1Upgrade, V1_MAGIC, installApp, dlcStores, dlcRoute, dlcAdd, dlcFree, dlcSlots, dlcRecord, dlcPut, dlcName, emuDetect, sceneTable, packGuest, emuPatch, emuUpgrade, emuRemove, t7Embedded, t7Detect, t7Kind, appsPlace, appsRead, appsClear, appReserved, extraKind, extraName, extraSize, extraCfg, t7XName, T7X_SAVE, APPX_MAX, t7FigDetect, t7FigData, t7FigName, t7Cfg, t7FromRom, t7Room, t7Patch, t7Upgrade, t7Wall, T7_MAGIC, t18Embedded, t18Detect, t18FromRom, t18Items, t18ItemAdd, t18ItemDel, t18ItemCount, t18RoomReset, t18Points, t18iScan, t18RomWriteGuest, T18_ADULTS, t18AdultFind, t18PicMake, t18PicsWrite, t18PicsRead, t18PicRgba, t18Addrs, t18Cfg, t18Free, t18Low, t18Patch, t18Upgrade, t18Wall, t18ClockGet, t18ClockSet, emuClockGet, emuClockSet, tamaName, emuNfcGet, emuNfcSet, T18_MAGIC, T18_XIP_OFF, T18_SAVE_LEN, OPT_LV, autoGet, autoGetOld, autoSet, STUB_OFF, installedOrigs, embedded, DEVICES, GUEST_OFF, BIG_OFF };
+root.ParamixEmu = { gbTrim, gbUntrim, hiFree, t7Outdated, wolfSod, wolfSodEmbedded, smsEmbedded, smsDetect, smsGameGear, smsTitle, SMS_MAGIC, SMS_KEYS_DEFAULT, wolfEmbedded, wolfInfo, wolfPackOk, WOLF_MAGIC, WOLF_KEYS_DEFAULT, gbEmbedded, gbDetect, gbColorOnly, gbTitle, GB_MAGIC, GB_KEYS_DEFAULT, emuOptGet, emuOptSet, v1Embedded, v3Embedded, v3Detect, v1Detect, v1Name, v1Clock, v1Patch, v1FromRom, v1Upgrade, V1_MAGIC, installApp, dlcStores, dlcRoute, dlcAdd, dlcFree, dlcSlots, dlcRecord, dlcPut, dlcName, emuDetect, sceneTable, packGuest, emuPatch, emuUpgrade, emuRemove, t7Embedded, t7Detect, t7Kind, appsPlace, appsRead, appsClear, appReserved, extraKind, extraName, extraSize, extraCfg, t7XName, T7X_SAVE, APPX_MAX, t7FigDetect, t7FigData, t7FigName, t7Cfg, t7FromRom, t7Room, t7Patch, t7Upgrade, t7Wall, T7_MAGIC, t18Embedded, t18Detect, t18FromRom, t18Items, t18ItemAdd, t18ItemDel, t18ItemCount, t18RoomReset, t18Points, t18iScan, t18RomWriteGuest, T18_ADULTS, t18AdultFind, t18PicMake, t18PicsWrite, t18PicsRead, t18PicRgba, t18Addrs, t18Cfg, t18Free, t18Low, t18Patch, t18Upgrade, t18Wall, t18ClockGet, t18ClockSet, emuClockGet, emuClockSet, tamaName, emuNfcGet, emuNfcSet, T18_MAGIC, T18_XIP_OFF, T18_SAVE_LEN, OPT_LV, autoGet, autoGetOld, autoSet, STUB_OFF, installedOrigs, embedded, DEVICES, GUEST_OFF, BIG_OFF };
 if (typeof module !== 'undefined') module.exports = root.ParamixEmu;
 })(typeof window !== 'undefined' ? window : globalThis);

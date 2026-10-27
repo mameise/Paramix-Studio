@@ -233,6 +233,7 @@ function feldApps(rom, tpl) {
   for (let i = 0; i < n; i++) { const o = i < 6 ? c + 396 + 16 * i : c + 504 + 16 * (i - 6); r.apps.push({ src: u32(rom, o), name: str(o + 4) }); }
   // 1.6.9 test13 (version 9): main program of the start device out of the list, start when switched on
   if (f.version >= 9) { r.v9 = true; r.mainSrc = u32(rom, c + 600); r.auto = (u32(rom, c + 604) & 1) === 1; }
+  if (f.version >= 7) r.dl = u32(rom, c + 500);   // test20: the flash app of the start device (DOWNLOAD)
   return r;
 }
 /** Saved slots (raw bytes) of a ROM with the menu, for moving them over. */

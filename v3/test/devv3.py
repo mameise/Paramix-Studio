@@ -86,6 +86,30 @@ u.hook_add(UC_HOOK_MEM_WRITE, _ahb, begin=0x45000010, end=0x45000013)
 if os.environ.get('MEMW'):
     _mw = int(os.environ['MEMW'], 16)
     u.hook_add(UC_HOOK_MEM_WRITE, lambda uc, acc, a, sz, v, ud: print('W %08x = %08x at ms %d' % (a, v, state['ms'])), begin=_mw, end=_mw + 0x3F)
+# 1.6.13 test12 (V3_PW, as devt7/devemu): clock source (0x4500000C), deep sleep (PMU_CTRL bit 1, then WFI): the time
+# runs on to the next RTC second or a key change; the load: the ms in NCH parts, the part with the main loop's wfi
+u.mem_write(0x45000008, struct.pack('<I', 0x55)); u.mem_write(0x45000200, struct.pack('<I', 0x80)); u.mem_write(0x4500000C, struct.pack('<I', 0x44))
+state['ihrc'] = 0; state['pw'] = {'full': 0, 'ihrc': 0, 'sleep': 0}; state['busy'] = 0; state['busyn'] = 0
+def _clk(uc, acc, a, sz, v, ud): state['ihrc'] = (v & 7) == 0; state['clkv'] = v & 7
+u.hook_add(UC_HOOK_MEM_WRITE, _clk, begin=0x4500000C, end=0x4500000F)
+def _clkrd(uc, acc, a, sz, v, ud):
+    if 'clkv' in state: c = state['clkv']; uc.mem_write(0x4500000C, struct.pack('<I', c | (c << 4)))
+u.hook_add(UC_HOOK_MEM_READ, _clkrd, begin=0x4500000C, end=0x4500000F)
+def _pmu(uc, acc, a, sz, v, ud):
+    if v & 2 and not state.get('dsleep'):
+        t = state['ms']
+        while True:
+            t += 1
+            if t % 1000 == 0 or t >= total_ms or any(t / 1000.0 >= kt > state['ms'] / 1000.0 for kt, _ in KS): break
+        state['dsleep'] = t
+        if t % 1000 == 0 and 'g_pw_rtcw' in syms: uc.mem_write(syms['g_pw_rtcw'], b'\x01')
+        uc.mem_write(0x45000304, struct.pack('<I', int(os.environ.get('RTC0', '5000')) + t // 1000))
+u.hook_add(UC_HOOK_MEM_WRITE, _pmu, begin=0x45000300, end=0x45000303)
+NCH = int(os.environ.get('NCH', '8'))
+_code = bytes(fl[APPOFF:APPOFF + 0x10000]); _end = syms.get('__prog_end', 0x10000)
+def _wfi(uc, a, sz, ud): state['waited'] = 1; uc.emu_stop()
+for _a in [i for i in range(0, _end, 2) if _code[i:i + 2] == b'\x30\xbf']: u.hook_add(UC_HOOK_CODE, _wfi, begin=_a, end=_a)
+PROF = {} if os.environ.get('PROF') else None
 def shot(name):
     from PIL import Image
     im = Image.new('RGB', (128, 128))
@@ -103,11 +127,20 @@ emu_ms_sym = None
 si = 0
 while state['ms'] < total_ms and 'back' not in state:
     u.mem_write(0x45000304, struct.pack('<I', rtc0 + state['ms'] // 1000))
-    try:
-        u.emu_start(pc | 1, 0xFFFFFFF0, count=max(1, RT >> state['sh'])); state['shms'][min(state['sh'], 3)] += 1
-    except UcError as ex:
-        print('error', ex, hex(u.reg_read(UC_ARM_REG_PC))); break
-    pc = u.reg_read(UC_ARM_REG_PC)
+    state['waited'] = 0; _sh = 3 if state['ihrc'] else state['sh']; _n = max(1, RT >> _sh); _ch = max(1, _n // NCH); _k = 0; _err = 0
+    while _k < NCH and not state['waited'] and 'back' not in state and not state.get('dsleep'):
+        try: u.emu_start(pc | 1, 0xFFFFFFF0, count=_ch)
+        except UcError as ex:
+            print('error', ex, hex(u.reg_read(UC_ARM_REG_PC))); _err = 1; break
+        pc = u.reg_read(UC_ARM_REG_PC); _k += 1
+        if PROF is not None and not state['waited']: PROF[pc] = PROF.get(pc, 0) + 1
+    if _err: break
+    state['shms'][min(_sh, 3)] += 1; state['pw']['ihrc' if state['ihrc'] else 'full'] += 1; state['busy'] += _k; state['busyn'] += 1
+    if state['waited']: pc = (pc + 2) & ~1
+    _ds = state.pop('dsleep', 0)
+    if _ds:
+        state['pw']['sleep'] += _ds - state['ms']; state['ms'] = _ds
+        u.mem_write(0x45000304, struct.pack('<I', rtc0 + state['ms'] // 1000)); continue
     state['ms'] += 1
     v = struct.unpack('<I', u.mem_read(gms, 4))[0]; u.mem_write(gms, struct.pack('<I', v + 1))
     # 1.6.9 test13 T7_KEYQ: the GPIO as the keys say (pressed = 0) and the tick's press counter
@@ -128,6 +161,16 @@ st = struct.unpack('<2I', bytes(u.mem_read(syms['g_v3st'], 8))) if 'g_v3st' in s
 print('emulated ms', st[0], 'dropped ms', st[1])
 (os.environ.get('TONES') and print('tones:', state['tone']));print('ms', state['ms'], 'tones', len(state['tone']), 'flash writes', state['flashw'], 'back' if 'back' in state else '', 'pc', hex(pc))
 print('ms per clock step (96, 48, 24, 12 MHz):', state['shms'])
+print('power ms: full', state['pw']['full'], 'ihrc', state['pw']['ihrc'], 'deep sleep', state['pw']['sleep'])
+print('load %.1f %% of the CPU (awake ms)' % (100.0 * state['busy'] / max(1, state['busyn'] * NCH)))
+if PROF:
+    import bisect
+    fs = sorted(((v, k) for k, v in syms.items() if v < 0x20000000), key=lambda t: t[0]); fa = [a for a, _ in fs]; agg = {}
+    for a, n in PROF.items():
+        i = bisect.bisect_right(fa, a & ~1) - 1; nm = fs[i][1] if i >= 0 else '?'
+        if a >= 0x18000000: nm = 'SRAM code'
+        agg[nm] = agg.get(nm, 0) + n
+    tot = sum(agg.values()); print('profile:', ', '.join('%s %.1f%%' % (k, 100.0 * v / tot) for k, v in sorted(agg.items(), key=lambda kv: -kv[1])[:16]))
 open(os.path.join(out, 'flash_after.bin'), 'wb').write(fl)
 shot('shot_end.png')
 for _d in os.environ.get('DUMP', '').split(','):   # test: 'symbol+off:len' printed at the end

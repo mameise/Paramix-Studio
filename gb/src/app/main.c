@@ -6,6 +6,7 @@
  * Save: the cartridge RAM (battery save) goes to the flash a few seconds after the game wrote it, and on leaving.
  * Author: mameise */
 #include "../../../emu/src/emu/hw.h"
+#include "../../../emu/src/emu/exitkey.h"
 #include "../../../emu/src/emu/flash.h"
 #define PARA_ATTR
 #include "../../../emu/src/emu/paraclock.h"
@@ -38,8 +39,28 @@ volatile const GbCfg g_cfg = { GB_MAGIC, 1, 0, 0, 0, 0, {0}, { 0x20, 0x02, 0x10,
 static void apu_write(u32 addr, u8 val);
 #define PGB_APU_WRITE(a, v) apu_write((u32)(a), (u8)(v))
 #endif
+#ifdef GB_TRIM
+/* 1.7.1: the offset of the switchable ROM bank is worked out when the game switches the bank (before: on every read).
+ * Banks behind the stored part of the game read the last stored one (the Studio keeps equal end banks once). */
+struct gb_s;
+static u32 g_romoff, g_blast = 0xFFFFu;
+static void bank_set(struct gb_s *gb);
+#define PGB_ROMOFF g_romoff
+#define PGB_BANKSET(gb) bank_set(gb)
+#endif
 #include "../core/peanut_gb.h"
 #include "font.h"
+#ifdef GB_TRIM
+__attribute__((noinline)) static void bank_set(struct gb_s *gb)
+{
+  u32 b = (gb->mbc == 1 && gb->cart_mode_select) ? (gb->selected_rom_bank & 0x1Fu) : gb->selected_rom_bank;
+  if (b > g_blast) b = g_blast;
+  g_romoff = (b - 1u) * ROM_BANK_SIZE;
+}
+#define ROM_LEN_FULL ((g_cfg.flags >> 16) ? (g_cfg.flags >> 16) * ROM_BANK_SIZE : g_cfg.rom_len)
+#else
+#define ROM_LEN_FULL g_cfg.rom_len
+#endif
 
 /* ---- time: SysTick 1 ms; the wheel's encoder is read here too, so no step is lost while a frame runs ---- */
 static volatile u32 g_ms;
@@ -422,7 +443,7 @@ static void gl_poll2(void) { plink_poll(g_ms, 0, gl_got2); }
 #define STATE_AT (g_cfg.save_off + 0x9000u)
 #define STATE_MAX 0x7000u
 static int g_running;
-static u32 st_tag(void) { return 0x47420001u ^ (u32)&g_gb ^ ((u32)sizeof(struct gb_s) << 8) ^ g_cfg.rom_len ^ (u32)lcd_line; }
+static u32 st_tag(void) { return 0x47420001u ^ (u32)&g_gb ^ ((u32)sizeof(struct gb_s) << 8) ^ ROM_LEN_FULL ^ (u32)lcd_line; }   /* GB_TRIM: the whole game's length, so a stored state stays valid */
 static int st_parts(StPart *pt)
 {
   int n = 0; pt[n].p = &g_gb; pt[n++].n = sizeof g_gb;
@@ -442,6 +463,7 @@ static int state_load(void)
     g_gb.gb_error = keep.gb_error; g_gb.gb_serial_tx = keep.gb_serial_tx; g_gb.gb_serial_rx = keep.gb_serial_rx;
     g_gb.gb_bootrom_read = keep.gb_bootrom_read; g_gb.display.lcd_draw_line = keep.display.lcd_draw_line; g_gb.direct.priv = keep.direct.priv;
   }
+  PGB_BANKSET(&g_gb);
   st_drop(STATE_AT);
   return ok;
 }
@@ -491,6 +513,9 @@ void Reset_Handler(void)
   XIP_CTRL_REG = 3u;
   REG(GPIO2 + 0x04) &= ~3u; g_enc_last = REG(GPIO2) & 3u;
   set_load();
+#ifdef GB_TRIM
+  if ((g_cfg.flags >> 16) && g_cfg.rom_len >= ROM_BANK_SIZE) g_blast = g_cfg.rom_len / ROM_BANK_SIZE - 1u;
+#endif
   enum gb_init_error_e ie = gb_init(&g_gb, gb_rom_rd, gb_cram_rd, gb_cram_wr, gb_err, 0);
   if (ie != GB_INIT_NO_ERROR) {
     message(en() ? "ROM NOT USABLE" : "ROM GEHT NICHT", ie == GB_INIT_CARTRIDGE_UNSUPPORTED ? (en() ? "CARTRIDGE TYPE" : "MODUL-TYP") : (en() ? "CHECKSUM" : "PRUEFSUMME"));
@@ -543,7 +568,7 @@ void Reset_Handler(void)
       }
     }
     /* wheel held 2 s: save and back */
-    if (b & BTN_WHEEL) { if (!wheel_ms) wheel_ms = now ? now : 1; else if (now - wheel_ms > 2000u) leave(); } else wheel_ms = 0;
+    if (b & BTN_WHEEL) { if (!wheel_ms) wheel_ms = now ? now : 1; else if (EXIT_NOW(now - wheel_ms, 2000u)) leave(); } else wheel_ms = 0;
     /* A+B+C: settings */
     if ((b & (BTN_A | BTN_B | BTN_C)) == (BTN_A | BTN_B | BTN_C) && !g_menu && !menu_lock) {
       apu_quiet(); g_menu = 1; menu_lock = 1; g_msel = 1; g_mtop = 0; menu_items(); menu_draw(); mk0 = BTN_A | BTN_B | BTN_C; g_gb.direct.joypad = 0xFF;

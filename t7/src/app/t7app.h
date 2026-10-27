@@ -56,7 +56,7 @@ void plat_store_write(const uint8_t *b, uint32_t n);
 uint32_t plat_rtc(void);
 #ifdef T7_JIT
 /* 1.6.12 test2: r3 bit 0 = JIT off (0xFF of older settings: on) */
-#ifdef T7_FIXED
+#if defined(T7_FIXED) && !defined(T7_DIAG)
 static inline int app_jit(void) { return 1; }
 #else
 static inline int app_jit(void) { extern T7Set g_set; return g_set.r3 == 0xFFu || !(g_set.r3 & 1u); }

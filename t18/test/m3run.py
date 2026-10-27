@@ -378,3 +378,5 @@ if JSH is not None:
 if FNCNT: print('fncount', ' '.join('%s=%d' % kv for kv in FNCNT.items()))
 
 if KSEQ is not None: open(os.environ['KSEQ'], 'wb').write(struct.pack('<%dI' % len(KSEQ), *KSEQ))
+for _s in os.environ.get('SYMEND', '').split(','):   # 1.6.13 test5: 32-bit values of symbols at the end
+    if _s in syms: print('sym', _s, struct.unpack('<I', bytes(u.mem_read(syms[_s], 4)))[0])

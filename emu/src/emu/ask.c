@@ -110,12 +110,43 @@ int hw_num_edit(const char *title, u32 *v, int digits, u32 max, int en)
 static const char *const VOL_DE[4] = { "Normal", "Leise", "Laut", "Aus" }, *const VOL_EN[4] = { "Normal", "Quiet", "Loud", "Off" };
 /* 1.6.8 (test45): the light in 11 steps, bits 24-27 = step + 1 (0 = the old bits 18-19: 100, 75, 50, 25 %).
  * Step 0 = 100 %, then 5, 10, 20 .. 90 %: B goes up, after 100 % it starts at 5 % again. */
-static const u8 OPT_LV[11] = { 100, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90 };
-static u32 opt_step(u32 o) { u32 n = (o >> 24) & 15u; if (n && n <= 11u) return n - 1u; { static const u8 m[4] = { 0, 8, 6, 3 }; return m[(o >> 18) & 3u]; } }
-u32 opt_light_pct(u32 o) { return OPT_LV[opt_step(o)]; }
+#ifdef ASK_OVL
+/* 1.6.13 test10 (TamaEmu EMU_OVL): the menus live in the program's overlay (loaded when opened); these few are needed
+ * while the game runs and stay */
+#define ASK_KEEP __attribute__((section(".text.keep_ask")))
+#define ASK_KEEPD __attribute__((section(".rodata.keep_ask")))
+#else
+#define ASK_KEEP
+#define ASK_KEEPD
+#endif
+ASK_KEEPD static const u8 OPT_LV[11] = { 100, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90 };
+ASK_KEEPD static const u8 OPT_OLD[4] = { 0, 8, 6, 3 };   /* the old bits 18-19: 100, 75, 50, 25 % */
+ASK_KEEP static u32 opt_step(u32 o) { u32 n = (o >> 24) & 15u; if (n && n <= 11u) return n - 1u; return OPT_OLD[(o >> 18) & 3u]; }
+ASK_KEEP u32 opt_light_pct(u32 o) { return OPT_LV[opt_step(o)]; }
+static void pct_txt(char *t, u32 p) { u32 n = 0; if (p >= 100u) t[n++] = '1'; if (p >= 10u) t[n++] = (char)('0' + (p / 10u) % 10u); t[n++] = (char)('0' + p % 10u); t[n++] = '%'; t[n] = 0; }
+#ifdef ASK_DIM
+/* 1.6.13 test7 (T18Emu): dimming as in T7Emu, device-only bits: 12-14 dim after (0 never, then as the screen off
+ * times), 8-11 dim to (DIM_P[(n + 4) mod 10], 0 = 10 %, at most the light). Screen off 0 = never (the game still turns the
+ * picture off itself, as the original); bit 15 never: the screen stays on (the game does not fall asleep). */
+ASK_KEEPD static const u8 DIM_P[10] = { 1, 2, 3, 5, 10, 15, 20, 30, 40, 50 };
+ASK_KEEP u32 opt_dim_pct(u32 o) { u32 p = DIM_P[(((o >> 8) & 15u) + 4u) % 10u], l = opt_light_pct(o); return p < l ? p : l; }
+#ifdef ASK_NEVER
+/* T18Emu: screen off "never" (bit 15), the game kept awake */
+static const char *const OFF_DE[9] = { "Auto", "Nie", "10 s", "20 s", "30 s", "1 Min", "2 Min", "5 Min", "10 Min" };
+static const char *const OFF_EN[9] = { "Auto", "Never", "10 s", "20 s", "30 s", "1 min", "2 min", "5 min", "10 min" };
+#define OFF_K 9u
+#else
+/* TamaEmu (test10): Auto (as the game) and the times */
+static const char *const OFF_DE[8] = { "Auto", "10 s", "20 s", "30 s", "1 Min", "2 Min", "5 Min", "10 Min" };
+static const char *const OFF_EN[8] = { "Auto", "10 s", "20 s", "30 s", "1 min", "2 min", "5 min", "10 min" };
+#define OFF_K 8u
+#endif
+#define MY 4
+#else
 static const char *const OFF_DE[8] = { "Auto", "10 s", "20 s", "30 s", "1 Min", "2 Min", "5 Min", "10 Min" };
 static const char *const OFF_EN[8] = { "Auto", "10 s", "20 s", "30 s", "1 min", "2 min", "5 min", "10 min" };
 #define MY 22
+#endif
 #ifdef ASK_EXTRA
 static u32 opts_menu(u32 o, int en, const char *const *ex, int nex);
 u32 hw_opts_menu(u32 o, int en) { return opts_menu(o, en, 0, 0); }
@@ -181,16 +212,37 @@ u32 hw_opts_menu(u32 o, int en)
 #ifdef ASK_EXTRA
   const char *xl[3]; int nx = 0, xi[3];
   for (int i = 0; i < nex && nx < 3; i++) if (ex[i]) { xl[nx] = ex[i]; xi[nx] = i; nx++; }
-  int nl = 3 + nx;
 #else
-  const int nl = 3;
+  const int nx = 0;
 #endif
   ask_release_db();
   for (;;) {
     u32 v = (o >> 16) & 3u, d = opt_step(o), s = (o >> 20) & 7u;
-    char dt[6]; { u32 p = OPT_LV[d], n = 0; if (p >= 100u) dt[n++] = '1'; if (p >= 10u) dt[n++] = (char)('0' + (p / 10u) % 10u); dt[n++] = (char)('0' + p % 10u); dt[n++] = '%'; dt[n] = 0; }
+#ifdef ASK_DIM
+#ifdef ASK_NEVER
+    u32 a = (o >> 12) & 7u, ok = (o & 0x8000u) ? 1u : s ? s + 1u : 0u;   /* screen off: Auto, Never, the times */
+#define OFF_TIMES (OFF_EN + 1)
+#else
+    u32 a = (o >> 12) & 7u, ok = s;
+#define OFF_TIMES OFF_EN
+#endif
+    u8 it[6]; int ns = 0; it[ns++] = 0; it[ns++] = 1; it[ns++] = 3; if (a) it[ns++] = 4; it[ns++] = 2;   /* dim to: only when dimming */
+#ifdef ASK_LANG
+    it[ns++] = 5;   /* test8: the language, set on the device (bits 0-1: 0 as the Studio, 1 German, 2 English) */
+#endif
+    char pt[6]; pct_txt(pt, opt_dim_pct(o));
+    static const char *const TD[8] = { 0, "10 s", "20 s", "30 s", "1 Min", "2 Min", "5 Min", "10 Min" };
+    const char *lab[6] = { en ? "Volume" : "Lautstaerke", en ? "Brightness" : "Helligkeit", en ? "Screen off" : "Bild aus nach",
+                           en ? "Dim after" : "Dimmen nach", en ? "Dim to" : "Dimmen auf", en ? "Language" : "Sprache" };
+    const char *val[6] = { (en ? VOL_EN : VOL_DE)[v], 0, (en ? OFF_EN : OFF_DE)[ok], a ? (en ? OFF_TIMES : TD)[a] : (en ? "Never" : "Nie"), pt,
+                           en ? "English" : "Deutsch" };
+#else
+    static const u8 it[3] = { 0, 1, 2 }; const int ns = 3;
     const char *lab[3] = { en ? "Volume" : "Lautstaerke", en ? "Brightness" : "Helligkeit", en ? "Screen off" : "Bild aus nach" };
-    const char *val[3] = { (en ? VOL_EN : VOL_DE)[v], dt, (en ? OFF_EN : OFF_DE)[s] };
+    const char *val[3] = { (en ? VOL_EN : VOL_DE)[v], 0, (en ? OFF_EN : OFF_DE)[s] };
+#endif
+    int nl = ns + nx; if (sel >= nl) sel = 0;
+    char dt[6]; pct_txt(dt, OPT_LV[d]); val[1] = dt;
 #ifdef BAT_SHOW
     char bt[12]; bat_text(bt);   /* test17: the battery, below the lines (not chosen) */
     int by = 13 + nl * 10 + 8;
@@ -204,13 +256,23 @@ u32 hw_opts_menu(u32 o, int en)
       if (in && k == sel) bg = C_INK;
       for (int x = 0; x < 128; x++) row[x] = (my == 10) ? C_LINE : bg;
       ask_line(row, my, 1, en ? "SETTINGS" : "EINSTELLUNGEN", C_INK, 2, 1);
-      for (int i = 0; i < 3; i++) {
-        u16 fg = i == sel ? C_BG : C_INK; int yy = 13 + i * 10;
-        ask_line(row, my, yy, lab[i], fg, 2, 1);
-        ask_line(row, my, yy, val[i], fg, 128 - 2 - 6 * slen(val[i]), 1);
+      for (int i = 0; i < ns; i++) {
+        u16 fg = i == sel ? C_BG : C_INK; int yy = 13 + i * 10; const char *vv = val[it[i]];
+        ask_line(row, my, yy, lab[it[i]], fg, 2, 1);
+        ask_line(row, my, yy, vv, fg, 128 - 2 - 6 * slen(vv), 1);
       }
 #ifdef ASK_EXTRA
-      for (int i = 0; i < nx; i++) ask_line(row, my, 43 + 10 * i, xl[i], sel == 3 + i ? C_BG : C_INK, 2, 1);
+      for (int i = 0; i < nx; i++) {
+#ifdef ASK_LANG
+        /* test9: "German|English" in one line, so it follows the language right away */
+        char xt[20]; { const char *p = xl[i], *q = p; while (*q && *q != '|') q++;
+          if (*q && en) p = q + 1, q = p + slen(p);
+          int n = 0; while (p < q && n < 19) xt[n++] = *p++; xt[n] = 0; }
+        ask_line(row, my, 13 + 10 * (ns + i), xt, sel == ns + i ? C_BG : C_INK, 2, 1);
+#else
+        ask_line(row, my, 13 + 10 * (ns + i), xl[i], sel == ns + i ? C_BG : C_INK, 2, 1);
+#endif
+      }
 #endif
 #ifdef BAT_SHOW
       ask_line(row, my, by, en ? "Battery" : "Batterie", C_LINE, 2, 1);
@@ -224,17 +286,33 @@ u32 hw_opts_menu(u32 o, int en)
     if (b & (BTN_C | BTN_WHEEL)) return o;
     if (b & BTN_A) sel = (sel + 1) % nl;
 #ifdef ASK_EXTRA
-    if ((b & BTN_B) && sel >= 3) return o | 0x80000000u | ((u32)xi[sel - 3] << 28);
+    if ((b & BTN_B) && sel >= ns) return o | 0x80000000u | ((u32)xi[sel - ns] << 28);
 #endif
     if (b & BTN_B) {
-      if (sel == 0) o = (o & ~(3u << 16)) | (((v + 1) & 3u) << 16);
-      else if (sel == 1) {
+      int w = it[sel];
+      if (w == 0) o = (o & ~(3u << 16)) | (((v + 1) & 3u) << 16);
+      else if (w == 1) {
         o = (o & ~((3u << 18) | (15u << 24))) | ((((d + 1u) % 11u) + 1u) << 24);
 #ifdef BL_PWM
         hw_bl_set(opt_light_pct(o));   /* 1.6.8: seen right away */
 #endif
       }
+#ifdef ASK_DIM
+      else if (w == 3) { a = (a + 1) & 7u; if (a && s && s <= a) s = a < 7u ? a + 1u : 0u;   /* off stays after dimming */
+        o = (o & ~((7u << 12) | (7u << 20))) | (a << 12) | (s << 20); }
+      else if (w == 4) o = (o & ~(15u << 8)) | (((((o >> 8) & 15u) + 1u) % 10u) << 8);
+#ifdef ASK_LANG
+      else if (w == 5) { en = !en; o = (o & ~3u) | (en ? 2u : 1u); }
+#endif
+#ifdef ASK_NEVER
+      else { do { ok = (ok + 1u) % OFF_K; s = ok >= 2u ? ok - 1u : 0u; } while (s && a && s <= a);
+        o = (o & ~((7u << 20) | 0x8000u)) | (s << 20) | (ok == 1u ? 0x8000u : 0u); }
+#else
+      else { do s = (s + 1u) & 7u; while (s && a && s <= a); o = (o & ~(7u << 20)) | (s << 20); }
+#endif
+#else
       else o = (o & ~(7u << 20)) | (((s + 1) & 7u) << 20);
+#endif
     }
   }
 }

@@ -183,3 +183,41 @@ sh test/build_m3.sh /tmp/m3.elf -DT18_JIT -DT18_JC_LINKED -DT18_PRAM_WR -DJH_BIT
 python3 test/m3run.py /tmp/m3.elf fw_tg18.bin script.txt   # same hash lines as ./ref
 python3 test/devt18.py src/app/t18.elf paradise_with_t18.bin 30000   # PARA="2026-10-15 18:42:07": a Paradise clock in the SRAM
 ```
+
+## Power save while the game sleeps (T18_PW, T18_LOOP_XIP, T18_WHEEL_RAW, 1.6.13 test1)
+
+Measured on the PC (ref): without a key the TG18 firmware switches itself off after about 3 minutes (screen dark) and
+then only waits for its RTC alarm (once a minute, on for about 100 ms) or a key; the core runs no instructions then
+(off_run). The program still ran its loop every ms at 96 MHz (or the eco clock).
+
+- T18_PW: game off, screen dark, no key, tone, link or grow-up: the chip from its internal 12 MHz RC, PLL and crystal
+  off; deep sleep once caught up, the RTC (1 s) or a key wakes it, the ms tick continues from the RTC (as T7Emu).
+  The game's time passes in steps of 8 ms with tg18_run_us_off (nothing runs while it is off; when the alarm or a key
+  switches it on, the platform goes back to 96 MHz first). Not dropped while off; screen dark: up to 5 s behind before
+  time is dropped (250 ms with the screen on).
+- T18_LOOP_XIP: the main loop, present, tq_pump, lk_poll and the font of ask.c run from the flash window: the code
+  buffer in the PRAM starts at 0x83E4 instead of 0x9154 (+3.4 KB).
+- T18_WHEEL_RAW: the wheel's long press is timed with a tick count that is never set ahead (deep sleep).
+
+Device simulation (devt18.py now models clock source and deep sleep), 330 s from the start without a key: game off
+from 194 s, then asleep 98 % of the time, awake at 12 MHz 1 %, at 96 MHz for the minute alarms. M3 test bed with the
+device's buffer (babyh, 210 s guest, buffer from 0x826C): 63.6 -> 60.2 Minstr per guest second (-5 %), half the
+buffer flushes (900 instead of 1817).
+
+## Known addresses in the translator (T18_KNOWN, T18_SPEC, 1.6.13 test2)
+
+M3 profile of the busy scenes: a third of the host time went into the slow path of memory accesses. The firmware
+polls 0xD0000064 (SPI busy, always 0) before every register write and moves the bytes of the SPI flash through the
+SPI registers 0xC0150000..0C (status, send, answer), six device accesses per byte, each through j_slow.
+
+- T18_KNOWN: per block, registers with a value known while translating (MOV/MVN immediate, ADD/SUB immediate of a
+  known register or the pc, literal loads; Thumb: MOV/ADD/SUB #imm8, LDR pc, ADR, MOV high). A load or store at a known
+  address in the SRAM (not the hole, aligned) is done directly; 0xD0000064 is loaded as 0; the SPI registers go
+  straight to the SPI model (loads inline from the model's words, stores through j_sfw -> tg18_sf_fast).
+- T18_SPEC: the same for these device registers when the base register was set before the block (the SPI loops):
+  the value it has when the block is translated is checked at run time (cmp/bne), otherwise the usual way. The glue
+  that translates from inside the code buffer (j_chain, the lookup of j_ind) writes r0..r7 into arm7_t first.
+- The same accesses in the same order with the same cycles: M3 hash lines identical to the build without them.
+
+M3 test bed (without T18_OVERSHOOT, hash lines compared): SPI phase (making the save) 173 -> 137 Minstr per guest
+second (-21 %), the scene after it 107 -> 95 (-12 %), egg 27 -> 25 (-8 %).

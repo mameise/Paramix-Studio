@@ -23,7 +23,7 @@ CRC-32.
 | 8 | WRITE_TEST | self test |
 | 9 | WRITE_BEGIN | SHA-256 and CRC-32 of the image; answer: start sector |
 | 10 | WRITE_DATA | data for the sector buffer |
-| 11 | WRITE_COMMIT | CRC-32 of the sector; erases, programs, compares; answer: CRC and error flag |
+| 11 | WRITE_COMMIT | CRC-32 of the sector; erases, programs, compares; answer: CRC and error flag (FW_PRECHECK: the buffer is checked against the CRC first, error 2 = nothing written, send again) |
 | 12 | WRITE_FINISH | end |
 | 13 | WRITE_STATE | writer state |
 

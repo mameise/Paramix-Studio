@@ -1,8 +1,17 @@
 /* Paradise hardware (SNC73410), taken from the mameise flash app
  * (display confirmed on the device). Runs from PRAM 0 after SYSRESETREQ. */
 #include "io.h"
+#ifdef HW_COLD_MIN
+#define HCOLD __attribute__((minsize))   /* test21: rarely called, smaller (room in TamaEmu's 64 KB) */
+#else
+#define HCOLD
+#endif
 #include "hw.h"
+#ifdef DISP_PACK
+#include "disp_pack.h"
+#else
 #include "disp_power.h"
+#endif
 #define PANEL 0x4000E000u
 #define FCTL_ 0x40022000u
 #define F_STAT REG(FCTL_+0x000)
@@ -90,8 +99,13 @@ TC_INIT static void display_power(void){
   /* Sequence from the real FU (clock enable, pin setup, timer CT32B3, GPIO1).
      As in the FU, 0x45000210..218 get the current contents of the GPIO
      data registers (the emulator had returned 0 there). */
+#ifdef DISP_PACK
+  for(unsigned i=0;i<DISP_PACK_N;i++){
+    u32 a=disp_pack_a[disp_pack_i[i][0]], v=disp_pack_v[disp_pack_i[i][1]];
+#else
   for(unsigned i=0;i<DISP_POWER_N;i++){
     u32 a=disp_power_seq[i][0], v=disp_power_seq[i][1];
+#endif
     if(a>=0x45000210u && a<=0x45000218u) v=REG(0x4001803Cu + ((a-0x45000210u)>>2)*0x1000u);
     REG(a)=v;
   }
@@ -157,7 +171,7 @@ TC_INIT static void display_init(void){
   lcd_cmd(0x11,0,0); MS(150);
 }
 static u32 g_pwm_mctrl;   /* 1.6.8 (test44, BL_MR3RST): MCTRL left at 0x400 for the dimmed light, see bl_apply */
-static void pwm2p(u32 mr1, u32 per, int first){
+HCOLD static void pwm2p(u32 mr1, u32 per, int first){
   if(first) REG(CT2+0x34)=0;
   REG(CT2+0x00)=0;
   REG(CT2+0x18)=0; REG(CT2+0x1C)=0; REG(CT2+0x20)=0; REG(CT2+0x24)=0;
@@ -237,9 +251,9 @@ u32 g_hw_tone_hz;
  * cut in the middle of the register writes */
 static void hw_tone_raw(u32 hz);
 void hw_tone(u32 hz){ u32 pm; __asm__ volatile("mrs %0, primask\n cpsid i" : "=r"(pm) :: "memory"); hw_tone_raw(hz); __asm__ volatile("msr primask, %0" :: "r"(pm) : "memory"); }
-static void hw_tone_raw(u32 hz){
+HCOLD static void hw_tone_raw(u32 hz){
 #else
-void hw_tone(u32 hz){
+HCOLD void hw_tone(u32 hz){
 #endif
   static u32 on;
 #ifdef HW_OPTS
@@ -326,7 +340,7 @@ int hw_wake_step(int ph){
   is_on=1; return 1;
 }
 #endif
-void hw_backlight(int on){
+HCOLD void hw_backlight(int on){
 #ifndef WAKE_QUICK
   /* 1.6.8: the panel needs 120 ms after SLPOUT; switched on earlier it showed white for a moment. Its picture is
    * kept while it sleeps, so after the wait it shows the old picture, the light comes last. */

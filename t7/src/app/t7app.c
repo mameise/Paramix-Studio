@@ -159,11 +159,14 @@ enum { M_FIG, M_BG, M_INK, M_G1, M_G2, M_SIZE, M_PIX, M_GRID, M_PVIS, M_GHOST, M
 #if defined(T7_PW) && !defined(T7_FIXED)
   M_PW, M_PWST,
 #endif
-#if defined(T7_JIT) && !defined(T7_FIXED)
+#if defined(T7_JIT) && (!defined(T7_FIXED) || defined(T7_DIAG))
   M_JIT,
 #endif
 #ifdef BAT_SHOW
   M_BAT,   /* test17: the battery (shown, nothing to change) */
+#endif
+#ifdef T7_DIAG
+  M_TEMPO,   /* test22 (diagnosis build): emulation speed and the largest lag of the last 2 s */
 #endif
   M_N };
 static int g_items[M_N], g_nitems;
@@ -219,7 +222,7 @@ static void item_text(int it, const char **label, char *val)
   case M_PVIS: *label = tr("Pixel-Sicht", "Pixel view"); num(val, g_set.pixvis, "%"); break;
   case M_GHOST: *label = "Icons"; num(val, g_set.ghost, "%"); break;
 #ifdef T7_VOL
-  case M_SND: { static const char *const de[T7_VOL_N] = { "Aus", "Leise", "Mittel", "Laut" }, *const en[T7_VOL_N] = { "Off", "Quiet", "Medium", "Loud" };
+  case M_SND: { static const char *const de[T7_VOL_N] = { "Aus", "Leise", "Normal", "Laut" }, *const en[T7_VOL_N] = { "Off", "Quiet", "Normal", "Loud" };
     *label = tr("Ton", "Sound"); b = (g_lang ? en : de)[g_set.sound % T7_VOL_N]; } break;
 #else
   case M_SND: *label = tr("Ton", "Sound"); b = onoff(g_set.sound); break;
@@ -246,7 +249,10 @@ static void item_text(int it, const char **label, char *val)
       k = 0; do { t[k++] = (char)('0' + a % 10); a /= 10; } while (a); while (k) val[n++] = t[--k]; val[n++] = '%'; val[n++] = ' ';
       k = 0; do { t[k++] = (char)('0' + c % 10); c /= 10; } while (c); while (k) val[n++] = t[--k]; val[n++] = '%'; val[n] = 0; } break;
 #endif
-#if defined(T7_JIT) && !defined(T7_FIXED)
+#ifdef T7_DIAG
+  case M_TEMPO: { extern void plat_tempo(char *v); *label = "Tempo"; plat_tempo(val); } break;
+#endif
+#if defined(T7_JIT) && (!defined(T7_FIXED) || defined(T7_DIAG))
   case M_JIT: *label = "JIT"; b = plat_jit(app_jit()) < 0 ? tr("fehlt", "missing") : app_jit() ? tr("An", "On") : tr("Aus", "Off"); break;
 #endif
   }
@@ -326,7 +332,7 @@ static void change(int it)
 #if defined(T7_PW) && !defined(T7_FIXED)
   case M_PW: g_set.pw = (uint8_t)((app_pw() + 1) % 3); break;
 #endif
-#if defined(T7_JIT) && !defined(T7_FIXED)
+#if defined(T7_JIT) && (!defined(T7_FIXED) || defined(T7_DIAG))
   case M_JIT: g_set.r3 = (uint8_t)((g_set.r3 == 0xFFu ? 0u : g_set.r3) ^ 1u); plat_jit(app_jit()); break;
 #endif
   case M_LIGHT:

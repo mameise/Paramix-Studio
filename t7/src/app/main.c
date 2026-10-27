@@ -3,6 +3,7 @@
  * Long press on the wheel: save and back to the Paradise. Short press: figure menu.
  * Author: mameise */
 #include "../../../emu/src/emu/hw.h"
+#include "../../../emu/src/emu/exitkey.h"
 #ifdef CLK_ECO
 #include "../../../emu/src/emu/eco.h"
 #endif
@@ -174,6 +175,11 @@ static uint8_t kq_step(uint8_t phys)
   uint8_t out = 0;
   for (int i = 0; i < 3; i++) {
     uint8_t bit = (uint8_t)(1u << i);
+#ifdef T7_KQ_CAP
+    /* test22: at most one press waits: fast taps (a shooting game) queued up, the game took them one by one at its own
+     * pace and went on firing after the taps had stopped */
+    if ((uint8_t)(g_kin[i] - g_kout[i]) > 1u) g_kout[i] = (uint8_t)(g_kin[i] - 1u);
+#endif
     if (ph[i] == 0 && g_kin[i] != g_kout[i]) { g_kout[i]++; ph[i] = 1; tm[i] = 0; }
     if (ph[i] == 1) { out |= bit; if (++tm[i] >= KQ_HOLD / 2u && !(phys & bit)) { ph[i] = 2; tm[i] = 0; } }
     else if (ph[i] == 2) { if (++tm[i] >= KQ_GAP / 2u) ph[i] = 0; }
@@ -191,6 +197,9 @@ __attribute__((naked)) void SysTick_Handler(void) { __asm__ volatile("b systick_
 
 uint32_t plat_rtc(void) { return REG(0x45000304u); }
 #ifdef BAT_SHOW
+#if defined(BAT_PIC) && defined(T7_JIT)
+#define BAT_PIC_ATTR __attribute__((section(".xcode_bat"), noinline, minsize))   /* test23: with the second part (PRAM is full) */
+#endif
 #include "../../../emu/src/emu/batt.h"
 void plat_bat(char *s) { bat_text(s); }
 #ifdef T7_VOL
@@ -233,7 +242,14 @@ void plat_rect_end(void) {}
 #define PW_IRQS ((1u << 2) | (1u << 26))   /* RTC, GPIO0 */
 static int g_pw_low;                       /* running from the IHRC */
 static uint32_t g_pw_t0, g_pw_slept, g_pw_lowms, g_pw_lowat, g_pw_rtc, g_pw_rtcms;   /* statistics: start, seconds asleep, ms at 12 MHz */
-__attribute__((used)) void pw_rtc_irq(void) { PMU_CTRL = (PMU_CTRL & ~0x47u) | 0x10u; }   /* RTC_FLAG: write 1 */
+#ifdef T7_PW_RTCWAIT
+static volatile uint8_t g_pw_rtcw;          /* the RTC woke the chip (its interrupt ran) */
+static uint8_t g_pw_kw;                    /* woken by a key: the part of a second slept is not counted yet */
+#define PW_RTCW_SET g_pw_rtcw = 1;
+#else
+#define PW_RTCW_SET
+#endif
+__attribute__((used)) void pw_rtc_irq(void) { PMU_CTRL = (PMU_CTRL & ~0x47u) | 0x10u; PW_RTCW_SET }   /* RTC_FLAG: write 1 */
 __attribute__((used)) void pw_gpio_irq(void) { GP0(0x20) = PW_KEYS; }
 static void pw_full(void)
 {
@@ -271,13 +287,25 @@ static uint32_t pw_sleep(void)
   NVIC_ICPR0 = PW_IRQS; NVIC_ISER0 = PW_IRQS;
   uint32_t r0 = RTC_C, csr = SYST_CSR;
   SYST_CSR = 0;                                                 /* the tick stops in deep sleep anyway */
+#ifdef T7_PW_RTCWAIT
+  g_pw_rtcw = 0;
+#endif
   PMU_CTRL = (PMU_CTRL & ~0x47u) | 2u;                          /* DSLEEP_EN */
   __asm__ volatile("dsb\n wfi\n isb" ::: "memory");
   PMU_CTRL = PMU_CTRL & ~0x47u;
   NVIC_ICER0 = PW_IRQS; GP0(0x18) &= ~PW_KEYS; GP0(0x20) = PW_KEYS;
   ISO_CTRL = (ISO_CTRL & ~8u) | (iso & 8u);
   SYST_CVR = 0; SYST_CSR = csr;
+#ifdef T7_PW_RTCWAIT
+  /* woken by the RTC: wait until the counter (32 kHz domain) shows the new second; read right away it could still
+   * be the old one and the second slept was lost */
+  uint32_t r = RTC_C;
+  if (g_pw_rtcw) for (uint32_t t = 0; r == r0 && t < 200000u; t++) r = RTC_C;
+  uint32_t n = r - r0;
+  if (!n) g_pw_kw = 1;
+#else
   uint32_t n = RTC_C - r0;
+#endif
   if (n > 3600u) n = 0;
   g_pw_slept += n;
   return n;
@@ -374,6 +402,21 @@ extern u32 __bss_start, __bss_end;
  * data, the rest of the SRAM up to the stack for the translated code. Without a matching second part: no JIT. */
 #define T7X_MAGIC 0x31583754u   /* "T7X1" */
 static int g_x_ok;
+#ifdef T7_DIAG
+/* test22 (diagnosis build): every 2 s the emulated ms in that time (percent of real time) and the largest lag; kept
+ * while the menu is open */
+static uint16_t g_dg_pct, g_dg_lag, g_dg_lagm; static uint32_t g_dg_t, g_dg_e;
+static void dg_tick(uint32_t now, uint32_t emu) {
+  if (app_menu_open()) { g_dg_t = now; g_dg_e = emu; g_dg_lagm = 0; return; }   /* the menu shows the time before it */
+  uint32_t l = now - emu; if (l > g_dg_lagm && l < 60000u) g_dg_lagm = (uint16_t)l;
+  if (now - g_dg_t >= 2000u) { g_dg_pct = (uint16_t)((emu - g_dg_e) * 100u / (now - g_dg_t)); g_dg_lag = g_dg_lagm; g_dg_lagm = 0; g_dg_t = now; g_dg_e = emu; }
+}
+void plat_tempo(char *v) {
+  uint32_t a = g_dg_pct, b = g_dg_lag, n = 0; char t[6]; int k;
+  k = 0; do { t[k++] = (char)('0' + a % 10u); a /= 10u; } while (a); while (k) v[n++] = t[--k]; v[n++] = '%'; v[n++] = ' ';
+  k = 0; do { t[k++] = (char)('0' + b % 10u); b /= 10u; } while (b); while (k) v[n++] = t[--k]; v[n++] = 'm'; v[n++] = 's'; v[n] = 0;
+}
+#endif
 int plat_jit(int on) { if (!g_x_ok) return -1; g_t7j_on = on ? 1u : 0u; return on; }
 static void x_load(void)
 {
@@ -396,7 +439,7 @@ void Reset_Handler(void)
   /* the Paradise's clock, before its SRAM is overwritten (the stack is in the top 4 KB) */
   uint32_t cnt = REG(0x45000304u), para = para_clock(cnt, 0, 0x1F000u, 0, 0);
   if (!para) para = para_mailbox(cnt);   /* 1.6.8: started from the menu */
-#ifdef PARA_FLASH
+#if defined(PARA_FLASH) && !defined(PARA_FLASH_LATE)
   if (!para) para = para_flash(cnt);   /* 1.6.9 test37: the base in the Paradise's settings page */
 #endif
 #ifdef PARA_BACK
@@ -408,6 +451,10 @@ void Reset_Handler(void)
     const u32 *src = &__data_load; for (u32 *p = &__data_start; p < &__data_end; p++) *p = *src++; }
   g_para_time = para; g_para_cnt = cnt;
   hw_init();
+#if defined(PARA_FLASH) && defined(PARA_FLASH_LATE)
+  /* test17: as V3Emu: neither SRAM nor mailbox: the base in the Paradise's settings page (readable after hw_init) */
+  if (!g_para_time) { u32 c2 = REG(0x45000304u), t2 = para_flash(c2); if (t2) { g_para_time = t2; g_para_cnt = c2; para_mailbox_put(t2, c2); } }
+#endif
   g_rom_off = g_cfg.rom_off; g_rom_size = g_cfg.rom_len;
   XIP_BASE_REG = 0x60000000u | g_rom_off;     /* ROM in the cached window from 0x10000000 */
   XIP_CTRL_REG = 3u;
@@ -441,13 +488,19 @@ void Reset_Handler(void)
 #endif
   if (app_load(g_sec, sizeof g_sec, &saved)) {
     restored = 1;
-#ifdef SESS_ONCE
+#if defined(SESS_ONCE) && !defined(T7_SESS_KEEP)
     /* 1.6.8: the session is used once. Power gone without leaving (battery out): the next start begins from the
      * toy's own save (EEPROM, written every minute) instead of an old session that would win over it */
     drop_session();
 #endif
     if (!app_clock_hard(plat_rtc())) app_catchup(plat_rtc(), prog);
   }
+#if defined(T7_SESS_KEEP) && defined(SESS_AUTO)
+  /* test21: the session is kept (T7_SESS_EESEQ still drops it once the game's EEPROM is newer): power gone again soon
+   * after a start (weak batteries, a second battery change) began from the EEPROM only, and the Tama-Go keeps its pet
+   * in RAM: it was gone. A new session is written 2 minutes after the start (10 s without a key). */
+  g_sess_ms = g_ms - SESS_T2 + 120000u;
+#endif
   app_render(1);
 
 #ifdef T7_PW
@@ -461,6 +514,19 @@ void Reset_Handler(void)
     TQ_MAIN();
 #endif
     uint32_t now = g_ms;
+#if defined(BAT_GUARD) && defined(SESS_AUTO)
+    /* test21: battery empty: the pet's EEPROM and the run state saved, then off until new batteries */
+    { static uint32_t bt; if (now - bt >= 1000u) { bt = now; if (bat_guard_tick()) {
+#ifdef T7_PW
+        pw_full();
+#endif
+        sess_auto(now);
+#ifdef T7_JIT
+        if (g_x_ok) BAT_PIC_SHOW();   /* the picture code comes with the second part */
+#endif
+        hw_backlight(0);
+        for (;;) { hw_wdt_feed(); __asm__ volatile("wfi"); } } } }
+#endif
     u32 b = hw_buttons();
     if (lock) { if (b) b = 0; else lock = 0; }         /* wait until A+C from the start are released */
 #ifdef T7_PW
@@ -474,7 +540,14 @@ void Reset_Handler(void)
 #endif
       ;
     if (app_pw() && pw_quiet) pw_low(); else pw_full();
-    { uint32_t r = RTC_C; if (r != g_pw_rtc) { g_pw_rtc = r; g_pw_rtcms = now; } }   /* when the RTC last stepped */
+    { uint32_t r = RTC_C;                                                           /* when the RTC last stepped */
+      if (r != g_pw_rtc) {
+#ifdef T7_PW_RTCWAIT
+        if (g_pw_kw) { uint32_t e = g_pw_rtcms + (r - g_pw_rtc) * 1000u;          /* after a wake by a key: the part of a second slept */
+          __asm__ volatile("cpsid i" ::: "memory"); if ((int32_t)(e - g_ms) > 0) g_ms = e; __asm__ volatile("cpsie i" ::: "memory");
+          now = g_ms; g_pw_kw = 0; }
+#endif
+        g_pw_rtc = r; g_pw_rtcms = now; } }
 #endif
 #ifdef CLK_ECO
     /* test22: screen off, no key, no tone, no link traffic for 30 s: a lower clock (eco.h) */
@@ -502,7 +575,7 @@ void Reset_Handler(void)
         restored = 0; wheel_ms = 0; last_in = g_ms; app_render(1); continue;
       }
       if (!wheel_ms) wheel_ms = WHEEL_NOW() ? WHEEL_NOW() : 1;
-      else if (WHEEL_NOW() - wheel_ms > 1500u) leave(1);
+      else if (EXIT_NOW(WHEEL_NOW() - wheel_ms, 1500u)) leave(1);
     } else if (wheel_ms) { if (WHEEL_NOW() - wheel_ms < 1000u && bl) app_wheel_short(); wheel_ms = 0; }
     if (b) { last_in = now;
       if (!bl) {
@@ -552,7 +625,20 @@ void Reset_Handler(void)
 #ifdef T7_JSR_HLE
     g_t7_dark = (uint8_t)(!bl && !app_menu_open());   /* 1.6.12 test1: screen off: the game's sprite drawing is left out */
 #endif
-    while ((int32_t)(now - emu_ms) >= 2 && g_ms - t0 < 30u) {
+#ifdef T7_CATCHUP_SMOOTH
+    /* 1.6.13 test4: screen on and behind after a slow moment: catch up at most a quarter faster than real time.
+     * Before it caught up as fast as it could, seconds and animations ran visibly too fast for a moment. */
+    uint32_t cu = now, cu_e0 = emu_ms;
+    static uint32_t cu_q;                         /* catch-up credit in quarter ms */
+    { static uint32_t pn; uint32_t el = now - pn; pn = now;
+      if (bl && (int32_t)(now - emu_ms) > 8) {
+        cu_q += el * 5u; if (cu_q > 200u) cu_q = 200u;
+        uint32_t lim = emu_ms + (cu_q >> 2); if ((int32_t)(lim - now) < 0) cu = lim;
+      } else cu_q = 0; }
+#else
+#define cu now
+#endif
+    while ((int32_t)(cu - emu_ms) >= 2 && g_ms - t0 < 30u) {
 #ifdef T7_KEYQ
       if (kq) t7_set_buttons(kq_step(g_kprev));
 #endif
@@ -603,11 +689,25 @@ void Reset_Handler(void)
       if (hz != hz_now) { hz_now = hz; hw_tone(hz); }
 #endif
     }
+#ifdef T7_CATCHUP_SMOOTH
+    { uint32_t used = (emu_ms - cu_e0) * 4u; cu_q = cu_q > used ? cu_q - used : 0; }
+#else
+#undef cu
+#endif
 #ifdef T7_TONE_Q
     TQ_MAIN();
 #endif
+#ifdef T7_DIAG
+    dg_tick(now, emu_ms);
+#endif
     if (now - last_draw >= 33u) { last_draw = now; if (bl) app_render(0); }
     if (now - last_fill >= 500u) { last_fill = now; app_setup_fill(plat_rtc()); }
+#ifdef T7_CLK_COLD
+    /* test17: started without a session (the toy's own save from the EEPROM): the Paradise's time is set as well,
+     * once the game runs with a valid hour (before only a resumed session got it, the toy kept its old time) */
+    { static int cold_done; if (!cold_done && !restored && now - t_start >= 3000u && now - last_fill == 0u) {
+        if (app_clock_hard(plat_rtc()) || now - t_start > 90000u) cold_done = 1; } }
+#endif
     if (now - last_clock >= 2000u) { last_clock = now; app_clock(plat_rtc(), !restored && now - t_start < 90000u); }
     /* 1.6.6: dimmed after the dim time, dark after the off time (both from the menu, without a key; the game runs on) */
     if (bl && !app_menu_open()) {
@@ -625,13 +725,25 @@ void Reset_Handler(void)
 #endif
     /* the pet's save: write it once things are quiet (1 minute after the last key) */
     if (b) quiet_since = now;
-    if (now - quiet_since > 60000u) { t7_eeprom_flush(); if (eeprom_dirty()) { hw_tone(0); eeprom_store(EEPROM, g_sec); } quiet_since = now; }
+    if (now - quiet_since > 60000u) { t7_eeprom_flush(); if (eeprom_dirty()) { hw_tone(0);
+#if defined(T7_SESS_KEEP) && defined(SESS_AUTO)
+      sess_auto(now);
+#else
+      eeprom_store(EEPROM, g_sec);
+#endif
+    } quiet_since = now; }
 #ifdef T7_EE_SOON
     /* test16: what the game wrote into its EEPROM (a purchase, a figure item) goes to the flash 5 s later when no key
      * was pressed for 2 s, not only after a minute without keys (battery out before that: lost). The game writes its
      * EEPROM seldom (on the PC: at the setup and at events, not while idle), so the flash is not worn. */
     { static uint32_t ee_t;
-      if (now - ee_t >= 5000u) { ee_t = now; t7_eeprom_flush(); if (eeprom_dirty() && now - last_in > 2000u) { hw_tone(0); eeprom_store(EEPROM, g_sec); } } }
+      if (now - ee_t >= 5000u) { ee_t = now; t7_eeprom_flush(); if (eeprom_dirty() && now - last_in > 2000u) { hw_tone(0);
+#if defined(T7_SESS_KEEP) && defined(SESS_AUTO)
+        sess_auto(now);   /* test21: the session along (it notes the EEPROM's sequence: an older one would be dropped) */
+#else
+        eeprom_store(EEPROM, g_sec);
+#endif
+      } } }
 #endif
     /* caught up: sleep until the next tick, once the tick is known to arrive */
     { static uint32_t g0 = 0xFFFFFFFFu; static int tick_ok;

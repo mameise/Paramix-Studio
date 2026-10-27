@@ -6,6 +6,7 @@
  * The screen: 32x16 dots four times enlarged, the eight icons above and below.
  * Author: mameise */
 #include "../../../emu/src/emu/hw.h"
+#include "../../../emu/src/emu/exitkey.h"
 #ifdef CLK_ECO
 #include "../../../emu/src/emu/eco.h"
 #endif
@@ -77,6 +78,100 @@ static volatile u32 g_ms;
 #define CORE_HZ 96000000u
 __attribute__((used)) void systick_c(void) { g_ms++; }
 __attribute__((naked)) void SysTick_Handler(void) { __asm__ volatile("b systick_c\n"); }
+#ifdef V1_PW
+/* ---- test24: power saving with the screen dark (as V3Emu, V3_PW) ----
+ * Screen dark, no key, tone, menu or link traffic: the chip runs from its internal 12 MHz RC with PLL and crystal off
+ * and goes to deep sleep once the emulation has caught up; the RTC (1 s) or a key wakes it, the ms tick continues from
+ * the RTC. The toy's time is then run in one go (it sleeps most of the time), never dropped: its clock stays right. */
+#define OSC_CTRL REG(0x45000000u)
+#define OSC_STAT REG(0x45000008u)
+#define SYS_CLKCFG REG(0x4500000Cu)
+#define SYS_AHBCP REG(0x45000010u)
+#define ISO_CTRL REG(0x45000200u)
+#define PMU_CTRL REG(0x45000300u)
+#define GP0(o) REG(0x40018000u + (o))
+#define NVIC_ISER0 REG(0xE000E100u)
+#define NVIC_ICER0 REG(0xE000E180u)
+#define NVIC_ICPR0 REG(0xE000E280u)
+#define PW_KEYS 0xF00u                     /* P0.8 wheel, P0.9 A, P0.10 C, P0.11 B */
+#define PW_IRQS ((1u << 2) | (1u << 26))   /* RTC, GPIO0 */
+static int g_pw_low;
+static u32 g_pw_rtc, g_pw_rtcms;
+static volatile u8 g_pw_rtcw;
+static u8 g_pw_kw;
+__attribute__((used, noinline)) void pw_rtc_irq(void) { PMU_CTRL = (PMU_CTRL & ~0x47u) | 0x10u; g_pw_rtcw = 1; }
+__attribute__((used, noinline)) void pw_gpio_irq(void) { GP0(0x20) = PW_KEYS; }
+__attribute__((noinline, minsize)) static void pw_full(void)
+{
+  if (!g_pw_low) return;
+  OSC_CTRL |= 1u << 4;
+  for (u32 t = 0; !(OSC_STAT & (1u << 4)) && t < 2000000u; t++) {}
+  OSC_CTRL |= 1u << 15;
+  for (u32 t = 0; !(OSC_STAT & (1u << 6)) && t < 2000000u; t++) {}
+  SYS_CLKCFG = 4u;
+  for (u32 t = 0; ((SYS_CLKCFG >> 4) & 7u) != 4u && t < 2000000u; t++) {}
+  SYST_RVR = CORE_HZ / 1000u - 1u; SYST_CVR = 0;
+  g_pw_low = 0;
+}
+__attribute__((noinline, minsize)) static void pw_low(void)
+{
+  if (g_pw_low) return;
+  SYS_AHBCP = 0;
+  SYS_CLKCFG = 0;
+  for (u32 t = 0; ((SYS_CLKCFG >> 4) & 7u) != 0u && t < 2000000u; t++) {}
+  if (((SYS_CLKCFG >> 4) & 7u) != 0u) { SYS_CLKCFG = 4u; return; }
+  OSC_CTRL &= ~((1u << 15) | (1u << 4));
+  SYST_RVR = 12000000u / 1000u - 1u; SYST_CVR = 0;
+  g_pw_low = 1;
+}
+__attribute__((noinline, minsize)) static u32 pw_sleep(void)
+{
+  u32 iso = ISO_CTRL;
+  if (!(iso & 0x80u) || (iso & 7u) != 0u) { __asm__ volatile("wfi"); return 0; }
+  ISO_CTRL = iso & ~8u;
+  GP0(0x0C) &= ~PW_KEYS; GP0(0x10) |= PW_KEYS; GP0(0x20) = PW_KEYS; GP0(0x18) |= PW_KEYS;
+  NVIC_ICPR0 = PW_IRQS; NVIC_ISER0 = PW_IRQS;
+  u32 r0 = REG(0x45000304u), csr = SYST_CSR;
+  SYST_CSR = 0;
+  g_pw_rtcw = 0;
+  PMU_CTRL = (PMU_CTRL & ~0x47u) | 2u;
+  __asm__ volatile("dsb\n wfi\n isb" ::: "memory");
+  PMU_CTRL = PMU_CTRL & ~0x47u;
+  NVIC_ICER0 = PW_IRQS; GP0(0x18) &= ~PW_KEYS; GP0(0x20) = PW_KEYS;
+  ISO_CTRL = (ISO_CTRL & ~8u) | (iso & 8u);
+  SYST_CVR = 0; SYST_CSR = csr;
+  u32 r = REG(0x45000304u);
+  if (g_pw_rtcw) for (u32 t = 0; r == r0 && t < 200000u; t++) r = REG(0x45000304u);
+  u32 n = r - r0;
+  if (!n) g_pw_kw = 1;
+  return n > 3600u ? 0u : n;
+}
+#endif
+#ifdef V1_TONE_Q
+/* test24: tone in real time (as V3Emu, V3_TONE_Q): changes with the toy's time (ms of g_vt), played on the real clock
+ * 250 ms after the first of a sequence; more than 200 ms late: anew from there. A tone always at the full clock. */
+#define TQ_N 32u
+#define TQ_LAT 250u
+static u32 tq_t[TQ_N]; static u16 tq_hz[TQ_N]; static u32 tq_h, tq_w, tq_g0, tq_r0, tq_on, tq_last;
+static void tq_put(u32 hz, u32 gms) { if (tq_w - tq_h >= TQ_N) tq_h++; tq_t[tq_w % TQ_N] = gms; tq_hz[tq_w % TQ_N] = (u16)(hz > 0xFFFFu ? 0xFFFFu : hz); tq_w++; }
+__attribute__((noinline)) static void tq_pump(void)
+{
+  u32 now = g_ms;
+  while (tq_h != tq_w) {
+    u32 i = tq_h % TQ_N;
+    if (!tq_on) { tq_on = 1; tq_g0 = tq_t[i]; tq_r0 = now + TQ_LAT; }
+    s32 late = (s32)(now - (tq_r0 + (tq_t[i] - tq_g0)));
+    if (late < 0) return;
+    if (late > 200) { tq_g0 = tq_t[i]; tq_r0 = now; }
+    u32 hz = tq_hz[i];
+#ifdef V1_PW
+    if (hz) pw_full();
+#endif
+    hw_tone(hz); tq_h++; tq_last = now;
+  }
+  if (!g_hw_tone_hz && now - tq_last > 1000u) tq_on = 0;
+}
+#endif
 
 /* ---- HAL for TamaLIB: virtual time in us, moved on by the core's own waits ---- */
 static u32 g_vt;
@@ -100,7 +195,11 @@ static void snd_apply(void)
   u32 hz = g_snd_on && g_sound && g_freq && !g_tone_cut ? g_freq / 10u : 0u;
   if (hz == g_tone_now) return;
   if (hz && !g_tone_now) g_tone_since = g_ms;
+#ifdef V1_TONE_Q
+  g_tone_now = hz; tq_put(hz, g_vt / 1000u);
+#else
   g_tone_now = hz; hw_tone(hz);
+#endif
 }
 static void h_freq(u32_t f) { g_freq = f; if (g_snd_on) snd_apply(); }
 static void h_play(bool_t en) { if (en && !g_snd_on) g_tone_cut = 0; g_snd_on = en; snd_apply(); }
@@ -127,6 +226,10 @@ static const u8 DIM_PCT[4] = { 20u, 40u, 60u, 80u };
 #define DIM2_N 10
 static const u8 LV_PCT[LV_N] = { 100u, 5u, 10u, 20u, 30u, 40u, 50u, 60u, 70u, 80u, 90u };
 static const u8 DIM2_PCT[DIM2_N] = { 1u, 2u, 3u, 5u, 10u, 15u, 20u, 30u, 40u, 50u };
+#endif
+#ifdef V1_VOL
+/* test24: volume as in the other emulators: sound 0 off, 1 normal (the old "on"), 2 loud, 3 quiet */
+static const u8 VOL_OF[4] = { 0, 2, 3, 1 };
 #endif
 static int en(void) { return g_set.lang ? g_set.lang == 2u : (int)(g_cfg.flags & 1u); }
 static u16 mix(u16 a, u16 b, int p)   /* p percent of b */
@@ -284,7 +387,12 @@ static void menu_line(int it, const char **a, char *b)
     case M_SHD: *a = e ? "SHADOW" : "SCHATTEN"; v = g_set.shadow ? on : off; break;
     case M_ICO: *a = e ? "ICONS" : "SYMBOLE"; v = g_set.icons ? on : off; break;
     case M_GHOST: *a = e ? "ICONS UNLIT" : "SYMBOLE AUS"; if (g_set.ghost) pct(b, g_set.ghost); else v = e ? "HIDDEN" : "UNSICHTB."; break;
+#ifdef V1_VOL
+    case M_SND: { static const char *const VN[2][4] = { { "AUS", "NORMAL", "LAUT", "LEISE" }, { "OFF", "NORMAL", "LOUD", "QUIET" } };
+      *a = e ? "SOUND" : "TON"; v = VN[e ? 1 : 0][g_set.sound & 3u]; break; }
+#else
     case M_SND: *a = e ? "SOUND" : "TON"; v = g_set.sound ? on : off; break;
+#endif
     case M_DIM: *a = e ? "DIM AFTER" : "DIMMEN NACH"; v = T_NM[e][g_set.dim <= T_N ? g_set.dim : T_N]; break;
 #ifdef BL_PWM
     case M_LIGHT: *a = e ? "LIGHT" : "LICHT"; pct(b, LV_PCT[(g_set.r0 & 15u) % LV_N]); break;
@@ -351,7 +459,11 @@ static void menu_key(u32 k, u32 now)
       case M_SHD: g_set.shadow ^= 1u; break;
       case M_ICO: g_set.icons ^= 1u; break;
       case M_GHOST: g_set.ghost = (u8)(g_set.ghost >= 20u ? 0u : g_set.ghost + 1u); break;   /* 1% steps up to 20% */
+#ifdef V1_VOL
+      case M_SND: g_set.sound = (u8)((g_set.sound + 1u) & 3u); g_sound = g_set.sound; g_hw_vol = VOL_OF[g_set.sound & 3u]; snd_apply(); break;
+#else
       case M_SND: g_set.sound ^= 1u; g_sound = g_set.sound; snd_apply(); break;
+#endif
       case M_DIM: g_set.dim = (u8)((g_set.dim + 1u) % (T_N + 1u)); if (g_set.dim < T_N && g_set.off < T_N && g_set.off <= g_set.dim) g_set.off = (u8)(g_set.dim + 1u); break;
 #ifdef BL_PWM
       case M_LIGHT: g_set.r0 = (u8)(0x80u | (((g_set.r0 & 15u) + 1u) % LV_N)); colours(); break;
@@ -400,6 +512,9 @@ static u32 g_sess_ms;
 static void drop_session(void) { if (!flash_isff(SESSION, 0x1000u)) flash_erase4k(SESSION); }
 static void leave(int save)
 {
+#ifdef V1_PW
+  pw_full();
+#endif
 #ifdef CLK_ECO
   hw_clk_shift(0, CORE_HZ);
 #endif
@@ -478,7 +593,7 @@ void Reset_Handler(void)
   /* the Paradise's clock, before its SRAM is overwritten; started from the menu: its mailbox */
   u32 cnt = REG(0x45000304u), para = para_clock(cnt, 0, 0x1F000u, 0, 0);
   if (!para) para = para_mailbox(cnt);
-#ifdef PARA_FLASH
+#if defined(PARA_FLASH) && !defined(PARA_FLASH_LATE)
   if (!para) para = para_flash(cnt);   /* 1.6.9 test37 */
 #endif
 #ifdef PARA_BACK
@@ -491,6 +606,10 @@ void Reset_Handler(void)
   g_para_time = para; g_para_cnt = cnt;
   hw_init();
   hw_tone(0);
+#if defined(PARA_FLASH) && defined(PARA_FLASH_LATE)
+  /* test24 (as V3Emu): neither SRAM nor mailbox: the base in the Paradise's settings page (readable only after hw_init) */
+  if (!g_para_time) { u32 c2 = REG(0x45000304u), t2 = para_flash(c2); if (t2) { g_para_time = t2; g_para_cnt = c2; para_mailbox_put(t2, c2); } }
+#endif
   /* the ROM: 12-bit words, two bytes each, high byte first */
   { const volatile u8 *r = XIP_PTR(g_cfg.rom_off); u32 n = g_cfg.rom_len / 2u; if (n > 8192u) n = 8192u;
     for (u32 i = 0; i < n; i++) g_prog[i] = (u12_t)(((u32)r[2 * i] << 8 | r[2 * i + 1]) & 0xFFFu); }
@@ -502,6 +621,9 @@ void Reset_Handler(void)
   tamalib_init(g_prog, 0, 1000000u);
   int restored = load_session();
   set_load(); g_sound = g_set.sound;
+#ifdef V1_VOL
+  g_hw_vol = VOL_OF[g_set.sound & 3u];
+#endif
   u32 clk_chk = 0, clk_s0 = 0xFFu, clk_try = 0, clk_fix = 0;
   if (clock_on()) {
     if (restored) { clock_write(); clk_chk = 2500u; }
@@ -517,12 +639,60 @@ void Reset_Handler(void)
   g_enc = REG(0x4001A000u) & 3u;
   u32 emu_ms = g_ms, last_draw = g_ms, t_start = g_ms, wheel_ms = 0, last_in = g_ms, mk0 = 0;
   int bl = 1, lock = 1;
+#ifdef V1_PW
+  u32 pw_hold = 0, pw_tq = 0; int pw_back = 0;   /* ms the run stays behind for a tone while dark; time from dark to catch up */
+  g_pw_rtc = REG(0x45000304u); g_pw_rtcms = g_ms;
+#endif
+#ifdef V1_CALL_WAKE
+  int call_wake = 0;
+#endif
+#ifdef SESS_ONCE
+  g_sess_ms = g_ms;
+#endif
   for (;;) {
     hw_wdt_feed();
     u32 now = g_ms;
+#ifdef BAT_GUARD
+    /* test24: battery empty (as the other emulators): settings and run state saved, the picture, then off until new batteries */
+    { static u32 bt; if (now - bt >= 1000u) { bt = now; if (bat_guard_tick()) {
+#ifdef V1_PW
+        pw_full();
+#endif
+#ifdef CLK_ECO
+        hw_clk_shift(0, CORE_HZ);
+#endif
+        hw_tone(0); set_store(); save_session(); BAT_PIC_SHOW(); hw_backlight(0);
+        for (;;) { hw_wdt_feed(); __asm__ volatile("wfi"); } } } }
+#endif
     u32 b = hw_buttons();
     if (lock) { if (b) b = 0; else lock = 0; }         /* wait until the keys of the start are released */
+#ifdef V1_PW
+    int pw_quiet = !bl && !b && !g_tone_now && !g_menu && !wheel_ms && !pw_hold && g_auto_k < 0 && !clk_chk
+#ifdef V1_TONE_Q
+      && tq_h == tq_w && !g_hw_tone_hz
+#endif
+#ifdef V1_LINK
+      && !(g_pl.last_rx && now - g_pl.last_rx < 30000u)
+#endif
+      ;
+    if (pw_quiet && (s32)(now - emu_ms) < 2500) {   /* after a deep sleep 1 s behind: caught up at 12 MHz */
 #ifdef CLK_ECO
+      if (!g_pw_low) hw_clk_shift(0, CORE_HZ);
+#endif
+      pw_low();
+    } else pw_full();
+    if (pw_quiet) pw_back = 1;
+    { u32 r = REG(0x45000304u);
+      if (r != g_pw_rtc) {
+        if (g_pw_kw) { u32 t = g_pw_rtcms + (r - g_pw_rtc) * 1000u;
+          __asm__ volatile("cpsid i" ::: "memory"); if ((s32)(t - g_ms) > 0) g_ms = t; __asm__ volatile("cpsie i" ::: "memory");
+          now = g_ms; g_pw_kw = 0; }
+        g_pw_rtc = r; g_pw_rtcms = now; } }
+#endif
+#ifdef CLK_ECO
+#ifdef V1_PW
+    if (!g_pw_low) {
+#endif
     /* test22: screen off, no key, no tone, no clock setting, no link traffic for 30 s: a lower clock (eco.h) */
 #ifdef ECO_RTC
     (void)eco_rtc(now, CORE_HZ);   /* test27: a clock step whose ms tick runs slow is not used again */
@@ -532,6 +702,9 @@ void Reset_Handler(void)
       && !(g_pl.last_rx && now - g_pl.last_rx < 30000u)
 #endif
       , (int)(now - emu_ms), CORE_HZ);
+#ifdef V1_PW
+    }
+#endif
 #endif
     if (b & BTN_WHEEL) {
       if (restored && now - t_start < 3000u) {
@@ -540,7 +713,7 @@ void Reset_Handler(void)
         restored = 0; draw(1); continue;
       }
       if (!wheel_ms) wheel_ms = now ? now : 1;
-      else if (now - wheel_ms > 1500u) leave(1);
+      else if (EXIT_NOW(now - wheel_ms, 1500u)) leave(1);
     } else if (wheel_ms) { if (now - wheel_ms < 1000u) { if (g_menu) menu_key(BTN_WHEEL, now); else { g_menu = 1;
 #ifdef BAT_SHOW
         g_msel = 1;   /* the battery line is only shown */
@@ -554,6 +727,9 @@ void Reset_Handler(void)
       last_in = now;
       if (!bl || g_dimmed) {                            /* the key only wakes */
         bl = 1; hw_backlight(1); if (g_dimmed) { g_dimmed = 0; colours(); }
+#ifdef V1_PW
+        pw_full();
+#endif
         if (g_menu) menu_draw(); else draw(1);
         while (hw_buttons()) hw_wdt_feed();
         continue;
@@ -581,10 +757,19 @@ void Reset_Handler(void)
       if (nk) menu_key(nk, now);
       keys(ab);
     } else { mk0 = b & (BTN_A | BTN_B | BTN_C); keys((b & (BTN_A | BTN_B | BTN_C)) | ab | ((s32)(g_tap_until - now) > 0 ? 0x100u : 0u)); }
+#ifdef V1_PW
+    /* dark: up to 5 s behind (the toy's time is run later, at once); after the screen comes on that is caught up first;
+     * a tone while dark: real time from there (pw_hold), so it sounds as it should */
+    s32 lim = pw_back ? 5000 : 50;
+    if ((s32)(now - emu_ms) > lim) emu_ms = now - (u32)lim;
+    u32 t0 = g_ms, end = pw_hold ? now - pw_hold : now;
+    while ((s32)(end - emu_ms) > 0 && g_ms - t0 < (pw_quiet ? 40u : 20u)) {
+#else
     /* run the toy up to now (at most 50 ms behind) */
     if ((s32)(now - emu_ms) > 50) emu_ms = now - 50u;
     u32 t0 = g_ms;
     while ((s32)(now - emu_ms) > 0 && g_ms - t0 < 20u) {
+#endif
       u32 target = g_vt + 1000u;
       while ((s32)(target - g_vt) > 0) { u32 v0 = g_vt; tamalib_step(); if (g_vt == v0) g_vt += 31u; }
       emu_ms++;
@@ -594,8 +779,30 @@ void Reset_Handler(void)
 #ifdef V1_LINK
       plink_poll(g_ms, 0, lk_got);
 #endif
+#ifdef V1_CALL_WAKE
+      if (g_tone_now && !bl) call_wake = 1;   /* test24: the toy calls while dark: the screen comes on (as the other emulators) */
+#endif
+#ifdef V1_PW
+      if (g_tone_now && !bl && !pw_hold && (s32)(now - emu_ms) > 1) { pw_hold = now - emu_ms; pw_full(); break; }
+#endif
     }
     if (g_tone_now && now - g_tone_since > 3000u) { g_tone_cut = 1; snd_apply(); }   /* a stuck tone stops */
+#ifdef V1_TONE_Q
+    tq_pump();
+#endif
+#ifdef V1_CALL_WAKE
+    if (call_wake) { call_wake = 0;
+      if (!bl) { bl = 1; last_in = now; hw_backlight(1); if (g_dimmed) { g_dimmed = 0; colours(); }
+#ifdef V1_PW
+        pw_full();
+#endif
+        draw(1); } }
+#endif
+#ifdef V1_PW
+    if (g_tone_now) pw_tq = emu_ms;
+    if (pw_hold && (bl || emu_ms - pw_tq > 2000u)) pw_hold = 0;   /* 2 s of the toy's time without a tone */
+    if (pw_back && bl && (s32)(now - emu_ms) <= 1) pw_back = 0;
+#endif
     /* 1.6.8: draw a picture only once the toy has finished it (no change for 8 ms of toy time, at the latest after
      * 150 ms): drawn in the middle of an update, the clock looked broken and icons flickered */
     { static u32 dirty_ms; if (!g_dirty) dirty_ms = 0; else if (!dirty_ms) dirty_ms = now ? now : 1;
@@ -612,7 +819,18 @@ void Reset_Handler(void)
      * screen goes off, so a battery change takes back at most that much */
     if (now - g_sess_ms > 900000u && now - last_in > 10000u && g_auto_k < 0 && !clk_chk && !g_menu) { save_session(); g_sess_ms = now; }
 #endif
+#ifdef V1_PW
+    if (emu_ms == g_ms) {
+      if (pw_quiet && g_pw_low && !hw_buttons()) {
+        /* deep sleep until the next RTC second or a key; the ms tick then continues from the time of the last RTC step */
+        if (pw_sleep()) { u32 r = REG(0x45000304u), t = g_pw_rtcms + (r - g_pw_rtc) * 1000u;
+          __asm__ volatile("cpsid i" ::: "memory"); if ((s32)(t - g_ms) > 0) g_ms = t; __asm__ volatile("cpsie i" ::: "memory");
+          g_pw_rtc = r; g_pw_rtcms = t; }
+      } else __asm__ volatile("wfi");
+    }
+#else
     if (emu_ms == g_ms) __asm__ volatile("wfi");
+#endif
   }
 }
 
@@ -624,5 +842,8 @@ const void *const g_vectors[16 + 64] = { (void *)0x18020000u, (void *)Reset_Hand
   [15] = (void *)SysTick_Handler, [16 ... 79] = (void *)Irq_Off
 #ifdef V1_LINK
   , [16 + 37] = (void *)plink_irq
+#endif
+#ifdef V1_PW
+  , [16 + 2] = (void *)pw_rtc_irq, [16 + 26] = (void *)pw_gpio_irq
 #endif
 };

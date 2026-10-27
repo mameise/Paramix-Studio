@@ -55,7 +55,10 @@ static uint32_t J_chainx, J_plainx, J_idlex;  /* exits with target pc as a liter
 int jit_idle_on = 1;
 #define JIT_CNT 2048
 static uint8_t jit_cnt[JIT_CNT];
-int jit_hot = 32, jit_interp_run = 1;
+#ifndef JIT_HOT
+#define JIT_HOT 32                /* 1.6.13 test10 (TamaEmu, bigger code buffer): 8, fewer runs in the interpreter */
+#endif
+int jit_hot = JIT_HOT, jit_interp_run = 1;
 static uint32_t jit_prev_pc = 0xFFFFFFF0u;
 uint32_t jit_st_patch;              /* skip idle loops until the next event */
 uint32_t jit_st_idle;
@@ -1565,6 +1568,15 @@ void jit_stage_setup(uint8_t *stage, uint32_t size)
     __asm__ volatile("dsb\n isb" ::: "memory");
     J_copy = (void (*)(uint32_t, const uint8_t *, uint32_t))((uint32_t)J_cpcode | 1u);
     J_stage = stage; J_stage_sz = size;
+}
+#endif
+#ifdef JIT_STAGE
+/* 1.6.13 test10 (EMU_OVL): copy into the PRAM (the app's overlay from the flash), the same way as translated code */
+void jit_pram_load(uint32_t dst, const void *src, uint32_t n)
+{
+    uint32_t pm; __asm__ volatile("mrs %0, primask\n cpsid i" : "=r"(pm) :: "memory");
+    J_copy(dst, (const uint8_t *)src, (n + 1u) & ~1u);
+    __asm__ volatile("msr primask, %0" :: "r"(pm) : "memory");
 }
 #endif
 /* ---------- Platform-independent setup ---------- */

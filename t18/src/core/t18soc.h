@@ -26,6 +26,9 @@ void tg18_init(tg18_t *t, const uint8_t *rom, uint32_t len);
 void tg18_reset(tg18_t *t);
 void tg18_run_cycles(tg18_t *t, uint64_t target);
 void tg18_run_us(tg18_t *t, uint32_t us);
+/* 1.6.13 test1 (T18_PW): as tg18_run_us; while the game is switched off nothing runs; when it switches on (alarm, key)
+ * on() is called first (the platform goes back to full speed), then the rest of the time runs as usual */
+void tg18_run_us_off(tg18_t *t, uint32_t us, void (*on)(void));
 uint64_t tg18_cycles(tg18_t *t);
 void tg18_set_buttons(tg18_t *t, int mask);
 #ifdef T18_LINK
@@ -52,6 +55,7 @@ void tg18_set_time(tg18_t *t, int y, int mo, int d, int h, int mi, int s);
 void tg18_get_time(tg18_t *t, int *out6);
 extern int tg18_uhr_wecken;
 void tg18_advance_offline(tg18_t *t, int64_t seconds);
+void tg18_set_cpu_k(tg18_t *t, int k);   /* T18_CPU_SLOW: the CPU at 4/k of its clock */
 
 uint32_t tg18_state_size(tg18_t *t);
 int tg18_save_state(tg18_t *t, uint8_t *buf, uint32_t len);

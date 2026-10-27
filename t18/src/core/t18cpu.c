@@ -572,6 +572,21 @@ undef:
 }
 
 /* ---- Thumb execution ---- */
+#ifdef T18_RAW_LABEL
+uint32_t t18_raw_pc = 1u;
+volatile uint32_t t18_raw_n, t18_raw_lo, t18_raw_hi;
+uint16_t t18_raw_v[4];
+static __attribute__((noinline)) void raw_note(uint32_t a, uint32_t v)
+{
+    if (!t18_raw_n || a < t18_raw_lo) t18_raw_lo = a;
+    if (!t18_raw_n || a > t18_raw_hi) t18_raw_hi = a;
+    v &= 0xFFFFu;
+    int k = 0;
+    while (k < 4 && t18_raw_v[k] && t18_raw_v[k] != v) k++;
+    if (k < 4) t18_raw_v[k] = (uint16_t)v; else t18_raw_v[t18_raw_n & 3u] = (uint16_t)v;
+    t18_raw_n++;
+}
+#endif
 static inline __attribute__((always_inline)) int exec_thumb(arm7_t *c, uint32_t op) {
     uint32_t pc = c->r[15]; /* next insn address; reading pc gives pc+2 */
     switch (op >> 11) {
@@ -669,7 +684,11 @@ static inline __attribute__((always_inline)) int exec_thumb(arm7_t *c, uint32_t 
     case 13: { int rd = op & 7, rb = (op >> 3) & 7; c->r[rd] = rd32(c, c->r[rb] + ((op >> 6) & 31) * 4); return 3; }
     case 14: { int rd = op & 7, rb = (op >> 3) & 7; wr8(c, c->r[rb] + ((op >> 6) & 31), c->r[rd]); return 2; }
     case 15: { int rd = op & 7, rb = (op >> 3) & 7; c->r[rd] = rd8(c, c->r[rb] + ((op >> 6) & 31)); return 3; }
-    case 16: { int rd = op & 7, rb = (op >> 3) & 7; wr16(c, c->r[rb] + ((op >> 6) & 31) * 2, c->r[rd]); return 2; }
+    case 16: { int rd = op & 7, rb = (op >> 3) & 7;
+#ifdef T18_RAW_LABEL
+        if (c->r[15] == t18_raw_pc + 2u) raw_note(c->r[rb] + ((op >> 6) & 31) * 2, c->r[rd]);
+#endif
+        wr16(c, c->r[rb] + ((op >> 6) & 31) * 2, c->r[rd]); return 2; }
     case 17: { int rd = op & 7, rb = (op >> 3) & 7; c->r[rd] = rd16(c, c->r[rb] + ((op >> 6) & 31) * 2); return 3; }
     case 18: { int rd = (op >> 8) & 7; wr32(c, c->r[13] + (op & 0xFF) * 4, c->r[rd]); return 2; }
     case 19: { int rd = (op >> 8) & 7; c->r[rd] = rd32(c, c->r[13] + (op & 0xFF) * 4); return 3; }
@@ -968,8 +987,16 @@ static void idle_try(arm7_t *c, uint64_t target) {
 /* test: the interpreter's code lies between these (exec_arm, arm7_run with exec_thumb; checked in the map) */
 const uintptr_t t18_interp_lo = (uintptr_t)exec_arm, t18_interp_hi = (uintptr_t)idle_try;
 #endif
+#ifdef T18_KEY_NOIDLE
+/* 1.6.13 test11: after a key changed, no idle loops are skipped for a while (t18soc.c sets it): skipped, the game saw
+ * a key pressed in the second half of its half-second step only one step later (about 1 s instead of 0.2 s) */
+uint64_t t18_idle_hold;
+#endif
 static inline int idle_due(arm7_t *c, uint64_t target) {
     if (!t18_idle_on || c->attn) return 0;
+#ifdef T18_KEY_NOIDLE
+    if (c->cycles < t18_idle_hold) return 0;
+#endif
 #ifdef T18_IDLE_RUN
     if (c->watch) return 0;                             /* stepping inside idle_try */
 #endif

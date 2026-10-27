@@ -134,6 +134,14 @@ static uint32_t j_idle_key;          /* never linked into and never inside a blo
 static arm7_t *JCPU;
 #ifdef T18_MEM_HELPER
 static int j_compact;
+#ifdef T18_TU_KEEP
+/* 1.6.13 test5: blocks made inline stay known over a flush (the buffer is emptied many times a second in busy
+ * scenes; every block then came back compact and had to get hot again): a bit per key hash, 1024 bits */
+uint32_t t18_tu_keep[32];
+#define TUK_BIT(key) (((key) * 0x9E3779B1u) >> 22)
+#define TUK_GET(key) ((t18_tu_keep[TUK_BIT(key) >> 5] >> (TUK_BIT(key) & 31u)) & 1u)
+#define TUK_SET(key) (t18_tu_keep[TUK_BIT(key) >> 5] |= 1u << (TUK_BIT(key) & 31u))
+#endif
 #ifdef T18_TIERUP
 static int j_inl;                         /* 1.6.8 (T18_TIERUP): this translation inline, also when compact */
 #else
@@ -144,6 +152,12 @@ static int j_hot_v = J_HOT;               /* 1.6.8: J_HOT 4; 8 with t18_new_off 
 #endif
 static uint64_t J_CYC0; static int32_t J_BUD0; static uint32_t J_MULT;
 uint32_t t18_jit_stat[8], t18_jit_bytes, t18_jit_fr[4];
+#ifdef T18_KNOWN
+uint32_t t18_known_n;                     /* accesses translated at a known address */
+#ifdef T18_SPEC_DBG
+uint32_t t18_spec_dbg[64];
+#endif
+#endif
 #ifdef T18_KSTAT
 uint32_t t18_kstat[2][20];
 #endif
@@ -232,6 +246,9 @@ uint32_t t18_jh_slow(uint32_t *frame, int32_t bud, uint32_t addr);
 GLUE __attribute__((naked, used)) void j_chain(void)
 {
     __asm__ volatile(
+#ifdef T18_SPEC
+        "stm r9, {r0-r7}\n"                 /* the guest's r0..r7 for the translator (T18_SPEC reads them) */
+#endif
         "push {r0-r3, r12, lr}\n"
         "mrs r12, apsr\n"
         "push {r12}\n"
@@ -303,6 +320,9 @@ GLUE __attribute__((naked, used)) void j_ind(void)
         "bx r12\n"
         "1: ldr lr, [r9, %[sv]]\n"
         "msr apsr_nzcvq, lr\n"
+#ifdef T18_SPEC
+        "stm r9, {r0-r7}\n"
+#endif
         "push {r0-r3, r12, lr}\n"
         "mrs r12, apsr\n"
         "push {r12}\n"
@@ -748,6 +768,21 @@ __attribute__((used)) uint32_t t18_jh_slow(uint32_t *frame, int32_t bud, uint32_
     }
 #endif
 
+#ifdef T18_IO_FASTW
+    if (!(info & 0x80) && sz == 2 && !(a & 3) && !t18_new_off) {
+        extern int tg18_io_fastw(void *ctx, uint32_t a, uint32_t v);
+        if (tg18_io_fastw(JCPU->ctx, a, rt < 8 ? frame[rt] : JCPU->r[rt])) {
+            t18_jit_stat[4]++;
+            if ((JCPU->irq_line && !(JCPU->cpsr & ARM7_I)) || (JCPU->fiq_line && !(JCPU->cpsr & ARM7_F)) || JCPU->halted) {
+                j_sync(bud, before);
+                t18_link_pc = key + ((key & 1) ? 2u : 4u);
+                t18_link_cyc = before + 2u;
+                return (uint32_t)(uintptr_t)((info & 0x100) ? (void *)t18_jit_exit_link_fl : (void *)t18_jit_exit_link) | 1u;
+            }
+            return (uint32_t)(uintptr_t)jh_join((const uint16_t *)data, info) | 1u;
+        }
+    }
+#endif
     j_sync(bud, before);
     JCPU->last_pc = key & ~1u;
     t18_jit_stat[4]++;
@@ -868,6 +903,54 @@ static void emit_exit_plain(uint32_t key)
     t2_mov32(S1, key);
     E_b(fn16(t18_jit_exit));
 }
+#ifdef T18_SPEC
+/* 1.6.13 test2: store to the SPI send or control register from a guarded block: r12 address, r11 value */
+int tg18_sf_fast(void *ctx, uint32_t a, uint32_t *v, int wr);
+__attribute__((used)) void t18_sfw(uint32_t a, uint32_t v)
+{
+    uint32_t x = v;
+    if (!tg18_sf_fast(JCPU->ctx, a, &x, 1)) JCPU->wr(JCPU->ctx, a, v, 4);
+}
+GLUE __attribute__((naked, used)) void j_sfw(void)
+{
+    __asm__ volatile(
+        "push {r0-r3, r12, lr}\n"
+        "mov r0, r12\n"
+        "mov r1, r11\n"
+        "mrs r12, apsr\n"
+        "push {r12}\n"
+        "ldr r2, =t18_sfw\n"
+        "blx r2\n"
+        "pop {r12}\n"
+        "msr apsr_nzcvq, r12\n"
+        "pop {r0-r3, r12, lr}\n"
+        "bx lr\n"
+        ".ltorg\n");
+}
+/* a word access of host register rd (r0..r7) at the known device address A without the address check: the SPI
+ * busy flag (0), the SPI registers (as the asm part of j_slow / tg18_sf_fast). 0 = not one of these. */
+#ifdef T18_IO_DIRECT
+uint32_t *tg18_io_plain(void *ctx, uint32_t a);
+uint32_t *tg18_io_plain_w(void *ctx, uint32_t a);
+#endif
+static int emit_io_known(int load, int rd, uint32_t A)
+{
+    if (load && A == 0xD0000064u) { t2_mov32(rd, 0); return 1; }
+#ifdef T18_IO_DIRECT
+    { uint32_t *p = load ? tg18_io_plain(JCPU->ctx, A) : tg18_io_plain_w(JCPU->ctx, A);
+      if (p) { t2_mov32(S2, (uint32_t)(uintptr_t)p); t2_ldst_i(load, 2, 0, rd, S2, 0); return 1; } }
+#endif
+    if (!t18_sfp.o) return 0;
+    if (load) {
+        if (A == 0xC0150004u) { t2_mov32(S2, (uint32_t)(uintptr_t)t18_sfp.r); t2_ldst_i(1, 2, 0, rd, S2, 0); t2_dpimm(T2_BIC, 0, rd, rd, t2_modimm(8)); return 1; }
+        if (A == 0xC015000Cu) { t2_mov32(S2, (uint32_t)(uintptr_t)t18_sfp.o); t2_ldst_i(1, 0, 0, rd, S2, 0); return 1; }
+        if (A == 0xC0150000u) { t2_mov32(S2, (uint32_t)(uintptr_t)t18_sfp.c); t2_ldst_i(1, 2, 0, rd, S2, 0); return 1; }
+        return 0;
+    }
+    if (A == 0xC0150008u || A == 0xC0150000u) { t2_mov(S1, rd); t2_mov32(S2, A); E_bl(fn16(j_sfw)); return 1; }
+    return 0;
+}
+#endif
 /* load/store through r11 (guest address) into/from host rt (r0..r7). Fast path: SRAM, aligned. */
 static void emit_mem(uint32_t key, int load, int size, int sign, int rt, uint32_t before, int flive)
 {
@@ -1204,6 +1287,9 @@ static int translate_thumb(arm7_t *c, uint32_t pc, jent_t *e)
         /* 1.6.8 test: shorter blocks, so less is interpreted at the end of a run (before an interrupt) */
         if (bcyc >= T18_BLK_MAXCYC) break;
 #endif
+#ifdef T18_RAW_LABEL
+        if (a == t18_raw_pc) break;                                  /* the label store: the interpreter notes it */
+#endif
         if (!t_decode(c, a, d)) break;
 #ifdef T18_BLK_MAXCYC
         bcyc += d->cyc;
@@ -1259,10 +1345,42 @@ static int translate_thumb(arm7_t *c, uint32_t pc, jent_t *e)
     extern uint32_t t18_kstat[2][20]; uint16_t *kj = J; int kk = 16;
     t18_kstat[0][18] += (uint32_t)(J - start); t18_kstat[1][18]++;
 #endif
+#ifdef T18_KNOWN
+    uint32_t tkv[8]; uint32_t tkm = 0, tbw = 0;                     /* as in translate_arm: known r0..r7, written so far */
+#endif
     for (int i = 0; i < n && !ended; i++) {
         const jins_t *d = &I[i];
         uint32_t op = d->op, ipc = d->pc;
         int fl = live_after[i] != 0;
+#ifdef T18_KNOWN
+        uint32_t tw = 0xFFu; int tset = -1; uint32_t tval = 0;
+        switch (d->kind) {
+        case K_COPY:
+            if ((op >> 13) == 0) tw = 1u << (op & 7);                                   /* shifts, add/sub */
+            else if ((op >> 13) == 1) {                                                 /* mov/cmp/add/sub #imm8 */
+                int rd = (op >> 8) & 7, o = (op >> 11) & 3; uint32_t v = op & 0xFF;
+                tw = o == 1 ? 0u : 1u << rd;
+                if (o == 0) { tset = rd; tval = v; }
+                else if (o == 2 && ((tkm >> rd) & 1u)) { tset = rd; tval = tkv[rd] + v; }
+                else if (o == 3 && ((tkm >> rd) & 1u)) { tset = rd; tval = tkv[rd] - v; }
+            } else if ((op >> 10) == 0x10) { int k = (op >> 6) & 15; tw = (k == 8 || k == 10 || k == 11) ? 0u : 1u << (op & 7); }
+            break;
+        case K_HI: { int sub = (op >> 8) & 3, rd = (op & 7) | ((op >> 4) & 8), rs = (op >> 3) & 15;
+            tw = (sub == 1 || sub == 3) ? 0u : rd < 8 ? 1u << rd : 0u;
+            if (sub == 2 && rd < 8 && rs < 8 && ((tkm >> rs) & 1u)) { tset = rd; tval = tkv[rs]; }
+            break; }
+        case K_LDRPC: { int rd = (op >> 8) & 7; tw = 1u << rd; tset = rd; tval = arm7_read32(c, ((ipc + 4) & ~3u) + (op & 0xFF) * 4); break; }
+        case K_ADDPC: { int rd = (op >> 8) & 7; tw = 1u << rd; tset = rd; tval = ((ipc + 4) & ~3u) + (op & 0xFF) * 4u; break; }
+        case K_MEM: { uint32_t f = op >> 11; int ld = (f == 10 || f == 11) ? ((op >> 9) & 7) >= 3 : (int)(f & 1u); tw = ld ? 1u << (op & 7) : 0u; break; }
+        case K_SPMEM: tw = (op >> 11) & 1u ? 1u << ((op >> 8) & 7) : 0u; break;
+        case K_ADDSP: tw = 1u << ((op >> 8) & 7); break;
+        case K_SPADJ: case K_PUSH: case K_BCC: case K_B: tw = 0; break;
+        case K_POP: tw = op & 0xFFu; break;
+        case K_LDM: tw = (op & 0xFFu) | 1u << ((op >> 8) & 7); break;
+        case K_STM: tw = 1u << ((op >> 8) & 7); break;
+        default: tw = 0xFFu; break;
+        }
+#endif
 #ifdef T18_KSTAT
         t18_kstat[0][kk] += (uint32_t)(J - kj); t18_kstat[1][kk]++; kj = J; kk = d->kind;
 #endif
@@ -1311,6 +1429,53 @@ static int translate_thumb(arm7_t *c, uint32_t pc, jent_t *e)
                 uint32_t imm = (op >> 6) & 31;
                 if (f == 12 || f == 13) { size = 2; imm *= 4; } else if (f == 14 || f == 15) size = 0; else { size = 1; imm *= 2; }
                 load = f & 1;
+#ifdef T18_KNOWN
+                if ((tkm >> rb) & 1u) {
+                    uint32_t A = tkv[rb] + imm, o = A - 0xF8000000u, nb = 1u << size;
+#ifdef T18_SPEC
+                    if (size == 2 && emit_io_known(load, rd, A)) { t18_known_n++; cyc += d->cyc; break; }
+#endif
+                    if (load && size == 2 && A == 0xD0000064u) { t2_mov32(rd, 0); t18_known_n++; cyc += d->cyc; break; }
+                    if (o < T18_SRAM_SIZE && o + nb <= T18_SRAM_SIZE && !(A & (nb - 1u)) && !t18_hole_n(o, nb)) {
+                        t2_mov32(S2, A + 0x20000000u); t2_ldst_i(load, size, sign, rd, S2, 0); t18_known_n++; cyc += d->cyc; break;
+                    }
+                }
+#endif
+#ifdef T18_SPEC
+                if (!((tkm >> rb) & 1u) && !((tbw >> rb) & 1u) && size == 2 && rd != rb && t18_sfp.o) {
+                    uint32_t v0 = c->r[rb], A = v0 + imm;
+                    int kind = !load ? ((A == 0xC0150008u || A == 0xC0150000u) ? 5 : 0)
+                             : A == 0xD0000064u ? 1 : A == 0xC0150004u ? 2 : A == 0xC015000Cu ? 3 : A == 0xC0150000u ? 4 : 0;
+#ifdef T18_IO_DIRECT
+                    uint32_t *iop = load && !kind ? tg18_io_plain(JCPU->ctx, A) : 0;
+                    if (iop) kind = 6;
+#endif
+                    if (kind) {
+                        if (fl) t2_mrs(SLR);
+                        t2_mov32(S2, v0);
+                        t2_dpreg(T2_SUB, 1, 15, rb, S2, 0, 0);
+                        uint16_t *ne = J; J += 2;
+                        if (fl) t2_msr(SLR);
+                        if (kind == 1) t2_mov32(rd, 0);
+                        else if (kind == 2) { t2_mov32(S2, (uint32_t)(uintptr_t)t18_sfp.r); t2_ldst_i(1, 2, 0, rd, S2, 0); t2_dpimm(T2_BIC, 0, rd, rd, t2_modimm(8)); }
+                        else if (kind == 3) { t2_mov32(S2, (uint32_t)(uintptr_t)t18_sfp.o); t2_ldst_i(1, 0, 0, rd, S2, 0); }
+                        else if (kind == 4) { t2_mov32(S2, (uint32_t)(uintptr_t)t18_sfp.c); t2_ldst_i(1, 2, 0, rd, S2, 0); }
+#ifdef T18_IO_DIRECT
+                        else if (kind == 6) { t2_mov32(S2, (uint32_t)(uintptr_t)iop); t2_ldst_i(1, 2, 0, rd, S2, 0); }
+#endif
+                        else { t2_mov(S1, rd); t2_mov32(S2, A); E_bl(fn16(j_sfw)); }
+                        uint16_t *jn = J; J += 2;
+                        t2_bcc_at(ne, J, 1);
+                        if (fl) t2_msr(SLR);
+                        t2_addi(S1, rb, imm);
+                        emit_mem(ipc | 1u, load, size, sign, rd, cyc, fl);
+                        t2_b_at(jn, J);
+                        t18_known_n += 0x10000u;
+                        cyc += d->cyc;
+                        break;
+                    }
+                }
+#endif
                 t2_addi(S1, rb, imm);
             }
             emit_mem(ipc | 1u, load, size, sign, rd, cyc, fl);
@@ -1396,6 +1561,10 @@ static int translate_thumb(arm7_t *c, uint32_t pc, jent_t *e)
             cyc += 4; emit_exit_key(tgt | 1u, cyc); ended = 1; break;
         }
         }
+#ifdef T18_KNOWN
+        tbw |= tw; tkm &= ~tw & 0xFFu;
+        if (tset >= 0) { tkv[tset] = tval; tkm |= 1u << tset; }
+#endif
         if (cyc > maxcyc) maxcyc = cyc;
     }
 #ifdef T18_KSTAT
@@ -1614,11 +1783,48 @@ static int translate_arm(arm7_t *c, uint32_t pc, jent_t *e)
 #endif
     uint32_t cyc = 0, maxcyc = 0;
     int ended = 0;
+#ifdef T18_KNOWN
+    /* 1.6.13 test2: registers with a value known while translating (MOV/MVN immediate, ADD/SUB immediate of a known
+     * register or the pc, a literal load), per block. A load or store at a known address in the SRAM (not the hole,
+     * aligned) is done directly, without the address check and the slow path; the SPI busy flag 0xD0000064 (always 0,
+     * polled before every register write of the firmware) is loaded as 0. The same accesses and cycles as before. */
+    uint32_t kv[16]; uint32_t kvm = 0;
+#endif
+#ifdef T18_SPEC
+    uint32_t bw = 0;                     /* registers written by the instructions before in this block */
+#endif
     for (int i = 0; i < n && !ended; i++) {
         const jins_t *d = &I[i];
         uint32_t op = d->op, ipc = d->pc, pc8 = ipc + 8;
         uint32_t cond = op >> 28;
         int fl = live_after[i] != 0;
+#ifdef T18_KNOWN
+        uint32_t kw = 0xFFFFu; int kset = -1; uint32_t kval = 0;   /* registers this instruction may write; a known result */
+        switch (d->kind) {
+        case A_DP: { int opc = (op >> 21) & 15, rd = (op >> 12) & 15, rn = (op >> 16) & 15;
+            kw = (opc >= 8 && opc <= 11) ? 0u : 1u << rd;
+            if (cond == 14 && (op & (1u << 25)) && rd < 15) {
+                uint32_t rot = ((op >> 8) & 15) * 2, v = op & 0xFF; v = rot ? (v >> rot) | (v << (32 - rot)) : v;
+                int kn = rn == 15 || (rn < 13 && (kvm >> rn) & 1u); uint32_t bv = rn == 15 ? pc8 : kv[rn & 15];
+                if (opc == 13) { kset = rd; kval = v; }
+                else if (opc == 15) { kset = rd; kval = ~v; }
+                else if (opc == 4 && kn) { kset = rd; kval = bv + v; }
+                else if (opc == 2 && kn) { kset = rd; kval = bv - v; }
+            }
+            break; }
+        case A_LS: case A_LSH: { int l = (op >> 20) & 1, rn = (op >> 16) & 15, rd = (op >> 12) & 15, p = (op >> 24) & 1, w = (op >> 21) & 1;
+            kw = (l ? 1u << rd : 0u) | ((!p || w) ? 1u << rn : 0u);
+            break; }
+        case A_LDM: kw = (op & 0xFFFFu) | ((op >> 21) & 1u ? 1u << ((op >> 16) & 15) : 0u); break;
+        case A_STM: kw = (op >> 21) & 1u ? 1u << ((op >> 16) & 15) : 0u; break;
+        case A_MUL: kw = 1u << ((op >> 16) & 15); break;
+        case A_MULL: kw = 1u << ((op >> 16) & 15) | 1u << ((op >> 12) & 15); break;
+        case A_MRS: kw = 1u << ((op >> 12) & 15); break;
+        case A_B: case A_BX: kw = 0; break;                            /* not taken: the block goes on */
+        case A_BL: kw = 1u << 14; break;
+        default: kw = 0xFFFFu; break;                                  /* MSR (mode, banked registers) */
+        }
+#endif
         /* condition: skip over the code (counts 1 cycle); the executed path pays the rest */
         uint16_t *skipbr = 0;
         if (cond != 14) { skipbr = J; J += 2; }
@@ -1740,6 +1946,9 @@ static int translate_arm(arm7_t *c, uint32_t pc, jent_t *e)
                 uint32_t v = size == 2 ? arm7_read32(c, la) : size == 1 ? arm7_read16(c, la) : arm7_read8(c, la);
                 if (sign) v = size == 1 ? (uint32_t)(int32_t)(int16_t)v : (uint32_t)(int32_t)(int8_t)v;
                 if (rd < 8) t2_mov32(rd, v); else { t2_mov32(S1, v); set_reg(rd, S1); }
+#ifdef T18_KNOWN
+                if (cond == 14 && rd < 15 && l) { kset = rd; kval = v; }
+#endif
                 break;
             }
             if (rn == 13 && reg_off < 0 && size == 2) {
@@ -1761,6 +1970,80 @@ static int translate_arm(arm7_t *c, uint32_t pc, jent_t *e)
                 }
                 break;
             }
+#ifdef T18_KNOWN
+            if (rn < 13 && ((kvm >> rn) & 1u) && reg_off < 0 && p && !w && rd < 13) {
+                uint32_t A = kv[rn] + (u ? imm : 0u - imm), o = A - 0xF8000000u, nb = 1u << size;
+#ifdef T18_SPEC
+                if (size == 2 && !(A & 3u) && rd < 8 && emit_io_known(l, rd, A)) { t18_known_n++; break; }
+#endif
+                if (l && size == 2 && A == 0xD0000064u) {                /* SPI busy: always 0 (as io_rd) */
+                    if (rd < 8) t2_mov32(rd, 0); else { t2_mov32(S1, 0); set_reg(rd, S1); }
+                    t18_known_n++;
+                    break;
+                }
+                if (o < T18_SRAM_SIZE && o + nb <= T18_SRAM_SIZE && !(A & (nb - 1u)) && !t18_hole_n(o, nb)) {
+                    t2_mov32(S2, A + 0x20000000u);                       /* host address; no flags change */
+                    if (rd < 8) t2_ldst_i(l, size, sign, rd, S2, 0);
+                    else if (l) { t2_ldst_i(1, size, sign, S1, S2, 0); t2_ldst_i(0, 2, 0, S1, RC, 4u * (uint32_t)rd); }
+                    else { t2_ldst_i(1, 2, 0, S1, RC, 4u * (uint32_t)rd); t2_ldst_i(0, size, 0, S1, S2, 0); }
+                    t18_known_n++;
+                    break;
+                }
+            }
+#endif
+#ifdef T18_SPEC
+            /* 1.6.13 test2: the polls of the SPI loops (busy flag 0xD0000064, SPI status, answer and control) with a
+             * base register set outside the block: guarded by its value when translated. Guard fails: as before. */
+            uint16_t *sp_join = 0;
+#ifdef T18_SPEC_DBG
+            { extern uint32_t t18_spec_dbg[64]; static int dn; if (dn < 32 && ipc >= 0xF8002BB0u && ipc < 0xF8002C10u) { t18_spec_dbg[2 * dn] = ipc; t18_spec_dbg[2 * dn + 1] = (uint32_t)rn | (uint32_t)rd << 4 | ((bw >> rn) & 1u) << 8 | (uint32_t)p << 9 | (uint32_t)w << 10 | (uint32_t)l << 11 | (uint32_t)size << 12 | (uint32_t)(reg_off >= 0) << 14 | (c->r[rn] & 0xFFFF0000u); dn++; } }
+#endif
+            if (rn < 13 && !((bw >> rn) & 1u) && reg_off < 0 && p && !w && !l && size == 2 && rd < 13 && t18_sfp.o) {
+                uint32_t v0 = c->r[rn], A = v0 + (u ? imm : 0u - imm);
+                if (A == 0xC0150008u || A == 0xC0150000u) {               /* SPI send, control: straight to the SPI model */
+                    if (fl) t2_mrs(SLR);
+                    int x = get_reg(rn, S1, pc8);
+                    t2_mov32(S2, v0);
+                    t2_dpreg(T2_SUB, 1, 15, x, S2, 0, 0);
+                    uint16_t *ne = J; J += 2;
+                    if (fl) t2_msr(SLR);
+                    if (rd < 8) t2_mov(S1, rd); else get_reg(rd, S1, pc8);
+                    t2_mov32(S2, A);
+                    E_bl(fn16(j_sfw));
+                    sp_join = J; J += 2;
+                    t2_bcc_at(ne, J, 1);
+                    if (fl) t2_msr(SLR);
+                    t18_known_n += 0x10000u;
+                }
+            }
+            if (!sp_join && rn < 13 && !((bw >> rn) & 1u) && reg_off < 0 && p && !w && l && size == 2 && rd < 8 && rd != rn) {
+                uint32_t v0 = c->r[rn], A = v0 + (u ? imm : 0u - imm);
+                int kind = A == 0xD0000064u ? 1 : (t18_sfp.o && A == 0xC0150004u) ? 2 : (t18_sfp.o && A == 0xC015000Cu) ? 3 : (t18_sfp.o && A == 0xC0150000u) ? 4 : 0;
+#ifdef T18_IO_DIRECT
+                uint32_t *iop = !kind ? tg18_io_plain(JCPU->ctx, A) : 0;
+                if (iop) kind = 6;
+#endif
+                if (kind) {
+                    if (fl) t2_mrs(SLR);
+                    int x = get_reg(rn, S1, pc8);
+                    t2_mov32(S2, v0);
+                    t2_dpreg(T2_SUB, 1, 15, x, S2, 0, 0);                   /* cmp */
+                    uint16_t *ne = J; J += 2;
+                    if (fl) t2_msr(SLR);
+                    if (kind == 1) t2_mov32(rd, 0);
+                    else if (kind == 2) { t2_mov32(S2, (uint32_t)(uintptr_t)t18_sfp.r); t2_ldst_i(1, 2, 0, rd, S2, 0); t2_dpimm(T2_BIC, 0, rd, rd, t2_modimm(8)); }
+                    else if (kind == 3) { t2_mov32(S2, (uint32_t)(uintptr_t)t18_sfp.o); t2_ldst_i(1, 0, 0, rd, S2, 0); }
+#ifdef T18_IO_DIRECT
+                    else if (kind == 6) { t2_mov32(S2, (uint32_t)(uintptr_t)iop); t2_ldst_i(1, 2, 0, rd, S2, 0); }
+#endif
+                    else { t2_mov32(S2, (uint32_t)(uintptr_t)t18_sfp.c); t2_ldst_i(1, 2, 0, rd, S2, 0); }
+                    sp_join = J; J += 2;
+                    t2_bcc_at(ne, J, 1);                                    /* bne: the usual way */
+                    if (fl) t2_msr(SLR);
+                    t18_known_n += 0x10000u;
+                }
+            }
+#endif
             /* address into r11 */
             int b = get_reg(rn, S1, pc8);
             int off_r = -1;
@@ -1781,6 +2064,9 @@ static int translate_arm(arm7_t *c, uint32_t pc, jent_t *e)
                 if (rn == rd && l) { /* loaded value wins: nothing more to do */ }
             }
             emit_mem(ipc, l, size, sign, rd, cyc, fl);
+#ifdef T18_SPEC
+            if (sp_join) t2_b_at(sp_join, J);
+#endif
             break;
         }
         case A_LDM: case A_STM: {
@@ -1857,6 +2143,13 @@ static int translate_arm(arm7_t *c, uint32_t pc, jent_t *e)
             break;
         }
         }
+#ifdef T18_SPEC
+        bw |= kw;
+#endif
+#ifdef T18_KNOWN
+        kvm &= ~kw & 0x1FFFu;
+        if (kset >= 0 && kset < 13) { kv[kset] = kval; kvm |= 1u << kset; }
+#endif
         if (cond != 14) {
             /* executed path: pay the extra cycles (exits above paid theirs) */
             if (!term && d->cyc > 1) t2_addi(RB, RB, 0u - (uint32_t)(d->cyc - 1));
@@ -2055,6 +2348,9 @@ static jent_t *block_for(arm7_t *c, uint32_t key, int count)
 #endif
 #ifdef T18_TIERUP
     j_inl = e->hot2 == 254;
+#ifdef T18_TU_KEEP
+    if (TUK_GET(key)) j_inl = 1;
+#endif
 #endif
     int r = (key & 1) ? translate_thumb(c, key & ~1u, e) : translate_arm(c, key, e);
     t18_jit_fr[key >= 0xF8000000u ? 2 : 3]++;
@@ -2261,6 +2557,9 @@ __attribute__((section(".xiptext.tu_note"), noinline)) static void tu_note(uint3
             JW(p, 0); JW(p + 1, 0);
             e->off = 0; e->none = 0; e->hot = (uint8_t)(j_hot_v - 1); e->hot2 = 254;
             t18_tu_n++;
+#ifdef T18_TU_KEEP
+            TUK_SET(key);
+#endif
             return;
         }
         p = end;

@@ -86,6 +86,13 @@ destinations). A new record goes into the first erased slot.
 sh src/emu/build.sh      # clang, ld.lld, llvm-objcopy -> src/emu/emu.bin
 ```
 
+Copy `src/emu/emu.bin` to `emu/emu.bin` (the Studio embeds that one). With `EMU_OVL` (on since 1.6.13 test10) the
+build links with `link_ovl.ld`: the settings menus and the save code sit at the end of the image, in the translator's
+room, and are copied back from the flash when they are needed.
+
+Device simulation (Unicorn, private ROMs only): `node test/mkimg.js <paradise.bin> <firmware> emu.bin out.bin`, then
+`python3 test/devemu.py src/emu/emu.elf out.bin <ms>` with `KEYS`, `SHOTS`, `OUT`, `LAGLOG`, `PROF`, `ROMHIST`.
+
 Launcher template (link address 0x1009F000):
 
 ```

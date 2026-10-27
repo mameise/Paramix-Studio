@@ -93,8 +93,24 @@ def _pmu(uc, acc, a, sz, v, ud):
             t += 1
             if t % 1000 == 0 or t >= total_ms or any(t / 1000.0 >= kt > state['ms'] / 1000.0 for kt, _ in KS): break
         state['dsleep'] = t
-        uc.mem_write(0x45000304, struct.pack('<I', rtc0 + t // 1000))
+        if t % 1000 == 0 and 'g_pw_rtcw' in syms: uc.mem_write(syms['g_pw_rtcw'], b'\x01')   # the RTC interrupt ran
+        if int(os.environ.get('RTCLAG', '0')):
+            # 1.6.13 test3: the counter shows the new second only a few reads after the wake (32 kHz domain)
+            state['rtc_new'] = rtc0 + t // 1000; state['rtclag'] = int(os.environ['RTCLAG'])
+        else: uc.mem_write(0x45000304, struct.pack('<I', rtc0 + t // 1000))
 u.hook_add(UC_HOOK_MEM_WRITE, _pmu, begin=0x45000300, end=0x45000303)
+def _rtcrd(uc, acc, a, sz, v, ud):
+    if 'rtc_new' in state:
+        if state['rtclag'] > 0: state['rtclag'] -= 1
+        else: uc.mem_write(0x45000304, struct.pack('<I', state.pop('rtc_new')))
+u.hook_add(UC_HOOK_MEM_READ, _rtcrd, begin=0x45000304, end=0x45000307)
+RTCLAGMS = int(os.environ.get('RTCLAGMS', '0'))
+if RTCLAGMS:
+    # 1.6.13 test3: the counter shows a new second only RTCLAGMS ms after it began (the RTC interrupt comes on time)
+    def _rtcms(uc, acc, a, sz, v, ud):
+        eff = state.get('dsleep') or state['ms']
+        uc.mem_write(0x45000304, struct.pack('<I', rtc0 + max(eff - RTCLAGMS, 0) // 1000))
+    u.hook_add(UC_HOOK_MEM_READ, _rtcms, begin=0x45000304, end=0x45000307)
 if os.environ.get('MEMW'):
     _mw = int(os.environ['MEMW'], 16)
     u.hook_add(UC_HOOK_MEM_WRITE, lambda uc, acc, a, sz, v, ud: print('W %08x = %08x at ms %d' % (a, v, state['ms'])), begin=_mw, end=_mw + 0x3F)
@@ -147,6 +163,10 @@ while state['ms'] < total_ms and 'back' not in state:
         for i in range(3):
             if e & (1 << i): a = syms['g_kin'] + i; u.mem_write(a, bytes([(u.mem_read(a, 1)[0] + 1) & 0xFF]))
     if si < len(SH) and state['ms'] >= SH[si] * 1000: shot('shot_%02d.png' % si); si += 1
+    LL = int(os.environ.get('LAGLOG', '0'))   # 1.6.13 test4: every LL ms: emulated ms in that time (100 % = real time)
+    if LL and state['ms'] % LL == 0:
+        _st = struct.unpack('<2I', bytes(u.mem_read(syms['g_t7st'], 8))); _p = state.get('llp', _st)
+        print('lag', state['ms'], _st[0] - _p[0], _st[1] - _p[1], flush=True); state['llp'] = _st
     if os.environ.get('CLOG') and state['ms'] % int(os.environ['CLOG']) == 0:
         _w = bytes(u.mem_read(syms['g_wram'], 0x600)); _sa = int(os.environ.get('CSEC', '0x396'), 16)
         _eb = struct.unpack('<3I', bytes(u.mem_read(syms['g_eco_bad'], 4)) + bytes(u.mem_read(syms['g_eco_fix'], 8))) if 'g_eco_bad' in syms else ()

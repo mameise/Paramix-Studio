@@ -35,6 +35,7 @@ function secs(a, b) { const o = new Set(); for (let s = 0; s < Math.max(a.length
   const G0 = rd(idl), G = E.dlcAdd(G0, E.dlcRecord(mk('DL_X_tea.jpg'), E.emuDetect(G0))).guest;
   const r0 = build([{ kind: 'tama', guest: G, dev: E.emuDetect(G) }]);
   const x0 = E.appsRead(r0, F.feldApps(r0, fe.stub).apps)[0];
+  ok(Buffer.from(x0.guest).equals(Buffer.from(G)), 'read back: the whole firmware, also the parts kept as spare pages (1.7.1)');
   const ad = E.dlcAdd(x0.guest, E.dlcRecord(mk('DL_X_cake.jpg'), x0.dev));
   const r1 = build([{ kind: 'tama', guest: ad.guest, dev: x0.dev }]);
   const mine = secs(r0, r1);

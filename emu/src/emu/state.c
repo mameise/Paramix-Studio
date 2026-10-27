@@ -7,6 +7,11 @@
 #include "flash.h"
 #include "../core/tc.h"
 #include "state.h"
+#ifdef EMU_OVL
+#define ST_OVL __attribute__((section(".ovltext")))   /* 1.6.13 test10: the save when leaving, from the overlay */
+#else
+#define ST_OVL
+#endif
 
 #define MAGIC 0x53584D50u   /* "PMXS" */
 #define SVER  3u   /* 2: Emu fields rearranged for the translator (v0.7), 3: 64 KB sectors and spare pages (v0.9.2) */
@@ -107,7 +112,7 @@ int st_big_erase(Emu *e, uint32_t base)
 }
 
 /* ---- Writing back the guest flash ---- */
-int st_flush_guest(Emu *e, const StCfg *c)
+ST_OVL int st_flush_guest(Emu *e, const StCfg *c)
 {
   int n=0;
   if(e->flash_busy || e->flash_state) return 0;
@@ -160,9 +165,9 @@ int st_evict(Emu *e)
 
 /* ---- packed data stream (PackBits) ---- */
 typedef struct { u32 addr, n, sec, total; } Wr;
-static void w_flush(Wr *w){ if(!w->n) return; for(u32 i=w->n;i<0x1000u;i++) g_sec[i]=0xFF; flash_update4k(w->addr+w->sec*0x1000u, g_sec); w->sec++; w->n=0; }
-static void w_byte(Wr *w, u8 b){ g_sec[w->n++]=b; w->total++; if(w->n==0x1000u) w_flush(w); }
-static void w_block(Wr *w, const u8 *p, u32 len)
+ST_OVL static void w_flush(Wr *w){ if(!w->n) return; for(u32 i=w->n;i<0x1000u;i++) g_sec[i]=0xFF; flash_update4k(w->addr+w->sec*0x1000u, g_sec); w->sec++; w->n=0; }
+ST_OVL static void w_byte(Wr *w, u8 b){ g_sec[w->n++]=b; w->total++; if(w->n==0x1000u) w_flush(w); }
+ST_OVL static void w_block(Wr *w, const u8 *p, u32 len)
 {
   u32 i=0;
   while(i<len){
@@ -195,7 +200,7 @@ static u32 rtc_now(void){ return REG(0x45000304u); }
 
 void st_drop(const StCfg *c){ if(!flash_isff(c->save_off, 0x1000u)) flash_erase4k(c->save_off); }
 
-void st_save(Emu *e, const StCfg *c, u16 (*gram)[128])
+ST_OVL void st_save(Emu *e, const StCfg *c, u16 (*gram)[128])
 {
   st_flush_guest(e, c);
   /* invalidate the old header first */

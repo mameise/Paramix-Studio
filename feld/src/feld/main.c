@@ -667,13 +667,54 @@ static void bat_text(char *s){ const char *t="2.84V 80%"; int i=0; while((s[i]=t
 #endif
 #endif
 static void lset_menu(void);
+#if defined(FELD_PW) && !defined(HOST)
+/* test23 (switch FELD_PW): the display dark, the menu waited for a key in a tight loop at the full clock and used
+ * about as much power as with the display on. Now deep sleep (as TamaEmu, EMU_PW) between the polls: a key wakes at
+ * once (edge interrupt on P0.8..11, the wheel on P2.0/P2.1), the RTC every second when it runs on 1 s (the wheel is seen then). The interrupts
+ * stay masked: the pending one only ends the WFI, its flags are cleared here. */
+#define FP_ISO REG(0x45000200u)
+#define FP_PMU REG(0x45000300u)
+#define FP_GP0(o) REG(0x40018000u + (o))
+#define FP_KEYS 0xF00u
+#define FP_GP2(o) REG(0x4001A000u + (o))
+#define FP_IRQS ((1u << 2) | (1u << 26) | (1u << 28))   /* RTC, GPIO0, GPIO2 (the wheel, P2.0/P2.1) */
+__attribute__((noinline)) static void dark_wait(void){
+  u32 pm; __asm__ volatile("mrs %0, primask\n cpsid i" : "=r"(pm) :: "memory");
+  for(;;){
+    if(input()) break;
+    if(hw_buttons() || g_enc_acc) continue;                       /* a key or the wheel being read: poll on */
+    u32 iso=FP_ISO, rtc=(iso & 0x80u) && !(iso & 7u), csr=SYST_CSR;
+    if(rtc) FP_ISO = iso & ~8u;                                  /* RTC_WKP 0: the RTC wakes */
+    FP_GP0(0x0C) &= ~FP_KEYS; FP_GP0(0x10) |= FP_KEYS; FP_GP0(0x20) = FP_KEYS; FP_GP0(0x18) |= FP_KEYS;   /* both edges */
+    FP_GP2(0x0C) &= ~3u; FP_GP2(0x10) |= 3u; FP_GP2(0x20) = 3u; FP_GP2(0x18) |= 3u;
+    REG(0xE000E280u) = FP_IRQS; REG(0xE000E100u) = rtc ? FP_IRQS : FP_IRQS & ~(1u << 2);
+    SYST_CSR = 0;
+    FP_PMU = (FP_PMU & ~0x47u) | 2u;                              /* DSLEEP_EN */
+    __asm__ volatile("dsb\n wfi\n isb" ::: "memory");
+    FP_PMU = FP_PMU & ~0x47u;
+    REG(0xE000E180u) = FP_IRQS; FP_GP0(0x18) &= ~FP_KEYS; FP_GP0(0x20) = FP_KEYS; FP_GP2(0x18) &= ~3u; FP_GP2(0x20) = 3u;
+    FP_PMU = (FP_PMU & ~0x47u) | 0x10u;                           /* RTC_FLAG: write 1 */
+    REG(0xE000E280u) = FP_IRQS;
+    if(rtc) FP_ISO = (FP_ISO & ~8u) | (iso & 8u);
+    SYST_CVR = 0; SYST_CSR = csr; g_tick_last = SYST_CVR;
+    for(u32 t=0;t<20000u;t++) if(hw_buttons()) break;           /* the pins settle after the wake */
+  }
+  __asm__ volatile("msr primask, %0" :: "r"(pm) : "memory");
+}
+#elif defined(FELD_PW)
+static void dark_wait(void){ while(!input()){} }
+#endif
 static int idle_input(void){
   int k=input();
   if(k){ g_idle_t=g_ms; return k; }
 #ifndef HOST
   if(launch_mode() && g_idle_ms && g_ms-g_idle_t>=g_idle_ms){
     hw_backlight(0);
+#ifdef FELD_PW
+    dark_wait();
+#else
     while(!input()){}
+#endif
     hw_backlight(1); wait_release(); g_idle_t=g_ms;
     return -1;                        /* redraw */
   }

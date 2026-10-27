@@ -20,7 +20,7 @@ SECTIONS {
   .init : { . = ALIGN(4); KEEP(*(.initcode)) KEEP(*(.initdata*)) KEEP(*(.initcode_z)) . = ALIGN(4); __prog_end = .; } > PRAM
   /* the second part: the translator (t7_jit.c), in the SRAM behind .bss; the program copies it from the flash
    * (save area + 0x8000, written by the Studio) and runs without it when it is not there */
-  .xcode ALIGN(8) : { __x_start = .; *t7_jit.o(.text* .rodata*) . = ALIGN(8); __x_end = .; } > SRAM AT > XL
+  .xcode ALIGN(8) : { __x_start = .; *t7_jit.o(.text* .rodata*) *(.xcode_bat) . = ALIGN(8); __x_end = .; } > SRAM AT > XL
   __x_load = LOADADDR(.xcode);
   ASSERT(__prog_end <= 0x10000, "program too big for PRAM")
   ASSERT(__x_end <= 0x1801F000, "RAM full")
