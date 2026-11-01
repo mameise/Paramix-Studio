@@ -105,6 +105,9 @@ int st_big_erase(Emu *e, uint32_t base)
     for(u32 s=0;s<16u;s++) if(!flash_isff(a+s*0x1000u, 0x1000u)) flash_erase4k(a+s*0x1000u);
     return 1;
   }
+#ifdef TC_LZ
+  { u32 b=(base>>16)&127u; tc_lz_gone[b>>5] |= 1u<<(b&31u); }   /* 1.7.3: an erased packed block reads empty */
+#endif
   u32 v0=((base>>16)&127u)*8u; int ch=0;
   for(u32 v=v0; v<v0+8u; v++){ u32 i=e->pg_map[v]; if(i!=0xFFu){ g_pt.vp[i]=0xFFFFu; e->pg_map[v]=0xFFu; ch=1; } }
   if(ch){ pt_save(); pt_count(); }

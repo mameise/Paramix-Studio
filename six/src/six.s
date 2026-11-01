@@ -3,18 +3,20 @@
 @ the code here and fills in every address and table below. A set byte in the settings block
 @ (offset 0xF04) says which tables the field slots use: 0 = the original ones, 1 = the
 @ alternative ones (Land, Water, Sky on Tropical/Glacier, Sky in slot 1 on Jade Forest).
+@ Version 7: a second byte (0xF05), written only by the Paramix menu when it starts a field,
+@ picks the games of the lab: 0 = the firmware's own, 1 = Land/Water/Sky, 2 = Jade Forest.
 .syntax unified
 .thumb
 .text
 .global _start
 _start:
 hdr:    .word 0x31584953          @ 0x00 "SIX1"
-        .word 6                   @ 0x04 version (4: plain values in the site list, 5: planet, 6: field menu)
+        .word 7                   @ 0x04 version (4: plain values in the site list, 5: planet, 6: field menu, 7: games)
         .word 0                   @ 0x08 flag address (RAM)
         .word 0xF04               @ 0x0C flag offset in the settings block
         .word 0, 0, 0             @ 0x10 sprites, composites, scripts before (for removing)
         .word 0                   @ 0x1C kind: 0 Tropical/Glacier, 1 Jade Forest
-        .word 0                   @ 0x20 options: bit 0 planet of the field, bit 1 field menu
+        .word 0                   @ 0x20 options: bit 0 planet of the field, bit 1 field menu, bit 2 games per start field
         .space 0x40-0x24
 
 @ r12 = flag (0 or 1), flags set. Keeps every other register.
@@ -340,4 +342,435 @@ six_fprev:
   blx r3
   strb r5,[r4]
   pop {r3-r7,pc}
+.ltorg
+
+@ ---------------------------------------------------------------- games per start field (version 7)
+@ The Paramix menu writes the family byte (settings 0xF05) when it starts a field. In the scenes
+@ listed at gm_sc the lab games then use other pictures: every changed place in the firmware
+@ calls six_imm, which looks up the return address in the site list and puts the value of the
+@ family into the register (for "add rd, rn, #imm" the value is added to rn). The lab card list
+@ steps through the cards of the family (six_cnext, six_cprev).
+.org 0x980
+w_gm:    .word 0                  @ 0x00 site list: return address, value 0, 1, 2, rd, rn (0xFF none), flags (bit 0: any scene), 20 bytes, ends with 0
+         .word 0                  @ 0x04 family byte (RAM)
+         .word 0                  @ 0x08 scene variable (RAM: u16 now, u16 next)
+gm_sc:   .space 12                @ 0x0C scenes where the family counts (bytes, 0 = end)
+gm_seq:  .space 16                @ 0x18 lab cards in order for family 1 and 2 (8 bytes each, 0xFF = end)
+.org 0x9B0
+  .word six_imm, six_cnext, six_cprev
+
+@ r0 = family in a listed scene, else 0. Uses r1-r3.
+gm_fam:
+  push {r4,lr}
+  ldr r3,=w_gm
+  ldr r0,[r3,#4]
+  cbz r0,8f
+  ldrb r0,[r0]
+  cmp r0,#3
+  bhs 8f
+  cbz r0,9f
+  ldr r1,[r3,#8]
+  ldrh r2,[r1]
+  ldrh r1,[r1,#2]
+  adds r3,#0x0C
+1:ldrb r4,[r3],#1
+  cbz r4,8f
+  cmp r4,r2
+  beq 9f
+  cmp r4,r1
+  beq 9f
+  b 1b
+8:movs r0,#0
+9:pop {r4,pc}
+
+@ Replaces a movw/mov.w/addw (bl) or a movw/movt pair (bl + nop). Keeps every other register and the flags.
+.thumb_func
+six_imm:
+  push {r0-r12}
+  mrs r4,apsr
+  mov r5,lr
+  bl gm_fam
+  ldr r3,=w_gm
+  ldr r3,[r3]
+1:ldr r1,[r3]
+  cbz r1,9f
+  cmp r1,r5
+  beq 2f
+  adds r3,#20
+  b 1b
+2:ldrb r1,[r3,#18]            @ bit 0: the family counts in every scene
+  lsls r1,r1,#31
+  beq 4f
+  ldr r0,=w_gm
+  ldr r0,[r0,#4]
+  ldrb r0,[r0]
+  cmp r0,#3
+  it hs
+  movhs r0,#0
+4:add r1,r3,r0,lsl #2
+  ldr r1,[r1,#4]
+  ldrb r2,[r3,#17]
+  cmp r2,#13
+  bhs 3f
+  ldr r2,[sp,r2,lsl #2]
+  add r1,r1,r2
+3:ldrb r2,[r3,#16]
+  str r1,[sp,r2,lsl #2]
+9:msr APSR_nzcvq,r4
+  mov lr,r5
+  pop {r0-r12}
+  bx lr
+
+@ r2 = menu object. Replaces "ldrh.w r1,[r2,#126]" before the card number goes up (+1) or down (-1):
+@ r1 = next card - 1 or previous card + 1 in the order of the family (as before without a family).
+.macro CARD dir
+  push {r0,r2-r5,lr}
+  mrs r4,apsr
+  ldrh r5,[r2,#126]
+  bl gm_fam
+  mov r1,r5
+  cbz r0,9f
+  ldr r3,=gm_seq-8
+  add r3,r3,r0,lsl #3
+  movs r2,#0
+1:ldrb r0,[r3,r2]
+  cmp r0,#0xFF
+  beq 9f
+  cmp r0,r5
+  beq 2f
+  adds r2,#1
+  cmp r2,#8
+  blo 1b
+  b 9f
+.if \dir > 0
+2:adds r2,#1
+  ldrb r0,[r3,r2]
+  cmp r2,#8
+  it hs
+  movhs r0,#0xFF
+  cmp r0,#0xFF
+  it eq
+  ldrbeq r0,[r3]
+  subs r1,r0,#1
+.else
+2:cbnz r2,3f
+4:ldrb r0,[r3,r2]
+  cmp r0,#0xFF
+  beq 5f
+  adds r2,#1
+  cmp r2,#8
+  blo 4b
+5:
+3:subs r2,#1
+  ldrb r0,[r3,r2]
+  adds r1,r0,#1
+.endif
+9:msr APSR_nzcvq,r4
+  pop {r0,r2-r5,pc}
+.endm
+.thumb_func
+six_cnext:
+  CARD 1
+.thumb_func
+six_cprev:
+  CARD -1
+.ltorg
+
+@ ---------------------------------------------------------------- DNA per field (option bit 3)
+@ The firmware keeps a DNA history of 12 entries: the field slot the Tama lived in, one entry per
+@ stretch of time. With the set byte a slot means two fields (Glacier and Water share slot 1),
+@ so the history mixed them up. With this option an entry is the field itself: slot + 3 when the
+@ set byte is on and the slot is one of the switched ones (mask; Tropical/Glacier all three, Jade
+@ Forest slot 1). Every place that writes or reads the history goes through the code here.
+@ The firmware also keeps some values per field slot (residents, time in the field and more,
+@ the regions at dna_reg). When the game's field menu switches the set, they are swapped with
+@ a stash in the settings block, so every field keeps its own.
+@ The first call converts an old history once (the entries count for the current set) and clears
+@ the stash; the marker byte says it is done.
+.org 0xC00
+w_dna:   .word 0                  @ 0x00 settings block (RAM)
+         .hword 0, 0              @ 0x04 offset of the DNA count (entries follow), field byte
+         .hword 0, 0              @ 0x08 stash, marker byte
+         .hword 0                 @ 0x0C byte with per slot bits (0 = none)
+         .byte 0, 0               @ 0x0E its mask, slots switched by the set byte (bits 0..2)
+dna_reg: .space 24                @ 0x10 up to 6 regions (u16 offset, u16 length), length 0 ends
+dna_ic:  .space 12                @ 0x28 picture per field 0..5
+         .space 4
+.org 0xC40
+  .word dna_maj, dna_maj6, dna_icon, dna_majf, dna_f6_r0, dna_f6_r1_r0, dna_f6_r1_r1, dna_child, dna_hchild, dna_fset
+
+@ r0 = slot 0..2 -> r0 = field (slot + 3 when the set byte is on and the slot switches). Uses r12.
+s2f:
+  cmp r0,#2
+  bhi 1f
+  FLAG
+  beq 1f
+  push {r1}
+  ldr r1,=w_dna
+  ldrb r1,[r1,#0x0F]
+  lsr r1,r1,r0
+  lsls r1,r1,#31
+  it ne
+  addne r0,#3
+  pop {r1}
+1:bx lr
+
+@ Once per save: old entries count for the current set, the stash starts empty. Keeps all registers.
+dna_init:
+  push {r0-r4,lr}
+  ldr r4,=w_dna
+  ldr r0,[r4]
+  ldrh r1,[r4,#0x0A]
+  ldrb r2,[r0,r1]
+  cmp r2,#0x5A
+  beq 9f
+  movs r2,#0x5A
+  strb r2,[r0,r1]
+  ldrh r1,[r4,#4]
+  add r1,r1,r0
+  ldrb r2,[r1],#1
+  cmp r2,#12
+  it hi
+  movhi r2,#12
+1:cbz r2,3f
+  ldrb r0,[r1]
+  bl s2f
+  strb r0,[r1],#1
+  subs r2,#1
+  b 1b
+3:ldr r0,[r4]
+  ldrh r1,[r4,#8]
+  add r1,r1,r0
+  movs r2,#1                  @ the bits byte
+  add r3,r4,#0x10
+4:ldrh r0,[r3,#2]
+  cbz r0,5f
+  add r2,r2,r0
+  adds r3,#4
+  b 4b
+5:movs r0,#0
+6:strb r0,[r1],#1
+  subs r2,#1
+  bne 6b
+9:pop {r0-r4,pc}
+
+@ r0 = settings block -> r0 = field 0..5 (other values as they are). Uses r12.
+f6:
+  ldr r12,=w_dna
+  ldrh r12,[r12,#6]
+  ldrb r0,[r0,r12]
+  b s2f
+
+@ r6 = 3: per slot of the current set (an entry counts for slot s when it is the field of s now),
+@ r6 = 6: per field. -> r0 = slot/field with at least 4 entries (the last one wins, as in the
+@ firmware), else r6. Uses r1-r5, r12.
+majc:
+  push {lr}
+  bl dna_init
+  ldr r4,=w_dna
+  ldr r0,[r4]
+  ldrh r1,[r4,#4]
+  add r1,r1,r0
+  ldrb r2,[r1],#1
+  cmp r2,#12
+  it hi
+  movhi r2,#12
+  movs r3,#0
+1:cbz r2,2f
+  ldrb r5,[r1],#1
+  mov r0,r5
+  cmp r6,#3
+  bne 8f
+  movs r0,#0                  @ which slot has this field now?
+7:push {r0}
+  bl s2f
+  cmp r0,r5
+  pop {r0}
+  beq 8f
+  adds r0,#1
+  cmp r0,#3
+  blo 7b
+  b 3f
+8:cmp r0,r6
+  bhs 3f
+  lsls r0,r0,#2
+  mov r12,#1
+  lsl r12,r12,r0
+  add r3,r3,r12
+3:subs r2,#1
+  b 1b
+2:mov r0,r6
+  movs r1,#0
+4:cmp r1,r6
+  bhs 5f
+  lsls r2,r1,#2
+  lsr r12,r3,r2
+  and r12,r12,#15
+  cmp r12,#4
+  it hs
+  movhs r0,r1
+  adds r1,#1
+  b 4b
+5:pop {pc}
+
+@ The firmware's majority (b.w): slot 0..2 with at least 4 entries of its current field, else 3.
+.thumb_func
+dna_maj:
+  push {r4-r6,lr}
+  movs r6,#3
+  bl majc
+  pop {r4-r6,pc}
+
+@ Second copy, used for the DNA picture only: field 0..5, else 6 (the caller shows picture 2 then).
+.thumb_func
+dna_maj6:
+  push {r4-r6,lr}
+  movs r6,#6
+  bl majc
+  pop {r4-r6,pc}
+
+@ Before the firmware removes the leading field from the history: field 0..5, else 0xFF.
+.thumb_func
+dna_majf:
+  push {r4,lr}
+  bl dna_maj
+  cmp r0,#3
+  bhs 1f
+  bl s2f
+  pop {r4,pc}
+1:movs r0,#0xFF
+  pop {r4,pc}
+
+@ Picture of a field (b.w from the firmware's function, r0 = field).
+.thumb_func
+dna_icon:
+  push {r1,lr}
+  bl dna_init
+  uxtb r0,r0
+  cmp r0,#6
+  it hs
+  movhs r0,#0
+  ldr r1,=dna_ic
+  ldrh r0,[r1,r0,lsl #1]
+  pop {r1,pc}
+
+@ In place of "ldrb r0,[r0,#field]": the field 0..5.
+.thumb_func
+dna_f6_r0:
+  push {lr}
+  bl dna_init
+  bl f6
+  pop {pc}
+
+@ In place of "ldrb r0,[r1,#field]".
+.thumb_func
+dna_f6_r1_r0:
+  push {lr}
+  mov r0,r1
+  bl dna_init
+  bl f6
+  pop {pc}
+
+@ In place of "ldrsb r1,[r1,#field]", r0 is kept.
+.thumb_func
+dna_f6_r1_r1:
+  push {r0,lr}
+  mov r0,r1
+  bl dna_init
+  bl f6
+  mov r1,r0
+  pop {r0,pc}
+
+@ Child of the hatching (in place of six_child): the same child, and the index in the caller's
+@ stack (written into the history right after) becomes the field.
+.thumb_func
+dna_child:
+  push {r1,r2,lr}
+  ldr r1,=w_child
+  ldr r0,[r1,#8]
+  add r2,sp,r0
+  adds r2,#12
+  ldr r0,[r2]
+  FLAG
+  ite ne
+  ldrne r1,[r1,#4]
+  ldreq r1,[r1]
+  ldrh r1,[r1,r0,lsl #1]
+  bl s2f
+  str r0,[r2]
+  mov r0,r1
+  pop {r1,r2,pc}
+
+@ Child from the first history entry (12 bytes of the firmware): r0 = child of that field.
+.thumb_func
+dna_hchild:
+  push {r1-r3,lr}
+  bl dna_init
+  ldr r3,=w_dna
+  ldr r0,[r3]
+  ldrh r1,[r3,#4]
+  add r0,r0,r1
+  ldrb r0,[r0,#1]
+  ldr r1,=w_child
+  cmp r0,#3
+  ite hs
+  ldrhs r1,[r1,#4]
+  ldrlo r1,[r1]
+  it hs
+  subhs r0,#3
+  cmp r0,#2
+  it hi
+  movhi r0,#0
+  ldrh r0,[r1,r0,lsl #1]
+  pop {r1-r3,pc}
+
+@ In place of six_fset: when the set changes, the per slot values change places with the stash.
+.thumb_func
+dna_fset:
+  push {r1-r3,lr}
+  bl fm_get
+  beq 1f
+  ldr r2,=_start
+  ldr r2,[r2,#8]
+  ldrb r1,[r2]
+  cmp r1,r3
+  beq 1f
+  bl dna_init
+  strb r3,[r2]
+  bl dna_swap
+1:pop {r1-r3,pc}
+
+@ Live per slot values <-> stash. Keeps all registers.
+dna_swap:
+  push {r0-r6,lr}
+  ldr r4,=w_dna
+  ldr r0,[r4]
+  ldrh r1,[r4,#8]
+  add r1,r1,r0
+  add r5,r4,#0x10
+1:ldrh r2,[r5,#2]
+  cbz r2,3f
+  ldrh r3,[r5]
+  add r3,r3,r0
+2:ldrb r6,[r3]
+  ldrb r12,[r1]
+  strb r6,[r1],#1
+  strb r12,[r3],#1
+  subs r2,#1
+  bne 2b
+  adds r5,#4
+  b 1b
+3:ldrh r3,[r4,#0x0C]
+  cbz r3,9f
+  add r3,r3,r0
+  ldrb r2,[r4,#0x0E]
+  ldrb r5,[r3]
+  ldrb r6,[r1]
+  and r12,r5,r2
+  bic r5,r5,r2
+  and r6,r6,r2
+  orr r5,r5,r6
+  strb r5,[r3]
+  strb r12,[r1]
+9:pop {r0-r6,pc}
 .ltorg

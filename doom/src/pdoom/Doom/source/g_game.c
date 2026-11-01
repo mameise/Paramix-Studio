@@ -133,8 +133,8 @@ const int key_map_zoomin = KEYD_SL;
 const int key_map_zoomout = KEYD_SR;
 
 #ifdef PARADISE_DEV
-#define SAVEGAME_ADDRESS (0x6010F000u)
-#define SETTINGS_ADDRESS (0x6010E000u)
+#define SAVEGAME_ADDRESS (PD_SAVE_ADDR + 0x1000u)
+#define SETTINGS_ADDRESS (PD_SAVE_ADDR)
 #else
 #define SAVEGAME_ADDRESS ((qspiFlashGetSize() - 4096) | EXT_FLASH_BASE)
 #define SETTINGS_ADDRESS ((qspiFlashGetSize() - 2 * 4096) | EXT_FLASH_BASE)

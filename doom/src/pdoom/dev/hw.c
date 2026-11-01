@@ -3,6 +3,7 @@
 #include "io.h"
 #include "hw.h"
 #include "disp_power.h"
+#include "pdmcfg.h"
 #define PANEL 0x4000E000u
 #define FCTL_ 0x40022000u
 #define F_STAT REG(FCTL_+0x000)
@@ -45,7 +46,7 @@ TC_INIT static void flashctl_init(void){
    * maps in. Without XIP that window only shows the config register (0x40), not
    * the flash data. The original flash utility does this at startup, our app did
    * not do it after reset until now. That was exactly what was missing. */
-  REG(0x4002F004u)=0x60011000u;
+  REG(0x4002F004u)=0x60011000u;   /* DOOM_FREE: moved to its program part after hw_init (as Wolf3D and the emulators) */
   REG(0x4002F000u)=0x00000003u;
   /* 1.4.1: controller init exactly like the original flash utility (0x40022000).
    * This includes setting the read command/mode in 0x008 and 0x00c (0x3077 / 0xf000),
@@ -249,6 +250,10 @@ TC_INIT void hw_init(void){
   flashctl_init();
 }
 
+#ifdef GPLAY
+#include "../../../../emu/src/emu/gplay.h"
+uint32_t g_gp_secs, g_gp_last;
+#endif
 u32 hw_buttons(void){
   u32 d = REG(GPIO0+0x00);
   u32 b = 0;
@@ -256,6 +261,9 @@ u32 hw_buttons(void){
   if(!(d & (1u<<11))) b |= BTN_B;
   if(!(d & (1u<<10))) b |= BTN_C;
   if(!(d & (1u<<8)))  b |= BTN_WHEEL;
+#ifdef GPLAY
+  gp_key(b);
+#endif
   return b;
 }
 

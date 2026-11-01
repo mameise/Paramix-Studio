@@ -61,6 +61,14 @@ __attribute__((noinline, unused)) PARA_ATTR static uint32_t para_mailbox(uint32_
 #endif
   return m[1] + (cnt - m[2]);
 }
+/* 1.7.2 test17: the mailbox written in the last two minutes (the menu right before starting the program, or its clock in a
+ * start device without the Paradise): it comes first, before the search in the SRAM, which may find old leftovers there */
+__attribute__((noinline, unused)) PARA_ATTR static uint32_t para_mailbox_fresh(uint32_t cnt)
+{
+  volatile uint32_t *m = PARA_MB;
+  if (m[0] != PARA_MB_MAGIC || m[3] != ~m[1] || !m[1] || cnt - m[2] > 120u) return 0;
+  return m[1] + (cnt - m[2]);
+}
 #ifdef PARA_FLASH
 /* 1.6.9 test37 (PARA_FLASH): the Paradise keeps the base of its clock in its settings page 0xEFE000 (copy at 0xEFF000):
  * days since 2025-01-01 at +0x0C and seconds at +0x10; now = base + the seconds counter 0x45000304, which runs on
@@ -87,6 +95,18 @@ __attribute__((noinline, unused)) PARA_ATTR static uint32_t para_flash(uint32_t 
     return t;
   }
   return 0;
+}
+#endif
+#ifdef PARA_CLEAN_CLK
+/* 1.7.2 test17 (PARA_CLEAN_CLK): start device without the Paradise: nobody but the menu keeps the time, in its clock
+ * sector 0x0C0000 ("PMXK", time, counter then, idle, check = xor of the four). A program that starts first (autostart,
+ * the menu did not run) found no time before. Readable only after hw_init. */
+__attribute__((noinline, unused)) PARA_ATTR static uint32_t para_cleanclk(uint32_t cnt)
+{
+  const volatile uint32_t *p = (const volatile uint32_t *)0x600C0000u;
+  uint32_t m = p[0], t = p[1], c = p[2], i = p[3], k = p[4];
+  if (m != 0x4B584D50u || k != (m ^ t ^ c ^ i) || !t || cnt < c) return 0;
+  return t + (cnt - c);
 }
 #endif
 __attribute__((noinline, unused)) static void para_mailbox_put(uint32_t t, uint32_t cnt)

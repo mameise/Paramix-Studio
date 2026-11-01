@@ -352,11 +352,13 @@ async function doomBuild(rom, wad, opts, emb, E) {
 }
 
 const DOOM_APP_B64 = '__DOOM_APP_B64__', DOOM_XIP_B64 = '__DOOM_XIP_B64__', DOOM_WASM_B64 = '__DOOM_WASM_B64__';
+const DOOMF_APP_B64 = '__DOOMF_APP_B64__', DOOMF_XIP_B64 = '__DOOMF_XIP_B64__';   // 1.7.2 DOOM_FREE: build with its places from the settings block
 function embedded() {
   if (DOOM_APP_B64.startsWith('__')) return null;
-  return { app: b64(DOOM_APP_B64), xip: b64(DOOM_XIP_B64), wasm: b64(DOOM_WASM_B64) };
+  const fr = !DOOMF_APP_B64.startsWith('__');
+  return { app: b64(DOOM_APP_B64), xip: b64(DOOM_XIP_B64), wasm: b64(DOOM_WASM_B64), appF: fr ? b64(DOOMF_APP_B64) : null, xipF: fr ? b64(DOOMF_XIP_B64) : null };
 }
 
-root.ParamixDoom = { KEYS_DEFAULT, doomKeysGet, doomKeysSet, doomKeysCheck, readWad, writeWad, wadEpisodes, wadSub, gbaExtras, convert, doomPatch, doomBuild, embedded, WAD_OFF, REGION_OFF };
+root.ParamixDoom = { KEYS_DEFAULT, doomKeysGet, doomKeysSet, doomKeysCheck, readWad, writeWad, wadEpisodes, wadSub, gbaExtras, convert, doomPatch, doomBuild, embedded, WAD_OFF, REGION_OFF, REGION_END, CODE_OFF, SAVE_OFF, SAVE_END };
 if (typeof module !== 'undefined') module.exports = root.ParamixDoom;
 })(typeof window !== 'undefined' ? window : globalThis);

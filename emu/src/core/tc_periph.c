@@ -431,6 +431,16 @@ TC_SRAM void periph_rtc_set(Emu *e, uint32_t t)
     e->rtc_cyc = 0;
 }
 
+/* 1.7.2 test16: the guest clock as local time (seconds since 1970), 0 = stopped, being set or not a date */
+TC_SRAM uint32_t periph_rtc_get(Emu *e)
+{
+    if ((IOB(0x301908) & 2) || (IOB(0x30190C) & 1)) return 0;
+    uint32_t s = from_bcd(IOB(0x301910)), mi = from_bcd(IOB(0x301914)), h = from_bcd(IOB(0x301918));
+    uint32_t d = from_bcd(IOB(0x30191C)), m = from_bcd(IOB(0x301920)), y = 2000u + from_bcd(IOB(0x301924));
+    if (m < 1u || m > 12u || d < 1u || d > 31u || h > 23u || mi > 59u || s > 59u) return 0;
+    return (uint32_t)days_from((int32_t)y, (int32_t)m, (int32_t)d) * 86400u + h * 3600u + mi * 60u + s;
+}
+
 /* Advance the guest clock by n seconds (after a pause). */
 TC_SRAM void periph_rtc_advance(Emu *e, uint32_t n)
 {

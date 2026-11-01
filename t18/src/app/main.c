@@ -63,6 +63,15 @@ static volatile uint32_t g_ms_raw;
 #define SYST_RVR REG(0xE000E014u)
 #define SYST_CVR REG(0xE000E018u)
 #define CORE_HZ 96000000u
+#ifdef T18_KEY_LATCH
+/* 1.7.2 test11: A, B and C pressed are noted in the 1 ms tick. When the game wakes (screen dark) a single step of the
+ * emulation can take a few hundred ms; a short press that ended meanwhile was never seen by the game. */
+#define KLATCH_DECL static volatile uint8_t g_klatch;
+#define KLATCH_TICK() do { uint32_t d_ = ~REG(0x40018000u); g_klatch |= (uint8_t)(((d_ >> 9) & 1u) | ((d_ >> 10) & 2u) | ((d_ >> 8) & 4u)); } while (0)
+#else
+#define KLATCH_DECL
+#define KLATCH_TICK() do {} while (0)
+#endif
 #ifdef T18_PROF_OVL
 /* Test build: where the time goes. Each ms the interrupted PC goes into a bucket: PRAM in 64 bytes
  * (1024), flash window 0x100DF000 in 1 KB (64), SRAM code, rest. Counters in the Paradise's RAM (cleared
@@ -124,15 +133,17 @@ __attribute__((naked)) void SysTick_Handler(void) { __asm__ volatile("tst lr, #4
 #elif defined(T18_TIERUP)
 /* 1.6.8: the interrupted pc, when it lies in the code buffer, marks a hot block (t18jit.c, tu_note) */
 extern volatile uint32_t t18_tu_pc; extern uint32_t __jc_start[], __jc_end[];
+KLATCH_DECL
 __attribute__((used)) void systick_c(uint32_t *fr)
 {
-  g_ms++; WRAW_INC();
+  g_ms++; WRAW_INC(); KLATCH_TICK();
   uint32_t pc = fr[6];
   if (pc - (uint32_t)__jc_start < (uint32_t)__jc_end - (uint32_t)__jc_start) t18_tu_pc = pc;
 }
 __attribute__((naked)) void SysTick_Handler(void) { __asm__ volatile("tst lr, #4\n ite eq\n mrseq r0, msp\n mrsne r0, psp\n b systick_c\n"); }
 #else
-__attribute__((used)) void systick_c(void) { g_ms++; WRAW_INC(); }
+KLATCH_DECL
+__attribute__((used)) void systick_c(void) { g_ms++; WRAW_INC(); KLATCH_TICK(); }
 __attribute__((naked)) void SysTick_Handler(void) { __asm__ volatile("b systick_c\n"); }
 #endif
 static uint32_t rtc_now(void) { return REG(0x45000304u); }   /* Paradise seconds counter (runs while off) */
@@ -230,6 +241,9 @@ static uint8_t g_ck = T18_CPU_SLOW, g_ck_ok;
 static uint32_t g_tg[3600 / 4];                /* tg18_t */
 #define T ((tg18_t *)g_tg)
 __attribute__((used)) volatile uint32_t g_t18st[8];   /* emulated ms, dropped ms, flash writes, map writes, -, lost writes (for measuring) */
+#ifdef T18_KEY_FRESH
+static uint32_t g_lost;                       /* ms dropped, not yet given to the game clock (shared by both drops) */
+#endif
 static uint32_t g_para, g_para_cnt;           /* Paradise local time at the start (seconds since 1970, 0 = not found) and its counter then */
 extern uint32_t __stack_bottom;
 
@@ -723,6 +737,12 @@ COLD void t18_flash_erase(uint32_t a, uint32_t size)
 static volatile uint32_t g_pres_src, g_pres_len, g_pres_n;
 static void present(int force);
 static int g_lcd_on;
+#ifdef T18_WAKE_ASYNC
+static uint32_t g_wk;                          /* panel wake: time << 2 | step (3: keeps the last picture, test19) */
+#endif
+#ifdef T18_WAKE_KEEP
+static uint32_t frame_hash_all(void);
+#endif
 /* 1.6.4: the picture goes to the panel right when the firmware has finished it (before it starts the
  * next one), else it was read half drawn: built up from the top, black behind texts.
  * Switch T18_PRESENT_LATE: in the main loop as before. */
@@ -884,9 +904,50 @@ COLD static void raw_find(void)
   }
 }
 #endif
+#ifdef T18_PRES_ANIM
+/* test22 (Bernd: the pumpkin's eyes blink every second, on the Paradise they stayed on or off for long): in busy
+ * scenes the firmware draws all the time and hardly waits, so the buffer never held still for T18_S32_MS and the
+ * picture went out every few seconds only. A small change (few rows differ from the panel, an animation) now goes
+ * out every T18_ANIM_MS anyway; big changes (a new screen) still wait until they hold still. Rows that differ from
+ * what the panel shows, as present() counts them, stopping above lim. */
+#ifndef T18_ANIM_MS
+#define T18_ANIM_MS 48u
+#endif
+#ifndef T18_ANIM_ROWS
+#define T18_ANIM_ROWS 24u
+#endif
+LXIP static uint32_t rows_diff(uint32_t lim)
+{
+  uint32_t src = g_pres_src, rows = g_pres_len / 256u, n = 0;
+  if (rows > 128u) rows = 128u;
+  for (uint32_t y = 0; y < rows; y++) {
+    const uint16_t *p = guest_row(src + y * 256u);
+    if (!p) return lim + 1u;
+#ifdef T18_SUM_FNV
+    uint32_t sum = 0x811C9DC5u;
+    for (int i = 0; i < 128; i += 2) sum = (sum ^ ((uint32_t)p[i] | (uint32_t)p[i + 1] << 16)) * 0x01000193u;
+    sum ^= sum >> 13;
+#else
+    uint32_t sum = 0x9E3779B9u;
+    for (int i = 0; i < 128; i += 2) sum = (sum << 5 | sum >> 27) ^ ((uint32_t)p[i] | (uint32_t)p[i + 1] << 16);
+#endif
+#if defined(T18_ROWSUM_RAM20) && defined(T18_LINK)
+    sum ^= sum >> 16;
+    if ((uint16_t)sum != g_row_sum[y]) n++;
+#else
+    if (sum != g_row_sum[y]) n++;
+#endif
+    if (n > lim) return n;
+  }
+  return n;
+}
+#endif
 LXIP static void present(int force)
 {
   if (g_stage < 8) g_stage = 8;
+#ifdef T18_WAKE_KEEP
+  if ((g_wk & 3u) == 3u) { if ((frame_hash_all() | 3u) == g_wk) return; g_wk = 0; }
+#endif
 #ifdef T18_PROF_OVL
   if (g_ovl == 2) return;
   g_pflag |= 1u;
@@ -1028,6 +1089,11 @@ COLD static void note_save(void)
   if (g_cfg.softrtc) { int32_t v = gday_rd(); if (v > 0 && v < 200000) { n.gday = (uint32_t)v; n.rday = rday_now(); } }
 #endif
   int tm[6]; tg18_get_time(T, tm); for (int i = 0; i < 6; i++) n.tm[i] = (uint32_t)tm[i];
+#ifdef T18_NOTE_REL
+  /* 1.7.2 test24: the buffer may hold the game's flash sector (written by the game a moment ago, e.g. when it goes to
+   * sleep): write it back first. Before, the note took its place and was written into the game's save (name changed) */
+  c_release();
+#endif
   memset(c_buf, 0xFF, 0x1000); memcpy(c_buf, &n, sizeof n);
   hw_tone(0); flash_put(SAVE + T18_NOTE_SEC, c_buf);
 }
@@ -1348,7 +1414,11 @@ COLD static uint32_t grow_step(void)
   }
   if (pa_rd(0x05, 1) < 6u) pa_wr(0x05, 6, 1);
   if (pa_rd(0x11, 1) < 30u) pa_wr(0x11, 30, 1);
+#ifdef T18_CARE_TOOTH
+  { uint32_t fl = pa_rd(0x16, 1); if (fl & 0x81u) { pa_wr(0x16, fl & 0x7Eu, 1); pa_wr(0x18, 0, 2); pa_wr(0x0C, pa_rd(0x0C, 1) & 0xF7u, 1); } }
+#else
   { uint32_t fl = pa_rd(0x16, 1); if (fl & 1u) { pa_wr(0x16, fl & 0xFEu, 1); pa_wr(0x18, 0, 2); pa_wr(0x0C, pa_rd(0x0C, 1) & 0xF7u, 1); } }
+#endif
   if (st == 3 && g_grow >= 0 && pa_rd(0x3A, 2) < 2u) {
     const Adult *a = &ADULTS[g_grow];
     pa_wr(0x04, a->g, 1); pa_wr(0x14, a->m, 1);
@@ -1494,6 +1564,44 @@ LXIP static void lk_poll(uint32_t now)
   if (now - k->hello >= 1000u) { k->hello = now; uint8_t f = (uint8_t)((tg18_ble_ready(T) ? 1u : 0u) | (k->conn ? 2u : 0u)); lk_tx('H', &f, 1); }
 }
 #endif
+#ifdef T18_CLK_DISC
+/* 1.7.2 test16: the game clock follows the Paradise's seconds counter 0x45000304 (crystal, runs always), as T7Emu
+ * does. The ms tick comes from the internal RC in standby and loses time there (reported: more than an hour behind
+ * after a while in standby). About every 10 s, when the emulation is not behind on purpose: with "clock from the
+ * Paradise" the game should show the Paradise's time, else its own time from the first check on. Behind: the game
+ * lives the missing seconds (as dropped time), ahead: the clock goes back. A jump of the game clock (set in the
+ * game, or the Paradise's time put back after it) is a new reference. */
+static uint32_t g_cd[4];   /* reference: game time, counter; last check: game time, counter (0 = none) */
+COLD static uint32_t cd_obs(void)
+{
+  int tm[6]; tg18_get_time(T, tm);
+  if (tm[0] < 2000 || tm[0] > 2100 || tm[1] < 1 || tm[1] > 12 || tm[2] < 1 || tm[2] > 31) return 0;
+  return (uint32_t)para_days(tm[0], tm[1], tm[2]) * 86400u + (uint32_t)(tm[3] * 3600 + tm[4] * 60 + tm[5]);
+}
+COLD static void clock_disc(int32_t behind)
+{
+  uint32_t r = REG(0x45000304u);
+  if (g_cd[0] && r - g_cd[3] < 10u) return;
+  if (behind > 300 || (REG(0x45000200u) & 7u)) return;           /* behind on purpose, or the counter not in seconds */
+#ifdef T18_GROW
+  if (g_grow != -2) { g_cd[0] = 0; return; }
+#endif
+  uint32_t obs = cd_obs();
+  if (!obs) { g_cd[0] = 0; return; }
+  if (!g_cd[0]) {
+    if ((g_cfg.flags & T18F_CLOCK) && g_para) { g_cd[0] = g_para; g_cd[1] = g_para_cnt; } else { g_cd[0] = obs; g_cd[1] = r; }
+    g_cd[2] = obs; g_cd[3] = r;
+  }
+  int32_t el = (int32_t)(r - g_cd[3]), mv = (int32_t)(obs - g_cd[2]);
+  if (mv < -5 || mv > el + 5) {                                   /* set in the game: from here */
+    g_cd[0] = obs; g_cd[1] = r; g_cd[2] = obs; g_cd[3] = r; return;
+  }
+  int32_t d = (int32_t)(g_cd[0] + (r - g_cd[1]) - obs);
+  if (d >= 2) { tg18_advance_offline(T, (int64_t)d); obs += (uint32_t)d; }
+  else if (d <= -2) { obs += (uint32_t)d; set_time_secs((int64_t)obs); }
+  g_cd[2] = obs; g_cd[3] = r;
+}
+#endif
 #ifdef T18_LOOP_XIP
 /* 1.6.13 test1: the main loop from the flash window (runs once per 4 ms; its 2.5 KB of PRAM go to the translated code) */
 COLD
@@ -1527,6 +1635,13 @@ static void main_loop(int restored)
         for (;;) { hw_wdt_feed(); __asm__ volatile("wfi"); } } } }
 #endif
     u32 b = hw_buttons();
+#ifdef T18_KEY_LATCH
+    /* a press noted in the tick that is already over: the game gets it for 120 ms of its time */
+    { static uint32_t kh_end; static uint8_t kh;
+      __asm__ volatile("cpsid i" ::: "memory"); uint32_t l = g_klatch; g_klatch = 0; __asm__ volatile("cpsie i" ::: "memory");
+      if (l & ~b & 7u) { kh = (uint8_t)(l & ~b & 7u); kh_end = emu_ms + 120u; }
+      if (kh) { if ((int32_t)(emu_ms - kh_end) < 0) b |= kh; else kh = 0; } }
+#endif
     if (lock) { if (b) b = 0; else lock = 0; }         /* wait until A+C from the start are released */
 #ifdef T18_PW
     /* 1.6.13 test1: the game sleeps (screen dark, waits for its alarm or a key), no key, no tone, no link, no grow-up:
@@ -1594,6 +1709,14 @@ static void main_loop(int restored)
       } else
 #endif
       if (WNOW() - wheel_ms < 1000u) {
+#ifdef T18_MENU_QUIET
+        /* 1.7.2 test27: the game stands still in the settings: a tone it was playing went on the whole time (Bernd).
+         * Quiet now, and the queued notes of that moment are dropped (they would come late afterwards) */
+        hw_tone(0);
+#ifdef T18_TONE_Q
+        tq_h = tq_w; tq_on = 0; tq_cur = 0;
+#endif
+#endif
 #if defined(T18_GROW) && defined(T18_CARE)
         /* test30: Tamapoints (Param +0x20, u16; the firmware keeps its save block 0x7FE000 as a copy of Param) and
          * full care (hunger 6, mood 30 or 100 as an adult, illness gone, calls for both cleared) */
@@ -1614,7 +1737,14 @@ static void main_loop(int restored)
           else if (pa_rd(0x52, 1) >= 1u && !(pa_rd(0x16, 1) & 0x10u)) {      /* hatched and alive */
             pa_wr(0x05, 6, 1); pa_wr(0x06, 0, 2);
             pa_wr(0x11, pa_rd(0x52, 1) >= 4u ? 100u : 30u, 1);
+#ifdef T18_CARE_TOOTH
+            /* 1.7.2 test25: bit 7 is the toothache (sick with bit 0). Only bit 0 cleared left the Tama with toothache that
+             * first aid no longer treats (it looks at bit 0) and that blocks feeding and playing. Both go, also when an
+             * older full care already took bit 0 alone. */
+            uint32_t fl = pa_rd(0x16, 1); if (fl & 0x81u) { pa_wr(0x16, fl & 0x7Eu, 1); pa_wr(0x18, 0, 2); }
+#else
             uint32_t fl = pa_rd(0x16, 1); if (fl & 1u) { pa_wr(0x16, fl & 0xFEu, 1); pa_wr(0x18, 0, 2); }
+#endif
             pa_wr(0x0C, pa_rd(0x0C, 1) & ~0x0Bu, 1);                       /* calls: hunger 1, mood 2, ill 8 */
           }
         }
@@ -1639,12 +1769,21 @@ static void main_loop(int restored)
     /* screen off after a while without a key (set in the Studio): the first key only wakes it */
     { static int swallow;
 #ifdef T18_DIM
+#ifdef T18_SWALLOW_LIT
+      /* 1.7.2 test11: the first key only lights the screen when the game's screen is on; when the game sleeps (its
+       * screen dark) the key goes to the game, which wakes with it (before: swallowed, a second press was needed) */
+      if (b) { if ((g_scr_dark && bl) || (g_dimd && bl)) { swallow = 1; } g_scr_dark = 0; g_key_ms = now; }
+#else
       if (b) { if (g_scr_dark || (g_dimd && bl)) { g_scr_dark = 0; swallow = 1; } g_key_ms = now; }
+#endif
       /* signed: after the menu g_key_ms is later than now */
       if (g_dimd && ((int32_t)(now - g_key_ms) <= (int32_t)g_dim_ms || !bl)) { g_dimd = 0; hw_bl_set(opt_light_pct(g_opt)); }   /* a key, the menu, dark */
       else if (!g_dimd && g_dim_ms && bl && (int32_t)(now - g_key_ms) > (int32_t)g_dim_ms) { g_dimd = 1; hw_bl_set(opt_dim_pct(g_opt)); }
 #else
       if (b) { if (g_scr_dark) { g_scr_dark = 0; swallow = 1; } g_key_ms = now; }
+#endif
+#ifdef T18_KDBG
+      if (b) g_t18st[4] = (uint32_t)(swallow << 28) | ((uint32_t)g_scr_dark << 24) | ((uint32_t)(bl & 1) << 20) | ((uint32_t)tg18_power(T) << 16) | b;
 #endif
       if (swallow) { if (b) b = 0; else swallow = 0; }
       if (g_scr_ms && (int32_t)(now - g_key_ms) > (int32_t)g_scr_ms) g_scr_dark = 1; }   /* signed: right after the menu */
@@ -1674,9 +1813,53 @@ static void main_loop(int restored)
 #ifdef T18_WHEEL_WAKE
     if (g_ww) { if (now - g_ww < 120u) b |= BTN_C; else g_ww = 0; }
 #endif
+#ifdef T18_KEY_FRESH
+    /* 1.7.2: a key with the screen dark: the game may be up to 5 s behind (allowed while nobody sees it). Catching
+     * that up made the CPU adaption slow the game down, and its screen came on only after 2 to 3 s. The time behind
+     * goes to the game clock at once (as when time is dropped), the game answers the key in real time. */
+    { static uint8_t kb0;
+#ifdef T18_KDBG
+      if (b & 7u) g_t18st[5] = (bl << 24) | (tg18_power(T) << 16) | ((now - emu_ms) & 0xFFFFu);
+#endif
+#ifdef T18_KEY_FRESH_LIT
+      /* 1.7.2 test11: with the screen on as well (up to 250 ms behind there): the key is answered now */
+      if ((b & 7u) && !kb0 && tg18_power(T) && (int32_t)(now - emu_ms) > (bl ? 40 : 20)) {
+#else
+      if ((b & 7u) && !kb0 && bl == 0 && tg18_power(T) && (int32_t)(now - emu_ms) > 20) {
+#endif
+        uint32_t d = now - emu_ms - 4u; g_t18st[1] += d; emu_ms += d; g_lost += d;
+#ifdef T18_KDBG
+        g_t18st[6]++; g_t18st[7] = d;
+#endif
+        if (g_lost >= 1000u) { tg18_advance_offline(T, (int64_t)(g_lost / 1000u)); g_lost %= 1000u; }
+#ifdef T18_CPU_ADAPT
+        g_ck = T18_CPU_SLOW; g_ck_ok = 0; tg18_set_cpu_k(T, g_ck);
+#endif
+      }
+#if defined(T18_KEY_OFFFF) && defined(T18_PW)
+      /* 1.7.2 test11: the game sleeps (off) when the key comes: its off time up to now first (cheap, nothing runs).
+       * Before, the key reached the game at the old time and it ran its wake at full cost up to 2 s behind (allowed
+       * with the screen dark), the screen came on only after that. */
+      if ((b & 7u) && !kb0 && !tg18_power(T)) {
+#ifdef T18_KDBG
+        g_t18st[6] += 0x10000u;
+#endif
+        while ((int32_t)(now - emu_ms) >= 4) { uint32_t st = (now - emu_ms) & ~3u; if (st > 64u) st = 64u;
+          tg18_run_us_off(T, st * 1000u, pw_full); emu_ms += st; g_t18st[0] += st; sp_emu += st;
+#ifdef T18_TONE_Q
+          g_gms += st;
+#endif
+          if (tg18_power(T)) break; }
+      }
+#endif
+      kb0 = (uint8_t)(b & 7u); }
+#endif
     tg18_set_buttons(T, (int)(b & 7u));
 #ifdef T18_CLOCK_AFTER
     clock_after_poll();
+#endif
+#ifdef T18_CLK_DISC
+    clock_disc((int32_t)(now - emu_ms));
 #endif
 #ifdef T18_RAW_LABEL
     if (t18_raw_pc == 1u && bl && (uint16_t)((now >> 6) - g_raw_look) > 31u) { g_raw_look = (uint16_t)(now >> 6); raw_find(); }
@@ -1700,9 +1883,11 @@ static void main_loop(int restored)
 #else
     if ((int32_t)(now - emu_ms) > 250) {
 #endif
-      static uint32_t lost;
-      uint32_t d = now - 250u - emu_ms; g_t18st[1] += d; emu_ms += d; lost += d;
-      if (lost >= 1000u) { tg18_advance_offline(T, (int64_t)(lost / 1000u)); lost %= 1000u; }   /* the game clock keeps up */
+#ifndef T18_KEY_FRESH
+      static uint32_t g_lost;
+#endif
+      uint32_t d = now - 250u - emu_ms; g_t18st[1] += d; emu_ms += d; g_lost += d;
+      if (g_lost >= 1000u) { tg18_advance_offline(T, (int64_t)(g_lost / 1000u)); g_lost %= 1000u; }   /* the game clock keeps up */
     }
 #ifdef T18_CPU_ADAPT
     /* 1.6.13 test6: once a second while the game runs: behind (more than 100 ms, or time was dropped) -> the
@@ -1759,6 +1944,30 @@ static void main_loop(int restored)
         uint64_t ic = c->idle_cycles, cy = c->cycles;
         uint32_t tn = g_ms;
         int waited = (ic - ic0) * 4u > cy - cy0;                  /* waited for a quarter of these 4 ms or more */
+#ifdef T18_PRES_SWEEP
+        /* test23 (Bernd: test22 showed the room built up from the top, the Tama split while it moves): the room is drawn
+         * a row at a time over about half a second, its row counter sits 0x22C bytes before the picture (all five
+         * firmwares share the layout). A picture goes out when that counter starts again from the top (the room is
+         * complete); meanwhile the other ways stay quiet. Used only while it counts like that (8 steps of one row). */
+        int sw_act = 0;
+        { static uint32_t sw;   /* last row (8 bits) | single steps (8 bits) << 8 | time of the last whole room (16 bits, 4 ms) << 16 */
+          uint32_t o = g_pres_src - 0x22Cu - 0xF8000000u, v = 0xFFFFu;
+          if (g_pres_len && o < T18_SRAM_SIZE - 2u) v = *t18_sram_rp(o) | (uint32_t)*t18_sram_rp(o + 1u) << 8;
+          uint32_t pv = sw & 0xFFu, n = (sw >> 8) & 0xFFu, tw = sw >> 16, now4 = (tn >> 2) & 0xFFFFu;
+          if (v < 128u) {
+            if (v == pv + 1u && n < 255u) n++;
+            else if (v + 20u < pv && pv < 128u) {
+              if (n >= 8u) { tw = now4 ? now4 : 1u; if (g_lcd_on) { uint32_t h = frame_hash_all(); if (h != g_pres_h) { pt = tn; g_pres_h = h; present(0); } } }
+              n = 0; }
+            pv = v;
+          } else { pv = 0xFFu; n = 0; }
+          sw = pv | n << 8 | tw << 16;
+          sw_act = tw && ((now4 - tw) & 0xFFFFu) < 375u;   /* a whole room in the last 1.5 s */
+        }
+#define SW_ACT sw_act
+#else
+#define SW_ACT 0
+#endif
 #ifdef T18_PRESENT_STABLE
         /* test9: a long stretch without waiting (leaving a menu) is the firmware drawing a new screen;
          * shown only once the picture holds still for 250 ms, at the latest after 5 s */
@@ -1783,7 +1992,7 @@ static void main_loop(int restored)
 #ifdef T18_S32_EMU
             /* test19: the firmware also waits between ticks in the middle of a drawing (half room, half menu):
              * the picture must hold still for T18_S32_MS of game time here too */
-            if (cand && h == cand_h) { if (et - cand_t >= T18_S32_MS) { cand = 0; pt = tn; ht = T18_HT_NOW; present(0); g_pres_h = h; } }
+            if (cand && h == cand_h) { if (et - cand_t >= T18_S32_MS && !SW_ACT) { cand = 0; pt = tn; ht = T18_HT_NOW; present(0); g_pres_h = h; } }
             else { cand = 1; cand_h = h; cand_t = et; } }
 #else
             if (cand && h == cand_h) { cand = 0; pt = tn; ht = T18_HT_NOW; present(0); g_pres_h = h; }
@@ -1810,7 +2019,7 @@ static void main_loop(int restored)
           else if (g_lcd_on && g_pres_len && tn - ht >= 32u) {
             ht = tn; uint32_t h = frame_hash_all();
 #endif
-            if ((h == h_last && h != g_pres_h && tn - pt >= 33u) || tn - pt >= 5000u) { pt = tn; g_pres_h = h; present(0); }
+            if (((h == h_last && h != g_pres_h && tn - pt >= 33u) || tn - pt >= 5000u) && !SW_ACT) { pt = tn; g_pres_h = h; present(0); }
             h_last = h; } }
 #else
           else if (g_lcd_on && g_pres_len && tn - ht >= 250u) {
@@ -1820,6 +2029,11 @@ static void main_loop(int restored)
 #endif
 #else
         if (g_lcd_on && g_pres_len && ((waited && tn - pt >= 33u) || tn - pt >= T18_PRESENT_MAXMS)) { pt = tn; present(0); }
+#endif
+#ifdef T18_PRES_ANIM
+        if (g_lcd_on && g_pres_len && tn - pt >= T18_ANIM_MS) {
+          uint32_t h = frame_hash_all();
+          if (h != g_pres_h && rows_diff(T18_ANIM_ROWS) <= T18_ANIM_ROWS) { pt = tn; g_pres_h = h; present(0); } }
 #endif
         ic0 = ic; cy0 = cy; }
 #endif
@@ -1851,7 +2065,7 @@ static void main_loop(int restored)
 #ifdef T18_WAKE_ASYNC
     /* test14: the panel comes on in steps (hw_wake_step), the emulator runs meanwhile; g_wk: time << 2 | step */
     int blchg = 0;
-    { static uint32_t g_wk;
+    {
 #ifdef T18_ON_FULL
       /* test16: the game turned the screen on by itself (a call): the full clock before the first picture; before,
        * that picture went out at 12 MHz (or a lower ECO step), slow enough to see it built up from the top */
@@ -1864,9 +2078,32 @@ static void main_loop(int restored)
 #endif
       }
 #endif
+#ifdef T18_PREWAKE
+      /* 1.7.2 test17: a key with the screen dark wakes the panel right away (SLPOUT, DISPON, no light yet), while the
+       * game boots; when it switches its screen on, the light comes at once. Before, the 145 ms of the panel came
+       * only after the game's first picture. The game not on within 4 s: the panel sleeps again. While it boots the game
+       * switches its light on and off: the panel's steps go on, the light waits for the game. */
+      if (!bl && !on && !g_wk && (b & 7u) && hw_wake_step(1)) g_wk = (g_ms << 2) | 1u;
+#ifdef T18_WAKE_KEEP
+      if ((g_wk & 3u) == 3u && on != bl) g_wk = 0;
+#endif
+      if (on != bl) { blchg = 1; bl = on; if (!on) { if (!g_wk) { g_lcd_on = 0; hw_backlight(0); } } else if (g_wk) {} else if (hw_wake_step(1)) g_wk = (g_ms << 2) | 1u; else { g_lcd_on = 1; present(1); } }
+      if ((g_wk & 3u) == 1u && ((g_ms - (g_wk >> 2)) & 0x3FFFFFFFu) >= 125u) { hw_wdt_feed(); hw_wake_step(2); g_wk = (g_ms << 2) | 2u; }
+#ifdef T18_WAKE_KEEP
+      /* test19 (Bernd: picture on, then 1-2 s black, then the game): at the light the firmware's buffer still holds
+       * what was there before it slept (often black) until the game has drawn anew. The panel keeps the last picture
+       * from before the sleep until a picture differs from that buffer (g_wk: its check value | 3). */
+      else if ((g_wk & 3u) == 2u && on && ((g_ms - (g_wk >> 2)) & 0x3FFFFFFFu) >= 20u) { hw_wake_step(3); g_lcd_on = 1;
+        if (g_pres_len) g_wk = frame_hash_all() | 3u; else { g_wk = 0; present(1); } }
+#else
+      else if ((g_wk & 3u) == 2u && on && ((g_ms - (g_wk >> 2)) & 0x3FFFFFFFu) >= 20u) { hw_wake_step(3); g_wk = 0; g_lcd_on = 1; present(1); }
+#endif
+      else if ((g_wk & 3u) == 2u && !on && ((g_ms - (g_wk >> 2)) & 0x3FFFFFFFu) >= 4000u) { hw_wake_step(0); g_wk = 0; } }
+#else
       if (on != bl) { blchg = 1; bl = on; g_wk = 0; if (!on) { g_lcd_on = 0; hw_backlight(0); } else if (hw_wake_step(1)) g_wk = (g_ms << 2) | 1u; else { g_lcd_on = 1; present(1); } }
       if ((g_wk & 3u) == 1u && ((g_ms - (g_wk >> 2)) & 0x3FFFFFFFu) >= 125u) { hw_wdt_feed(); hw_wake_step(2); g_wk = (g_ms << 2) | 2u; }
       else if ((g_wk & 3u) == 2u && ((g_ms - (g_wk >> 2)) & 0x3FFFFFFFu) >= 20u) { hw_wake_step(3); g_wk = 0; g_lcd_on = 1; present(1); } }
+#endif
     if (blchg) {
 #ifdef T18_DIM
       if (on) g_key_ms = now;   /* the game turned the screen on (a call): full light, the timers start again */
@@ -1942,9 +2179,14 @@ void Reset_Handler(void)
   __asm__ volatile("cpsid i");
   /* the Paradise's clock, before anything of it is overwritten (the hole is ours from now on) */
   uint32_t cnt = REG(0x45000304u);
+#ifdef T18_MB_FIRST
+  uint32_t para = para_mailbox_fresh(cnt);   /* 1.7.2 test17: started from the menu just now: its time first */
+  if (!para) para = para_clock(cnt, 0, T18_SRAM_SIZE, T18_HOLE_LO, T18_HOLE_HI);
+#else
   uint32_t para = para_clock(cnt, 0, T18_SRAM_SIZE, T18_HOLE_LO, T18_HOLE_HI);
+#endif
   if (!para) para = para_mailbox(cnt);   /* 1.6.8: started from the menu */
-#ifdef PARA_FLASH
+#if defined(PARA_FLASH) && !defined(PARA_FLASH_LATE)
   if (!para) para = para_flash(cnt);   /* 1.6.9 test37 */
 #endif
 #ifdef PARA_BACK
@@ -1973,6 +2215,15 @@ void Reset_Handler(void)
   REG(0xE000ED14u) &= ~((1u << 3) | (1u << 4));      /* no trap on unaligned access or division by 0 */
   __asm__ volatile("dsb\n isb" ::: "memory");
   hw_init();
+#ifdef PARA_FLASH_LATE
+  /* 1.7.2 test16: neither SRAM nor mailbox: the base in the Paradise's settings page (readable only after hw_init), as T7Emu */
+  if (!g_para) { u32 c2 = REG(0x45000304u), t2 = 0;
+#ifdef PARA_CLEAN_CLK
+    t2 = para_cleanclk(c2);
+#endif
+    if (!t2) t2 = para_flash(c2);
+    if (t2) { g_para = t2; g_para_cnt = c2; para_mailbox_put(t2, c2); } }
+#endif
   g_stage = 1;
   /* flash window: the Paradise firmware's base; our part of the code is in it */
   XIP_BASE_REG = 0x60011000u; XIP_CTRL_REG = 3u;

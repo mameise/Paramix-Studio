@@ -256,7 +256,7 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
 <input type="file" id="fileEmuSav" hidden accept=".sav,.SAV,.bin,.BIN">
 <input type="file" id="fileT7Fig" hidden multiple accept=".bin,.BIN">
 <input type="file" id="fileApp" hidden accept=".bin,.BIN">
-<input type="file" id="fileDlc" hidden multiple accept=".jpg,.JPG,.jpeg,.bin">
+<input type="file" id="fileDlc" hidden multiple accept=".jpg,.JPG,.jpeg,.bin,.zip">
 <input type="file" id="fileT18Item" hidden multiple accept=".txt,.bin,.zip">
 <input type="file" id="fileT18Pic" hidden multiple accept=".png,.json,.zip">
 <input type="file" id="fileField" hidden accept=".zip,.ZIP">
@@ -267,12 +267,14 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
     <div class="tools"><span class="plan-h" data-t="helpTitle"></span><span class="spacer"></span><button class="btn small" id="helpClose" data-t="close"></button></div>
     <h3 data-t="h1t"></h3><p data-t="h1"></p>
     <h3 data-t="h2t"></h3>
-    <table class="helpkeys"><tr><td data-t="hk1"></td><td data-t="hv1"></td></tr><tr><td data-t="hk2"></td><td data-t="hv2"></td></tr><tr><td data-t="hk3"></td><td data-t="hv3"></td></tr><tr><td data-t="hk4"></td><td data-t="hv4"></td></tr><tr><td data-t="hk5"></td><td data-t="hv5"></td></tr><tr><td data-t="hk6"></td><td data-t="hv6"></td></tr></table>
+    <table class="helpkeys"><tr><td data-t="hk1"></td><td data-t="hv1"></td></tr><tr><td data-t="hk2"></td><td data-t="hv2"></td></tr><tr><td data-t="hk3"></td><td data-t="hv3"></td></tr><tr><td data-t="hk4"></td><td data-t="hv4"></td></tr><tr><td data-t="hk5"></td><td data-t="hv5"></td></tr><tr><td data-t="hk6"></td><td data-t="hv6"></td></tr><tr><td data-t="hk7"></td><td data-t="hv7"></td></tr></table>
     <h3 data-t="h3t"></h3><p data-t="h3"></p>
     <h3 data-t="h4t"></h3><p data-t="h4"></p>
     <h3 data-t="h5t"></h3><p data-t="h5"></p>
     <h3 data-t="h6t"></h3><p data-t="h6"></p>
     <h3 data-t="h7t"></h3><p data-t="h7"></p>
+    <h3 data-t="h8t"></h3><p data-t="h8"></p>
+    <h3 data-t="h9t"></h3><p data-t="h9"></p>
   </section>
   <section class="plan device" id="device" hidden>
     <div class="plan-h" data-t="devTitle"></div>
@@ -438,7 +440,7 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
     <div class="pane" id="pane-gb" hidden>
       <div class="tools">
         <button class="btn small" id="btnGb" data-t="gbPick"></button>
-        <input type="file" id="fileGb" hidden multiple accept=".gb,.GB">
+        <input type="file" id="fileGb" hidden multiple accept=".gb,.GB,.gbc,.GBC">
         <span class="hint" data-t="gbHint"></span>
       </div>
       <div class="dlcbox" id="gbList"></div>
@@ -546,11 +548,19 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
         <label class="check"><input type="checkbox" id="launchOn"> <span data-t="launchOn"></span></label>
         <span class="hint" data-t="launchHint"></span>
       </div>
+      <div class="tools" id="cleanRow" hidden>
+        <label class="check"><input type="checkbox" id="cleanOn"> <span data-t="cleanOn"></span></label>
+        <span class="hint" data-t="cleanHint"></span>
+      </div>
       <div class="tools">
         <label class="check"><input type="checkbox" id="feldOn"> <span data-t="feldOn"></span></label>
         <label class="check"><input type="checkbox" id="bagOn"> <span data-t="bagOn"></span></label>
         <label class="check"><input type="checkbox" id="tamaOn"> <span data-t="tamaOn"></span></label>
         <span class="hint" data-t="feldHint"></span>
+      </div>
+      <div class="tools" id="gplayRow">
+        <label class="check"><input type="checkbox" id="gplayOn"> <span data-t="gplayOn"></span></label>
+        <span class="hint" data-t="gplayHint"></span>
       </div>
       <div class="tools">
         <label class="check"><span data-t="exitKey"></span> <select id="exitKey"></select></label>

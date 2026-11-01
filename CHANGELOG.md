@@ -2,6 +2,32 @@
 
 Versions are listed newest first.
 
+## 1.7.2 (2026-11-01)
+
+- Start device without the Paradise: almost the whole 16 MB for programs, DOOM is a menu program like the others, any program can start first, the clock is set in the menu.
+- All 6 fields: the lab games follow the field the Tama starts with. Land, Water and Sky get Matching Meals, Catching Poop and Cleaning Dust, Forest gets the Jade Forest games.
+- 6 fields (Tropical, Glacier): the DNA, residents and field times belong to each field on its own, with its own symbol. Existing saves are taken over.
+- Way back: holding C while the device starts opens the flash app, so the device can always be written again.
+- Game Boy Color: colour games (.gbc) in the Game Boy tab, also large ones like Pokémon Gold.
+- Menu: play time in DOOM, Wolfenstein, Game Boy and Master System earns Tamapoints (checkbox in the Menu tab).
+- TamaEmu: download content can also be added as .zip.
+- V1Emu: Umino, Genjintchi and Tamaotchi show which menu icon is chosen. Umino, Genjintchi, Tamaotchi, Morino and Yasashii do not have their own menu icons yet (they show those of the P1).
+- Colour Tamas in the menu take 1 to 1.8 MB less room.
+- Studio: the help explains the start device, the 6 fields and the way back.
+- T18Emu: after a key with the screen dark the picture comes back faster and no key press is lost.
+- Fix: T18Emu: animations in busy scenes (such as the blinking pumpkin at Halloween) are shown properly.
+- Fix: T18Emu, TamaEmu and V1Emu: the clock stays on time after a long time in standby.
+- Fix: T18Emu: the game's save could be damaged when the screen went dark (for example a letter of the name changed).
+- Fix: T18Emu: a tone no longer keeps sounding while the settings are open.
+- Fix: T18Emu: full care also heals toothache. Before, a Tama with toothache could no longer be healed, fed or played with; full care now repairs it.
+- Fix: TamaEmu: installing a VDP on the P's no longer hangs.
+- Fix: TamaEmu, V1Emu, V3Emu, T7Emu: a short wheel press with the screen dark only turns it on.
+- Fix: start device: leftover copies of the flash app are removed (up to 700 KB more room).
+- Fix: menu TAMA and Studio: changing the Tama also finds a Tama from Breed. When the Tama cannot be changed, this is shown instead of "changed".
+- Fix: the room overview follows added Tama-Go figures.
+- Fix: character sheet: the small figure is no longer blown up.
+- Fix: connecting works more reliably with some USB adapters (PL2303).
+
 ## 1.7.1 (2026-10-27)
 
 - Start device: a colour Tama in the menu (iD L, P's) takes up to 450 KB less room.

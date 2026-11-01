@@ -9,6 +9,10 @@
 #include "../../../emu/src/emu/paraclock.h"
 #ifdef PARA_BACK
 #include "../../../emu/src/emu/paraback.h"
+#ifdef GPLAY
+#define GP_POINTS
+#include "../../../emu/src/emu/gplay.h"
+#endif
 #endif
 #include "../pmx/pmx_plat.h"
 #include <string.h>
@@ -106,6 +110,9 @@ void plat_back(void)
   REG(0x20000FF8u) = 0;
   REG(0x20000FFCu) = 0x4C584D50u;        /* "PMXL": back on purpose, the autostart stays off */
 #ifdef PARA_BACK
+#ifdef GPLAY
+  para_points((uint8_t *)g_sec);   /* 1.7.2 test14: play time to Tamapoints */
+#endif
   para_back_fix(g_sec);
 #endif
   hw_bl_pwm_off();

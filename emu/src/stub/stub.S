@@ -55,6 +55,56 @@
   ldr r0, =0x40018000
 #endif
   .endm
+@ 1.7.2 test19 (BFALL): C held when the Paradise comes up after switching on (or after the reset button) starts
+@ the flash app of the write protection (0xFF0000, its load table at 0xFFE000), a way back when a program or a
+@ save leaves the screen black. Once per boot (BusFault priority byte as the flag, the firmware does not use it);
+@ not when back from a program on purpose ("PMXL") and not after waking from deep sleep (mailbox lost, clock ran).
+#ifndef NO_BFALL
+  .macro BFALL
+  ldr r2, =0xE000ED19
+  ldrb r3, [r2]
+  cbnz r3, 7f
+  movs r3, #0xFF
+  strb r3, [r2]
+  ldrb r3, [r2]
+  cbz r3, 7f
+  tst r1, #0x400           @ C (P0.10); B at switching on already skips the autostart
+  bne 7f
+  ldr r2, =0x20000FFC
+  ldr r2, [r2]
+  ldr r0, =0x4C584D50
+  cmp r2, r0
+  beq 7f
+  ldr r0, =0x45000304
+  ldr r0, [r0]
+  cmp r0, #30
+  blo 6f
+  ldr r0, =0x52584D50      @ "PMXR" / "PMXM": a reset, the mailbox was kept
+  cmp r2, r0
+  beq 6f
+  ldr r0, =0x4D584D50
+  cmp r2, r0
+  bne 7f
+6:ldr r0, =0x60FFE000      @ load table of the flash app, uncached flash
+  ldr r2, [r0]
+  ldr r3, =0x494E4F53      @ "SONI"
+  cmp r2, r3
+  bne 7f
+  ldr r2, [r0, #0x10]
+  ldr r3, =0x60FF0000
+  cmp r2, r3
+  bne 7f
+  cpsid i
+  mov r4, r3
+  b realstart
+7:
+  ldr r0, =0x40018000
+  ldr r1, [r0]
+  .endm
+#else
+  .macro BFALL
+  .endm
+#endif
   .global start
   .thumb_func
 start:
@@ -96,6 +146,7 @@ feld_src: .word FELD_SRC
 lcheck_e:
   b.w lcheck
 #else
+  ldr r4, =APP_SRC
   b.w realstart
   .ltorg
 #endif
@@ -125,6 +176,7 @@ check:
   push {r0-r3, r12, lr}
   ldr r0, =0x40018000      @ GPIO0: A = P0.9, C = P0.10, pressed = 0
   ldr r1, [r0]
+  BFALL
   AUTOSTART
   ldr r2, =0x20000FF8      @ counter at the end of the mailbox
   ldr r3, [r2]
@@ -178,6 +230,7 @@ check:
   push {r0-r3, r12, lr}
   ldr r0, =0x40018000      @ GPIO0: A = P0.9, C = P0.10, pressed = 0
   ldr r1, [r0]
+  BFALL
   AUTOSTART
   ldr r2, =0x20000FF8      @ counter at the end of the mailbox
   ldr r3, [r2]
@@ -262,11 +315,7 @@ realstart:
   subs r1, #1
   bne 3b
 4:
-#ifdef FELD
   mov r0, r4
-#else
-  ldr r0, =APP_SRC
-#endif
   movs r1, #0
   ldr r2, =0x10000
 1:

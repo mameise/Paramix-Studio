@@ -69,6 +69,13 @@ void plat_mark(int line, const char *file);
 #define lprintf(pri, fmt, ...) printf(fmt, ## __VA_ARGS__)
 #endif
 #define MIN_DEMO_GAMETIC_TO_PRINT 0
+/* 1.7.2 DOOM_FREE: P_Random looked for a backslash in the file name on every call (about 15 KB backwards through the
+ * program part, for a debug print that is off): left out */
+#ifdef DOOM_FREE
+#define PRND_SCAN 0
+#else
+#define PRND_SCAN 1
+#endif
 
 #define DEBUG_DEMO 0
 #if DEBUG_DEMO

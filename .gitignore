@@ -6,7 +6,10 @@
 !emu/stub_tpl.bin
 !doom/doom_app.bin
 !doom/doom_xip.bin
+!doom/doomf_app.bin
+!doom/doomf_xip.bin
 !feld/feld.bin
+!feld/feldc.bin
 !feld/stub_feld_tpl.bin
 !flash/flashapp.bin
 !six/six.bin
@@ -17,6 +20,7 @@
 !v1/v1.bin
 !v3/v3.bin
 !gb/gb.bin
+!gb/gbc.bin
 !wolf/wolf.bin
 !wolf/wolfsod.bin
 !sms/sms.bin

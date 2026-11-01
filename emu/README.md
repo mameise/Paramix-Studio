@@ -22,6 +22,7 @@ The Studio builds it into the ROM together with the user's own firmware.
 | 0x0B0000 | launcher and home screen hooks |
 | 0x0C0000 | run state (written by the emulator) |
 | 0x940000 | guest firmware, packed in 64 KB blocks; blocks the guest writes stay unpacked and hold its save |
+| packed cold blocks (1.7.3, menu only) | table (128 u32), per block 65 u32 part starts, LZ4 data in 1 KB parts |
 | behind it, up to 0xD40000 | spare pages: a table (4 KB) and 8 KB pages for blocks that are empty in the firmware but written by the guest |
 | 0x840000 to 0xD48000 | instead of the two rows above, for firmware that does not fit there (P's, 4U+, 4U); the menu's field saves then have no room |
 

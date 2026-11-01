@@ -4,6 +4,7 @@ A small program for the Paradise, started by the launcher (A+C held on the home
 screen). Texts on the device are English, the font and graphics are our own.
 
 - `feld.bin`: the menu program, runs from PRAM.
+- `feldc.bin` (1.7.2): the same with `FELD_CLEAN`, only for ROMs without the Paradise (own clock, settings version 10).
 - `stub_feld_tpl.bin`: the launcher with menu support and placeholders.
 - `src/feld`: source of the menu, `src/stub/stub.S`: source of the launcher.
 
@@ -87,7 +88,7 @@ counter 0x45000304 (`para_flash` in `emu/src/emu/paraclock.h`; page CRC and date
 ## Build
 
 ```
-sh src/feld/build.sh     # clang, ld.lld, llvm-objcopy -> src/feld/feld.bin (copy it to feld/feld.bin)
+sh src/feld/build.sh     # clang, ld.lld, llvm-objcopy -> src/feld/feld.bin and feldc.bin (copy them to feld/)
 ```
 
 Launcher template: as in `emu/README.md`, plus `-DFELD=1 -DFELD_SRC=0x6789EF01`.

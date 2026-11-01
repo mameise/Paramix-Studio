@@ -13,8 +13,15 @@
 /* 1.6.8: the Paradise does not live while DOOM runs (see paraback.h); in the program memory, not the window */
 #define PARA_ATTR __attribute__((section(".pram_text")))
 #define PB_ATTR __attribute__((section(".pram_text")))
+#ifdef DOOM_FREE
+#define PB_MARK_ATTR __attribute__((section(".pram_text")))   /* runs before hw_init: the window still shows the program before */
+#endif
 #include "../../../../emu/src/emu/paraclock.h"
 #include "../../../../emu/src/emu/paraback.h"
+#ifdef GPLAY
+#define GP_POINTS
+#include "../../../../emu/src/emu/gplay.h"
+#endif
 #endif
 
 #define PRAMF __attribute__((section(".pram_text"), noinline))
@@ -28,20 +35,7 @@ void plat_stage(unsigned int st);
  * PDMC: DOOM. Button bits see below. */
 typedef struct { u32 magic, version, guest_off, guest_size, save_off, device; u8 map[128]; } PmxCfg;
 __attribute__((section(".pmxcfg"), used)) volatile const PmxCfg g_cfg = { 0x43584D50u, 1, 0, 0, 0, 0, {0} };
-typedef struct {
-  u32 magic, version;
-  u32 wad_off, wad_len;            /* WAD in flash (offset), 4 byte length before the WAD */
-  u32 region_off, region_len;      /* area for precomputed data (the core writes it itself) */
-  u32 save_off;                    /* 2 x 4 KB: save, settings */
-  u32 code_off;                    /* program part in the flash window */
-  u32 detent;                      /* encoder steps per detent (2 or 4) */
-  u32 turn_tics;                   /* turn duration per detent in game tics */
-  u32 sound;                       /* 1 = sound on */
-  u32 invert;                      /* 1 = wheel reversed */
-  /* from version 2 (KEYMAP): key mapping as button masks (BTN_A 1, BTN_B 2, BTN_C 4, BTN_WHEEL 8) */
-  u32 k_fire, k_fwd, k_back, k_use, k_mod;   /* k_mod: hold + wheel = switch weapon, hold + press wheel = sound */
-  u32 run_dbl;                     /* 1 = double tap forward toggles run */
-} PdmCfg;
+#include "pdmcfg.h"
 __attribute__((section(".pdmcfg"), used)) volatile const PdmCfg g_dcfg =
   { 0x434D4450u, 2, 0x830004u, 0, 0xCA0000u, 0xA8000u, 0x10E000u, 0xB1000u, 1, 3, 1, 1,   /* v0.2.4: wheel reversed by default */
     BTN_A, BTN_B, BTN_C, BTN_WHEEL, BTN_C, 1 };
@@ -292,6 +286,9 @@ PRAMF void plat_leave(void){
   REG(0x20000FFCu)=0x4C584D50u;   /* 1.6.8 "PMXL": back on purpose, the autostart stays off (as the emulators) */
 #endif
 #ifdef PARA_BACK
+#ifdef GPLAY
+  para_points((uint8_t *)g_fb);   /* 1.7.2 test14: play time to Tamapoints */
+#endif
   para_back_fix(g_fb);
 #endif
   hw_bl_pwm_off();
@@ -588,6 +585,10 @@ PRAMF static void ram20_alias_test(void){
 extern u32 __data_load, __data_start, __data_end, __bss_start, __bss_end;
 extern u32 __r20_load, __r20_start, __r20_end, __r20b_start, __r20b_end;
 extern void D_DoomMain(void); extern void Z_Init(void); extern void InitGlobals(void);
+#ifdef DOOM_FREE
+uint32_t g_pk_lo=0x60800000u, g_pk_hi=0x60C00000u;
+extern const unsigned char *doom_iwad; extern const unsigned int *p_doom_iwad_len;
+#endif
 __attribute__((section(".pram_text"), noinline, used)) void Reset_Handler(void){
   __asm__ volatile("cpsid i");
 #ifdef PARA_BACK
@@ -598,6 +599,14 @@ __attribute__((section(".pram_text"), noinline, used)) void Reset_Handler(void){
   REG(0xE000ED24u) |= (1u<<18);    /* UsageFault on its own (vector 6) */
 #endif
   hw_init();
+#ifdef DOOM_FREE
+  /* 1.7.2 test6: only now (after hw_init) the flash window can be moved to DOOM's program part (as Wolf3D and the
+   * emulators do); its cache still holds lines of the program before at the same addresses: reading 64 KB evicts them */
+  XIP_BASE_REG = PD_XIP_BASE; XIP_CTRL_REG = 3u;
+  __asm__ volatile("dsb\n isb");
+  { volatile u32 sum=0; for(u32 i=0;i<0x4000u;i++) sum+=*(volatile u32*)(0x10040000u+4u*i); (void)sum; }
+  __asm__ volatile("dsb\n isb");
+#endif
   for(u32 y=0;y<128;y++){ for(u32 x=0;x<128;x++) g_drow[x]=BG; hw_px_begin(0,y,128,y+1); hw_px_row(g_drow,128); hw_px_end(); }
   log_show_previous();
 #ifdef ALIAS_TEST
@@ -608,14 +617,14 @@ __attribute__((section(".pram_text"), noinline, used)) void Reset_Handler(void){
   plat_log(0xF, 0);
   /* v0.1.2: the window stays at the firmware base (0x60011000), our program part sits in it at 0x100A0000
    * (flash 0x0B1000). No switching, so no stale lines in the cache. */
-  XIP_BASE_REG = 0x60011000u; XIP_CTRL_REG = 3u;
+  XIP_BASE_REG = PD_XIP_BASE; XIP_CTRL_REG = 3u;
   __asm__ volatile("dsb\n isb");
-  u32 bad0=0; for(u32 i=0;i<0x4000u;i++) if(*(volatile u32*)(0x100A0000u+4u*i)!=*(volatile u32*)(0x600B1000u+4u*i)) bad0++;
+  u32 bad0=0; for(u32 i=0;i<0x4000u;i++) if(*(volatile u32*)(0x100A0000u+4u*i)!=*(volatile u32*)(PD_XIP_BASE+0xA0000u+4u*i)) bad0++;
 #ifdef XIP_FLUSH
   /* The window cache keeps stale lines even after the base is changed: reading 64 KB evicts everything */
   { volatile u32 sum=0; for(u32 i=0;i<0x4000u;i++) sum+=*(volatile u32*)(0x10040000u+4u*i); (void)sum; }
 #endif
-  { u32 bad=0; for(u32 i=0;i<0x4000u;i++) if(*(volatile u32*)(0x100A0000u+4u*i)!=*(volatile u32*)(0x600B1000u+4u*i)) bad++;
+  { u32 bad=0; for(u32 i=0;i<0x4000u;i++) if(*(volatile u32*)(0x100A0000u+4u*i)!=*(volatile u32*)(PD_XIP_BASE+0xA0000u+4u*i)) bad++;
     u32 v[3]={2, bad0, bad}; static const u8 n[3]={2,5,5}; plat_line(1, v, n, 3); }
   { const u32 *s=&__data_load; for(u32 *p=&__data_start;p<&__data_end;p++) *p=*s++; }
   for(u32 *p=&__bss_start;p<&__bss_end;p++) *p=0;
@@ -632,6 +641,11 @@ __attribute__((section(".pram_text"), noinline, used)) void Reset_Handler(void){
   __asm__ volatile("cpsie i");
   /* wait until the start keys (A+C) are released */
   for(u32 t=0; (hw_buttons() & (BTN_A|BTN_C)) && t<3000u; t++) delay(1);
+#ifdef DOOM_FREE
+  /* packed flash pointers reach two 4 MB windows: the ones that hold the WAD and the level data */
+  g_pk_lo = 0x60000000u + ((g_dcfg.wad_off - 4u) & ~0x3FFFFFu); g_pk_hi = g_pk_lo + 0x400000u;
+  doom_iwad = (const unsigned char*) (0x60000000u + g_dcfg.wad_off); p_doom_iwad_len = (const unsigned int*) (0x60000000u + g_dcfg.wad_off - 4u);
+#endif
   plat_stage(4); Z_Init(); plat_stage(5); InitGlobals(); plat_stage(6); D_DoomMain();
   plat_leave();
 }

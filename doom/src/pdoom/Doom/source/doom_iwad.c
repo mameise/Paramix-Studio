@@ -44,6 +44,11 @@
 #pragma GCC optimize ("-O0")
 #include "w_wad.h"
 #include "doom_iwad.h"
+#ifdef DOOM_FREE
+const unsigned char *doom_iwad;   /* set at start from the settings block */
+const unsigned int *p_doom_iwad_len;
+#else
 const unsigned char *doom_iwad = (const unsigned char*) WAD_ADDRESS;
 const unsigned int *p_doom_iwad_len = (const unsigned int*) (WAD_ADDRESS - 4);
+#endif
 

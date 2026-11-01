@@ -545,15 +545,50 @@ static int clock_on(void) { return (g_cfg.flags & 10u) == 10u && g_set.sync && g
 #define DIGI ((g_cfg.flags & 64u) != 0u)
 #define CB (DIGI ? 0x1Au : 0x10u)
 #define NEEDSET 1
-static void clock_write(void)
+static void clock_put(u32 d)
 {
-  u32 t = g_para_time + (REG(0x45000304u) - g_para_cnt), d = t % 86400u, h = d / 3600u, m = d / 60u % 60u, sec = d % 60u;
+  u32 h = d / 3600u, m = d / 60u % 60u, sec = d % 60u;
   cpu_v1_poke(CB, (u4_t)(sec % 10u)); cpu_v1_poke(CB + 1, (u4_t)(sec / 10u));
   cpu_v1_poke(CB + 2, (u4_t)(m % 10u)); cpu_v1_poke(CB + 3, (u4_t)(m / 10u));
   if (DIGI) { cpu_v1_poke(CB + 4, (u4_t)(h % 12u ? h % 12u : 12u)); cpu_v1_poke(CB + 5, (u4_t)(h >= 12u)); }   /* 1..12, 0 = never set */
   else { cpu_v1_poke(CB + 4, (u4_t)(h & 15u)); cpu_v1_poke(CB + 5, (u4_t)(h >> 4)); }
 }
+static void clock_write(void) { clock_put((g_para_time + (REG(0x45000304u) - g_para_cnt)) % 86400u); }
 static u32 clock_sec(void) { return cpu_v1_peek(CB) | (u32)cpu_v1_peek(CB + 1) << 4; }
+#ifdef V1_CLK_DISC
+/* 1.7.2 test16: the toy's clock follows the Paradise's seconds counter 0x45000304 (crystal), as in T7Emu: about every
+ * 10 s, when the emulation is not behind on purpose. With the clock from the Paradise the toy shows the Paradise's
+ * time, else its own time from the first check on (time dropped when far behind, or a slow ms tick in standby, made
+ * it fall behind). A jump (set in the game) is a new reference; a clock that stands (never set) is left alone. */
+static u32 g_cd[4];   /* reference: time of day, counter; last check: time of day, counter (counter 0 = none) */
+static u32 clock_now(void)
+{
+  u32 s = clock_sec(), m = cpu_v1_peek(CB + 2) + 10u * cpu_v1_peek(CB + 3), h;
+  if (DIGI) { h = cpu_v1_peek(CB + 4); if (h < 1u || h > 12u) return 0xFFFFFFFFu; h = h % 12u + (cpu_v1_peek(CB + 5) ? 12u : 0u); }
+  else h = cpu_v1_peek(CB + 4) | (u32)cpu_v1_peek(CB + 5) << 4;
+  if ((s & 15u) > 9u || s > 0x59u || m > 59u || h > 23u) return 0xFFFFFFFFu;
+  return h * 3600u + m * 60u + (s >> 4) * 10u + (s & 15u);
+}
+static s32 tod_diff(u32 a, u32 b) { s32 d = (s32)((a + 86400u - b) % 86400u); return d > 43200 ? d - 86400 : d; }
+static void clock_disc(s32 behind)
+{
+  u32 r = REG(0x45000304u);
+  if (g_cd[1] && r - g_cd[3] < 10u) return;
+  if (behind > 300 || (REG(0x45000200u) & 7u) || !(g_cfg.flags & 8u)) return;
+  u32 obs = clock_now();
+  if (obs == 0xFFFFFFFFu) { g_cd[1] = 0; return; }
+  if (!g_cd[1]) {
+    if (clock_on()) { g_cd[0] = (g_para_time + (r - g_para_cnt)) % 86400u; g_cd[1] = r; } else { g_cd[0] = obs; g_cd[1] = r; }
+    g_cd[2] = obs; g_cd[3] = r; return;
+  }
+  s32 el = (s32)(r - g_cd[3]), mv = tod_diff(obs, g_cd[2]);
+  if (mv == 0 && el >= 5) { g_cd[1] = 0; return; }                      /* the clock stands */
+  if (mv < -5 || mv > el + 5) { g_cd[0] = obs; g_cd[1] = r; g_cd[2] = obs; g_cd[3] = r; return; }   /* set in the game */
+  u32 exp = (g_cd[0] + (r - g_cd[1])) % 86400u; s32 d = tod_diff(exp, obs);
+  if (d >= 2 || d <= -2) { clock_put(exp); obs = exp; }
+  g_cd[2] = obs; g_cd[3] = r;
+}
+#endif
 #ifdef V1_CLK_CHECK
 /* test3: does the toy show the Paradise's time (hours and minutes, one minute of slack)? A resumed P2 kept its old
  * time (Bernd); now the time is checked after the start and written again if it is off, three times at most. */
@@ -608,7 +643,11 @@ void Reset_Handler(void)
   hw_tone(0);
 #if defined(PARA_FLASH) && defined(PARA_FLASH_LATE)
   /* test24 (as V3Emu): neither SRAM nor mailbox: the base in the Paradise's settings page (readable only after hw_init) */
-  if (!g_para_time) { u32 c2 = REG(0x45000304u), t2 = para_flash(c2); if (t2) { g_para_time = t2; g_para_cnt = c2; para_mailbox_put(t2, c2); } }
+  if (!g_para_time) { u32 c2 = REG(0x45000304u), t2 = 0;
+#ifdef PARA_CLEAN_CLK
+    t2 = para_cleanclk(c2);   /* 1.7.2 test17: start device without the Paradise */
+#endif
+    if (!t2) t2 = para_flash(c2); if (t2) { g_para_time = t2; g_para_cnt = c2; para_mailbox_put(t2, c2); } }
 #endif
   /* the ROM: 12-bit words, two bytes each, high byte first */
   { const volatile u8 *r = XIP_PTR(g_cfg.rom_off); u32 n = g_cfg.rom_len / 2u; if (n > 8192u) n = 8192u;
@@ -616,7 +655,10 @@ void Reset_Handler(void)
   tamalib_register_hal(&g_hal_v1);
   { extern int thw_digi, cpu_kmask_fix; thw_digi = DIGI; cpu_kmask_fix = DIGI; }
 #ifdef V1_DIRECT
-  { extern int thw_direct; thw_direct = (g_cfg.flags & 128u) != 0u; }   /* test31: Yasashii, segment = column (Studio flag) */
+  { extern int thw_direct; thw_direct = (g_cfg.flags & 128u) != 0u; }
+#ifdef V1_ICONSEG
+  { extern int thw_iconseg; thw_iconseg = (g_cfg.flags & 256u) != 0u; }   /* test28: Umino, Genjintch, Tamaotch (Studio flag) */
+#endif   /* test31: Yasashii, segment = column (Studio flag) */
 #endif   /* test46: Digimon takes its keys by interrupt */   /* 1.6.8: Digimon's own LCD wiring */
   tamalib_init(g_prog, 0, 1000000u);
   int restored = load_session();
@@ -732,6 +774,9 @@ void Reset_Handler(void)
 #endif
         if (g_menu) menu_draw(); else draw(1);
         while (hw_buttons()) hw_wdt_feed();
+#ifdef WAKE_WHEEL
+        wheel_ms = 0;   /* 1.7.2: the wheel only wakes, its release does not open the settings */
+#endif
         continue;
       }
     }
@@ -761,6 +806,9 @@ void Reset_Handler(void)
     /* dark: up to 5 s behind (the toy's time is run later, at once); after the screen comes on that is caught up first;
      * a tone while dark: real time from there (pw_hold), so it sounds as it should */
     s32 lim = pw_back ? 5000 : 50;
+#ifdef V1_CLK_DISC
+    if (g_auto_k < 0 && !clk_chk) clock_disc((s32)(now - emu_ms));
+#endif
     if ((s32)(now - emu_ms) > lim) emu_ms = now - (u32)lim;
     u32 t0 = g_ms, end = pw_hold ? now - pw_hold : now;
     while ((s32)(end - emu_ms) > 0 && g_ms - t0 < (pw_quiet ? 40u : 20u)) {

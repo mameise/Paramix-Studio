@@ -942,6 +942,9 @@ int tg18_io_fast(void *ctx, uint32_t a, uint32_t *v) {
 #ifdef T18_IO_FASTW
     case 0xD00000B4: *v = reg_get(t, a); return 1;
 #endif
+#ifdef T18_LCD_FAST
+    case 0xD0500140: case 0xD050016C: *v = *reg(t, a); return 1;   /* 1.7.2 test17 */
+#endif
     }
     return 0;
 }
@@ -957,6 +960,15 @@ int tg18_io_fastw(void *ctx, uint32_t a, uint32_t v)
     switch (a) {
     case 0xD0100030: case 0xD0100034: case 0xD0100038: *reg(t, a) = v; intc_update(t); return 1;
     case 0xD00000B4: *reg(t, a) = v; return 1;
+#ifdef T18_LCD_FAST
+    /* 1.7.2 test17: the LCD port (i80): waking up, the firmware pushes its picture byte by byte through it (data
+     * register 0xD050016C, then the control word here with op 0xA, about 100000 accesses a second); same as io_wr */
+    case 0xD0500140: { *reg(t, a) = v; uint32_t op = (v >> 4) & 0xF;
+      if (op == 0x8) lcd_command(t, (uint8_t)R(0xD050016C));
+      else if (op == 0xA) lcd_data(t, R(0xD050016C), (v & 0x2000) != 0);
+      return 1; }
+    case 0xD050016C: *reg(t, a) = v; return 1;
+#endif
     }
     return 0;
 }
@@ -970,6 +982,9 @@ uint32_t *tg18_io_plain(void *ctx, uint32_t a)
     if (a & 3u) return 0;
     if ((a - 0xC0020000u < 0xC0u && (a & 0x1Fu) != 0x10u) || a == 0xC0000040u || a == 0xD0100038u) return reg(t, a);
     if (a == 0xD00000B4u || (a >= 0xC0150010u && a <= 0xC015001Cu)) return reg(t, a);   /* flash transfer set-up */
+#ifdef T18_LCD_FAST
+  if (a == 0xD0500140u || a == 0xD050016Cu) return reg(t, a);   /* 1.7.2 test17: LCD port, read plainly */
+#endif
     return 0;
 }
 /* ... and those a store only keeps (as io_wr / tg18_sf_fast do for them) */
@@ -977,6 +992,9 @@ uint32_t *tg18_io_plain_w(void *ctx, uint32_t a)
 {
     tg18_t *t = (tg18_t *)ctx;
     if (a == 0xD00000B4u || (a >= 0xC0150010u && a <= 0xC015001Cu && !(a & 3u))) return reg(t, a);
+#ifdef T18_LCD_FAST
+  if (a == 0xD050016Cu) return reg(t, a);   /* 1.7.2 test17: LCD data register: kept, the control word acts */
+#endif
     return 0;
 }
 #endif

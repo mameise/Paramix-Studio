@@ -377,7 +377,7 @@ part (under ▾ it only says how).
 Checked on the PC with two cores in lockstep; on the device see the test notes.
 
 ### Game Boy (1.6.9)
-Tab "Game Boy": choose Game Boy games (.gb, the black and white Game Boy; Game Boy Color games do not work). They go
+Tab "Game Boy": choose Game Boy games (.gb, the black and white Game Boy; since 1.7.2 also Game Boy Color games, .gbc, run by GBCEmu `gb/gbc.bin`). They go
 into the Paramix menu (switch the menu on in the tab "Menu"). The screen is shrunk from 160 x 144 to 128 x 115, nothing
 is cut off. The keys are set in the tab for all games (default: A left, C right, B = B, wheel press = A, wheel up and
 down, A+C Start). On the device: A+B+C together opens the settings (with Select and sound), holding the wheel for 2 s
@@ -469,6 +469,7 @@ Starting and leaving:
 | Wheel short | nothing | settings menu | nothing |
 | Wheel in the first 3 s after a resumed start | asks first (A yes, B no); yes drops the saved state, back to the Paradise; next start fresh from the Tama's own save | same | same |
 | Autostart on, hold B while the Paradise starts | the Paradise starts instead of the emulator | same | same |
+| Hold C while the device starts (1.7.2) | the flash app opens (way back when a program or a save leaves the screen black) | same | same |
 | Reset button, battery change | with autostart: the emulator starts again | same | same |
 
 Leaving with the wheel saves the whole state (CPU, memory, screen). The next
@@ -533,6 +534,22 @@ to the end first.
   long as there is no T18Emu (which needs it).
 - A colour Tama in the menu (1.7.1, `GUEST_SPARSE`): almost empty firmware blocks that the game hardly reads
   are kept as 8 KB parts, iD L about 250 KB and P's up to 450 KB less room.
+- A colour Tama in the menu (1.7.3, `GUEST_LZ`): the cold firmware blocks (not hot, not read in the device
+  simulation, no download item store) are packed in 1 KB LZ4 parts behind the other blocks. The program (settings
+  version 5, `lz_off`) unpacks a part when the guest reads it into one of two 1 KB buffers at 0x20000400. iD L about
+  1 MB less, P's 1.65 MB, 4U+ 1.45 MB, Plus Color 1.75 MB; in the simulation the same pictures and load as before.
+- Without the Paradise (1.7.2, `CLEAN_ROM`): second switch under "Start device". No Paradise code is left:
+  the load table at 0 starts the menu directly (not encrypted), the menu sets up the hardware itself, has its own
+  clock (SETTINGS, CLOCK; first start asks for it; sector "PMXK" at 0x0C0000) and passes the time to the programs.
+  Programs go from 0x010000 to 0xFF0000, the device's ID page stays (edition). Leaving a program goes through a small
+  restart routine at 0x110568 back to the menu. The empty battery shows a short text. A clean ROM opened in the
+  Studio shows only the program tabs and DOOM.
+- DOOM without the Paradise (1.7.2, `DOOM_FREE`): DOOM is a program of the menu like the others, placed anywhere,
+  any program can be the main one. A second DOOM build (`doomf_app.bin`, `doomf_xip.bin`, built with
+  `XCF=-DDOOM_FREE`) reads the places of its WAD, level data, save and program part from its settings block (PDMC);
+  the program part runs at XIP 0x100A0000 with the window following it (so from 0x0A0000 up), the packed flash
+  pointers reach two 4 MB windows set from the WAD place. The start device with the Paradise keeps the DOOM build
+  with fixed places.
 - Main program with DOOM (1.6.9): DOOM stays at its place, but the star in the
   Emulator tab can make any program of the menu the main one. It is shown first
   and, with "Start when switched on" under ▾, starts instead of the menu after a

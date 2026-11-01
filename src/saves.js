@@ -150,6 +150,7 @@ function paraPet(save, edition) {
  * Changed copy of the save. ch: { level, id, stage, care } (each optional). A new character goes
  * into the settings block and into the pet's own file (pages with the old character in the header).
  */
+const TAMA_ANY = true;
 function paraPetSet(save, edition, ch) {
   const p0 = paraSettings(save), o = PET[family(edition)];
   if (!p0 || !o) throw new Error('the save has no settings block');
@@ -159,13 +160,18 @@ function paraPetSet(save, edition, ch) {
   if (ch.id) {
     p[t + 4] = ch.id & 255; p[t + 5] = ch.id >> 8; p[t + 6] = ch.id & 255; p[t + 7] = ch.id >> 8;
     if (ch.stage) p[t + 0x18] = (p[t + 0x18] & ~0x1C) | ((ch.stage & 7) << 2);
+    let found = 0;
     if (old && old !== ch.id) for (const [a, d] of save.pages) {
-      if (a === SET_A || a === SET_B || d.length !== PAGE || u32(d, 8) !== 1 || u16(d, 14) !== old) continue;
-      const n = d.slice(); n[14] = ch.id & 255; n[15] = ch.id >> 8;
+      if (a === SET_A || a === SET_B || d.length !== PAGE) continue;
+      // 1.7.2 TAMA_ANY: a bred Tama's file was not found (GitHub): small number at +8, character at +0x0C or +0x0E
+      if (TAMA_ANY ? (u32(d, 8) === 0 || u32(d, 8) > 255 || (u16(d, 14) !== old && u16(d, 12) !== old)) : (u32(d, 8) !== 1 || u16(d, 14) !== old)) continue;
+      const n = d.slice(); found++;
+      if (!TAMA_ANY || u16(n, 14) === old) { n[14] = ch.id & 255; n[15] = ch.id >> 8; }
       if (u16(n, 12) === old) { n[12] = ch.id & 255; n[13] = ch.id >> 8; }
       if (u16(n, 0x10A) === old) { n[0x10A] = ch.id & 255; n[0x10B] = ch.id >> 8; }
       pages.set(a, n);
     }
+    if (TAMA_ANY && old && old !== ch.id && !found) throw new Error('the Tama\'s own file is not in the save, the Tama would not change');
   }
   if (ch.care) { p[t + 0x1C] = 6; p[t + 0x1D] = 20; p[t + 0x10] = 0; }
   const c = crc16arc(p, 4, PAGE); p[0] = c & 255; p[1] = c >> 8; p[2] = ~c & 255; p[3] = (~c >> 8) & 255;
@@ -183,12 +189,24 @@ function emuCfg(sec, base = 0xA0000) {
   if (u32(sec, c) !== PMXC) return null;
   const v = u32(sec, c + 4), kind = u32(sec, c + 20);
   if (!KINDS[kind]) return null;
-  return { version: v, guestOff: u32(sec, c + 8), guestSize: u32(sec, c + 12), saveOff: u32(sec, c + 16), kind, map: sec.slice(c + 24, c + 152), spareEnd: v >= 3 ? u32(sec, c + 152) : 0, ...KINDS[kind] };
+  return { version: v, guestOff: u32(sec, c + 8), guestSize: u32(sec, c + 12), saveOff: u32(sec, c + 16), kind, map: sec.slice(c + 24, c + 152), spareEnd: v >= 3 ? u32(sec, c + 152) : 0, lzOff: v >= 5 ? u32(sec, c + 160) : 0, ...KINDS[kind] };
 }
 /**
  * Guest flash (the .sav of the TamaEmu app) from the packed firmware and the spare pages.
  * read(addr, len) gives bytes of the Paradise flash (sync or async).
  */
+function lzDec(s, n) {   // LZ4 block (as emu.js)
+  const d = new Uint8Array(n).fill(0xFF); let ip = 0, op = 0;
+  for (;;) {
+    const t = s[ip++]; let l = t >> 4;
+    if (l === 15) { let x; do { x = s[ip++]; l += x; } while (x === 255); }
+    while (l-- > 0 && op < n) d[op++] = s[ip++];
+    if (op >= n || ip >= s.length) return d;
+    const o = s[ip] | (s[ip + 1] << 8); ip += 2; let m = (t & 15) + 4;
+    if ((t & 15) === 15) { let x; do { x = s[ip++]; m += x; } while (x === 255); }
+    while (m-- > 0 && op < n) { d[op] = d[op - o]; op++; }
+  }
+}
 async function emuGuestAsync(read, cfg, progress) {
   const out = new Uint8Array(cfg.size).fill(0xFF), nb = cfg.size >> 16;
   let done = 0; const todo = [...cfg.map.subarray(0, nb)].filter((k) => k !== 0xFF).length;
@@ -198,6 +216,20 @@ async function emuGuestAsync(read, cfg, progress) {
     if (k === 0xFE) k = b;
     out.set(new Uint8Array(await read(cfg.guestOff + (k << 16), 0x10000)), b << 16);
     if (progress) progress('read', ++done, todo);
+  }
+  // 1.7.3 GUEST_LZ: the packed cold blocks (LZ4 parts of 1 KB, see emu.js lzPack)
+  if (cfg.lzOff) {
+    const t = new Uint8Array(await read(cfg.lzOff, 512));
+    for (let b = 0; b < nb; b++) {
+      const lp = u32(t, 4 * b); if (!lp || cfg.map[b] !== 0xFF) continue;
+      const l = new Uint8Array(await read(cfg.lzOff + lp, 65 * 4)), a0 = u32(l, 0), z0 = u32(l, 256);
+      const raw = z0 > a0 ? new Uint8Array(await read(cfg.lzOff + a0, z0 - a0)) : new Uint8Array(0);
+      for (let k = 0; k < 64; k++) {
+        const a = u32(l, 4 * k) - a0, z = u32(l, 4 * k + 4) - a0, at = (b << 16) + k * 0x400;
+        if (z === a) continue;
+        out.set(z - a >= 0x400 ? raw.subarray(a, a + 0x400) : lzDec(raw.subarray(a, z), 0x400), at);
+      }
+    }
   }
   // spare pages (8 KB parts the guest wrote into blocks that are empty in the firmware)
   if (cfg.spareEnd) {

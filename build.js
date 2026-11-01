@@ -31,6 +31,10 @@ if (!fs.existsSync(eb) || !fs.existsSync(es)) throw new Error('emu/emu.bin oder 
   const gbb = __dirname + '/gb/gb.bin';
   if (!fs.existsSync(gbb)) throw new Error('gb/gb.bin fehlt');
   emu = emu.replace('__GB_APP_B64__', fs.readFileSync(gbb).toString('base64'));
+  // GBCEmu (1.7.2): Game Boy Color program (gb/src, build_gbc.sh, core Peanut-GB cgb branch). No ROM.
+  const gbcb = __dirname + '/gb/gbc.bin';
+  if (!fs.existsSync(gbcb)) throw new Error('gb/gbc.bin fehlt');
+  emu = emu.replace('__GBC_APP_B64__', fs.readFileSync(gbcb).toString('base64'));
   // SMSEmu (1.6.10 test2): Master System program (source in sms/src). No ROM.
   const smb = __dirname + '/sms/sms.bin';
   if (!fs.existsSync(smb)) throw new Error('sms/sms.bin fehlt');
@@ -56,6 +60,7 @@ let doom = fs.readFileSync(__dirname + '/src/doom.js', 'utf8');
   const d = (f) => fs.readFileSync(__dirname + '/doom/' + f).toString('base64');
   for (const f of ['doom_app.bin', 'doom_xip.bin', 'mcuwad.wasm']) if (!fs.existsSync(__dirname + '/doom/' + f)) throw new Error('doom/' + f + ' fehlt');
   doom = doom.replace('__DOOM_APP_B64__', d('doom_app.bin')).replace('__DOOM_XIP_B64__', d('doom_xip.bin')).replace('__DOOM_WASM_B64__', d('mcuwad.wasm'));
+  if (fs.existsSync(__dirname + '/doom/doomf_app.bin')) doom = doom.replace('__DOOMF_APP_B64__', d('doomf_app.bin')).replace('__DOOMF_XIP_B64__', d('doomf_xip.bin'));   // 1.7.2 DOOM_FREE
 }
 // Field switch: program and stub template
 let feld = fs.readFileSync(__dirname + '/src/feld.js', 'utf8');
@@ -63,6 +68,7 @@ let feld = fs.readFileSync(__dirname + '/src/feld.js', 'utf8');
   const d = (f) => fs.readFileSync(__dirname + '/feld/' + f).toString('base64');
   for (const f of ['feld.bin', 'stub_feld_tpl.bin']) if (!fs.existsSync(__dirname + '/feld/' + f)) throw new Error('feld/' + f + ' fehlt');
   feld = feld.replace('__FELD_B64__', d('feld.bin')).replace('__FELD_STUB_B64__', d('stub_feld_tpl.bin'));
+  if (fs.existsSync(__dirname + '/feld/feldc.bin')) feld = feld.replace('__FELDC_B64__', d('feldc.bin'));   // 1.7.2 CLEAN_ROM: menu for ROMs without the Paradise
 }
 // Six fields: helper page (source in six/src)
 let six = fs.readFileSync(__dirname + '/src/six.js', 'utf8');

@@ -13,6 +13,10 @@
 #include "../../../emu/src/emu/paraclock.h"
 #ifdef PARA_BACK
 #include "../../../emu/src/emu/paraback.h"
+#ifdef GPLAY
+#define GP_POINTS
+#include "../../../emu/src/emu/gplay.h"
+#endif
 #endif
 typedef int s32;
 
@@ -345,6 +349,9 @@ static void leave(void)
 #endif
   if (g_sms.cram_dirty) cram_store();
 #ifdef PARA_BACK
+#ifdef GPLAY
+  para_points((uint8_t *)g_sec);   /* 1.7.2 test14: play time to Tamapoints */
+#endif
   para_back_fix(g_sec);
 #endif
   hw_bl_pwm_off();

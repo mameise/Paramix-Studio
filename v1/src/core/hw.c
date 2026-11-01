@@ -53,9 +53,21 @@ int thw_digi;
 /* test31: Yasashii drives segment n as column n (0..31), found on the PC by reading the segments of its status pages;
  * with the P1 table the middle of the screen showed a black block and columns were lost. Set by the program. */
 int thw_direct;
+/* 1.7.2 test28: Umino, Genjintch and Tamaotch light each menu icon with one segment (Umino, Tamaotch: one com; Genjintch:
+ * coms 0-7 or 8-15), not with the P1's combinations: top 8, 17, 18, 19 (com 0-7) = icons 0-3, bottom 39, 38, 37, 28
+ * (com 8-15) = icons 4-7 (found on the PC, pressing A through the menu). With the P1 table the icons stayed dark or
+ * all four lit at once. Set by the program. */
+int thw_iconseg;
 void thw_set_lcd_pin(u8_t seg, u8_t com, u8_t val)
 {
 	if (thw_direct) { if (seg < LCD_WIDTH) g_hal->set_lcd_matrix(seg, com, val); return; }
+	if (thw_iconseg && seg < MEM_DISPLAY1_SIZE/2 && seg_pos[seg] >= LCD_WIDTH) {
+		static unsigned short icm[8];
+		int i = com < 8 ? (seg == 8 ? 0 : seg == 17 ? 1 : seg == 18 ? 2 : seg == 19 ? 3 : -1)
+		                : (seg == 39 ? 4 : seg == 38 ? 5 : seg == 37 ? 6 : seg == 28 ? 7 : -1);
+		if (i >= 0 && com < 16) { if (val) icm[i] |= (unsigned short)(1u << com); else icm[i] &= (unsigned short)~(1u << com); g_hal->set_lcd_icon((u8_t)i, icm[i] != 0); }
+		return;
+	}
 	if (thw_digi) {
 		if (seg < 40 && seg_pos_digi[seg] < LCD_WIDTH) g_hal->set_lcd_matrix(seg_pos_digi[seg], com, val);
 		/* test46: Digimon's icons (found on the host): status, food, training, battle = seg 28, 37, 38, 39 com 15;

@@ -12,6 +12,10 @@
 #include "../../../emu/src/emu/paraclock.h"
 #ifdef PARA_BACK
 #include "../../../emu/src/emu/paraback.h"
+#ifdef GPLAY
+#define GP_POINTS
+#include "../../../emu/src/emu/gplay.h"
+#endif
 #endif
 typedef int s32;
 
@@ -44,16 +48,39 @@ static void apu_write(u32 addr, u8 val);
  * Banks behind the stored part of the game read the last stored one (the Studio keeps equal end banks once). */
 struct gb_s;
 static u32 g_romoff, g_blast = 0xFFFFu;
+#ifdef GB_PAGES
+static u32 g_page;
+#endif
 static void bank_set(struct gb_s *gb);
 #define PGB_ROMOFF g_romoff
 #define PGB_BANKSET(gb) bank_set(gb)
 #endif
+#ifdef GBC
+/* 1.7.2: Game Boy Color (the core's cgb branch, PEANUT_FULL_GBC_SUPPORT): colours, two VRAM banks, eight WRAM banks,
+ * double speed. A DMG game runs in this program as well (as on the real Game Boy Color). */
+#define PEANUT_FULL_GBC_SUPPORT 1
+static int g_pal_dirty = 1;
+#define PGB_PALW(gb) (g_pal_dirty = 1)
+#include "../core/peanut_gbc.h"
+#else
 #include "../core/peanut_gb.h"
+#endif
 #include "font.h"
 #ifdef GB_TRIM
 __attribute__((noinline)) static void bank_set(struct gb_s *gb)
 {
   u32 b = (gb->mbc == 1 && gb->cart_mode_select) ? (gb->selected_rom_bank & 0x1Fu) : gb->selected_rom_bank;
+#ifdef GB_PAGES
+  /* 1.7.2: games over 1 MB (the cached window shows 1 MB): stored as pages of 1 MB, each bank 0 and 63 switchable
+   * banks (flags bit 2); the window moves when the game switches to a bank of another page */
+  if (g_cfg.flags & 4u) {
+    if (!b) b = 1u;
+    u32 pg = (b - 1u) / 63u;
+    if (pg != g_page) { g_page = pg; XIP_BASE_REG = 0x60000000u | (g_cfg.rom_off + (pg << 20)); XIP_CTRL_REG = 3u; __asm__ volatile("dsb\n isb" ::: "memory"); }
+    g_romoff = ((b - 1u) % 63u) * ROM_BANK_SIZE;
+    return;
+  }
+#endif
   if (b > g_blast) b = g_blast;
   g_romoff = (b - 1u) * ROM_BANK_SIZE;
 }
@@ -100,6 +127,9 @@ static const u8 LV_PCT[LV_N] = { 100u, 5u, 10u, 20u, 30u, 40u, 50u, 60u, 70u, 80
 static const u8 DIM2_PCT[DIM2_N] = { 1u, 2u, 3u, 5u, 10u, 15u, 20u, 30u, 40u, 50u };
 static int en(void) { return g_set.lang ? g_set.lang == 2u : (int)(g_cfg.flags & 1u); }
 static u16 BG, INK, OFF;
+#ifdef GBC
+static void gbc_colours(const u16 *p);
+#endif
 static u16 g_lut[76];   /* mixed brightness 0..75 (25 weights x shade 0..3) to colour */
 static int g_dimmed;
 static u16 mix(u16 a, u16 b, int p, int q)   /* a + (b - a) * p / q */
@@ -113,6 +143,9 @@ static void colours(void)
   const u16 *p = PAL[g_set.pal & 3u];
   for (int v = 0; v < 76; v++) { int s = v / 25, f = v % 25; g_lut[v] = s >= 3 ? p[3] : mix(p[s], p[s + 1], f, 25); }
   BG = p[0]; INK = p[3]; OFF = p[2];
+#ifdef GBC
+  gbc_colours(p);
+#endif
 #ifdef BL_PWM
   { u32 l = LV_PCT[(g_set.r0 & 15u) % LV_N], d = DIM2_PCT[g_set.dimto % DIM2_N];
     hw_bl_set(g_dimmed ? (d < l ? d : l) : l); }
@@ -229,9 +262,60 @@ static void apu_quiet(void) {}
 /* ---- screen: 5 x 5 Game Boy dots to 4 x 4 (weights 4/1, 3/2, 2/3, 1/4), 128 x 115 from y 6 ---- */
 #define OY 6
 #define OH 115
-static u8 g_fb[OH][128] __attribute__((aligned(4)));
 static int g_frame_drawn, g_dirty_lo = OH, g_dirty_hi = -1;
-#ifdef GB_FAST
+#ifdef GBC
+/* 1.7.2 GBC: colour dots (RGB 5:6:5 in the picture), mixed per channel with the same weights */
+static u16 g_fbc[OH][128] __attribute__((aligned(4)));
+/* one colour packed in a word: red bits 0..9, green 10..20, blue 21..30 (room for the sums of 25 weights) */
+static u32 g_hc[128];                                         /* the current line, shrunk across (sums of 5 weights) */
+static u32 g_ac[2][128];                                      /* rows being summed (25 weights) */
+static u32 g_pk[64];                                          /* the palette packed */
+static u16 g_d25r[776], g_d25g[1576]; static u8 g_d25b[776];   /* sum of 25 weights to the 5:6:5 field */
+static void d25_init(void) { for (u32 i = 0; i < 776u; i++) { g_d25r[i] = (u16)((i / 25u) << 11); g_d25b[i] = (u8)(i / 25u); } for (u32 i = 0; i < 1576u; i++) g_d25g[i] = (u16)((i / 25u) << 5); }
+static u16 g_dmgc[4];                                         /* a DMG game: its four shades in the chosen colours */
+static void crow_out(int r, const u32 *a)
+{
+  if (r >= OH) return;
+  u16 *f = g_fbc[r]; u32 d = 0;
+  for (int x = 0; x < 128; x++) {   /* / 25 through tables */
+    u32 c = a[x];
+    u16 v = (u16)(g_d25r[c & 1023u] | g_d25g[(c >> 10) & 2047u] | g_d25b[c >> 21]);
+    d |= f[x] ^ v; f[x] = v;
+  }
+  if (d) { if (r < g_dirty_lo) g_dirty_lo = r; if (r > g_dirty_hi) g_dirty_hi = r; }
+}
+static void lcd_line(struct gb_s *gb, const uint8_t px[160], const uint_fast8_t line)
+{
+  static int cgb0 = -1;
+  if (g_pal_dirty || cgb0 != gb->cgb.cgbMode) { g_pal_dirty = 0; cgb0 = gb->cgb.cgbMode;
+  if (gb->cgb.cgbMode) for (int i = 0; i < 64; i++) { u32 v = gb->cgb.fixPalette[i]; g_pk[i] = ((v >> 10) & 31u) | ((v >> 5) & 31u) << 11 | (v & 31u) << 21; }
+  else for (int i = 0; i < 64; i++) { u32 v = g_dmgc[i & 3]; g_pk[i] = (v >> 11) | ((v >> 5) & 63u) << 10 | (v & 31u) << 21; } }
+  const uint8_t *s = px; u32 *h = g_hc;
+  for (int k = 0; k < 32; k++, s += 5, h += 4) {
+    u32 a = g_pk[s[0] & 63u], b = g_pk[s[1] & 63u], c = g_pk[s[2] & 63u], d = g_pk[s[3] & 63u], e = g_pk[s[4] & 63u];
+    h[0] = 4u * a + b; h[1] = 3u * b + 2u * c; h[2] = 2u * c + 3u * d; h[3] = d + 4u * e;
+  }
+  int g = line / 5, l = line % 5, r = g * 4;
+  u32 *a0 = g_ac[0], *a1 = g_ac[1]; const u32 *hc = g_hc;
+  switch (l) {
+    case 0: for (int x = 0; x < 128; x++) a0[x] = hc[x] << 2; break;
+    case 1: for (int x = 0; x < 128; x++) { a0[x] += hc[x]; a1[x] = 3u * hc[x]; } crow_out(r, a0); break;
+    case 2: for (int x = 0; x < 128; x++) { a1[x] += 2u * hc[x]; a0[x] = 2u * hc[x]; } crow_out(r + 1, a1); break;
+    case 3: for (int x = 0; x < 128; x++) { a0[x] += 3u * hc[x]; a1[x] = hc[x]; } crow_out(r + 2, a0); break;
+    default: for (int x = 0; x < 128; x++) a1[x] += hc[x] << 2; crow_out(r + 3, a1); break;
+  }
+  if (line == 143) g_frame_drawn = 1;
+}
+static void gbc_colours(const u16 *p)
+{
+  for (int k = 0; k < 4; k++) g_dmgc[k] = p[k];
+  g_pal_dirty = 1;
+  g_dirty_lo = 0; g_dirty_hi = OH - 1;
+}
+#else
+static u8 g_fb[OH][128] __attribute__((aligned(4)));
+#endif
+#if defined(GB_FAST) && !defined(GBC)
 /* test38: the same weights four dots at a time (each byte of a word is one dot, sums stay below 256) */
 static u32 g_hlw[32], g_accw[2][32];
 static u32 g_h5[1024];   /* five dots (2 bits each) to their four shrunk dots */
@@ -266,7 +350,7 @@ static void lcd_line(struct gb_s *gb, const uint8_t px[160], const uint_fast8_t 
   }
   if (line == 143) g_frame_drawn = 1;
 }
-#else
+#elif !defined(GBC)
 static u8 g_hl[128];          /* the current line, shrunk across (0..15) */
 static u8 g_acc[2][128];      /* rows being summed */
 static void lcd_line(struct gb_s *gb, const uint8_t px[160], const uint_fast8_t line)
@@ -300,7 +384,11 @@ static void push(int all)
   }
   if (lo > hi) return;
   hw_px_begin(0, (u32)(OY + lo), 128, (u32)(OY + hi + 1));
+#ifdef GBC
+  for (int y = lo; y <= hi; y++) hw_px_row(g_fbc[y], 128);
+#else
   for (int y = lo; y <= hi; y++) { const u8 *f = g_fb[y]; for (int x = 0; x < 128; x++) g_row[x] = g_lut[f[x]]; hw_px_row(g_row, 128); }
+#endif
   hw_px_end();
   g_dirty_lo = OH; g_dirty_hi = -1;
 }
@@ -441,7 +529,11 @@ static void gl_poll2(void) { plink_poll(g_ms, 0, gl_got2); }
 /* ---- 1.6.11 test2: the whole Game Boy on leaving (wheel held), read once at the next start ---- */
 #include "../../../emu/src/emu/pstate.h"
 #define STATE_AT (g_cfg.save_off + 0x9000u)
+#ifdef GBC
+#define STATE_MAX 0xF000u   /* 1.7.2: save area 96 KB (settings, cartridge RAM, state) */
+#else
 #define STATE_MAX 0x7000u
+#endif
 static int g_running;
 static u32 st_tag(void) { return 0x47420001u ^ (u32)&g_gb ^ ((u32)sizeof(struct gb_s) << 8) ^ ROM_LEN_FULL ^ (u32)lcd_line; }   /* GB_TRIM: the whole game's length, so a stored state stays valid */
 static int st_parts(StPart *pt)
@@ -481,6 +573,9 @@ static void leave(void)
 #endif
   if (g_cram_dirty) cram_store();
 #ifdef PARA_BACK
+#ifdef GPLAY
+  para_points((uint8_t *)g_sec);   /* 1.7.2 test14: play time to Tamapoints */
+#endif
   para_back_fix(g_sec);
 #endif
   hw_bl_pwm_off();
@@ -522,10 +617,18 @@ void Reset_Handler(void)
     for (u32 t = 0; t < 30000000u; t++) if ((t & 0xFFFFu) == 0) hw_wdt_feed();
     leave();
   }
-  { size_t n = 0; if (gb_get_save_size_s(&g_gb, &n) != 0) n = 0; g_cram_len = n > CRAM_MAX ? CRAM_MAX : (u32)n; }
+#ifdef GBC
+  { size_t n = gb_get_save_size(&g_gb);
+#else
+  { size_t n = 0; if (gb_get_save_size_s(&g_gb, &n) != 0) n = 0;
+#endif
+    g_cram_len = n > CRAM_MAX ? CRAM_MAX : (u32)n; }
   cram_load();
 #ifdef GB_FAST
   h5_init();
+#endif
+#ifdef GBC
+  d25_init();
 #endif
   gb_init_lcd(&g_gb, lcd_line);
 #ifdef GB_LINK

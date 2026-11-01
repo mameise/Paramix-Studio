@@ -24,6 +24,12 @@ u.mem_write(0x4000B014, struct.pack('<I', 0x60))   # 1.6.9 T7_LINK: UART1 LSR, s
 cfg = APPOFF + 0x140
 rom_off = struct.unpack_from('<I', fl, cfg + 8)[0]
 u.mem_write(0x10000000, bytes(fl[rom_off:rom_off + 0x100000]))
+XIPN = [0]
+def _xipw(uc, acc, a, sz, v, ud):   # 1.7.2 GB_PAGES: the window follows its base register
+    o = v - 0x60000000
+    if 0 <= o < 0x1000000: uc.mem_write(0x10000000, bytes(fl[o:o + 0x100000]).ljust(0x100000, b'\xff')); XIPN[0] += 1
+u.hook_add(UC_HOOK_MEM_WRITE, _xipw, begin=0x4002F004, end=0x4002F007)
+import atexit; atexit.register(lambda: print('window moves', XIPN[0]))
 WH = []   # WHEEL='t:steps,...' (+ one way, - the other): the encoder phases at GPIO2
 for p in os.environ.get('WHEEL', '').split(','):
     if ':' in p: t, n = p.split(':'); WH.append([float(t), int(n)])

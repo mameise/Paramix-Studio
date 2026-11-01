@@ -96,13 +96,24 @@ static volatile u8 g_bat_go;
 uint32_t jit_used(void);
 
 /* Settings, filled in by the ROM builder (magic "PMXC"). */
+#ifdef TC_LZ
+typedef struct { u32 magic, version, guest_off, guest_size, save_off, device; u8 map[128]; u32 spare_end, flags, lz_off; } PmxCfg;
+#define PMX_VER 5u   /* 1.7.3 (GUEST_LZ): lz_off = table of the packed cold blocks (0 = none); the template says 5: the Studio may pack */
+#else
 typedef struct { u32 magic, version, guest_off, guest_size, save_off, device; u8 map[128]; u32 spare_end, flags; } PmxCfg;
+#define PMX_VER 1u
+#endif
 /* version 4 (1.5.1): flags bit 1 = at every start the guest clock is set to the Paradise's time */
 /* version 3 (v0.9.2): spare_end = end of the guest area; the room behind the packed firmware holds spare pages */
 __attribute__((section(".pmxcfg"), used))
-volatile const PmxCfg g_cfg = { 0x43584D50u, 1, 0x940000u, 0x400000u, 0xC0000u, 0,
+volatile const PmxCfg g_cfg = { 0x43584D50u, PMX_VER, 0x940000u, 0x400000u, 0xC0000u, 0,
   { [0 ... 63] = 0xFE, [64 ... 127] = 0xFF }, 0, 0 };   /* 0xFE: linear (old layout) */
 static u32 g_para, g_para_cnt;          /* the Paradise's time at the start (seconds since 1970, 0 = not found), its counter then */
+#ifdef TC_LZ
+TC_INIT static void lz_setup(void){
+  tc_lz_tab= g_cfg.version>=5u && g_cfg.lz_off ? (const uint8_t*)(0x60000000u+g_cfg.lz_off) : 0;
+}
+#endif
 static int para_hard(void) { return g_cfg.version >= 4u && (g_cfg.flags & 2u) && g_para; }
 
 static uint16_t g_gram[GRAM_H][GRAM_W] __attribute__((aligned(4)));   /* also a flash source (para_back_fix): the DMA takes words */
@@ -806,6 +817,32 @@ __attribute__((noinline, minsize)) static int date_fix(Emu *e){
   return 1;
 }
 #endif
+#ifdef CLK_DISC
+/* 1.7.2 test16: the guest clock follows the Paradise's seconds counter 0x45000304 (crystal, runs always), as T7Emu
+ * does: about every 10 s, when the emulation is not behind on purpose. With the clock from the Paradise the guest
+ * should show the Paradise's time, else its own time from the first check on. Behind: the missing seconds are
+ * added (the guest lives them), ahead: the clock goes back. A jump of the guest clock (set in the game, or the
+ * Paradise's time put back after it) is a new reference. Before (clock_sync) a long standby could leave the guest
+ * clock far behind: gaps the counter made in one go were taken as implausible and dropped. */
+static u32 g_cd[4];   /* reference: guest time, counter; last check: guest time, counter (0 = none) */
+__attribute__((noinline, minsize)) static void clock_disc(Emu *e, s32 behind){
+  u32 r = REG(0x45000304u);
+  if(g_cd[0] && r - g_cd[3] < 10u) return;
+  if(behind > 300 || (REG(0x45000200u) & 7u)) return;
+  u32 obs = periph_rtc_get(e);
+  if(!obs){ g_cd[0] = 0; return; }
+  if(!g_cd[0]){
+    if(para_hard()){ g_cd[0] = g_para; g_cd[1] = g_para_cnt; } else { g_cd[0] = obs; g_cd[1] = r; }
+    g_cd[2] = obs; g_cd[3] = r;
+  }
+  s32 el = (s32)(r - g_cd[3]), mv = (s32)(obs - g_cd[2]);
+  if(mv < -5 || mv > el + 5){ g_cd[0] = obs; g_cd[1] = r; g_cd[2] = obs; g_cd[3] = r; return; }
+  s32 d = (s32)(g_cd[0] + (r - g_cd[1]) - obs);
+  if(d >= 2){ periph_rtc_advance(e, (u32)d); obs += (u32)d; }
+  else if(d <= -2){ obs += (u32)d; periph_rtc_set(e, obs); }
+  g_cd[2] = periph_rtc_get(e) ? periph_rtc_get(e) : obs; g_cd[3] = r;
+}
+#endif
 __attribute__((noinline, minsize)) static void clock_sync(Emu *e){
   u32 run_ms = g_run_ms;
 #ifdef BAT_GUARD
@@ -820,7 +857,12 @@ __attribute__((noinline, minsize)) static void clock_sync(Emu *e){
   if(REG(0x45000200u) & 7u) have=0;   /* 1.6.8 (Sonix SDK): 0x45000304 counts RTC periods, seconds only with timeout 0 (1 s) */
   else
 #endif
+#ifdef CLK_DISC
+  (void)run_ms;   /* 1.7.2 test16: clock_disc keeps the guest clock */
+  if(1){}
+#else
   if(!have){ r0=r; m0=run_ms; have=1; }
+#endif
   else if(r - r0 >= 30u){
     u32 dr = r - r0, dm = run_ms - m0;
     if(dr <= dm/1000u + 600u && dm/1000u <= dr + 5u){      /* plausible: no jump of the counter */
@@ -863,7 +905,7 @@ static void boot(void){
   /* the Paradise's clock, before its SRAM is overwritten (the stack is in the top 4 KB) */
   u32 pcnt=REG(0x45000304u), para=para_clock(pcnt, 0, 0x1F000u, 0, 0);
   if(!para) para=para_mailbox(pcnt);   /* 1.6.8: started from the menu */
-#ifdef PARA_FLASH
+#if defined(PARA_FLASH) && !defined(PARA_FLASH_LATE)
   if(!para) para=para_flash(pcnt);   /* 1.6.9 test37 */
 #endif
 #ifdef PARA_BACK
@@ -884,6 +926,10 @@ static void boot(void){
 #endif
   g_sc.guest_off=g_cfg.guest_off; g_sc.guest_size=g_cfg.guest_size; g_sc.save_off=g_cfg.save_off; g_sc.device=g_cfg.device; g_sc.map=g_cfg.map; g_sc.spare_end = g_cfg.version>=3u ? g_cfg.spare_end : 0u;
   hw_init();
+#ifdef PARA_FLASH_LATE
+  /* 1.7.2 test16: neither SRAM nor mailbox: the base in the Paradise's settings page (readable only after hw_init), as T7Emu */
+  if(!g_para){ u32 c2=REG(0x45000304u), t2=para_flash(c2); if(t2){ g_para=t2; g_para_cnt=c2; para_mailbox_put(t2, c2); } }
+#endif
 #ifndef CLEAN
   g_pc_n=pram_check((u32)__pdata_start, 1);
 #else
@@ -977,6 +1023,9 @@ static void boot(void){
     }
   }
   st_pages(e, &g_sc);                     /* spare pages for written empty blocks (after a restore as well) */
+#ifdef TC_LZ
+  lz_setup();
+#endif
 }
 #if defined(OPT_MENU) && defined(EMU_OVL)
 /* 1.6.8: wheel short: settings (the game stands still meanwhile); 1.6.13 test10: from the overlay */
@@ -1169,6 +1218,9 @@ void Reset_Handler(void){
      * millisecond tick runs slow, or busy scenes (shop, flash writes) make the emulator drop
      * time, the missing seconds are added to the guest clock. */
     if(((++g_run_ms) & 1023u)==0u) clock_sync(e);
+#ifdef CLK_DISC
+    clock_disc(e, (s32)(now - emu_ms));
+#endif
 #ifndef RTC_KEEP_GUEST
     /* 1.6.8: with the clock taken from the Paradise, a time the game sets itself (its first setup, after a reset)
      * is replaced by the Paradise's time once the game has not touched its clock for 2 s */
@@ -1239,6 +1291,14 @@ void Reset_Handler(void){
       if(b){ if(g_dimd && g_bl){ swallow=1; g_btn_ms=now; } g_dim_t=now; }
 #endif
       if(swallow){ if(b) b=0; else swallow=0; } }
+#endif
+#ifdef WAKE_WHEEL
+    /* 1.7.2: the wheel with the screen dark only wakes it: no settings, the Tama gets a short C (its screen comes on,
+     * as after resuming) */
+    { static int ww; static u32 wc;
+      if(ww){ if(b&BTN_WHEEL) b&=~BTN_WHEEL; else { ww=0; wc=now?now:1; } }
+      else if((b&BTN_WHEEL) && !g_bl && !wheel_ms){ ww=1; b&=~BTN_WHEEL; }
+      if(wc){ if(now-wc<150u) b|=BTN_C; else wc=0; } }
 #endif
     periph_buttons(e,(uint8_t)(b&7));
     if(b) g_btn_ms=now;

@@ -210,9 +210,22 @@ async function chunk(idx, payload) {
   return out;
 }
 /** Is the device on the download screen? */
+/* 1.7.2 PROBE_RETRY: some adapters (PL2303) lose or garble the first bytes after opening, and the hello frame before
+ * has no line end: the line is ended first, three tries, any line before the answer is skipped */
+const PROBE_RETRY = true;
 async function probe(link) {
-  link.clear(); await link.writeLine('ECHO REQ');
-  try { return (await link.waitLine(2000)).startsWith('ECHO REP'); } catch (e) { return false; }
+  if (!PROBE_RETRY) { link.clear(); await link.writeLine('ECHO REQ'); try { return (await link.waitLine(2000)).startsWith('ECHO REP'); } catch (e) { return false; } }
+  for (let t = 0; t < 3; t++) {
+    await link.io.write(ascii('\r\n')); await sleep(150 * link.scale); link.clear();
+    await link.writeLine('ECHO REQ');
+    const end = Date.now() + 2000 * link.scale;
+    for (;;) {
+      const left = end - Date.now(); if (left <= 0) break;
+      let l = ''; try { l = await link.waitLine(left / link.scale); } catch (e) { break; }
+      if (l.indexOf('ECHO REP') >= 0) return true;
+    }
+  }
+  return false;
 }
 /** Load an image into the device (download screen) and start it. */
 async function loadApp(link, img, progress) {
@@ -274,6 +287,34 @@ function batPic(img) {
     return out;
   } catch (e) { return null; }
 }
+/* 1.7.2: a ROM without the Paradise has no picture of its own: the same sector with our text instead (white on black,
+ * "BATTERY EMPTY, SHUTTING DOWN", own 5 x 7 letters at twice the size) */
+const BAT_FONT = { A: '01110100011000111111100011000110001', B: '11110100011000111110100011000111110', D: '11110100011000110001100011000111110',
+  E: '11111100001000011110100001000011111', G: '01110100011000010111100011000101111', H: '10001100011000111111100011000110001',
+  I: '01110001000010000100001000010001110', M: '10001110111010110101100011000110001', N: '10001110011010110011100011000110001',
+  O: '01110100011000110001100011000101110', P: '11110100011000111110100001000010000', R: '11110100011000111110101001001010001',
+  S: '01111100001000001110000010000111110', T: '11111001000010000100001000010000100', U: '10001100011000110001100011000101110',
+  W: '10001100011000110101101011010101010', Y: '10001100010101000100001000010000100' };
+function batText() {
+  const px = new Uint8Array(128 * 128), lines = ['BATTERY', 'EMPTY', 'SHUTTING', 'DOWN'];
+  lines.forEach((ln, li) => {
+    const w = ln.length * 12 - 2, x0 = (128 - w) >> 1, y0 = 22 + li * 22;
+    for (let c = 0; c < ln.length; c++) {
+      const g = BAT_FONT[ln[c]]; if (!g) continue;
+      for (let y = 0; y < 7; y++) for (let x = 0; x < 5; x++) if (g[y * 5 + x] === '1')
+        for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) px[(y0 + 2 * y + dy) * 128 + x0 + c * 12 + 2 * x + dx] = li < 2 ? 1 : 2;
+    }
+  });
+  const out = new Uint8Array(SECTOR).fill(0xFF); let n = 0;
+  for (let k = 0; k < px.length; ) {
+    let r = 1; while (r < 16 && k + r < px.length && px[k + r] === px[k]) r++;
+    out[40 + n++] = (px[k] << 4) | (r - 1); k += r;
+  }
+  w32(out, 0, 0x31544142); w32(out, 4, n);
+  const pal = [0x0000, 0xFFFF, 0xA514];
+  for (let j = 0; j < 16; j++) { const c = pal[j] || 0; out[8 + 2 * j] = c & 255; out[9 + 2 * j] = c >> 8; }
+  return out;
+}
 function rescueBlock(app, hdr, pic) {
   if (!app || app.length > RESCUE_CODE || !hdr || hdr.length < SECTOR || String.fromCharCode(...hdr.subarray(0, 8)) !== 'SONIXDEV') return null;
   const b = new Uint8Array(BLOCK64).fill(0xFF);
@@ -297,8 +338,14 @@ function isRescue(d, base = 0) {
   return String.fromCharCode(...d.subarray(t, t + 8)) === 'SONIXDEV' && u32(d, t + 0x10) === 0x60000000 + RESCUE_OFF && u32(d, t + 0x14) === RESCUE_CODE;
 }
 /** The image with the rescue start, or null when 0xFF0000 holds something else. */
+/* CLEAN_ROM: a ROM without the Paradise has no battery picture of its own, it shows a short text */
+function batFor(img) {
+  const F = root.ParamixFeld || (typeof require !== 'undefined' ? require('./feld.js') : null);
+  return F && F.isClean && F.isClean(img) ? batText() : batPic(img);
+}
 function withRescue(img, app) {
-  const rb = rescueBlock(app, img.subarray(0, SECTOR), batPic(img));
+  const F = root.ParamixFeld || (typeof require !== 'undefined' ? require('./feld.js') : null);
+  const rb = rescueBlock(app, img.subarray(0, SECTOR), batFor(img));
   if (!rb) return null;
   let same = true; for (let i = 0; i < BLOCK64; i++) if (img[RESCUE_OFF + i] !== rb[i]) { same = false; break; }
   if (same) return img;
@@ -594,7 +641,7 @@ class Paradise {
       for (const x of secs) if (await this.crc(x, SECTOR) !== crc32(image, x, SECTOR)) changed.add(x); else changed.delete(x);
     }
     if (rescue) {   // the save ranges of "keep saves" reach to the end of the flash: the rescue start wins there
-      const rb = rescueBlock(opts.rescueApp, image.subarray(0, SECTOR), batPic(image));
+      const rb = rescueBlock(opts.rescueApp, image.subarray(0, SECTOR), batFor(image));
       if (image === img) image = new Uint8Array(image);
       image.set(rb, RESCUE_OFF);
       for (let s = RESCUE_OFF; s < FLASH_SIZE; s += SECTOR) if (await this.crc(s, SECTOR) !== crc32(image, s, SECTOR)) changed.add(s); else changed.delete(s);
@@ -710,10 +757,14 @@ function keepPlan(F, E, menu, opts = {}) {
     if (sameFam) notes.push(note('noteEdKept', { d: dev.info.name, r: EDITIONS[ed.id] || ed.id }));
     // the device's program area (stub, menu, apps), only the sectors that differ
     const view = new Uint8Array(img);
-    for (const s of changed) if (s >= 0x90000 && s < 0x110000) view.set(await dev.read(s, SECTOR), s);
+    for (const s of changed) if (s === 0 || (s >= 0x90000 && s < 0x110000)) view.set(await dev.read(s, SECTOR), s);
+    // CLEAN_ROM: without the Paradise there is no save of it and no main program at 0x0A0000 (any program may sit
+    // there); the menu's clock stays when the device is clean too
+    const clean = !!(F.isClean && F.isClean(img)), dclean = !!(F.isClean && F.isClean(view)), mainOk = !clean && !dclean;
     // six fields keep pictures from 0xF00000; a start device (1.6.8) may have programs there (the Paradise never writes there)
     const launchImg = !!(menu && F.isLaunch && F.isLaunch(img, menu.stub));
-    const ranges = [[ed.profile.idPage + (sameFam ? 0 : SECTOR), (F.isSix && F.isSix(img)) || launchImg ? 0xF00000 : FLASH_SIZE]];
+    const ranges = mainOk ? [[ed.profile.idPage + (sameFam ? 0 : SECTOR), (F.isSix && F.isSix(img)) || launchImg ? 0xF00000 : FLASH_SIZE]] : [];
+    if (clean && dclean) { const ci = F.cleanInfo(img), cd = F.cleanInfo(view); if (ci && cd && ci.clock === cd.clock) ranges.push([ci.clock, ci.clock + SECTOR]); }
     // field slots
     const fi = menu && F.feldFind(img, menu.stub), fd = menu && F.feldFind(view, menu.stub);
     if (fd && (fd.flags & 1)) {
@@ -745,9 +796,9 @@ function keepPlan(F, E, menu, opts = {}) {
     const mine = opts.mine || null;
     const mineIn = (a, b) => { if (!mine) return false; for (let x = a & ~(SECTOR - 1); x < b; x += SECTOR) if (mine.has(x)) return true; return false; };
     // TamaEmu: settings block at 0x0A0140 (guest size and block map decide the layout)
-    const kind = F.appKind(img), dkind = F.appKind(view);
-    const T7 = 0x37584D50, t7i = u32(img, 0xA0140) === T7, t7d = u32(view, 0xA0140) === T7;
-    const T18 = 0x38584D50, t18i = u32(img, 0xA0140) === T18, t18d = u32(view, 0xA0140) === T18, PMXC_ = 0x43584D50, t18keepX = [];
+    const kind = mainOk ? F.appKind(img) : 0, dkind = mainOk ? F.appKind(view) : 0;
+    const T7 = 0x37584D50, t7i = mainOk && u32(img, 0xA0140) === T7, t7d = mainOk && u32(view, 0xA0140) === T7;
+    const T18 = 0x38584D50, t18i = mainOk && u32(img, 0xA0140) === T18, t18d = !dclean && u32(view, 0xA0140) === T18, PMXC_ = 0x43584D50, t18keepX = [];
     if (t7i && t7d) {
       // T7Emu (1.4.0): the pet's EEPROM stays as long as the V7 ROM is the same, the session also needs the same figures
       const ro = u32(img, 0xA0148), rl = u32(img, 0xA014C);
@@ -758,7 +809,7 @@ function keepPlan(F, E, menu, opts = {}) {
         ranges.push([0xC1000, 0xC6000]);   // EEPROM slots and the settings
         if (view.subarray(0xA0148, 0xA0140 + 24 + 16 * 24).every((v, i) => v === img[0xA0148 + i])) ranges.push([0xC0000, 0xC1000]);
       } else notes.push(note('noteEmu'));
-    } else if (u32(img, 0xA0140) === 0x31584D50 && u32(view, 0xA0140) === 0x31584D50) {
+    } else if (mainOk && u32(img, 0xA0140) === 0x31584D50 && u32(view, 0xA0140) === 0x31584D50) {
       // V1Emu as the main program (1.6.8): session and settings stay with the same ROM at the same place
       const ro = u32(img, 0xA0148), rl = u32(img, 0xA014C), so = u32(img, 0xA0150);
       let same = [0x148, 0x14C, 0x150].every((k) => u32(view, 0xA0000 + k) === u32(img, 0xA0000 + k));
@@ -803,6 +854,13 @@ function keepPlan(F, E, menu, opts = {}) {
         }
         if (!ad.some((d) => d.src === a.src)) continue;
         const dv = changed.has(off) ? await dev.read(off, SECTOR) : img.subarray(off, off + SECTOR);
+        { const di = E && E.doomCfg ? E.doomCfg(img, off) : null;   // DOOM_FREE (1.7.2 test3): DOOM in the menu, its save and level data stay with the same WAD at the same place
+          if (di) {
+            const pi = di.cfg - off, same = u32(dv, 0x140) === PMXC_ && u32(dv, pi) === 0x434D4450 && [8, 12, 16, 20, 24, 28].every((k) => u32(dv, pi + k) === u32(img, di.cfg + k));
+            let sameW = same; for (let x = di.romOff & ~0xFFF; sameW && x < di.romOff + di.romLen; x += SECTOR) if (changed.has(x)) sameW = false;
+            if (sameW) ranges.push([di.saveOff, di.saveOff + 0x2000], [di.regionOff, di.regionOff + di.regionLen]); else if (same) notes.push(note('noteEmu'));
+            continue;
+          } }
         if (mag === PMXC_ && u32(img, off + 0x144) >= 3) {
           // TamaEmu as a further program: run state and spare pages stay with the same firmware layout
           const same = u32(dv, 0x140) === PMXC_ && dv.subarray(0x148, 0x140 + 156).every((v, i) => v === img[off + 0x148 + i]);   // the flags (+156: clock, NFC) may change
@@ -822,7 +880,8 @@ function keepPlan(F, E, menu, opts = {}) {
           const sameG = [0x140, 0x148, 0x14C, 0x150].every((k) => u32(dv, k) === u32(img, off + k));
           const ro = u32(img, off + 0x148), rl = u32(img, off + 0x14C), so = u32(img, off + 0x150);
           let sameRom = sameG; for (let x = ro & ~0xFFF; sameRom && x < ro + rl; x += SECTOR) if (changed.has(x)) sameRom = false;
-          if (sameRom && !mineIn(so, so + 0x10000)) ranges.push([so, so + 0x10000]); else if (!sameRom) notes.push(note('noteEmu'));   // 1.6.11 test2: with the state behind the cartridge RAM; an imported save (changed by the Studio) wins
+          const sl = mag === 0x47584D50 && (u32(img, off + 0x140 + 20) & 8) ? 0x18000 : 0x10000;   // 1.7.2: GBCEmu keeps 96 KB
+          if (sameRom && !mineIn(so, so + sl)) ranges.push([so, so + sl]); else if (!sameRom) notes.push(note('noteEmu'));   // 1.6.11 test2: with the state behind the cartridge RAM; an imported save (changed by the Studio) wins
           continue;
         }
         if (mag === 0x57584D50) {   // Wolf3D (1.6.10 test1): settings and the saved game stay with the same pack at the same place
@@ -884,7 +943,7 @@ function keepPlan(F, E, menu, opts = {}) {
           const isMain = base === 0xA0000, so = u32(c, 0x150);
           out.push({ kind: m, romOff: u32(c, 0x148), romLen: u32(c, 0x14C), saveOff: so, saveLen: m === V1M ? 0x2000 : (isMain ? 0x6000 : 0x6000), base });
         };
-        await one(0xA0000, async (o) => rd(o, SECTOR));
+        if (b === img ? !clean : !dclean) await one(0xA0000, async (o) => rd(o, SECTOR));
         for (const a of apps) await one(a.src - 0x10000000 + 0x11000, async (o) => rd(o, SECTOR));
         return out;
       };
@@ -948,6 +1007,6 @@ async function serialOpen(port) {
   return io;
 }
 
-root.ParamixFlash = { linkKey: LINK_KEY, rescueBlock, withRescue, batPic, t18Relocate, RESCUE_OFF, PARA_RESCUE, connect, keepPlan, Link, Paradise, serialOpen, embedded, buildPdlo, crc32, sectorOrder, EDITIONS, FLASH_SIZE, BAUD, TimeoutError };
+root.ParamixFlash = { linkKey: LINK_KEY, rescueBlock, withRescue, batPic, batText, batFor, t18Relocate, RESCUE_OFF, PARA_RESCUE, connect, keepPlan, Link, Paradise, serialOpen, embedded, buildPdlo, crc32, sectorOrder, EDITIONS, FLASH_SIZE, BAUD, TimeoutError };
 if (typeof module !== 'undefined') module.exports = root.ParamixFlash;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -268,7 +268,7 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
   ok(ap.store.base === 0x5A0000 && E.dlcStores(ap.guest).find((k) => k.kind === 0).slots[0].name === 'cake', 'dlc P\'s: meal into its store at 0x5A0000');
   const rg = new Uint8Array(rec); rg[0x4E] = 0x94; rg[0x50] = 0x5B; rg[0x51] = 0x01; let sg = 0; for (let i = 0; i < 0xFE; i++) sg += rg[i]; rg[0xFE] = sg >> 8 & 255; rg[0xFF] = sg & 255;
   ok(E.dlcRoute(E.dlcRecord(rg, 'ps'), 'ps').base === 0x710000 && E.dlcRoute(rg, '4u').base === 0x710000, 'dlc P\'s and 4U: game store');
-}).then(() => {
+}).then(async () => {
   { // 1.6.10 test2: Master System detection and placing (test/sms_test.js)
     const r = require('child_process').spawnSync(process.execPath, [__dirname + '/sms_test.js'], { encoding: 'utf8' });
     ok(r.status === 0, 'Master System (sms_test.js)' + (r.status ? ': ' + r.stdout.split('\n').filter((l) => l.startsWith('FAIL')).join('; ') : '')); }
@@ -294,6 +294,47 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
     ok(p0.pages.length === 0 && p1.blocks === p0.blocks - 2 && p1.pages.length === 3, 'GUEST_SPARSE: two cold blocks as 3 pages (' + p0.blocks + ' -> ' + p1.blocks + ')');
     ok(p1.map[4] === 0xFF && p1.map[5] === 0xFF && p1.map[6] !== 0xFF && p1.map[0x0d] !== 0xFF, 'GUEST_SPARSE: hot and fuller blocks stay');
     ok(p1.pages.every((x) => Buffer.from(x.data).equals(Buffer.from(g.subarray(x.v << 13, (x.v + 1) << 13)))), 'GUEST_SPARSE: the pages hold the parts'); }
+  { // 1.7.2 CLEAN_ROM: a ROM without the Paradise from made-up data (only a load table and an edition word)
+    const F = require('../src/feld.js'), FL = require('../src/flash.js'), fs4 = require('fs');
+    const src = new Uint8Array(0x1000000).fill(0x5A);
+    src.set(Buffer.from('SONIXDEV'), 0); src[8] = 1;
+    let pid = 0; const prof = [[0xD49000, 1]]; for (const [o, id] of prof) { src[o] = id; src[o + 1] = src[o + 2] = src[o + 3] = 0; if (F.edition(src)) { pid = o; break; } }
+    const ed = F.edition(src);
+    ok(!!ed, 'CLEAN_ROM: made-up edition word found at 0x' + pid.toString(16));
+    if (ed) {
+      const base = F.cleanBase(src);
+      ok(base.subarray(0x1000, 0x10000).every((v) => v === 0xFF) && F.edition(base) && F.edition(base).id === ed.id, 'CLEAN_ROM: empty image with the ID page');
+      const fe = { feld: new Uint8Array(fs4.readFileSync(__dirname + '/../feld/feldc.bin')), stub: new Uint8Array(fs4.readFileSync(__dirname + '/../feld/stub_feld_tpl.bin')) };
+      const img = F.cleanApply(base, { apps: [], dl: 0 }, fe);
+      const u = (o) => (img[o] | img[o + 1] << 8 | img[o + 2] << 16 | img[o + 3] << 24) >>> 0;
+      ok(F.isClean(img) && !F.isClean(src) && !F.isClean(base), 'CLEAN_ROM: isClean only for the built image');
+      ok(u(0x10) === 0x600B1000 && (u(8) & 1) === 0 && u(0x80) === 0, 'CLEAN_ROM: load table points to the menu, not encrypted');
+      ok(u(0x110568) === 0x49024801 && u(0x11056C) === 0xBF004708 && u(0x110570) === 0x100A0000, 'CLEAN_ROM: restart routine in place');
+      ok(F.cleanReserved(ed.profile.idPage).some(([a, b]) => a <= ed.profile.idPage && b > ed.profile.idPage), 'CLEAN_ROM: ID page reserved');
+      const w = FL.withRescue(img, new Uint8Array(fs4.readFileSync(__dirname + '/../flash/flashapp.bin')));
+      ok(!!w && F.isClean(w), 'CLEAN_ROM: rescue start with the battery text');
+      const bt = FL.batText(); ok(bt && bt.length > 0, 'CLEAN_ROM: battery text picture ' + (bt ? bt.length : 0) + ' bytes');
+    } }
+  { // 1.7.3 GUEST_LZ: LZ4 parts of 1 KB, packed blocks and back (made-up data)
+    const E = require('../src/emu.js');
+    const p = new Uint8Array(1024); for (let i = 0; i < 1024; i++) p[i] = (i % 37 < 20) ? (i * 7) & 255 : 0x42;
+    const c = E.lzEnc(p); ok(c.length < 1024 && Buffer.from(E.lzDec(c, 1024)).equals(Buffer.from(p)), 'GUEST_LZ: part packed (' + c.length + ' bytes) and back');
+    const r = new Uint8Array(1024); let x = 1; for (let i = 0; i < 1024; i++) { x = (x * 1103515245 + 12345) >>> 0; r[i] = x >>> 24; }
+    ok(Buffer.from(E.lzDec(E.lzEnc(r), 1024)).equals(Buffer.from(r)), 'GUEST_LZ: random part back');
+    const g = new Uint8Array(0x40000).fill(0xFF); g.set(p, 0x10000); g.set(r, 0x10400); g.set(p, 0x30800);
+    const z = E.lzPack(g, [1, 3]), h = new Uint8Array(0x40000).fill(0xFF);
+    E.lzUnpack((a, n) => z.subarray(a, a + n), h);
+    ok(Buffer.from(h).equals(Buffer.from(g)), 'GUEST_LZ: two blocks packed (' + z.length + ' bytes) and back'); }
+  // 1.7.2 PROBE_RETRY: a download screen behind an adapter that loses the first 40 bytes after opening (PL2303),
+  // answering only a clean "ECHO REQ" line; the loader then gets no ACK (noAck), not "no answer"
+  { const FL = require('../src/flash.js'); let lost = 40, line = ''; const io = { onData: null };
+    io.write = async (d) => { for (const b of d) { if (lost > 0) { lost--; continue; }
+      if (b === 10) { const l = line.replace(/\r$/, ''); line = '';
+        if (l === 'ECHO REQ') setTimeout(() => io.onData(new Uint8Array(Buffer.from('ECHO REP\r\n'))), 5);
+        else if (l.startsWith('PKT')) setTimeout(() => io.onData(new Uint8Array(Buffer.from('CAN\r\n'))), 5); }
+      else if (b >= 32 && b < 127) line += String.fromCharCode(b); else if (b !== 13) line = ''; } };
+    let code = ''; try { await FL.connect(io, new Uint8Array(16), { timeScale: 0.2 }); } catch (e) { code = e.code || e.message; }
+    ok(code === 'noAck', 'PROBE_RETRY: download screen found behind a lossy adapter (' + code + ')'); }
   console.log(fails ? fails + ' failed' : 'all good');
   process.exit(fails ? 1 : 0);
 });

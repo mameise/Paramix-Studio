@@ -330,6 +330,9 @@ static int is_on=1;
  * hw_backlight(1) waited 145 ms and the emulator fell behind (the ring of a call in standby ran slow).
  * Returns 0 when the panel is on already. */
 int hw_wake_step(int ph){
+#ifdef HW_WAKE_ABORT
+  if(ph==0){ if(is_on) return 0; lcd_cmd(0x28,0,0); lcd_cmd(0x10,0,0); return 1; }   /* 1.7.2 test17: woken ahead, nobody came: asleep again */
+#endif
   if(ph==1){ if(is_on) return 0; lcd_cmd(0x11,0,0); return 1; }
   if(ph==2){ lcd_cmd(0x29,0,0); return 1; }
 #ifdef BL_PWM
@@ -375,6 +378,10 @@ TC_INIT void hw_init(void){
   flashctl_init();
 }
 
+#ifdef GPLAY
+#include "gplay.h"
+uint32_t g_gp_secs, g_gp_last;
+#endif
 u32 hw_buttons(void){
   u32 d = REG(GPIO0+0x00);
   u32 b = 0;
@@ -382,6 +389,9 @@ u32 hw_buttons(void){
   if(!(d & (1u<<11))) b |= BTN_B;
   if(!(d & (1u<<10))) b |= BTN_C;
   if(!(d & (1u<<8)))  b |= BTN_WHEEL;
+#ifdef GPLAY
+  gp_key(b);
+#endif
   return b;
 }
 

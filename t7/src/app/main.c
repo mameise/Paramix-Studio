@@ -453,7 +453,11 @@ void Reset_Handler(void)
   hw_init();
 #if defined(PARA_FLASH) && defined(PARA_FLASH_LATE)
   /* test17: as V3Emu: neither SRAM nor mailbox: the base in the Paradise's settings page (readable after hw_init) */
-  if (!g_para_time) { u32 c2 = REG(0x45000304u), t2 = para_flash(c2); if (t2) { g_para_time = t2; g_para_cnt = c2; para_mailbox_put(t2, c2); } }
+  if (!g_para_time) { u32 c2 = REG(0x45000304u), t2 = 0;
+#ifdef PARA_CLEAN_CLK
+    t2 = para_cleanclk(c2);   /* 1.7.2 test17: start device without the Paradise */
+#endif
+    if (!t2) t2 = para_flash(c2); if (t2) { g_para_time = t2; g_para_cnt = c2; para_mailbox_put(t2, c2); } }
 #endif
   g_rom_off = g_cfg.rom_off; g_rom_size = g_cfg.rom_len;
   XIP_BASE_REG = 0x60000000u | g_rom_off;     /* ROM in the cached window from 0x10000000 */
@@ -583,6 +587,10 @@ void Reset_Handler(void)
         pw_full();
 #endif
         bl = 1; hw_backlight(1); app_render(1); while (hw_buttons()) hw_wdt_feed();
+#ifdef WAKE_WHEEL
+        wheel_ms = 0;   /* 1.7.2: the wheel only wakes, its release does not open the settings */
+#endif
+
 #ifdef T7_KEYQ
         kq_clear();
 #endif
@@ -590,6 +598,10 @@ void Reset_Handler(void)
       if (dimmed) { dimmed = 0;
         app_dim(0);
         while (hw_buttons()) hw_wdt_feed();
+#ifdef WAKE_WHEEL
+        wheel_ms = 0;   /* 1.7.2: the wheel only wakes, its release does not open the settings */
+#endif
+
 #ifdef T7_KEYQ
         kq_clear();
 #endif

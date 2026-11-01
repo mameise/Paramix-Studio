@@ -109,6 +109,9 @@ def h_erase(uc):
     a = uc.reg_read(UC_ARM_REG_R0) & 0xFFF000
     uc.mem_write(0x60000000 + a, b'\xff' * 0x1000); fl[a:a + 0x1000] = b'\xff' * 0x1000; state['flashw'] += 1; ret(uc)
     if os.environ.get('FWLOG'): print('FE', state['ms'], hex(a))
+def h_bl(uc):
+    if os.environ.get('BLLOG'): print('BL', uc.reg_read(UC_ARM_REG_R0), 'at ms', state['ms'])
+    ret(uc)
 def h_back(uc): state['back'] = 1; uc.emu_stop()
 def h_nop(uc): ret(uc)
 def h_fatal(uc): print('FATAL code', uc.reg_read(UC_ARM_REG_R0), 'info', hex(uc.reg_read(UC_ARM_REG_R1)), 'lr', hex(uc.reg_read(UC_ARM_REG_LR))); state['back'] = 1; uc.emu_stop()
@@ -122,7 +125,7 @@ def h_end(uc):
     ret(uc)
 H = {'hw_px_begin': h_begin, 'hw_px_row': h_row, 'hw_px_end': h_end, 'hw_tone': h_tone, 'hw_buttons': h_btn,
      'flash_update4k': h_upd, 'flash_erase4k': h_erase, 'hw_back_to_paradise': h_back, 'hw_init': h_nop,
-     'hw_backlight': h_nop, 'hw_bl_pwm_off': h_nop, 'hw_wdt_feed': h_nop}
+     'hw_backlight': h_bl, 'hw_bl_pwm_off': h_nop, 'hw_wdt_feed': h_nop}
 if not os.environ.get('FATALDRAW'): H['fatal'] = h_fatal
 for n, f in H.items():
     if n not in syms: print('no symbol', n); continue
@@ -240,6 +243,10 @@ def _clk(uc, acc, a, sz, v, ud):
     uc.mem_write(0x4500000C, struct.pack('<I', (v & 7) | ((v & 7) << 4)))
     if os.environ.get('ECOLOG'): print('CLKSRC', v & 7, 'at ms', state['ms'])
 u.hook_add(UC_HOOK_MEM_WRITE, _clk, begin=0x4500000C, end=0x4500000F)
+def _clkr(uc, acc, a, sz, v, ud):   # 1.7.2: the status bits follow the source (the write hook runs before the write itself)
+    c = struct.unpack('<I', bytes(uc.mem_read(0x4500000C, 4)))[0]
+    if ((c >> 4) & 7) != (c & 7): uc.mem_write(0x4500000C, struct.pack('<I', (c & 7) | ((c & 7) << 4)))
+u.hook_add(UC_HOOK_MEM_READ, _clkr, begin=0x4500000C, end=0x4500000F)
 def _pmu(uc, acc, a, sz, v, ud):
     if v & 2 and not state.get('dsleep'):
         t = state['ms']
@@ -265,6 +272,12 @@ if RTCLAGMS:
         eff = state.get('dsleep') or state['ms']
         uc.mem_write(0x45000304, struct.pack('<I', rtc0 + max(eff - RTCLAGMS, 0) // 1000))
     u.hook_add(UC_HOOK_MEM_READ, _rtcms, begin=0x45000304, end=0x45000307)
+if os.environ.get('OSCDBG'):
+    _oc = collections.Counter()
+    def _osc(uc, acc, a, sz, v, ud):
+        if state['ms'] >= int(os.environ['OSCDBG']): _oc[(hex(a), struct.unpack('<I', bytes(uc.mem_read(a & ~3, 4)))[0])] += 1
+    u.hook_add(UC_HOOK_MEM_READ, _osc, begin=0x45000000, end=0x45000013)
+    import atexit; atexit.register(lambda: print('OSC reads', _oc.most_common(10)))
 while state['ms'] < total_ms and 'back' not in state:
     u.mem_write(0x45000304, struct.pack('<I', rtc0 + state['ms'] // 1000))
     try:
@@ -295,6 +308,9 @@ while state['ms'] < total_ms and 'back' not in state:
             print('%4d s: emulated %4d ms (deep sleep)' % (state['ms'] // 1000, st[0] - last[0]), flush=True); last = st
         continue
     state['ms'] += 1
+    _k = keys(); u.mem_write(0x40018000, struct.pack('<I', 0xFFFFFFFF & ~(((_k & 1) << 9) | ((_k & 2) << 10) | ((_k & 4) << 8) | ((_k & 8) << 5))))   # 1.7.2: GPIO0 pins (active low) for the key latch
+    if os.environ.get('TRFROM') and int(os.environ['TRFROM']) <= state['ms'] <= int(os.environ['TRTO']) and state['ms'] % int(os.environ.get('TRSTEP','25')) == 0:
+        _st = struct.unpack('<8I', bytes(u.mem_read(st_sym, 32))); print('TR', state['ms'], 'emu', _st[0], 'drop', _st[1], 'k', hex(_st[4]), hex(_st[5]), hex(_st[6]), _st[7], 'lag', state['ms'] - _st[0] - _st[1], 'sh', state['sh'], 'ihrc', state['ihrc'])
     if not IRQ:
         v = struct.unpack('<I', u.mem_read(gms, 4))[0]; u.mem_write(gms, struct.pack('<I', v + 1))
         if 'g_ms_raw' in syms: _r = syms['g_ms_raw']; u.mem_write(_r, struct.pack('<I', struct.unpack('<I', u.mem_read(_r, 4))[0] + 1))
@@ -330,7 +346,7 @@ if os.environ.get('ALIGNCHK'): print('unaligned double/multiple accesses', len(A
 print('ms', state['ms'], 'tones', len(state['tone']), 'back' if 'back' in state else '', 'pc', hex(pc), 'bad PRAM writes', PRAM_BAD[0])
 if PROF:
     tot = sum(pc_cnt.values())
-    for k, v in pc_cnt.most_common(25): print('  %-24s %5.1f%%' % (k, 100.0 * v / tot))
+    for k, v in pc_cnt.most_common(int(os.environ.get('PROFN','25'))): print('  %-24s %5.1f%%' % (k, 100.0 * v / tot))
 print('ms per clock step (96, 48, 24, 12 MHz):', state['shms'])
 print('power ms: full', state['pw']['full'], 'ihrc', state['pw']['ihrc'], 'deep sleep', state['pw']['sleep'])
 open(os.path.join(out, 'flash_after.bin'), 'wb').write(fl)

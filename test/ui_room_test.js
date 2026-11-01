@@ -16,9 +16,11 @@ const fs = require('fs'), path = require('path');
   let refused = '';
   for (const f of fws) {
     await p.evaluate(() => { document.getElementById('toast').textContent = ''; });
+    const n0 = await p.$$eval('#appsList .prow', (l) => l.length);
     await p.setInputFiles('#fileEmu', f);
-    await p.waitForFunction(() => !document.getElementById('busy').classList.contains('on'), null, { timeout: 120000 }); await p.waitForTimeout(1500);
-    const tt = await p.textContent('#toast'); console.log(path.basename(f), '->', tt.slice(0, 100));
+    await p.waitForFunction((n) => document.getElementById('toast').textContent || document.querySelectorAll('#appsList .prow').length !== n, n0, { timeout: 300000 }).catch(() => {});
+    await p.waitForFunction(() => !document.getElementById('busy').classList.contains('on'), null, { timeout: 300000 }); await p.waitForTimeout(1500);
+    const tt = (await p.textContent('#toast', { timeout: 5000 }).catch(() => '')) || ''; console.log(path.basename(f), '->', tt.slice(0, 100));
     if (/keinen Platz/.test(tt)) { refused = tt; break; }
   }
   ok(/es fehlen etwa \d+ KB/.test(refused), 'refused with the KB missing: ' + refused);

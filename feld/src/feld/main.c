@@ -25,8 +25,10 @@
 #include "hw.h"
 #include "flash.h"
 #include "font.h"
-#ifndef HOST
+#if !defined(HOST) || defined(FELD_CLEAN)
 #include "../../../emu/src/emu/paraclock.h"
+#endif
+#ifndef HOST
 #ifdef PARA_BACK
 #include "../../../emu/src/emu/paraback.h"
 #endif
@@ -44,6 +46,7 @@
 #define F_TAMA   4u                 /* 1.6.8: TAMA menu (level, care, character) */
 #define F_SAVES  8u                 /* 1.6.8: the slots are saves (any field), not fields */
 #define F_LAUNCH 16u                /* 1.6.8: launcher ROM: the menu is the home screen (C stays, display off when idle) */
+#define F_CLEAN  32u                /* 1.7.2: ROM without the Paradise: the menu starts by itself and keeps the clock */
 #define SAVE_OFF 0xF06u             /* settings block: number of the active save + 1 (save mode) */
 
 #define APPS_MAX 6
@@ -89,6 +92,11 @@ typedef struct {
   /* from version 9 (1.6.9 test13): the main program of the start device when it is one of the list (DOOM stays
    * at 0x0A0000): shown first and started by itself when vflags bit 0 is set (0 = the stub's own) */
   u32 main_src, vflags;
+  /* from version 10 (1.7.2 FELD_CLEAN): a ROM without the Paradise (flag F_CLEAN): the menu's own clock sector
+   * ("PMXK": time base, seconds counter at that time, display time, check), 0 = none */
+#ifdef FELD_CLEAN
+  u32 clock_sec;
+#endif
 } Cfg;
 
 #ifdef HOST
@@ -97,18 +105,27 @@ typedef struct {
 #define CFG_QUAL const
 #endif
 __attribute__((section(".pmxcfg"), used))
-volatile CFG_QUAL Cfg g_cfg = { FELD_MAGIC, 9, 0x830000u, 0x58000u, 3, 0xD4A000u, 0x1000000u, 0xD49000u, 0xB0000u,
+#ifdef FELD_CLEAN
+#define CFG_SIZE_OK (sizeof(Cfg)==612 && offsetof(Cfg,clock_sec)==608)
+#define CFG_VER 10
+#define CFG_TAIL , 0
+#else
+#define CFG_SIZE_OK (sizeof(Cfg)==608)
+#define CFG_VER 9
+#define CFG_TAIL
+#endif
+volatile CFG_QUAL Cfg g_cfg = { FELD_MAGIC, CFG_VER, 0x830000u, 0x58000u, 3, 0xD4A000u, 0x1000000u, 0xD49000u, 0xB0000u,
   F_FIELDS|F_BAG, 0x70169E2Cu, 1, 4, 3, {1,2,3,0}, {"LAND","WATER","SKY",""},
   {0x5647u, 0x2BDFu, 0x7E9Fu, 0xFD45u},
   {{8,0x11,0},{16,0xc0,0},{17,0xa8,0},{168,1,0},{576,0x3f,0},{577,0x1f,0},{1856,1,0}},
   {{{4,0x0c,0},{170,2,0},{439,0,0}}, {{4,4,0},{170,1,0},{439,1,0}}, {{4,4,0},{170,1,0},{439,2,0}}},
-  0xb4u, 0x240u, 0x740u, 0, 0, 439u, 0, 0, {0,0}, {"",""}, {0,0}, {{{0,0,0}}}, 0, 0, {0}, "", 0, {{0,""}}, 0, 0, 0, {{0,""}}, 0, 0 };
+  0xb4u, 0x240u, 0x740u, 0, 0, 439u, 0, 0, {0,0}, {"",""}, {0,0}, {{{0,0,0}}}, 0, 0, {0}, "", 0, {{0,""}}, 0, 0, 0, {{0,""}}, 0, 0 CFG_TAIL };
 #define XIP_DEC 0x11000u
 #include <stddef.h>
 _Static_assert(offsetof(Cfg,flags)==36 && offsetof(Cfg,id_c)==40 && offsetof(Cfg,nfields)==48 && offsetof(Cfg,field_name)==68
   && offsetof(Cfg,field_col)==116 && offsetof(Cfg,fac_common)==132 && offsetof(Cfg,fac_field)==196
   && offsetof(Cfg,money_off)==260 && offsetof(Cfg,cat_n)==276 && offsetof(Cfg,field_byte)==280 && offsetof(Cfg,six_off)==288 && offsetof(Cfg,field_name2)==300
-  && offsetof(Cfg,field_col2)==324 && offsetof(Cfg,fac_field2)==332 && offsetof(Cfg,slot_off2)==364 && offsetof(Cfg,six_map)==372 && sizeof(Cfg)==608 && offsetof(Cfg,main_src)==600 && offsetof(Cfg,dl_src)==500 && offsetof(Cfg,tama_off)==492 && offsetof(Cfg,name0)==380 && offsetof(Cfg,napps)==392 && offsetof(Cfg,apps)==396, "settings block layout");
+  && offsetof(Cfg,field_col2)==324 && offsetof(Cfg,fac_field2)==332 && offsetof(Cfg,slot_off2)==364 && offsetof(Cfg,six_map)==372 && CFG_SIZE_OK && offsetof(Cfg,main_src)==600 && offsetof(Cfg,dl_src)==500 && offsetof(Cfg,tama_off)==492 && offsetof(Cfg,name0)==380 && offsetof(Cfg,napps)==392 && offsetof(Cfg,apps)==396, "settings block layout");
 #define NF_MAX 6u
 
 /* Saved field (header page at the start of its slot). res[0] = POOL_MAGIC (1.2.12): the
@@ -580,9 +597,44 @@ static u32 h_mb, h_gpio=0xFFFFFFFFu, h_cnt;   /* host: from the environment (AUT
 #define AUTO_GPIO REG(0x40018000u)
 #define AUTO_CNT REG(0x45000304u)
 #endif
+#define MB_L 0x4C584D50u
+#define MB_M 0x4D584D50u
+#define MB_R 0x52584D50u
+static void start_app_i(u32 i);
+#ifdef FELD_CLEAN
+static int clean_mode(void);
+#endif
+#ifdef FELD_BFALL
+/* 1.7.2 test19: C held after switching on (or after the reset button) starts the flash app (B there already means: no
+ * autostart) (DOWNLOAD): a way back
+ * when a program or a save leaves the screen black. Not when a program went back on purpose ("PMXL"), not when the
+ * Paradise woke from deep sleep (mailbox lost, clock ran). Without the Paradise the menu only starts at switching on,
+ * after a reset or when a program went back. */
+static void b_fallback(void){
+  if(!g_dl || (AUTO_GPIO & 0x400u)) return;
+  volatile u32 *mb=AUTO_MB; u32 m=*mb;
+  if(m==MB_L) return;
+#ifdef FELD_CLEAN
+  if(!clean_mode())
+#endif
+  if(AUTO_CNT>=30u && m!=MB_R && m!=MB_M) return;
+  *mb=MB_M;
+  start_app_i(g_dl-1u);
+}
+#endif
 static int auto_go(void){
   if(g_cfg.version<9u || !(g_cfg.vflags & 1u) || !g_napp || !(g_cfg.flags & F_LAUNCH)) return 0;
   volatile u32 *mb=AUTO_MB; u32 m=*mb;
+#if defined(FELD_CLEAN) && defined(CLEAN_AUTO)
+  /* 1.7.2 test19: without the Paradise the seconds counter says nothing about switching on (Bernd: the main program
+   * did not start). The menu only starts at switching on, after a reset or when a program went back: start the main
+   * program unless a program went back ("PMXL"). test21: "PMXM" of an earlier menu stays in the RAM over a write and
+   * a reset (Bernd: clock set, then the menu): it no longer counts, and "PMXL" counts once. */
+  if(clean_mode()){
+    if(!(AUTO_GPIO & 0x800u) || m==MB_L){ *mb=0; return 0; }
+    *mb=MB_R; return 1;
+  }
+#endif
   if(!(AUTO_GPIO & 0x800u)){ *mb=0x4D584D50u; return 0; }
   if(m==0x4C584D50u || m==0x4D584D50u) return 0;
   if(m!=0x52584D50u && AUTO_CNT>=30u){ *mb=0x4D584D50u; return 0; }
@@ -667,6 +719,12 @@ static void bat_text(char *s){ const char *t="2.84V 80%"; int i=0; while((s[i]=t
 #endif
 #endif
 static void lset_menu(void);
+#ifdef FELD_CLEAN
+static int clean_mode(void);
+#define SX_TEXT (clean_mode() ? "CLOCK, DISPLAY" : "SOUND, DISPLAY")
+#else
+#define SX_TEXT "SOUND, DISPLAY"
+#endif
 #if defined(FELD_PW) && !defined(HOST)
 /* test23 (switch FELD_PW): the display dark, the menu waited for a key in a tight loop at the full clock and used
  * about as much power as with the display on. Now deep sleep (as TamaEmu, EMU_PW) between the polls: a key wakes at
@@ -739,7 +797,7 @@ static void apps_menu(int top){
         text(5,y+(dy-8)/2+1,g_appnm[i],c,1);
         const char *st = sx ? "OPEN" : "START";
         text(123-text_w(st,1),y+(dy-8)/2+1,st,GREY,1);
-      } else big_entry(y0+(int)i*29, i==sel, g_appnm[i], g_dl && i+1u==g_dl ? "PC FLASH" : sx ? "SOUND, DISPLAY" : "START", c, GREY);
+      } else big_entry(y0+(int)i*29, i==sel, g_appnm[i], g_dl && i+1u==g_dl ? "PC FLASH" : sx ? SX_TEXT : "START", c, GREY);
     }
 #ifdef BAT_SHOW
     /* test17: the start device's home screen shows the battery bottom right */
@@ -826,12 +884,134 @@ static void set_write(const char *what){
 /* Start device settings (1.6.8): sound level of the Paradise (settings byte 8, bits 3..4: 0 off .. 3 loud,
  * found with the sound screen of the firmware) and the display time of this menu. */
 #define SND_OFF 8u
+#ifdef FELD_CLEAN
+/* ---------------------------------------------------------------- 1.7.2 FELD_CLEAN: ROM without the Paradise
+ * Nobody else keeps the time: the menu's own clock sector holds a time base (seconds since 1970, local) and the
+ * seconds counter 0x45000304 at that moment (it runs on through deep sleep and resets, it starts at 0 when the
+ * batteries come in). The programs get the time through the mailbox 0x20000FC0 as before. */
+#define CK_MAGIC 0x4B584D50u                /* "PMXK" */
+typedef struct { u32 magic, t0, c0, idle, chk; } Clk;
+static int clean_mode(void){ return g_cfg.version>=10u && (g_cfg.flags & F_CLEAN) && g_cfg.clock_sec; }
+#ifdef HOST
+static u32 rtc_cnt(void){ return 100u; }
+#else
+static u32 rtc_cnt(void){ return REG(0x45000304u); }
+#endif
+static int clk_load(Clk *k){
+  const volatile u32 *p=(const volatile u32*)(FLASH_BASE+g_cfg.clock_sec);
+  k->magic=p[0]; k->t0=p[1]; k->c0=p[2]; k->idle=p[3]; k->chk=p[4];
+  return k->magic==CK_MAGIC && k->chk==(k->magic^k->t0^k->c0^k->idle);
+}
+/* the time now (0 = not set, or the batteries were out since) */
+static u32 clk_now(void){
+  Clk k; if(!clk_load(&k) || !k.t0) return 0;
+  u32 c=rtc_cnt(); if(c<k.c0) return 0;
+  return k.t0+(c-k.c0);
+}
+static void clk_store(u32 t, u32 idle){
+  for(u32 i=0;i<PAGE;i++) g_out[i]=0xFF;
+  Clk *k=(Clk*)g_out; k->magic=CK_MAGIC; k->t0=t; k->c0=t ? rtc_cnt() : 0; k->idle=idle; k->chk=k->magic^k->t0^k->c0^k->idle;
+  flash_prog4k(g_cfg.clock_sec, g_out);
+#ifndef HOST
+  if(t) para_mailbox_put(t, k->c0);
+#endif
+}
+/* days since 1970 -> date */
+static void civil(u32 z, u32 *y, u32 *m, u32 *d){
+  z+=719468u; u32 era=z/146097u, doe=z-era*146097u, yoe=(doe-doe/1460u+doe/36524u-doe/146096u)/365u;
+  u32 doy=doe-(365u*yoe+yoe/4u-yoe/100u), mp=(5u*doy+2u)/153u;
+  *d=doy-(153u*mp+2u)/5u+1u; *m=mp<10u ? mp+3u : mp-9u; *y=yoe+era*400u+(*m<=2u);
+}
+static u32 mdays(u32 y, u32 m){ static const u8 n[12]={31,28,31,30,31,30,31,31,30,31,30,31}; return m==2u && !(y%4u) && (y%100u || !(y%400u)) ? 29u : n[m-1u]; }
+static void two(char *s, u32 v){ s[0]=(char)('0'+v/10u%10u); s[1]=(char)('0'+v%10u); }
+static void hhmm(u32 t, char *s){ u32 x=t%86400u; two(s,x/3600u); s[2]=':'; two(s+3,x/60u%60u); s[5]=0; }
+/* set the clock: wheel changes, A goes to the next part, B saves, C back (not when must) */
+static void clock_menu(int must){
+  u32 t=clk_now(), y=2026u, mo=1u, d=1u, h=12u, mi=0u, sel=0;
+  if(t){ civil(t/86400u,&y,&mo,&d); h=t%86400u/3600u; mi=t%3600u/60u; }
+  for(;;){
+    if(d>mdays(y,mo)) d=mdays(y,mo);
+    rect(0,0,128,128,BG);
+    ctext(4,"SET THE CLOCK",WHITE,1);
+    char s[6];
+    utoa_(y,s); text(5,26,s,sel==0u?ORANGE:WHITE,2);
+    s[0]='-'; s[1]=0; text(52,26,s,GREY,2);
+    two(s,mo); s[2]=0; text(65,26,s,sel==1u?ORANGE:WHITE,2);
+    s[0]='-'; s[1]=0; text(89,26,s,GREY,2);
+    two(s,d); s[2]=0; text(102,26,s,sel==2u?ORANGE:WHITE,2);
+    two(s,h); s[2]=0; text(34,52,s,sel==3u?ORANGE:WHITE,2);
+    s[0]=':'; s[1]=0; text(58,52,s,GREY,2);
+    two(s,mi); s[2]=0; text(70,52,s,sel==4u?ORANGE:WHITE,2);
+    ctext(84,"WHEEL: CHANGE",GREY,1);
+    ctext(96,"A: NEXT   B: SAVE",GREY,1);
+    if(!must) ctext(108,"C: BACK",GREY,1);
+    show(); wait_release();
+    for(;;){
+      int k=input();
+      if(k==1){
+        int st=g_step;
+        if(sel==0u){ int v=(int)y+st; if(v<2024) v=2099; if(v>2099) v=2024; y=(u32)v; }
+        else if(sel==1u){ mo=(u32)(((int)mo-1+st%12+12)%12)+1u; }
+        else if(sel==2u){ u32 n=mdays(y,mo); d=(u32)(((int)d-1+st%(int)n+(int)n)%(int)n)+1u; }
+        else if(sel==3u){ h=(u32)(((int)h+st%24+24)%24); }
+        else { mi=(u32)(((int)mi+st%60+60)%60); }
+        break;
+      }
+      if(k==K_A){ sel=(sel+1u)%5u; break; }
+      if(k==K_BACK && !must) return;
+      if(k==K_OK){
+        Clk c; u32 idle=clk_load(&c) ? c.idle : 0u;
+        rect(0,0,128,128,BG); ctext(54,"SAVING",WHITE,1); show();
+        clk_store((u32)para_days((int32_t)y,(int32_t)mo,(int32_t)d)*86400u+h*3600u+mi*60u, idle);
+        return;
+      }
+    }
+  }
+}
+#endif
 static void lset_load(void){
   g_idle_ms=120000u;
+#ifdef FELD_CLEAN
+  if(clean_mode()){ Clk k; if(clk_load(&k) && k.idle>=1u && k.idle<=5u) g_idle_ms=g_idle_tab[k.idle-1u]; return; }
+#endif
   if(set_load()==1) return;
   u32 v=g_set[IDLE_OFF]; if(v>=1u && v<=5u) g_idle_ms=g_idle_tab[v-1u];
 }
+#ifdef FELD_CLEAN
+/* clean ROM: the clock and this menu's display time */
+static void lset_clean(void){
+  Clk k; u32 idl = clk_load(&k) && k.idle>=1u && k.idle<=5u ? k.idle-1u : 2u, idl0=idl, sel=0;
+  for(;;){
+    char tm[8]; u32 t=clk_now(); if(t) hhmm(t,tm); else { const char *n="NOT SET"; int i=0; while((tm[i]=n[i])) i++; }
+    rect(0,0,128,128,BG);
+    ctext(2,"SETTINGS",WHITE,1);
+    big_entry(16, sel==0u, "CLOCK", tm, ORANGE, WHITE);
+    big_entry(45, sel==1u, "DISPLAY", g_idle_nm[idl], ORANGE, WHITE);
+    text(9,84,"DISPLAY: DARK",GREY,1);
+    text(9,94,"WITHOUT A KEY",GREY,1);
+    ctext(108,"B CHANGE",GREY,1);
+    ctext(119,"C SAVE AND BACK",GREY,1);
+    show(); wait_release();
+    for(;;){
+      int c=input();
+      if(c==1 || c==K_A){ sel^=1u; break; }
+      if(c==K_OK){ if(sel==0u) clock_menu(0); else idl=(idl+1u)%5u; break; }
+      if(c==K_BACK){
+        if(idl!=idl0){
+          rect(0,0,128,128,BG); ctext(54,"SAVING",WHITE,1); show();
+          u32 t2=clk_now(); clk_store(t2, idl+1u);
+          g_idle_ms=g_idle_tab[idl];
+        }
+        return;
+      }
+    }
+  }
+}
+#endif
 static void lset_menu(void){
+#ifdef FELD_CLEAN
+  if(clean_mode()){ lset_clean(); return; }
+#endif
   int e=set_load();
   if(e==1 || e==2){ set_check_msg(); return; }
   static const char *const snd_nm[4]={"OFF","LOW","MEDIUM","LOUD"};
@@ -1230,9 +1410,18 @@ static int chr_row(u32 i, char *name, char *right, u16 *col){
 static u32 tama_files(u32 old, u32 nw){
   u32 n=0;
   for(u32 a=g_cfg.user_start; a+PAGE<=g_cfg.user_end && a<SET_A; a+=PAGE){
+#ifdef FELD_TAMA_ANY
+    /* 1.7.2 test25 (GitHub: after Breed the change was confirmed but the Tama stayed): the file of a bred Tama was
+     * not found. Now: a small number at +8 (not only 1) and the character at +0x0C or +0x0E */
+    { u32 g=rd32(a+8u); if(g==0u || g>255u || (rd16(a+14u)!=old && rd16(a+12u)!=old)) continue; }
+#else
     if(rd32(a+8u)!=1u || rd16(a+14u)!=old) continue;
+#endif
     flash_read(a, g_page, PAGE);
-    g_page[14]=(u8)nw; g_page[15]=(u8)(nw>>8);
+#ifdef FELD_TAMA_ANY
+    if((g_page[14]|(g_page[15]<<8))==old)
+#endif
+    { g_page[14]=(u8)nw; g_page[15]=(u8)(nw>>8); }
     if((g_page[12]|(g_page[13]<<8))==old){ g_page[12]=(u8)nw; g_page[13]=(u8)(nw>>8); }
     if((g_page[0x10A]|(g_page[0x10B]<<8))==old){ g_page[0x10A]=(u8)nw; g_page[0x10B]=(u8)(nw>>8); }
     flash_prog4k(a, g_page); n++;
@@ -1262,9 +1451,17 @@ static void chr_pick(void){
         ctext(76,"THE TAMA RESTARTS",GREY,1); ctext(96,"B = YES",WHITE,1); ctext(108,"C = NO",GREY,1); show();
         if(!yes_no()) break;
         u32 to=g_cfg.tama_off;
+#ifdef FELD_TAMA_ANY
+        /* without the Tama's file the game keeps showing the old Tama: say so instead of "changed" (files first, the
+         * settings block in RAM stays untouched then) */
+        if(old && old!=nw && !tama_files(old, nw)){ message("TAMA NOT FOUND","NOTHING CHANGED",""); return; }
+#endif
         g_set[to+4]=(u8)nw; g_set[to+5]=(u8)(nw>>8); g_set[to+6]=(u8)nw; g_set[to+7]=(u8)(nw>>8);
         g_set[to+0x18u]=(u8)((g_set[to+0x18u]&~0x1Cu)|((st&7u)<<2));
+#ifdef FELD_TAMA_ANY
+#else
         if(old && old!=nw) tama_files(old, nw);
+#endif
         set_write("TAMA CHANGED");
         return;
       }
@@ -1471,7 +1668,15 @@ static void run(void){
 #ifdef HOST
   { const char *e; if((e=getenv("AUTO_MB"))) h_mb=(u32)strtoul(e,0,16); if((e=getenv("AUTO_GPIO"))) h_gpio=(u32)strtoul(e,0,16); if((e=getenv("AUTO_CNT"))) h_cnt=(u32)strtoul(e,0,10); }
 #endif
-  if(auto_go()) start_app_i(0);
+#ifdef FELD_BFALL
+  b_fallback();
+#endif
+  if(auto_go()){
+#if defined(FELD_CLEAN) && defined(CLEAN_AUTO)
+    if(clean_mode() && !clk_now()){ lset_load(); clock_menu(1); }   /* new batteries: the time first, then the main program */
+#endif
+    start_app_i(0);
+  }
 #endif
   g_cur = field_now();
   int fields = (g_cfg.flags & F_FIELDS) && g_cur>=0 && g_cfg.nfields>=2u;
@@ -1510,6 +1715,9 @@ static void run(void){
   }
   if(launch_mode()){
     lset_load();
+#ifdef FELD_CLEAN
+    if(clean_mode() && !clk_now()) clock_menu(1);   /* new batteries: the time first */
+#endif
     while(!g_napp) message("NO PROGRAMS","IN THIS ROM","");
     apps_menu(1);
   }
@@ -1531,6 +1739,14 @@ void host_main(void){
 extern u32 __bss_start, __bss_end;
 void Reset_Handler(void){
   __asm__ volatile("cpsid i");
+#ifdef FELD_CLEAN
+  /* 1.7.2 test5: without the Paradise its SRAM may still hold its old clock (written before the ROM was changed, or
+   * look-alikes left by a program): the programs search the SRAM first and took that time instead of the menu's.
+   * The SRAM below the stack is cleared, the programs then take the menu's clock from the mailbox. */
+  if(clean_mode()){ u32 sp; __asm__ volatile("mov %0, sp" : "=r"(sp)); sp=(sp-0x100u) & ~3u;   /* the whole SRAM (128 KB) but the stack in use */
+    for(volatile u32 *z=(volatile u32*)0x18000000u; (u32)z<sp; z++) *z=0;
+    for(volatile u32 *z=(volatile u32*)0x1801F000u; (u32)z<0x18020000u; z++) *z=0; }
+#endif
   /* 1.6.8: the Paradise's clock for the programs started from here (their own search finds nothing once
    * the menu has used the SRAM) */
   { u32 cnt=REG(0x45000304u), t=para_clock(cnt, 0, 0x1F000u, 0, 0);
@@ -1550,6 +1766,12 @@ void Reset_Handler(void){
   /* 1.6.10 test2: the flash can only be read after hw_init (after the reset the window shows nothing): so the base
    * in the Paradise's settings page is read here, when neither the SRAM nor the mailbox gave the time */
   if(!para_mailbox(REG(0x45000304u))){ u32 c2=REG(0x45000304u), t2=para_flash(c2); if(t2) para_mailbox_put(t2, c2); }
+#endif
+#ifdef FELD_CLEAN
+  if(clean_mode()){ u32 t=clk_now(); if(t) para_mailbox_put(t, rtc_cnt()); }   /* the programs take the time from here */
+  /* 1.7.2 test5: DOOM moves the flash window to its own code; after it (also when it stopped without going back) the window
+   * cache may still hold its lines: reading 64 KB evicts them before the next program runs from the flash */
+  if(clean_mode()){ volatile u32 sum=0; for(u32 i=0;i<0x4000u;i++) sum+=*(volatile u32*)(0x10040000u+4u*i); (void)sum; __asm__ volatile("dsb\n isb"); }
 #endif
   run();
   for(;;){}

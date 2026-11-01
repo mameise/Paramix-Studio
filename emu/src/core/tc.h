@@ -188,6 +188,7 @@ int  tc_ir_in(void);
 void tc_ir_out(uint8_t b);
 #endif
 void periph_rtc_set(Emu *e, uint32_t t);   /* local time, seconds since 1970 */
+uint32_t periph_rtc_get(Emu *e);          /* 1.7.2 test16: the guest clock, 0 = stopped or not a date */
 void periph_buttons(Emu *e, uint8_t mask);
 void periph_init(Emu *e);
 /* lcd */
@@ -211,6 +212,10 @@ extern int (*tc_ovl_evict)(Emu *e);
 /* Erase a 64 KB sector of the guest in the backing store (host image or Paradise flash).
  * Returns 1 if done. Without it, such erases are lost as before. */
 extern int (*tc_big_erase)(Emu *e, uint32_t base);
+#ifdef TC_LZ
+extern const uint8_t *tc_lz_tab;   /* 1.7.3 GUEST_LZ: table of the packed cold blocks (0 = none) */
+extern uint32_t tc_lz_gone[4];
+#endif
 void tc_ovl_free(Emu *e, int i);              /* release a slot without writing it back */
 void tc_blk_update(Emu *e, uint32_t blk);     /* fast pointers of a 64 KB block after a change */
 void jit_rom_update(Emu *e, uint32_t off);   /* ROM offset: recompute the entry */

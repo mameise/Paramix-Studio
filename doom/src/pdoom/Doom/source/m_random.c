@@ -73,7 +73,7 @@ static const unsigned char rndtable[256] =
 int P_Random(const char *file, int line, const char *func)
 {
     _g->prndindex = (_g->prndindex + 1) & 0xff;
-    if (_g->gametic >= MIN_DEMO_GAMETIC_TO_PRINT)
+    if (PRND_SCAN && _g->gametic >= MIN_DEMO_GAMETIC_TO_PRINT)
     {
         // get only last path
         int l = strlen(file);

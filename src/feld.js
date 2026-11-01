@@ -26,6 +26,9 @@ const FELD_MAGIC = 0x444C4546, SLOT_MAGIC = 0x544C5346, CAT_MAGIC = 0x54414350, 
 const PH_APP = 0x1234ABCD, PH_FELD = 0x6789EF01, PH_AUTO = 0x66666661, PH_ORIG = [0x22222221, 0x33333331, 0x44444441, 0x55555551];
 const HOOK_OFF = [0x40, 0x46, 0x4C, 0x52];
 const F_FIELDS = 1, F_BAG = 2, F_TAMA = 4, F_SAVES = 8, F_LAUNCH = 16;
+/* GPLAY (1.7.2 test14): play time in DOOM, Wolfenstein, Game Boy and Master System earns Tamapoints (the programs read
+ * this flag from the menu's settings block, see emu/src/emu/gplay.h). Only in a ROM with the Paradise. */
+const F_GPLAY = 64, GPLAY = true;
 /*
  * Launcher ROM (1.6.8): the handlers of every scene after the setup point to the stub's launch entry
  * (+0x20), so the menu comes up instead of the game. The setup scenes below stay. The original handlers
@@ -94,6 +97,11 @@ function isLaunch(rom, tpl) { const f = feldFind(rom, tpl); return !!f && f.vers
 // Six fields (six.js): helper page at 0x10F000, set byte in the settings block
 const SIX_OFF = 0x10F000, SIX_MAGIC = 0x31584953, SIX_FLAG = 0xF04, CODE_END = 0x10F000;
 const isSix = (rom) => rom.length > SIX_OFF + 4 && u32(rom, SIX_OFF) === SIX_MAGIC;
+/* 1.7.2: lab games per start field (six fields version 7): a fresh field from the menu gets its game family
+   in the settings byte 0xF05 (0 Tropical/Glacier, 1 Land/Water/Sky, 2 Forest = Jade Forest). Switching the
+   field in the game leaves the byte alone. */
+const FELD_GAMES = true, SIX_GAMES_FAM = 0xF05;
+const sixGames = (rom) => FELD_GAMES && isSix(rom) && u32(rom, SIX_OFF + 4) >= 7 && (u32(rom, SIX_OFF + 32) & 4) === 4;
 
 const rgb = (r, g, b) => ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
 /*
@@ -125,10 +133,13 @@ const NAMES = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical'
 function profileOf(rom, p) {
   if (!isSix(rom)) return p;
   const g = PROFILES[0];
-  if (p.name === 'gen3') return Object.assign({}, p, {
-    ids: p.ids.concat(p.ids), names: p.names.concat(g.names), cols: p.cols.concat(g.cols),
-    field: p.field.concat(p.field.map((f) => f.concat([[SIX_FLAG, 1]]))), six: SIX_FLAG, sixMap: [0, 1, 2, 255, 3, 4, 5, 255],
-  });
+  if (p.name === 'gen3') {
+    const fam = sixGames(rom) ? [0, 0, 2, 1, 1, 1] : null, field = p.field.concat(p.field.map((f) => f.concat([[SIX_FLAG, 1]])));
+    return Object.assign({}, p, {
+      ids: p.ids.concat(p.ids), names: p.names.concat(g.names), cols: p.cols.concat(g.cols),
+      field: fam ? field.map((f, i) => f.concat([[SIX_GAMES_FAM, fam[i]]])) : field, six: SIX_FLAG, sixMap: [0, 1, 2, 255, 3, 4, 5, 255],
+    });
+  }
   // Jade Forest: Sky is slot 1 (Water) with the set byte
   if (p.name === 'jade') return Object.assign({}, p, {
     ids: p.ids.concat([0]), names: p.names.concat(['SKY']), cols: p.cols.concat([g.cols[2]]),
@@ -646,8 +657,8 @@ function feldApply(rom, opts, saved, emb, E) {
   const P = profileOf(out, ed.profile);
   const v6 = u32(emb.feld, findWord(emb.feld, FELD_MAGIC) + 4) >= 6;
   const launch = !!opts.launch;
-  const fields = !!opts.fields && !launch, bag = !!opts.bag && !launch, tama = !!opts.tama && v6 && !launch, saves = fields && v6 && opts.saves !== false;
-  if (!fields && !bag && !tama && !launch) throw new Error('nothing chosen');
+  const gplay = GPLAY && !!opts.gplay && !launch && !opts.clean; const fields = !!opts.fields && !launch, bag = !!opts.bag && !launch, tama = !!opts.tama && v6 && !launch, saves = fields && v6 && opts.saves !== false;
+  if (!fields && !bag && !tama && !gplay && !launch) throw new Error('nothing chosen');
   if (launch && (u32(emb.stub, LAUNCH_ENTRY) !== 0x4C01B672 || (u32(emb.stub, LCHECK_ENTRY) & 0xF800) !== 0xF000)) throw new Error('launcher template does not fit');   // cpsid i; ldr r4, feld_src / b.w lcheck
   const tab = E.sceneTable(out);
   if (!tab.PSID_HOME) throw new Error('home screen not found');
@@ -709,7 +720,7 @@ function feldApply(rom, opts, saved, emb, E) {
   w32(f, ci + 8, slotOff); w32(f, ci + 12, slotSize); w32(f, ci + 16, nslots);
   w32(f, ci + 20, P.idPage + 0x1000); w32(f, ci + 24, P.six ? 0xF00000 : 0x1000000);   // six fields: rain pictures from 0xF00000
   w32(f, ci + 28, P.idPage);   // ID page (1.2.2 to 1.2.11 lost this line: Tropical/Glacier wrote the ID to 0xD49000)
-  w32(f, ci + 32, stubOff); w32(f, ci + 36, (fields ? F_FIELDS : 0) | (bag ? F_BAG : 0) | (tama ? F_TAMA : 0) | (saves ? F_SAVES : 0) | (launch ? F_LAUNCH : 0));
+  w32(f, ci + 32, stubOff); w32(f, ci + 36, (fields ? F_FIELDS : 0) | (bag ? F_BAG : 0) | (tama ? F_TAMA : 0) | (saves ? F_SAVES : 0) | (launch ? F_LAUNCH : 0) | (gplay ? F_GPLAY : 0));
   w32(f, ci + 40, P.c); w16(f, ci + 44, P.h[0]); w16(f, ci + 46, P.h[1]);
   // 1.6.8: a field renamed in the Studio (text table) shows its new name in the menu too
   const shownName = (i) => { const x = (opts.fieldNames || [])[i]; return (x && !FIELD_DEFAULT.has(x) ? x.slice(0, 11) : P.names[i]) || ''; };
@@ -785,13 +796,104 @@ function feldApply(rom, opts, saved, emb, E) {
   return out;
 }
 
-const FELD_B64 = '__FELD_B64__', FELD_STUB_B64 = '__FELD_STUB_B64__';
+/*
+ * 1.7.2 CLEAN_ROM: a ROM without the Paradise. The boot ROM of the chip starts our menu straight away: an unencrypted
+ * load table at 0 (a copy of the device's own with LOAD_CFG bit 0 off, as the rescue start at 0xFFE000, confirmed on
+ * the device) loads the menu (0x0B1000, as in every Paramix ROM) into the PRAM; the menu sets up clock, pins and
+ * display itself. Programs go back through the routine at flash 0x110568 (the firmware's restart, the programs call
+ * it at 0x100FF568 with the window at 0x60011000): here it starts the menu through the stub. The menu keeps the clock
+ * in its own sector (0x0C0000). Kept from the device: only the ID page (its edition and identity, so the Studio and
+ * the flasher know the device). Everything else of the 16 MB is free for programs, besides the rescue start.
+ */
+const CLEAN_ROM = true, F_CLEAN = 32, CLOCK_SEC = 0xC0000, CLEAN_SHIM = 0x110568, CLEAN_LO = 0x10000, CLEAN_HI = 0xFF0000;
+/** Areas a clean ROM keeps for itself (programs must not go there). */
+function cleanReserved(idPage) {
+  return [[0, CLEAN_LO], [STUB_OFF, CLOCK_SEC + 0x1000], [CLEAN_SHIM & ~0xFFF, (CLEAN_SHIM & ~0xFFF) + 0x1000], [idPage, idPage + 0x1000], [0xEFE000, 0xF00000], [CLEAN_HI, 0x1000000]];
+}
+function crc32z(b, a, n) {
+  let c = 0xFFFFFFFF;
+  for (let i = a; i < a + n; i++) { c ^= b[i]; for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xEDB88320 & -(c & 1)); }
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+/** Is this a ROM without the Paradise (made by cleanApply)? */
+function isClean(rom) { return !!cleanInfo(rom); }
+/** Menu place and clock sector of a clean ROM: { feld, clock } or null. */
+function cleanInfo(rom) {
+  if (!rom || rom.length !== 0x1000000 || String.fromCharCode(...rom.subarray(0, 8)) !== 'SONIXDEV') return null;
+  const a = u32(rom, 0x10) - 0x60000000;
+  if (a !== FELD_OFF) return null;
+  const ci = findWord(rom.subarray(a, a + 0x10000), FELD_MAGIC);
+  if (ci < 0 || !(u32(rom, a + ci + 36) & F_CLEAN)) return null;
+  return { feld: a, clock: u32(rom, a + ci + 4) >= 10 ? u32(rom, a + ci + 608) : CLOCK_SEC };
+}
+/** Empty 16 MB with the device's ID page (from its own ROM src); the rest comes from appsPlace and cleanApply. */
+function cleanBase(src) {
+  const ed = edition(src);
+  if (!ed) throw new Error('edition not recognised');
+  const out = new Uint8Array(0x1000000).fill(0xFF);
+  const id = ed.profile.idPage;
+  out.set(src.subarray(id, id + 0x1000), id);
+  out.set(src.subarray(0, 0x1000), 0);   // the load table, made ours in cleanApply
+  return out;
+}
+/** Menu, stub, restart routine and load table into a clean ROM (programs already placed). opts: apps, dl, mainSrc, auto;
+ * spot: { feld, clock } (the usual places when left out). */
+function cleanApply(rom, opts, emb) {
+  const out = new Uint8Array(rom);
+  const sp = opts.spot || { feld: FELD_OFF, clock: CLOCK_SEC }, FO = sp.feld;
+  if (String.fromCharCode(...out.subarray(0, 8)) !== 'SONIXDEV') throw new Error('load table missing');
+  const ed = edition(out); if (!ed) throw new Error('edition not recognised');
+  const f = new Uint8Array(emb.feld), ci = findWord(f, FELD_MAGIC);
+  if (ci < 0 || u32(f, ci + 4) < 10) throw new Error('menu program too old for a ROM without the Paradise');
+  if (f.length > 0xE000) throw new Error('menu program too big');
+  // settings: no fields, items or Tama; the programs, DOWNLOAD, the clock sector
+  for (let k = 8; k < 36; k += 4) w32(f, ci + k, 0);
+  w32(f, ci + 28, ed.profile.idPage); w32(f, ci + 32, STUB_OFF); w32(f, ci + 36, F_LAUNCH | F_CLEAN);
+  w32(f, ci + 48, 0); w32(f, ci + 272, 0); w32(f, ci + 276, 0); w32(f, ci + 288, 0); w32(f, ci + 284, 0);
+  { const nm = (opts.app && opts.name0 || '').slice(0, 12); for (let k = 0; k < 12; k++) f[ci + 380 + k] = k < nm.length ? nm.charCodeAt(k) : 0; }
+  const max = 12, apps = (opts.apps || []).slice(0, max);
+  if ((opts.apps || []).length > max) throw new Error('at most ' + max + ' more programs');
+  w32(f, ci + 392, apps.length);
+  for (let i = 0; i < max; i++) {
+    const a = apps[i], o = i < 6 ? ci + 396 + 16 * i : ci + 504 + 16 * (i - 6);
+    w32(f, o, a ? a.src : 0);
+    for (let k = 0; k < 12; k++) f[o + 4 + k] = a && k < a.name.length ? a.name.charCodeAt(k) : 0;
+  }
+  w32(f, ci + 492, 0); w32(f, ci + 496, 0);
+  w32(f, ci + 500, opts.dl || 0);
+  w32(f, ci + 600, opts.mainSrc || 0); w32(f, ci + 604, opts.auto ? 1 : 0);
+  w32(f, ci + 608, sp.clock);
+  const size = page(f.length);
+  out.fill(0xFF, FO, FO + size); out.set(f, FO);
+  // stub: only its start entry is used (no home screen hooks)
+  const st = new Uint8Array(emb.stub);
+  const put = (ph, v) => { let n = 0; for (let i = 0; i + 4 <= st.length; i += 2) if (u32(st, i) === ph) { w32(st, i, v); n++; } if (n !== 1) throw new Error('launcher template does not fit'); };
+  put(PH_APP, opts.app || 0); put(PH_FELD, xip(FO)); PH_ORIG.forEach((ph) => put(ph, 0));
+  { const ia = findWord(st, PH_AUTO); if (ia >= 0) w32(st, ia, 0); }
+  if (u32(st, 0x0C) !== 0x4604B672) throw new Error('launcher template does not fit');   // cpsid i; mov r4, r0 (start_src)
+  out.fill(0xFF, STUB_OFF, STUB_OFF + 0x1000); out.set(st, STUB_OFF);
+  // the restart routine the programs call: ldr r0, [menu]; ldr r1, [start_src]; bx r1
+  const r = CLEAN_SHIM;
+  out.fill(0xFF, r & ~0xFFF, (r & ~0xFFF) + 0x1000);
+  w16(out, r, 0x4801); w16(out, r + 2, 0x4902); w16(out, r + 4, 0x4708); w16(out, r + 6, 0xBF00);
+  w32(out, r + 8, xip(FO)); w32(out, r + 12, (xip(STUB_OFF) + 0x0C) | 1);
+  // the load table: the menu, not encrypted
+  const t = out.subarray(0, 0x1000);
+  w32(t, 0x08, u32(t, 0x08) & ~1);
+  w32(t, 0x10, 0x60000000 + FO);
+  w32(t, 0x14, size);
+  w32(t, 0x24, crc32z(out, FO, size));
+  t.fill(0, 0x80, 0x84);
+  return out;
+}
+
+const FELD_B64 = '__FELD_B64__', FELD_STUB_B64 = '__FELD_STUB_B64__', FELDC_B64 = '__FELDC_B64__';
 function embedded() {
   if (FELD_B64.startsWith('__')) return null;
-  return { feld: b64(FELD_B64), stub: b64(FELD_STUB_B64) };
+  return { feld: b64(FELD_B64), stub: b64(FELD_STUB_B64), feldc: FELDC_B64.startsWith('__') ? null : b64(FELDC_B64) };   // feldc: CLEAN_ROM
 }
 
 function emuType(rom) { const m = u32(rom, APP_OFF + 0x140); return m === 0x37584D50 ? 't7' : m === 0x38584D50 ? 't18' : m === 0x31584D50 ? 'v1' : m === PMXC && appKind(rom) === 2 ? 'tama' : ''; }
-root.ParamixFeld = { saveSlots, fieldOfSettings, lzPack, lzUnpack, slotPages, slotBuild, poolUsed, slotParse, FIELD_TEXT, characters, F_TAMA, F_SAVES, F_LAUNCH, isLaunch, launchRestore, emuType, familyOf, isSix, slotAddr, slotReadAsync, slotPlace, poolAddr, textTabelle, zeichenkette, edition, feldId, canFields, fieldNames, fieldNow, feldFind, feldSlots, feldStrip, feldApply, feldApps, appKind, itemCatalog, embedded, NAMES, F_FIELDS, F_BAG };
+root.ParamixFeld = { F_GPLAY, GPLAY, CLEAN_ROM, F_CLEAN, CLOCK_SEC, cleanReserved, cleanInfo, cleanBase, cleanApply, isClean, saveSlots, fieldOfSettings, lzPack, lzUnpack, slotPages, slotBuild, poolUsed, slotParse, FIELD_TEXT, characters, F_TAMA, F_SAVES, F_LAUNCH, isLaunch, launchRestore, emuType, familyOf, isSix, slotAddr, slotReadAsync, slotPlace, poolAddr, textTabelle, zeichenkette, edition, feldId, canFields, fieldNames, fieldNow, feldFind, feldSlots, feldStrip, feldApply, feldApps, appKind, itemCatalog, embedded, NAMES, F_FIELDS, F_BAG };
 if (typeof module !== 'undefined') module.exports = root.ParamixFeld;
 })(typeof window !== 'undefined' ? window : globalThis);

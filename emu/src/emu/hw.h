@@ -14,7 +14,7 @@ u32  hw_buttons(void);
 void hw_push(const u16* fb, u32 stride, u32 x0, u32 y0, u32 x1, u32 y1);
 void hw_back_to_paradise(void);
 void hw_backlight(int on);
-int hw_wake_step(int ph);   /* WAKE_ASYNC: 1 SLPOUT, 2 DISPON, 3 light */
+int hw_wake_step(int ph);   /* WAKE_ASYNC: 1 SLPOUT, 2 DISPON, 3 light (HW_WAKE_ABORT: 0 asleep again) */
 void hw_bl_pwm_off(void);
 void hw_bl_level(u32 pct);
 void hw_bl_test(u32 m, u32 pct);

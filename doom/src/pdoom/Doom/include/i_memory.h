@@ -51,8 +51,21 @@
 #define EXT_FLASH_BASE 0x60000000
 #define FLASH_PTR_BASE 0x10000000
 #define PACKED_MEMORY_ADDRESS0 RAM_PTR_BASE
+#ifdef DOOM_FREE
+#include "pdmcfg.h"
+#define PACKED_MEMORY_ADDRESS1 g_pk_hi
+#define PACKED_MEMORY_ADDRESS2 g_pk_lo
+#define PACKED_MEMORY_ADDRESS2_C 0x60800000
+#define PD_WAD_OFF (g_dcfg.wad_off - 4u)
+#define PD_REGION_OFF (g_dcfg.region_off)
+#define PD_REGION_LEN (g_dcfg.region_len)
+#define PD_SAVE_ADDR (0x60000000u + g_dcfg.save_off)   /* settings, then the save */
+#else
+#define PD_SAVE_ADDR 0x6010E000u
 #define PACKED_MEMORY_ADDRESS1 0x60C00000
 #define PACKED_MEMORY_ADDRESS2 0x60800000
+#define PACKED_MEMORY_ADDRESS2_C PACKED_MEMORY_ADDRESS2
+#endif
 #define PACKED_MEMORY_ADDRESS3 FLASH_PTR_BASE
 #ifndef PD_WAD_OFF
 #define PD_WAD_OFF 0x830000
@@ -87,7 +100,11 @@
 #ifdef PARADISE
 #ifdef PARADISE_DEV
 /* The WAD (before the region) counts as "external": the core then copies columns into RAM buffers */
+#ifdef DOOM_FREE
+#define isOnExternalFlash(a) (((uint32_t)(a) - (0x60000000u + g_dcfg.wad_off - 4u)) < g_dcfg.wad_len + 4u)
+#else
 #define isOnExternalFlash(a) (((uint32_t)(a) - 0x60000000u) < (uint32_t) PD_REGION_OFF)
+#endif
 #else
 #define isOnExternalFlash(a) (0)   /* Paradise test run: everything directly readable */
 #endif
@@ -136,7 +153,7 @@ static inline packedAddress_t getPackedAddress(void *addr)
         /*case (PACKED_MEMORY_ADDRESS1 >> 24) & 0xFF:
             highAddrBits = 0x40;
             break;*/
-        case (PACKED_MEMORY_ADDRESS2 >> 24) & 0xFF:
+        case (PACKED_MEMORY_ADDRESS2_C >> 24) & 0xFF:
             highAddrBits = 0x80;
             break;
         case (PACKED_MEMORY_ADDRESS3 >> 24) & 0xFF:

@@ -31,6 +31,7 @@ to the Paradise). `src/pdoom/test/tasten_test.c` checks the key logic on a PC
 ```
 cd src/pdoom && sh dev/build_dev.sh      # arm-none-eabi-gcc 13, newlib-nano
 # -> dev/pram.bin (= doom_app.bin) and dev/xip.bin (= doom_xip.bin)
+XCF=-DDOOM_FREE sh dev/build_dev.sh   # 1.7.2: doomf_app.bin, doomf_xip.bin (places from the settings block)
 
 cd src/wasm
 for f in libc wadfile wadprocessor conv; do

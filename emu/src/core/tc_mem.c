@@ -27,11 +27,64 @@ static inline const uint8_t *rom_chunk(Emu *e, uint32_t base)
     const uint8_t *p = e->rom_src[b];
     return p ? p + (base & 0xE000u) : 0;
 }
+#ifdef TC_LZ
+/* 1.7.3 GUEST_LZ: cold blocks of the firmware packed in 1 KB parts (LZ4 blocks, written by the Studio). A part the guest
+ * reads is unpacked into one of two 1 KB buffers in the RAM at 0x20000400 (free there: 0x20000000..0x400 belongs to the
+ * boot, the mailboxes are at 0x20000FC0). Table: 128 u32 offsets of the block's part list (0 = not packed), per block
+ * 65 u32 starts (same start as the next one = erased part, 1024 bytes = stored as is). Written parts (spare pages) win. */
+const uint8_t *tc_lz_tab;
+uint32_t tc_lz_gone[4];                    /* packed blocks the guest erased: they read empty */
+#define LZ_RAM ((uint8_t *)0x20000400u)
+static uint32_t lz_tag[2], lz_rr;           /* part number + 1 in each buffer (0 = empty) */
+static uint32_t lz_n(const uint8_t **ps, uint32_t n)
+{
+    if (n == 15u) { uint32_t x; do { x = *(*ps)++; n += x; } while (x == 255u); }
+    return n;
+}
+__attribute__((noinline, minsize)) static void lz_dec(uint8_t *d, const uint8_t *s)
+{
+    uint8_t *end = d + 0x400u;
+    for (;;) {
+        uint32_t t = *s++, n = lz_n(&s, t >> 4);
+        while (n-- && d < end) *d++ = *s++;
+        if (d >= end) return;
+        const uint8_t *m = d - ((uint32_t)s[0] | ((uint32_t)s[1] << 8)); s += 2;
+        n = lz_n(&s, t & 15u) + 4u;
+        while (n-- && d < end) *d++ = *m++;
+    }
+}
+/* the 1 KB part at ROM offset off, unpacked (0 = the block is not packed) */
+__attribute__((noinline, minsize)) static const uint8_t *lz_part(uint32_t off)
+{
+    uint32_t b = (off >> 16) & 127u, tag = (off >> 10) + 1u;
+    const uint32_t *t = (const uint32_t *)tc_lz_tab;
+    if (!t || ((tc_lz_gone[b >> 5] >> (b & 31u)) & 1u) || !t[b]) return 0;
+    for (uint32_t k = 0; k < 2u; k++) if (lz_tag[k] == tag) return LZ_RAM + (k << 10);
+    const uint32_t *l = (const uint32_t *)(tc_lz_tab + t[b]) + ((off >> 10) & 63u);
+    uint32_t a = l[0], z = l[1], i = lz_rr; lz_rr ^= 1u;
+    uint8_t *d = LZ_RAM + (i << 10);
+    if (z == a) memset(d, 0xFF, 0x400u);
+    else if (z - a >= 0x400u) memcpy(d, tc_lz_tab + a, 0x400u);
+    else lz_dec(d, tc_lz_tab + a);
+    lz_tag[i] = tag;
+    return d;
+}
+/* an 8 KB copy for a written sector (0 = the block is not packed) */
+__attribute__((noinline, minsize)) static int lz_fill(uint8_t *d, uint32_t base)
+{
+    if (!lz_part(base)) return 0;
+    for (uint32_t k = 0; k < OVL_SIZE; k += 0x400u) memcpy(d + k, lz_part(base + k), 0x400u);
+    return 1;
+}
+#endif
 static inline const uint8_t *rom_src_ptr(Emu *e, uint32_t off)
 {
     uint32_t b = (off >> 16) & 127u;
     if ((e->pg_blk[b >> 5] >> (b & 31u)) & 1u) {
         const uint8_t *c = rom_chunk(e, off & ~0x1FFFu);
+#ifdef TC_LZ
+        if (!c) { const uint8_t *z = lz_part(off); if (z) return z + (off & 0x3FFu); }
+#endif
         return c ? c + (off & 0x1FFFu) : rom_ff;
     }
     const uint8_t *p = e->rom_src[b];
@@ -54,6 +107,9 @@ static inline const uint8_t *rom_ptr(Emu *e, uint32_t off)
 /* Get a writable copy of the sector (create it if needed). Only
  * 8 KB sectors fit in a slot; writes to larger sectors are lost. */
 int (*tc_ovl_evict)(Emu *e);
+#ifdef TC_LZ
+__attribute__((noinline, minsize))   /* 1.7.3: room for the unpacking (only when the guest writes its flash) */
+#endif
 static uint8_t *rom_wptr(Emu *e, uint32_t off)
 {
     for (int i = 0; i < e->ovl.n; i++)
@@ -71,7 +127,11 @@ static uint8_t *rom_wptr(Emu *e, uint32_t off)
         if (e->ovl.mem[i] && e->ovl.base[i] == 0xFFFFFFFFu) {
             e->ovl.base[i] = base;
             { const uint8_t *c = rom_chunk(e, base);
-              if (c) memcpy(e->ovl.mem[i], c, OVL_SIZE); else memset(e->ovl.mem[i], 0xFF, OVL_SIZE); }
+              if (c) memcpy(e->ovl.mem[i], c, OVL_SIZE);
+#ifdef TC_LZ
+              else if (lz_fill(e->ovl.mem[i], base)) {}
+#endif
+              else memset(e->ovl.mem[i], 0xFF, OVL_SIZE); }
             if (i >= e->ovl.n) e->ovl.n = i + 1;
             if (base - e->par_base >= 0x10000u) {
                 uint32_t b = (base >> 16) & 127u;

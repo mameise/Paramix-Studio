@@ -626,7 +626,11 @@ void Reset_Handler(void)
   hw_tone(0);
 #if defined(V3_CLOCK) && defined(PARA_FLASH_LATE)
   /* 1.6.10 test2: neither SRAM nor mailbox: the base in the Paradise's settings page (readable only after hw_init) */
-  if (!g_para_time) { u32 c2 = REG(0x45000304u), t2 = para_flash(c2); if (t2) { g_para_time = t2; g_para_cnt = c2; para_mailbox_put(t2, c2); } }
+  if (!g_para_time) { u32 c2 = REG(0x45000304u), t2 = 0;
+#ifdef PARA_CLEAN_CLK
+    t2 = para_cleanclk(c2);   /* 1.7.2 test17: start device without the Paradise */
+#endif
+    if (!t2) t2 = para_flash(c2); if (t2) { g_para_time = t2; g_para_cnt = c2; para_mailbox_put(t2, c2); } }
 #endif
   XIP_BASE_REG = 0x60000000u | g_cfg.rom_off;     /* the ROM in the cached window from 0x10000000 */
   XIP_CTRL_REG = 3u;
@@ -737,6 +741,9 @@ void Reset_Handler(void)
 #endif
         if (g_menu) menu_draw(); else draw();
         while (hw_buttons()) hw_wdt_feed();
+#ifdef WAKE_WHEEL
+        wheel_ms = 0;   /* 1.7.2: the wheel only wakes, its release does not open the settings */
+#endif
         continue;
       }
     }

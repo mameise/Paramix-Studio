@@ -6,7 +6,7 @@ const E = require('../src/emu.js'), F = require('../src/feld.js');
 (async () => {
   const [rom, game, out] = process.argv.slice(2);
   fs.mkdirSync(out, { recursive: true });
-  const fe = { stub: new Uint8Array(fs.readFileSync(__dirname + '/../feld/stub_feld_tpl.bin')) }, gbapp = fs.readFileSync(__dirname + '/../gb/gb.bin');
+  const fe = { stub: new Uint8Array(fs.readFileSync(__dirname + '/../feld/stub_feld_tpl.bin')) }, gbapp0 = fs.readFileSync(__dirname + '/../gb/gb.bin'), gbcapp = fs.readFileSync(__dirname + '/../gb/gbc.bin');
   let bad = 0; const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) bad++; };
   const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
   const errors = []; p.on('pageerror', (e) => errors.push(e.message));
@@ -36,6 +36,7 @@ const E = require('../src/emu.js'), F = require('../src/feld.js');
   const xs = E.appsRead(img, F.feldApps(img, fe.stub).apps), x = xs.find((y) => y.kind === 'gb');
   ok(!!x && Buffer.from(x.rom).equals(fs.readFileSync(game)), 'the game in the menu');
   ok(x && x.keys[3] === 2 && x.keys[0] === 32 && x.keys[2] === 16 && x.keys[7] === 0 && x.inv, 'keys and wheel direction in the settings block');
+  const gbapp = (fs.readFileSync(game)[0x143] & 0x80) ? gbcapp : gbapp0;
   ok(x && Buffer.from(img.subarray(x.off + 0x300, x.off + gbapp.length)).equals(gbapp.subarray(0x300)), 'GBEmu program in place');
   fs.writeFileSync(out + '/gb_off.txt', String(x ? x.off : 0));
   await p.setInputFiles('#fileRom', r1); await p.waitForTimeout(3000);
