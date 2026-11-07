@@ -35,6 +35,13 @@ if (!fs.existsSync(eb) || !fs.existsSync(es)) throw new Error('emu/emu.bin oder 
   const gbcb = __dirname + '/gb/gbc.bin';
   if (!fs.existsSync(gbcb)) throw new Error('gb/gbc.bin fehlt');
   emu = emu.replace('__GBC_APP_B64__', fs.readFileSync(gbcb).toString('base64'));
+  // PokeMiniEmu (1.7.3): Pokemon mini program (source in pm/src). No game, no BIOS.
+  const abb = __dirname + '/ab/ab.bin';
+  if (!fs.existsSync(abb)) throw new Error('ab/ab.bin fehlt');
+  emu = emu.replace('__AB_APP_B64__', fs.readFileSync(abb).toString('base64'));
+  const pmb = __dirname + '/pm/pm.bin';
+  if (!fs.existsSync(pmb)) throw new Error('pm/pm.bin fehlt');
+  emu = emu.replace('__PM_APP_B64__', fs.readFileSync(pmb).toString('base64'));
   // SMSEmu (1.6.10 test2): Master System program (source in sms/src). No ROM.
   const smb = __dirname + '/sms/sms.bin';
   if (!fs.existsSync(smb)) throw new Error('sms/sms.bin fehlt');

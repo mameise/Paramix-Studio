@@ -481,6 +481,9 @@ static void save_session(void)
   u32 n = v3_state_size();
   if (n + 16u > sizeof g_sec) return;
   if (v3_eeprom_dirty(1) || !g_ee_ok) ee_store();   /* the EEPROM first: the session notes its sequence */
+#ifdef SESS_FLAG
+  if (g_cfg.flags & 0x1000u) { hw_tone(0); g_tone_now = 0; return; }   /* 1.7.3 test7: NOSESS, only the toy's EEPROM is kept */
+#endif
   for (u32 i = 0; i < sizeof g_sec; i++) g_sec[i] = 0xFF;
   u32 *w = (u32 *)g_sec; w[0] = ST_MAGIC; w[1] = crc_rom(); w[2] = g_ee_seq; w[3] = n;
   v3_state_save(g_sec + 16);
@@ -489,6 +492,9 @@ static void save_session(void)
 }
 static int load_session(void)
 {
+#ifdef SESS_FLAG
+  if (g_cfg.flags & 0x1000u) return 0;   /* 1.7.3 test7: NOSESS, an old session is dropped, start from the EEPROM */
+#endif
   const volatile u8 *s = XIP_PTR(SESSION);
   for (u32 i = 0; i < sizeof g_sec; i++) g_sec[i] = s[i];
   u32 *w = (u32 *)g_sec;
@@ -735,11 +741,21 @@ void Reset_Handler(void)
     if (b) {
       last_in = now;
       if (!bl || g_dimmed) {                            /* the key only wakes */
+#ifdef WAKE_FRESH
+        /* 1.7.3 test26 WAKE_FRESH: the picture first, then the light. Before the panel lit with the picture from before the dark (often hours old) until the new one was drawn. */
+        bl = 1; if (g_dimmed) { g_dimmed = 0; colours(); }
+#ifdef V3_PW
+        pw_full(); lcd_take();
+#endif
+        if (g_menu) menu_draw(); else draw();
+        hw_backlight(1);
+#else
         bl = 1; hw_backlight(1); if (g_dimmed) { g_dimmed = 0; colours(); }
 #ifdef V3_PW
         pw_full(); lcd_take();
 #endif
         if (g_menu) menu_draw(); else draw();
+#endif
         while (hw_buttons()) hw_wdt_feed();
 #ifdef WAKE_WHEEL
         wheel_ms = 0;   /* 1.7.2: the wheel only wakes, its release does not open the settings */
@@ -792,11 +808,19 @@ void Reset_Handler(void)
 #endif
 #ifdef V3_CALL_WAKE
     if (call_wake) { call_wake = 0;
+#ifdef WAKE_FRESH
+      if (!bl) { bl = 1; last_in = now; if (g_dimmed) { g_dimmed = 0; colours(); }
+#ifdef V3_PW
+        pw_full(); lcd_take();
+#endif
+        draw(); hw_backlight(1); } }
+#else
       if (!bl) { bl = 1; last_in = now; hw_backlight(1); if (g_dimmed) { g_dimmed = 0; colours(); }
 #ifdef V3_PW
         pw_full(); lcd_take();
 #endif
         draw(); } }
+#endif
 #endif
 #ifdef V3_PW
     if (g_tone_now) pw_tq = emu_ms;

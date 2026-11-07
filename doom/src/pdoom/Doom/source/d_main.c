@@ -587,6 +587,9 @@ void D_AddFile()
 // the gamemode from it. Also note if DOOM II, whether secret levels exist
 // CPhipps - const char* for iwadname, made static
 
+#ifdef PDM_ONE_EPI
+int pdm_one_epi;   /* the only episode of the WAD (1..3), 0: several */
+#endif
 static void CheckIWAD2(const unsigned char *iwad_data, const unsigned int iwad_len, GameMode_t *gmode, boolean *hassec)
 {
     spiFlashSetAddress((uint32_t) iwad_data);
@@ -594,7 +597,10 @@ static void CheckIWAD2(const unsigned char *iwad_data, const unsigned int iwad_l
     spiFlashGetData(&header_v, sizeof(header_v));
     const wadinfo_t *header = &header_v; //(const wadinfo_t*)iwad_data;
 
-    int ud = 0, rg = 0, sw = 0, cm = 0, sc = 0;
+    int ud = 0, rg = 0, sw = 0, cm = 0, sc = 0, e2 = 0, e3 = 0;
+#ifdef PDM_E4
+    int credit = 0, help2 = 0;   /* Paramix 1.7.3 test14: Ultimate DOOM has CREDIT but no HELP2 */
+#endif
 
     if (!strncmp(header->identification, "IWAD", 4))
     {
@@ -605,14 +611,18 @@ static void CheckIWAD2(const unsigned char *iwad_data, const unsigned int iwad_l
         spiFlashGetData(fileinfo, length * sizeof(*fileinfo));
         while (length--)
         {
+#ifdef PDM_E4
+            if (!strncmp(fileinfo[length].name, "CREDIT", 8)) credit = 1;
+            if (!strncmp(fileinfo[length].name, "HELP2", 8)) help2 = 1;
+#endif
             if (fileinfo[length].name[0] == 'E' && fileinfo[length].name[2] == 'M' && fileinfo[length].name[4] == 0)
             {
                 if (fileinfo[length].name[1] == '4')
                     ++ud;
                 else if (fileinfo[length].name[1] == '3')
-                    ++rg;
+                    { ++rg; ++e3; }
                 else if (fileinfo[length].name[1] == '2')
-                    ++rg;
+                    { ++rg; ++e2; }
                 else if (fileinfo[length].name[1] == '1')
                     ++sw;
             }
@@ -673,6 +683,26 @@ static void CheckIWAD2(const unsigned char *iwad_data, const unsigned int iwad_l
         *gmode = registered;
     else if (sw >= 9)
         *gmode = shareware;
+#ifdef PDM_ONE_EPI
+    /* Paramix 1.7.3 test12: the Studio builds one episode per DOOM. E2 or E3 alone was "indetermined" (the title
+     * screen then called a missing entry and crashed); it is registered now, and the new game skips the episode
+     * menu (pdm_one_epi). */
+    else if (rg >= 9)
+        *gmode = registered;
+#ifdef PDM_LUMPTXT
+    else if (cm > 0)
+        *gmode = commercial;   /* 1.7.3 test17: a DOOM II map pack alone (one-humanity: MAP01 only) */
+#endif
+#ifdef PDM_E4
+    /* 1.7.3 test14: E4 (Ultimate DOOM) too. One episode from Ultimate DOOM is retail: its pages are CREDIT, not HELP2
+     * (the title loop and the end of E1 would ask for HELP2). */
+    pdm_one_epi = (sw > 0) + (e2 > 0) + (e3 > 0) + (ud > 0) == 1 ? (sw ? 1 : e2 ? 2 : e3 ? 3 : 4) : 0;
+    if ((*gmode == shareware || *gmode == registered) && credit && !help2)
+        *gmode = retail;
+#else
+    pdm_one_epi = (sw > 0) + (e2 > 0) + (e3 > 0) == 1 ? (sw ? 1 : e2 ? 2 : 3) : 0;
+#endif
+#endif
 
 }
 

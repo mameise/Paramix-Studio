@@ -787,6 +787,10 @@ void G_DoCompleted(void)
                     break;
                 case 4:
                     _g->wminfo.next = 2;
+#ifdef PDM_LUMPTXT
+                    /* 1.7.3 test17: an episode in the place of E4 (Sigil) goes back to its own map (lump PDMNXT4: "7") */
+                    { int l = W_CheckNumForName("PDMNXT4"); if (l >= 0) { const char *t = (const char*) W_CacheLumpNum(l); if (t[0] >= '1' && t[0] <= '8') _g->wminfo.next = t[0] - '1'; } }
+#endif
                     break;
             }
         }
@@ -802,7 +806,11 @@ void G_DoCompleted(void)
     if (_g->gamemode == commercial)
         _g->wminfo.partime = TICRATE * cpars[_g->gamemap - 1];
     else
+#ifdef PDM_E4
+        _g->wminfo.partime = _g->gameepisode < 4 ? TICRATE * pars[_g->gameepisode][_g->gamemap] : 0;   /* 1.7.3 test14: E4 has no par times (read past the table) */
+#else
         _g->wminfo.partime = TICRATE * pars[_g->gameepisode][_g->gamemap];
+#endif
 
     _g->wminfo.pnum = 0;
 
@@ -877,6 +885,16 @@ void G_WorldDone(void)
 void G_DoWorldDone(void)
 {
     _g->idmusnum = -1;        //jff 3/17/98 allow new level's music to be loaded
+#ifdef PDM_LUMPTXT
+    /* 1.7.3 test17: a map pack with only a few maps (one-humanity: MAP01) ends after its last map: back to the title
+     * instead of looking for a map that is not there */
+    {
+        char nm[9]; int m = _g->wminfo.next + 1;
+        if (_g->gamemode == commercial) { nm[0] = 'M'; nm[1] = 'A'; nm[2] = 'P'; nm[3] = (char) ('0' + m / 10); nm[4] = (char) ('0' + m % 10); nm[5] = 0; }
+        else { nm[0] = 'E'; nm[1] = (char) ('0' + _g->gameepisode); nm[2] = 'M'; nm[3] = (char) ('0' + m); nm[4] = 0; }
+        if (W_CheckNumForName(nm) < 0) { D_StartTitle(); return; }
+    }
+#endif
     _g->gamestate = GS_LEVEL;
     _g->gamemap = _g->wminfo.next + 1;
     G_DoLoadLevel();

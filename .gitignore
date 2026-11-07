@@ -24,6 +24,8 @@
 !wolf/wolf.bin
 !wolf/wolfsod.bin
 !sms/sms.bin
+!pm/pm.bin
+!ab/ab.bin
 *.wad
 *.WAD
 *.jpg
@@ -48,4 +50,13 @@ wolf/src/dev/obj/
 *.sms
 *.SMS
 *.gg
+*.ppm
+*.min
+*.MIN
+*.eep
+*.hex
+*.HEX
+*.pgm
+# test screenshots show game pictures: never in the repository
+*.png
 *.ppm

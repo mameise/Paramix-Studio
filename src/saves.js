@@ -207,6 +207,14 @@ function lzDec(s, n) {   // LZ4 block (as emu.js)
     while (m-- > 0 && op < n) { d[op] = d[op - o]; op++; }
   }
 }
+/* 1.7.3 test21 LZ_GONE: TamaEmu notes behind its page table which packed blocks the pet erased (four words, then
+ * their xor with 0x454E4F47). Those blocks read empty, apart from the parts in spare pages (written after this). */
+function lzGoneApply(t, o, g, size) {
+  if (t.length < o + 20) return;
+  let x = 0x454E4F47; for (let i = 0; i < 4; i++) x = (x ^ u32(t, o + 4 * i)) >>> 0;
+  if (x !== u32(t, o + 16)) return;
+  for (let b = 0; b < 128 && (b << 16) < size; b++) if ((u32(t, o + 4 * (b >> 5)) >>> (b & 31)) & 1) g.fill(0xFF, b << 16, (b + 1) << 16);
+}
 async function emuGuestAsync(read, cfg, progress) {
   const out = new Uint8Array(cfg.size).fill(0xFF), nb = cfg.size >> 16;
   let done = 0; const todo = [...cfg.map.subarray(0, nb)].filter((k) => k !== 0xFF).length;
@@ -236,10 +244,11 @@ async function emuGuestAsync(read, cfg, progress) {
     const lo = (cfg.guestOff + cfg.guestSize + 0x1FFF) & ~0x1FFF, hi = cfg.spareEnd & ~0x1FFF;
     if (hi >= lo + 0x4000) {
       const data = lo + 0x2000; let n = (hi - data) >> 13; if (n > PG_MAX) n = PG_MAX;
-      const t = new Uint8Array(await read(lo, 16 + 2 * PG_MAX));
+      const t = new Uint8Array(await read(lo, 16 + 2 * PG_MAX + 20));
       let x = (PG_MAGIC ^ Math.imul(n, 0x9E3779B1)) >>> 0;
       for (let i = 0; i < PG_MAX; i++) x = (((x << 5) | (x >>> 27)) ^ u16(t, 16 + 2 * i)) >>> 0;
       if (u32(t, 0) === PG_MAGIC && u32(t, 4) === n && u32(t, 8) === x) {
+        lzGoneApply(t, 16 + 2 * PG_MAX, out, cfg.size);   // 1.7.3 test21 LZ_GONE: packed blocks the pet erased
         for (let i = 0; i < n; i++) {
           const v = u16(t, 16 + 2 * i);
           if (v === 0xFFFF || (v << 13) >= cfg.size) continue;
@@ -291,6 +300,6 @@ function t7SaveIn(img, save, base = 0xC0000) {
   return out;
 }
 
-root.ParamixSaves = { paraPet, paraPetSet, paraWrite, t7SaveOut, t7SaveIn, t7SaveCheck, T7_EE, idPage, region, family, settingsOk, crc16arc, paraFromImage, paraEncode, paraDecode, paraCheck, paraClock, emuCfg, emuGuestAsync, KINDS };
+root.ParamixSaves = { paraPet, paraPetSet, paraWrite, t7SaveOut, t7SaveIn, t7SaveCheck, T7_EE, idPage, region, family, settingsOk, crc16arc, paraFromImage, paraEncode, paraDecode, paraCheck, paraClock, emuCfg, emuGuestAsync, lzGoneApply, KINDS };
 if (typeof module !== 'undefined') module.exports = root.ParamixSaves;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -288,8 +288,14 @@ void M_DrawEpisode(void)
     V_DrawNamePatch(54, 38, 0, "M_EPISOD", CR_DEFAULT, VPT_STRETCH);
 }
 
+#ifdef PDM_ONE_EPI
+extern int pdm_one_epi;
+#endif
 void M_Episode(int choice)
 {
+#ifdef PDM_ONE_EPI
+    if (pdm_one_epi) choice = pdm_one_epi - 1;   /* Paramix: only this episode is in the WAD */
+#endif
     if ((_g->gamemode == shareware) && choice)
     {
         M_StartMessage(SWSTRING, NULL, false); // Ty 03/27/98 - externalized
@@ -322,6 +328,15 @@ void M_DrawNewGame(void)
 
 void M_NewGame(int choice)
 {
+#ifdef PDM_ONE_EPI
+    if (pdm_one_epi && _g->gamemode != commercial)   /* Paramix: one episode in the WAD, straight to the skill */
+    {
+        _g->epi = pdm_one_epi - 1;
+        M_SetupNextMenu(&NewDef);
+        _g->itemOn = 2;
+        return;
+    }
+#endif
     if (_g->gamemode == commercial)
     {
         M_SetupNextMenu(&NewDef);

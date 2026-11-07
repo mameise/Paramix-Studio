@@ -52,3 +52,5 @@ state (Botamon, mode set by hand) both end in リトライ; a real battle (two r
 V1_REGB: `cpu_v1_save`/`cpu_v1_load` named their buffer `b` like register B: the session kept the buffer's address
 instead of B, and loading set the pointer from it (same address on the Paradise, so it went unnoticed; B was 0
 after a resume). Now B is kept in the same 4 bytes; an older session (an address there) leaves B at 0 as before.
+
+- 1.7.3 test7 SESS_FLAG: flags bit 12 (0x1000) = no session: the run state is never written and an old one is dropped at the start, so the toy starts fresh every time (these toys have no save of their own); the settings are stored as before.

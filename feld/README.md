@@ -78,6 +78,9 @@ and slots use the free end of the DOOM program area. With six fields the six
 slots lie behind the menu (up to 0x10F000, where the helper page starts) and
 behind the character data.
 
+Clean ROM, clock not asked (1.7.3 test7, switch `FELD_NOCLK`): `vflags` bit 1 set by the Studio ("Set the clock at the
+start" off): a missing clock is not asked for when switched on (nor before the autostart); it is set under SETTINGS.
+
 ## Clock for the programs (PARA_FLASH, 1.6.9 test37)
 
 At its start the menu looks the Paradise's time up in the SRAM (`para_clock`) and puts it in the mailbox 0x20000FC0
@@ -102,3 +105,10 @@ cd src/feld && cc -DHOST -DFELD_AUTO -w -I. host.c main.c -o menu_host
 ```
 
 License: GNU GPL version 3 or later.
+
+Autostart after a reset (clean ROM, 1.7.3 test9, switches FELD_SEEN, FELD_BSETTLE, FELD_AUTODBG): on the device the
+mailbox still held "PMXL" at a reset after a program had gone back and the menu was shown, so the reset showed the menu
+again. The menu now writes "PMXS" into 0x20000FF8 when it shows itself for a "PMXL" (the programs set that word to 0
+with every "PMXL"): a "PMXL" with "PMXS" (test12: with any word other than 0 there, e.g. the Paradise stub's counter) is an old one and the main program starts. B counts as held only over five
+looks a few ms apart. AUTODBG (test builds): bottom middle of the home screen: mailbox (L M R 0 ?), GPIO0 bits 8..11,
+B held or "-", seen mark (S 0 ?).

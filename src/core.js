@@ -18,6 +18,21 @@ const EDITIONS = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropic
 // ------------------------------------------------------------------ helpers
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);
 const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
+/* 1.7.3 test11: an ID page counts when its footer fits (+0xFF8 = C minus ID, +0xFFC its inverse); Tropical/Glacier
+ * (0xD29000) first. A Glacier was read as Land: at 0xD49000 it has its own save data (or an ID a Studio up to 1.2.11
+ * wrote there) whose first word can be 1..6. Without a fitting footer the first word as before. */
+const ED_C = [0, 0x70169E2C, 0x70169E2C, 0x70169E2C, 0x849633DB, 0x96CB83B8, 0x96CB83B8];
+function edPage(rom, p, check) {
+  if (p + 0x1000 > rom.length) return 0;
+  const v = u32(rom, p); if (!(p === 0xD29000 ? v === 5 || v === 6 : p === 0xD49000 ? v >= 1 && v <= 4 : v >= 1 && v <= 6)) return 0;
+  if (!check) return v;
+  const k = u32(rom, p + 0xFF8); return ((k + v) >>> 0) === ED_C[v] && u32(rom, p + 0xFFC) === (~k >>> 0) ? v : 0;
+}
+function editionIdOf(rom) {
+  for (const p of [0xD29000, 0xD49000, 0xEFD000]) { const v = edPage(rom, p, true); if (v) return v; }   // 0xEFD000: clean ROM (1.7.3 test13)
+  for (const p of [0xD49000, 0xD29000]) { const v = p + 4 <= rom.length ? u32(rom, p) : 0; if (v >= 1 && v <= 6) return v; }
+  return 0;
+}
 const s8 = (v) => (v & 0x80 ? v - 256 : v);
 function w16(b, o, v) { b[o] = v & 255; b[o + 1] = (v >> 8) & 255; }
 function w32(b, o, v) { b[o] = v & 255; b[o + 1] = (v >>> 8) & 255; b[o + 2] = (v >>> 16) & 255; b[o + 3] = (v >>> 24) & 255; }
@@ -293,7 +308,7 @@ function spriteEncode(orig, subs, opts = {}) {
     outer: for (const s of subs) for (let i = 0; i < s.data.length; i += 4) {
       if (s.data[i + 3] < 128) continue;
       let ok = false;
-      for (let k = 1; k < pal0.length; k++) { const c = pal0[k]; if (Math.abs(c[0] - s.data[i]) <= 8 && Math.abs(c[1] - s.data[i + 1]) <= 8 && Math.abs(c[2] - s.data[i + 2]) <= 8) { ok = true; break; } }
+      for (let k = 1; k < pal0.length; k++) { if (FIG_NOVAR && k >= 2 && k <= 7) continue; const c = pal0[k]; if (Math.abs(c[0] - s.data[i]) <= 8 && Math.abs(c[1] - s.data[i + 1]) <= 8 && Math.abs(c[2] - s.data[i + 2]) <= 8) { ok = true; break; } }
       if (!ok) { fits = false; break outer; }
     }
     if (fits && h.bpp === 2) keep = true; else figureMode = h.bpp === 2;
@@ -305,7 +320,9 @@ function spriteEncode(orig, subs, opts = {}) {
     transpIdx = origTransp ? h.transp : -1;
     const ncol = 1 << BITS[bpp];
     palBlock = orig.slice(h.palOffset, h.palOffset + 2 * ncol * Math.max(1, h.numPal));
-    indexOf = (p) => (p[3] < 128 && transpIdx >= 0) ? transpIdx : nearestIndex(pal0, p[0], p[1], p[2], transpIdx);
+    // FIG_NOVAR: own pictures never land in slots 2-7 (the game recolours them per Tama, on the field too)
+    const pk = opts.figure && FIG_NOVAR ? pal0.map((c, i) => (i >= 2 && i <= 7 ? [1e6, 1e6, 1e6] : c)) : pal0;
+    indexOf = (p) => (p[3] < 128 && transpIdx >= 0) ? transpIdx : nearestIndex(pk, p[0], p[1], p[2], transpIdx);
   } else if (figureMode) {
     const FREE = [8, 9, 10, 11, 12, 13, 14, 15];
     const dark = (r, g, b) => r + g + b < 90;
@@ -370,6 +387,9 @@ function spriteEncode(orig, subs, opts = {}) {
     const pad = (4 - pos % 4) % 4; if (pad) { body.push(new Uint8Array(pad)); pos += pad; }
     tbl.push([pos - pixOff, d.length]); body.push(d); pos += d.length;
   }
+  // 1.7.3 test21 SPR_ALIGN: the length a multiple of 4 like every original. The playdate sends the Tama's own pictures
+  // and sums them up in 32-bit words: an odd length (own pictures) made the other Paradise refuse it at about 90 %.
+  if (SPR_ALIGN) pos = (pos + 3) & ~3;
   const out = new Uint8Array(pos);
   const useT = transpIdx >= 0;
   writeHeader(out, { dataLength: pos, flags: F_XOR | F_RLE_BYTE | 0x03 | (useT ? F_TRANSP : 0), bpp, numSprites: n, sw: w, sh: hh, ox: h.ox, oy: h.oy, iw: h.iw, ih: h.ih, palBpp: 0x11, numPal: keep ? Math.max(1, h.numPal) : 1, transp: useT ? transpIdx : 0, palOffset: palOff, pixOffset: pixOff });
@@ -384,6 +404,18 @@ function spriteEncode(orig, subs, opts = {}) {
     return padded;
   }
   return out;
+}
+const SPR_ALIGN = true;
+/* 1.7.3 test25 FIG_NOVAR: an own picture whose colours all exist in the original palette kept that palette, also for
+ * colours that sit in slots 2-7. The game recolours those per Tama (colour, field), so the small Tama on the field
+ * showed fewer colours or a red tint (Glacier: Icy Irukatchi, Ginjirotchi, Yukiraratchi). Those slots are left out. */
+const FIG_NOVAR = true;
+/** SPR_ALIGN: a character picture with a length that is not a multiple of 4 (own pictures before 1.7.3 test21),
+ *  padded with zeros; null when it is fine. */
+function spriteAlign(e) {
+  if (!SPR_ALIGN || !e || e.length < 24) return null;
+  const n = u32(e, 0); if (!(n & 3) || n < 24 || n > e.length + 3) return null;   // the stored entry may already be padded
+  const out = new Uint8Array((n + 3) & ~3); out.set(e.subarray(0, Math.min(n, out.length))); w32(out, 0, out.length); return out;
 }
 function writeHeader(b, h) {
   w32(b, 0, h.dataLength); b[4] = h.flags; b[5] = h.bpp; w16(b, 6, h.numSprites); b[8] = h.sw; b[9] = h.sh;
@@ -501,8 +533,7 @@ function openRom(rom) {
   while (limit < rom.length && page(limit)) limit += 0x1000;
   // Edition ID: on its own page (0xD49000, Tropical/Glacier 0xD29000). Previously the first
   // used page after the characters, which went wrong with DOOM or save slots next to it.
-  let editionId = 0;
-  for (const p of [0xD49000, 0xD29000]) { const v = p + 4 <= rom.length ? u32(rom, p) : 0; if (v >= 1 && v <= 6) { editionId = v; break; } }
+  let editionId = editionIdOf(rom);
   if (!editionId) editionId = limit < rom.length ? u32(rom, limit) : 0;
   const groups = findGroups(entries);
   return { rom, root, files, entries, groups, adult: groups.length ? findFirstAdult(entries, groups) : -1, egg: findEgg(entries), assetEnd: end, limit, editionId, edition: EDITIONS[editionId] || ('Edition ' + editionId) };
@@ -1226,7 +1257,7 @@ function textApply(rom, edits) {
 root.ParamixCore = { paraLayers, faceFirst, facePoses, layersMove, EYE_V2, smaDetect, smaLoad, eyeFirst, eyeRelGet, shiftEyes, textClean, textGet, textApply, textTablesOf, TXT_ENC,
   fieldSets, charTable, FIELD_NAMES,
   ASSET_BASE, EDITIONS, GROUP_PARTS, GROUP_SHEET_W, GROUP_SHEET_H,
-  arc2Parse, arc2Files, arc2Build, arc2Checksum, packSplit, packJoin, spriteHeader, spriteDecode, spriteEncode, spriteBlank, spriteTiny, partOptions, launcherKeep, launcherChanges, isLauncher,
+  arc2Parse, arc2Files, arc2Build, arc2Checksum, packSplit, packJoin, spriteHeader, spriteDecode, spriteEncode, spriteBlank, spriteTiny, spriteAlign, partOptions, launcherKeep, launcherChanges, isLauncher,
   rleEncode, rleDecode, quantize, findGroups, findEgg, openRom, buildRom, verifyRom,
   sheetLayout, sheetFromSubs, subsFromSheet, groupSheet, groupFromSheet, emptyImage, sameImage, crop,
   dimLoad, dimCharParts, dimEggSubs, dimCharPartsWithEyes, dimGuessEye, eyeRectAt, eyeVariants, setEyeOffset, hideEyes, dimEyePreset, DIM_EYE_PRESETS, place, numberImage, zipBuild, zipRead, crc32,

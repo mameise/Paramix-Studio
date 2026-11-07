@@ -28,7 +28,9 @@ const uint8_t *plat_fig_ptr(int i) { return figs[i]; }
 static uint8_t store[T7_STORE_LEN]; static int have_store;
 int plat_store_load(uint8_t *b, uint32_t n) { if (!have_store) return 0; memcpy(b, store, n); return 1; }
 void plat_store_write(const uint8_t *b, uint32_t n) { memcpy(store, b, n); have_store = 1; printf("store: bg=%d size=%d pixel=%d note=%d\n", b[4], b[8], b[9], b[32] == 'T'); }
-static int keys;
+static int keys, dark;
+extern uint8_t g_t7_dark; int app_bell(void);
+static int icon9_px(void) { int n = 0; for (int y = 106; y < 126; y++) for (int x = 4*128/5 + 2; x < 4*128/5 + 22; x++) if (fb[y][x] != fb[105][0]) n = fb[y][x]; return n; }
 static void run(double s, int rtcx)
 {
   int n = (int)(s * 500 + 0.5);
@@ -37,10 +39,15 @@ static void run(double s, int rtcx)
     t7_set_buttons((uint8_t)app_keys((uint32_t)keys, g_ms));
     app_tick(g_ms);
     t7_step_cycles(T7_CLOCK_RATE / 500);
+    { static int pt; static uint32_t lt; uint8_t lv; int tn = t7_snd_tone_hz(&lv) != 0; if (tn && !pt) { if (g_ms - lt > 5000) { uint8_t ic[10]; t7_get_icons(ic); printf("TONE %02d:%02d ic %d calls %02x %02x %02x %02x %02x %02x %02x hh %02x %02x\n", t7_ram_read(0x306), t7_ram_read(0x307), ic[9], t7_ram_read(0x3b0), t7_ram_read(0x3b1), t7_ram_read(0x3b2), t7_ram_read(0x3b3), t7_ram_read(0x3b4), t7_ram_read(0x3b5), t7_ram_read(0x3b6), t7_ram_read(0x326), t7_ram_read(0x327)); } lt = g_ms; } pt = tn; }
+    { static uint32_t cs; static int pc; int c = t7_ram_read(0x3b0) | t7_ram_read(0x3b1) | t7_ram_read(0x3b2) | t7_ram_read(0x3b4) | t7_ram_read(0x3b5) | t7_ram_read(0x3b6); uint8_t ic[10]; t7_get_icons(ic);
+      if (c && !pc) cs = g_ms; if (cs && ic[9]) { printf("CALL->ICON %u ms\n", g_ms - cs); cs = 0; } if (!c) cs = 0; pc = c != 0; }
     if (g_ms % 1000 == 0) g_rtc += (uint32_t)rtcx;
     if (g_ms % 500 == 0) app_setup_fill(g_rtc);
     if (g_ms % 2000 == 0) app_clock(g_rtc, 0);
-    if (g_ms % 34 == 0) app_render(0);
+    if (dark) { g_t7_dark = 1; if (app_bell()) { dark = 0; g_t7_dark = 0; app_render(1); printf("bell wake at %02d:%02d px %d\n", t7_ram_read(0x306), t7_ram_read(0x307), icon9_px()); } continue; }
+    g_t7_dark = 0;
+    if (g_ms % 34 == 0) { app_render(0); static int pb; int b = app_bell(); if (b != pb) { printf("bell %d at %02d:%02d px %d\n", b, t7_ram_read(0x306), t7_ram_read(0x307), icon9_px()); pb = b; } }
   }
 }
 static void shot(const char *f)
@@ -60,6 +67,7 @@ int main(int c, char **v)
     while (b[k] && b[k] != '.' && k < 15) { cfg.fig[i - 2].name[k] = b[k]; k++; }
     cfg.nfig++;
   }
+  if (getenv("EE")) { size_t en; unsigned char *e = rd(getenv("EE"), &en); extern void persist_restore_page(int, const uint8_t *); for (int i = 0; i < 16 && (size_t)(i + 1) * 256 <= en; i++) persist_restore_page(i, e + i * 256); }   /* EE=save */
   app_init(&cfg);
   t7_init();
   t7_snd_config(T7_CLOCK_RATE, 16000); t7_snd_capture(0); t7_snd_set_mode(1);
@@ -84,6 +92,7 @@ int main(int c, char **v)
       printf("load %s\n", app_load(b, (uint32_t)m, &sv) ? "ok" : "FAILED");
       if (app_clock_hard(g_rtc)) printf("clock from the Paradise\n"); else app_catchup(g_rtc, prog);
     }
+    else if (!strcmp(cmd, "i")) { uint8_t ic[10]; t7_get_icons(ic); printf("icons"); for (int q = 0; q < 10; q++) printf(" %d", ic[q]); printf(" ram326 %02x %02x 3b0", t7_ram_read(0x326), t7_ram_read(0x327)); for (int q = 0; q < 7; q++) printf(" %02x", t7_ram_read((uint16_t)(0x3b0 + q))); printf(" t %02d:%02d\n", t7_ram_read(0x306), t7_ram_read(0x307)); }
     else if (!strcmp(cmd, "s")) shot(a);
     else if (!strcmp(cmd, "para")) {   /* para <y> <m> <d> <h> <mi>: the Paradise's time now, clock flag on */
       int y, mo, d, h, mi; sscanf(l, "%*s %d %d %d %d %d", &y, &mo, &d, &h, &mi);
@@ -96,6 +105,7 @@ int main(int c, char **v)
     else if (!strcmp(cmd, "reboot")) { t7_init(); app_init(&cfg); app_render(1); }
     else if (!strcmp(cmd, "wb")) { unsigned ad, v; sscanf(l, "%*s %x %x", &ad, &v); t7_ram_write((uint16_t)ad, (uint8_t)v); }   /* test30 */
     else if (!strcmp(cmd, "dump")) { FILE *o = fopen(a, "wb"); for (int i = 0; i < 0x600; i++) fputc(t7_ram_read((uint16_t)i), o); fclose(o); }
+    else if (!strcmp(cmd, "dark")) dark = atoi(a);
     else if (!strcmp(cmd, "q")) break;
     fflush(stdout);
   }

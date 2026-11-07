@@ -104,6 +104,21 @@ brings their own WAD; the Studio converts it in the browser.
   repository under the GNU GPL version 3.
 - No Game Boy game is in this repository.
 
+## ArduboyEmu (`ab/`)
+
+Own code (mameise), no code of other emulators. The CPU was checked against simavr (GPL) on the PC only; simavr is
+not part of Paramix Studio. Arduboy is a trademark of Arduboy Inc.
+
+## PokeMiniEmu (`pm/`)
+
+- **PokeMini** by JustBurn (Team Pokeme), libretro version https://github.com/libretro/PokeMini (commit 132111b),
+  **GNU GPL version 3 or later** (copy in `pm/src/core/LICENSE_pokemini`). The core in `pm/src/core` (CPU, PRC,
+  LCD, timers, IRQ, I/O with the EEPROM, sound) comes from it, with the **FreeBIOS** (Team Pokeme, in `freebios.c`).
+  Changed for the Paradise: `pm_glue.c` instead of PokeMini.c (no files, no colour PRC, the cartridge read from the
+  flash window), the LCD read by the program for the shown frames (`PM_FASTLCD`), small stubs (`pm/src/stub`).
+- The Paradise program (`pm/src/app`) is by mameise; with the rest of this repository under the GNU GPL version 3.
+- No Pokemon mini game and no Nintendo BIOS are in this repository.
+
 ## Wolfenstein 3D (`wolf/`)
 
 - **Wolf4SDL** by Moritz "Ripper" Kroll and others, maintained by KS-Presto,

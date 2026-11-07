@@ -10,10 +10,11 @@ typedef struct { uint32_t off, len; char name[16]; } T7Fig;
 typedef struct {
   uint32_t magic, version, rom_off, rom_len, save_off, nfig;
   T7Fig fig[T7_FIG_MAX];
-  uint32_t flags;                          /* bit 0: English, bit 1: clock from the Paradise at every start */
+  uint32_t flags;                          /* bit 0: English, bit 1: clock from the Paradise at every start, bit 12: no session (T7_F_NOSESS) */
   uint32_t wall_cnt, wall_sod, wall_ymd;   /* written by the Studio on the device: seconds counter, local time and date then (0 = none) */
 } T7Cfg;
 #define T7_MAGIC 0x37584D50u   /* "PMX7" */
+#define T7_F_NOSESS 0x1000u   /* 1.7.3 test7 (SESS_FLAG): run state never written nor loaded, only the EEPROM */
 
 /* Settings on the device (wheel, short press). Stored with the clock note in their own sector. */
 typedef struct {

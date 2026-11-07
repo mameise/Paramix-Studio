@@ -123,7 +123,11 @@ void** storeLumpArrayToFlash(boolean levelChanged)
     Z_Free(oldLumpPtrArrayAddress);
     return lumpPtrArray;
 }
-#if CACHE_ALL_COLORMAP_TO_RAM
+#if CACHE_ALL_COLORMAP_TO_RAM && defined(PDM_CMAPXIP)
+/* 1.7.3 test17: no RAM copy (8.5 KB more for the zone): the Studio puts a copy of COLORMAP into the program part, read
+ * through the cached program window like the program's own tables */
+#include "pdmcfg.h"
+#elif CACHE_ALL_COLORMAP_TO_RAM
 #ifdef PARADISE_DEV
 __attribute__((section(".ram20_bss"))) uint8_t ramColorMap[256 * 34];
 #else
@@ -153,7 +157,10 @@ void initImmutableFlashRegion()
     // get the colormap
     p_wad_immutable_flash_data->colormaps = writeLumpToFlashRegion(W_GetNumForName("COLORMAP"), FLASH_IMMUTABLE_REGION, true);
     //
-    #if CACHE_ALL_COLORMAP_TO_RAM
+    #if CACHE_ALL_COLORMAP_TO_RAM && defined(PDM_CMAPXIP)
+    if (g_dcfg.version >= 3u && g_dcfg.cmap_off && g_dcfg.cmap_off != 0xFFFFFFFFu)
+        p_wad_immutable_flash_data->colormaps = (lighttable_t*) (0x100A0000u + g_dcfg.cmap_off - g_dcfg.code_off);
+    #elif CACHE_ALL_COLORMAP_TO_RAM
 #ifdef PARADISE_DEV
         { extern void plat_pram_copy(void *d, const void *s, unsigned n); plat_pram_copy(ramColorMap, p_wad_immutable_flash_data->colormaps, sizeof (ramColorMap)); }
 #else

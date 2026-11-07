@@ -103,6 +103,10 @@ void F_StartFinale(void)
                 case 4:
                     _g->finaleflat = "MFLR8_3";
                     _g->finaletext = E4TEXT;
+#ifdef PDM_LUMPTXT
+                    /* 1.7.3 test17: the text of an episode in the place of E4 (Sigil), written by the Studio with a 0 */
+                    { int l = W_CheckNumForName("PDMTXT4"); if (l >= 0) _g->finaletext = (const char*) W_CacheLumpNum(l); }
+#endif
                     break;
                 default:
                     // Ouch.

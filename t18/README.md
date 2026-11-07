@@ -9,7 +9,8 @@ firmware is part of this repository.
   (64 KB at most) to PRAM and starts it; `t18x.bin` is the code that is not hot,
   run from the flash window (flash 0x0F0000). Its settings block ("PMX8") is at
   0x140 and is filled in by the Studio (`src/emu.js`, `t18Patch`). Flag bit 1:
-  set the clock to the Paradise's time at every start.
+  set the clock to the Paradise's time at every start. Flag bit 12 (1.7.3 test7, `SESS_FLAG`): no session; only
+  the firmware's own save is written, an old session is dropped and the firmware boots as on the toy.
 - `src/core`: the core from the T18Emu app by mameise, slimmed down for the
   Paradise:
   - `t18cpu.c`: ARM7TDMI interpreter. Guest SRAM (0xF8000000) is the Paradise

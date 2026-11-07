@@ -2,7 +2,11 @@
 #define STATE_H
 #include "io.h"
 #include "../core/tc.h"
+#ifdef SESS_FLAG
+typedef struct { u32 guest_off, guest_size, save_off, device; const volatile u8 *map; u32 spare_end, nosess; } StCfg;   /* 1.7.3 test7: nosess = flags bit 12 */
+#else
 typedef struct { u32 guest_off, guest_size, save_off, device; const volatile u8 *map; u32 spare_end; } StCfg;
+#endif
 int  st_flush_guest(Emu *e, const StCfg *c);
 int  st_evict(Emu *e);
 int  st_flush_step(Emu *e, const StCfg *c);   /* one part per call, 1 = done */

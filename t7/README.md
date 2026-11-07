@@ -226,3 +226,5 @@ device entering STAND BY late (the first one sends again).
 When the game asks for the time, the noted game time is counted on with the Paradise's seconds counter. After a
 battery change that counter starts at 0 again, below the noted value; the difference wrapped to about 136 years and
 the game got a date far off. Now the noted time is taken as it was (the clock from the Paradise sets it right after).
+
+No session (SESS_FLAG, 1.7.3 test7): settings flag bit 12 (0x1000): the run state is never written (leaving, automatic sessions, battery empty) and an old one is dropped at the start; the EEPROM, settings and clock note are stored as before, so the toy starts from its own save.

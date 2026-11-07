@@ -52,3 +52,6 @@ Test: `python3 test/mkimg.py gb.bin game.gb img.bin` then `python3 test/devgb.py
 (KEYS="t:mask,...", WHEEL="t:steps", SHOTS="t,...", OUT=dir); `test/prof.py` counts instructions per function.
 
 Author: mameise
+
+No session (1.7.3 test7, switch SESS_FLAG): flags bit 12 set by the Studio ("Remember where you left off" off): leaving writes
+no state, a start drops an old one; only the game's own save (cartridge RAM or EEPROM) is kept.

@@ -114,6 +114,9 @@ uint32_t T7_HOT t7_cpu_run(uint32_t budget)
           int idx = __builtin_clz(pending << 16);
           PUSH(pc >> 8); PUSH(pc & 0xFF); PUSH(PACKP());
           pc = g_irq_vectors[idx]; fi = 1;
+#ifdef T7_BLIT_CACHE
+          if (g_bm.on) { if (g_bm.irq++ == 0) g_bm.irq0 = (int32_t)cyc; }   /* its cycles up to the RTI do not count */
+#endif
           g_irq_pending_any = (g_cpureg[0x73] | g_cpureg[0x74]) != 0;
         }
       }
@@ -141,6 +144,16 @@ uint32_t T7_HOT t7_cpu_run(uint32_t budget)
 #endif
     }
     chk = 0;
+#ifdef T7_BLIT_CACHE
+    /* the time of a left out blit passes here, in the caller's place; an IRQ is taken in between as above */
+    if (g_bs.rem && pc == g_bs.pc && sp == g_bs.sp) {
+      uint32_t lim = budget - cyc; if (lim > g_bs.rem) lim = g_bs.rem;
+      if (son) { if (snd <= 0) lim = 0; else if ((uint32_t)snd < lim) lim = (uint32_t)snd; }
+      cyc += lim; g_bs.rem -= lim;
+      if (son && (snd -= (int32_t)lim) <= 0) { g_snd_next = snd; t7_snd_service(); snd = g_snd_next; }
+      chk = 1; continue;
+    }
+#endif
 #ifdef T7_JIT
     /* 1.6.12 test2: translated ROM code, when the interpreter would run all of the block now (t7_jit.c) */
     if (g_t7j_on && !fd && pc >= 0x4000u) {
@@ -216,10 +229,28 @@ uint32_t T7_HOT t7_cpu_run(uint32_t budget)
 #ifdef T7_JSR_HLE
     case 0x20: { uint32_t _t = A_ABS(); uint32_t _r = (pc - 1) & 0xFFFF;
       if (g_t7_hle && (_t == 0xD460u || _t == 0xE4CDu)) {
+#ifdef T7_BLIT_CACHE
+        if (_t == 0xE4CDu && (g_t7_hle & 2u) && g_t7_dark) {      /* blit, screen off: left out when its time is known */
+          uint8_t _k[12]; uint32_t _s = bc_key(_k);
+          if (g_bc[_s].k[11] && bc_same(g_bc[_s].k, _k)) {
+            g_wram[0x100 | sp] = (uint8_t)(_r >> 8); g_wram[0x100 | ((sp - 1) & 0xFF)] = (uint8_t)_r;
+            g_bs.rem = g_bc[_s].cyc; g_bs.pc = pc; g_bs.sp = sp; g_bc_hit++; break;   /* pc is the return address */
+          } else if (!g_bm.on) {                                    /* measure this one */
+            g_bm.on = 1; g_bm.sp = sp; g_bm.ret = (_r + 1) & 0xFFFF; g_bm.start = (int32_t)(cyc + c); g_bm.irq = 0; g_bm.irqc = 0; g_bm.slot = _s; bc_copy(g_bm.k, _k); g_bc_miss++;
+#ifdef T7_JIT
+            g_bm.jit = g_t7j_on; g_t7j_on = 0;
+#endif
+          }
+        }
+#else
         if (_t == 0xE4CDu && (g_t7_hle & 2u) && g_t7_dark) {      /* blit, screen off: JSR + RTS only */
           g_wram[0x100 | sp] = (uint8_t)(_r >> 8); g_wram[0x100 | ((sp - 1) & 0xFF)] = (uint8_t)_r;
           c += opcode_cycles[0x60]; break;
         }
+#endif
+#if defined(T7_WAKE_FRESH) || defined(T7_DARK_PEEK)
+        if (_t == 0xE4CDu) g_t7_blits++;                          /* a blit that runs (the screen after a wake: drawn anew) */
+#endif
         if (_t == 0xD460u && (g_t7_hle & 1u)) {                   /* delay: whole when its RTS runs in this run */
           uint32_t pre = c + opcode_cycles[0xA2] + 47u * (opcode_cycles[0xE8] + opcode_cycles[0xD0]), all = pre + opcode_cycles[0x60];
           if (cyc + pre < budget && (!son || snd > (int32_t)all)) {
@@ -232,8 +263,24 @@ uint32_t T7_HOT t7_cpu_run(uint32_t budget)
 #else
     case 0x20: { uint32_t _t = A_ABS(); uint32_t _r = (pc - 1) & 0xFFFF; PUSH(_r >> 8); PUSH(_r & 0xFF); pc = _t; } break;
 #endif
-    case 0x60: { uint32_t _l = PULL(); uint32_t _h = PULL(); pc = ((_l | (_h << 8)) + 1) & 0xFFFF; } break;
-    case 0x40: { UNPACKP(PULL()); uint32_t _l = PULL(); uint32_t _h = PULL(); pc = _l | (_h << 8); } chk = 1; break;
+    case 0x60: { uint32_t _l = PULL(); uint32_t _h = PULL(); pc = ((_l | (_h << 8)) + 1) & 0xFFFF;
+#ifdef T7_BLIT_CACHE
+      if (g_bm.on && sp == g_bm.sp && pc == g_bm.ret) {              /* the measured blit ends: note its cycles */
+        T7BC *_e = &g_bc[g_bm.slot]; bc_copy(_e->k, g_bm.k); _e->cyc = (uint32_t)((int32_t)(cyc + c) - g_bm.start - g_bm.irqc); g_bm.on = 0;
+#ifdef T7_BC_LOG
+        { extern void t7_bc_log(const uint8_t *, uint32_t); t7_bc_log(g_bm.k, _e->cyc); }
+#endif
+#ifdef T7_JIT
+        g_t7j_on = g_bm.jit;
+#endif
+      }
+#endif
+      } break;
+    case 0x40: { UNPACKP(PULL()); uint32_t _l = PULL(); uint32_t _h = PULL(); pc = _l | (_h << 8); } chk = 1;
+#ifdef T7_BLIT_CACHE
+      if (g_bm.on && g_bm.irq && --g_bm.irq == 0) g_bm.irqc += (int32_t)(cyc + c) - g_bm.irq0;
+#endif
+      break;
     case 0x00: pc = (pc + 1) & 0xFFFF; PUSH(pc >> 8); PUSH(pc & 0xFF); PUSH(PACKP() | 0x10u);
                { uint32_t _l = RD(0xFFFE); uint32_t _h = RD(0xFFFF); pc = _l | (_h << 8); } fi = 1; break;
     case 0x10: BR(!(nzn & 0x80u)); break; case 0x30: BR(nzn & 0x80u); break;
@@ -251,6 +298,9 @@ uint32_t T7_HOT t7_cpu_run(uint32_t budget)
     cyc += c;
     if (son && (snd -= (int32_t)c) <= 0) { g_snd_next = snd; t7_snd_service(); snd = g_snd_next; chk = 1; }
   }
+#ifdef T7_BLIT_CACHE
+  if (g_bm.on) { g_bm.start -= (int32_t)cyc; if (g_bm.irq) g_bm.irq0 -= (int32_t)cyc; }   /* goes on in the next run */
+#endif
   T7R_SAVE();
   return cyc;
 }

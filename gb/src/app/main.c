@@ -528,6 +528,11 @@ static void gl_poll2(void) { plink_poll(g_ms, 0, gl_got2); }
 #ifdef GB_STATE
 /* ---- 1.6.11 test2: the whole Game Boy on leaving (wheel held), read once at the next start ---- */
 #include "../../../emu/src/emu/pstate.h"
+#ifdef SESS_FLAG
+#define NOSESS ((g_cfg.flags & 0x1000u) != 0u)   /* 1.7.3 test7: the Studio's "remember on leaving" off: only the game's own save */
+#else
+#define NOSESS 0
+#endif
 #define STATE_AT (g_cfg.save_off + 0x9000u)
 #ifdef GBC
 #define STATE_MAX 0xF000u   /* 1.7.2: save area 96 KB (settings, cartridge RAM, state) */
@@ -547,6 +552,7 @@ static int st_parts(StPart *pt)
 static void state_store(void) { StPart pt[2]; int n = st_parts(pt); if (g_running) st_store(STATE_AT, STATE_MAX, st_tag(), pt, n, g_sec); }
 static int state_load(void)
 {
+  if (NOSESS) { st_drop(STATE_AT); return 0; }
   StPart pt[2]; int n = st_parts(pt);
   struct gb_s keep = g_gb;                         /* the pointers of this program stay */
   int ok = st_load(STATE_AT, STATE_MAX, st_tag(), pt, n);
@@ -569,7 +575,7 @@ static void leave(void)
   REG(0x20000FF8u) = 0;
   REG(0x20000FFCu) = 0x4C584D50u;        /* "PMXL": back on purpose, the autostart stays off */
 #ifdef GB_STATE
-  if (g_running) { message(en() ? "SAVING" : "SPEICHERN", ""); state_store(); }
+  if (g_running && !NOSESS) { message(en() ? "SAVING" : "SPEICHERN", ""); state_store(); }
 #endif
   if (g_cram_dirty) cram_store();
 #ifdef PARA_BACK

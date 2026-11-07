@@ -245,6 +245,9 @@ void* Z_Malloc2(int size, int tag, void **user, const char *sz)
         {
             // scanned all the way around the list
             printf("Z_Malloc: failed on allocation of %i bytes", size);
+#ifdef PDM_MOREZONE
+            { extern void plat_oom(unsigned size, int used); plat_oom((unsigned) size, -free_memory); }   /* 1.7.3 test17: a map too big for the RAM: show it, the wheel goes back */
+#endif
             while (1);
         }
         if (rover->tag != PU_FREE)

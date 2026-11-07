@@ -1,5 +1,5 @@
 /* 1.7.2 test14 (GPLAY): play time in DOOM, Wolfenstein, Game Boy and Master System earns Tamapoints for the Paradise.
- * Time counts between two key presses that lie at most 60 s apart (the Paradise's seconds counter 0x45000304, it runs
+ * Also Pokemon mini and Arduboy (1.7.3). Time counts between two key presses that lie at most 60 s apart (the Paradise's seconds counter 0x45000304, it runs
  * in every program). Going back, 10 points per whole minute go into the money of the settings block 0xEFE000/0xEFF000
  * (both copies, new CRC, as the menu sets Tamapoints), when the menu's settings block has the flag F_GPLAY (64): the
  * Studio sets it with the checkbox in the Menu tab, only in a ROM with the Paradise. The rest of a minute stays. */

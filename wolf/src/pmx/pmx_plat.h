@@ -5,6 +5,7 @@
 
 uint32_t plat_ms (void);                       /* milliseconds since start */
 void     plat_wait (uint32_t ms);              /* sleep (the Paradise: wfi until then) */
+int plat_exit (uint32_t held);                  /* 1.7.3 test12: the wheel held this long: go back (the way chosen in the Studio) */
 uint32_t plat_keys (void);                     /* PMX_K_* held now */
 int      plat_wheel (void);                    /* wheel steps since the last call (+ one way, - the other) */
 void     plat_lcd (const uint8_t *fb, int y0, int y1, const uint16_t *lut);   /* rows y0..y1-1 of the 128-wide screen */

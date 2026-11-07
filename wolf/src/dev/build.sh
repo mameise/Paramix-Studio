@@ -5,7 +5,7 @@ set -e
 cd "$(dirname "$0")/.."
 E=../../emu/src/emu
 N=wolf; [ -n "$SOD" ] && { N=wolfsod; XCF="-DSPEAR $XCF"; }
-CF="-mcpu=cortex-m3 -mthumb -Os -ffunction-sections -fdata-sections -fno-common -w -DPARAMIX -DPMX_SD_IN_TICK -Iw4 -Ipmx -DFAST_LCD -DLCD_FASTCLK -DTONE_FIX -DTONE_SAFE -DBL_SLEEP -DPARA_BACK -DPARA_MB_KEEP -DBL_PWM -DBL_MR3RST -DGPLAY $XCF"
+CF="-mcpu=cortex-m3 -mthumb -Os -ffunction-sections -fdata-sections -fno-common -w -DPARAMIX -DPMX_SD_IN_TICK -Iw4 -Ipmx -DFAST_LCD -DLCD_FASTCLK -DTONE_FIX -DTONE_SAFE -DBL_SLEEP -DPARA_BACK -DPARA_MB_KEEP -DBL_PWM -DBL_MR3RST -DGPLAY -DEXIT_KEY $XCF"
 mkdir -p dev/obj; rm -f dev/obj/*.o
 for f in w4/*.c pmx/*.c dev/paradise.c $E/hw.c $E/flash.c; do
   n=$(basename $f .c); arm-none-eabi-gcc $CF -c $f -o dev/obj/$n.o; done

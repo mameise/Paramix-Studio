@@ -27,14 +27,24 @@ static u8 *g_sec;            /* 4 KB buffer: first overlay slot (empty when savi
 #ifndef PT_PAD
 #define PT_PAD 4   /* host test: 4096, so the 4 KB read stays inside the variable */
 #endif
-static struct { u32 magic, n, chk, pad; u16 vp[PG_MAX]; u8 tail[PT_PAD]; } g_pt;
+#if defined(LZ_GONE) && defined(TC_LZ)
+/* 1.7.3 test21 LZ_GONE: packed blocks the guest erased, kept behind the table (own check word: older tables have
+ * whatever followed in RAM there). Before, they counted only until the next start: then the parts not written again
+ * read the old packed data, mixed with the new ones (items gone wrong, the game slow, odd pictures and sounds). */
+#define GONE_W 5u
+#define GONE_MAGIC 0x454E4F47u
+#else
+#define GONE_W 0u
+#endif
+static struct { u32 magic, n, chk, pad; u16 vp[PG_MAX]; u32 gone[GONE_W]; u8 tail[PT_PAD]; } g_pt;
+#define PT_LEN (16u+2u*PG_MAX+4u*GONE_W)
 static u32 g_pg_tab, g_pg_data, g_pg_n;
 u32 st_n_pages, st_n_free;
 __attribute__((noinline)) static u32 pt_chk(void){ u32 x=g_pt.magic ^ (g_pt.n*0x9E3779B1u); for(u32 i=0;i<PG_MAX;i++) x=(x<<5|x>>27) ^ g_pt.vp[i]; return x; }
 __attribute__((noinline)) static void pt_save(void){
   g_pt.magic=PG_MAGIC; g_pt.n=g_pg_n; g_pt.chk=pt_chk();
   /* The DMA reads 4 KB from the table: what follows it in RAM is ignored when reading back. */
-  if(g_pg_n && !flash_same(g_pg_tab, &g_pt, 16u+2u*PG_MAX)) flash_prog4k(g_pg_tab, &g_pt);
+  if(g_pg_n && !flash_same(g_pg_tab, &g_pt, PT_LEN)) flash_prog4k(g_pg_tab, &g_pt);
 }
 __attribute__((noinline)) static void pt_count(void){ u32 n=0; for(u32 i=0;i<g_pg_n;i++) if(g_pt.vp[i]!=0xFFFFu) n++; st_n_pages=n; st_n_free=g_pg_n-n; }
 static int blk_mapped(const StCfg *c, u32 blk){ return c->map[blk & 127u] != 0xFFu; }
@@ -44,9 +54,15 @@ TC_INIT void st_pages(Emu *e, const StCfg *c)
   u32 lo=(c->guest_off + c->guest_size + 0x1FFFu) & ~0x1FFFu, hi=c->spare_end & ~0x1FFFu;
   g_pg_n=0;
   if(hi >= lo + 0x4000u){ g_pg_tab=lo; g_pg_data=lo+0x2000u; g_pg_n=(hi-g_pg_data)>>13; if(g_pg_n>PG_MAX) g_pg_n=PG_MAX; }
-  flash_read(g_pg_tab, &g_pt, 16u+2u*PG_MAX);
-  if(!g_pg_n || g_pt.magic!=PG_MAGIC || g_pt.n!=g_pg_n || g_pt.chk!=pt_chk())
+  flash_read(g_pg_tab, &g_pt, PT_LEN);
+  int bad=!g_pg_n || g_pt.magic!=PG_MAGIC || g_pt.n!=g_pg_n || g_pt.chk!=pt_chk();
+  if(bad)
     for(u32 i=0;i<PG_MAX;i++) g_pt.vp[i]=0xFFFFu;
+#if GONE_W
+  { u32 x=GONE_MAGIC; for(u32 i=0;i<4;i++) x^=g_pt.gone[i];
+    if(bad || x!=g_pt.gone[4]){ for(u32 i=0;i<4;i++) g_pt.gone[i]=0; g_pt.gone[4]=GONE_MAGIC; }   /* no table, or an older one */
+    for(u32 i=0;i<4;i++) tc_lz_gone[i]=g_pt.gone[i]; }
+#endif
   e->pg_base=(const uint8_t*)XIP_PTR(g_pg_data);
   for(u32 i=0;i<4;i++) e->pg_blk[i]=0;
   for(u32 i=0;i<1024;i++) e->pg_map[i]=0xFFu;
@@ -74,7 +90,12 @@ static int wb_part(Emu *e, const StCfg *c, u32 base, const u8 *mem, int step)
   if(!a){
     u32 v=(base>>13)&1023u, i=e->pg_map[v];
     if(!((e->pg_blk[v>>8]>>((v>>3)&31u))&1u)) return 0;
+#if defined(LZ_GONE) && defined(TC_LZ)
+    u32 lb=(base>>16)&127u;   /* LZ_GONE: a part of a packed block keeps its page even when empty, else the old data comes back */
+    if(all_ff(mem) && !(tc_lz_tab && ((const u32*)tc_lz_tab)[lb] && !((tc_lz_gone[lb>>5]>>(lb&31u))&1u))){
+#else
     if(all_ff(mem)){                                   /* erased: release the page */
+#endif
       if(i==0xFFu) return 0;
       g_pt.vp[i]=0xFFFFu; e->pg_map[v]=0xFFu; pt_save(); pt_count(); return 1;
     }
@@ -109,6 +130,10 @@ int st_big_erase(Emu *e, uint32_t base)
   { u32 b=(base>>16)&127u; tc_lz_gone[b>>5] |= 1u<<(b&31u); }   /* 1.7.3: an erased packed block reads empty */
 #endif
   u32 v0=((base>>16)&127u)*8u; int ch=0;
+#if GONE_W
+  { u32 b=(base>>16)&127u, m=1u<<(b&31u);
+    if(tc_lz_tab && ((const u32*)tc_lz_tab)[b] && !(g_pt.gone[b>>5]&m)){ g_pt.gone[b>>5]|=m; g_pt.gone[4]^=m; ch=1; } }
+#endif
   for(u32 v=v0; v<v0+8u; v++){ u32 i=e->pg_map[v]; if(i!=0xFFu){ g_pt.vp[i]=0xFFFFu; e->pg_map[v]=0xFFu; ch=1; } }
   if(ch){ pt_save(); pt_count(); }
   return 1;
@@ -206,6 +231,9 @@ void st_drop(const StCfg *c){ if(!flash_isff(c->save_off, 0x1000u)) flash_erase4
 ST_OVL void st_save(Emu *e, const StCfg *c, u16 (*gram)[128])
 {
   st_flush_guest(e, c);
+#ifdef SESS_FLAG
+  if(c->nosess) return;   /* 1.7.3 test7 NOSESS: only the guest's own save (its flash), no run state */
+#endif
   /* invalidate the old header first */
   for(u32 i=0;i<0x1000u;i++) g_sec[i]=0xFF;
   flash_update4k(c->save_off, g_sec);
@@ -223,6 +251,9 @@ ST_OVL void st_save(Emu *e, const StCfg *c, u16 (*gram)[128])
 /* Returns 1 if a state was loaded. The caller sets the pointers in Emu. */
 TC_INIT int st_load(Emu *e, const StCfg *c, u16 (*gram)[128], u32 *pause_s)
 {
+#ifdef SESS_FLAG
+  if(c->nosess){ st_drop(c); return 0; }   /* 1.7.3 test7 NOSESS: an old session is thrown away, the guest boots from its own save */
+#endif
   Hdr h; flash_read(c->save_off, &h, sizeof h);
   if(h.magic!=MAGIC || h.ver!=SVER || h.key!=st_key(c)) return 0;
   if(h.chk != (h.magic ^ h.ver ^ h.key ^ h.rtc ^ h.bytes ^ h.sectors)) return 0;

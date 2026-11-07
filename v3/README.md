@@ -37,3 +37,5 @@ internal RC, deep sleep until the next RTC second or a key, then the toy's time 
 never dropped). A tone while dark: from there in real time. `BAT_SMOOTH`: steadier battery reading.
 
 Author: mameise
+
+No session (SESS_FLAG, 1.7.3 test7): flags bit 12 (0x1000): the run state is never written and an old one is dropped at the start; the toy's EEPROM and the settings are stored as before, so it starts from its own save like the real toy.

@@ -78,6 +78,8 @@ const MSG = {
   noRescueRoom: 'no room for the write protection (rescue start, top 64 KB of the flash). Nothing was written. Remove a program from the start device and write again',
   rescueMode: 'the last write was cut off. The device waits in the flash screen: write again',
   noAnswer: 'no answer. Put the device on the download screen and try again',
+  noData: 'no answer, no data comes in from the adapter. Put the device on the download screen and try again. Still nothing: check the cable and the adapter driver',
+  garbled: 'data comes in, but it is not readable ({n} bytes: {h}). Check the cable (TX and RX) and the adapter driver',
   lost: 'the device stopped answering before writing. Nothing was written. Switch the Paradise off and on, put it on the download screen, connect again and write again',
   appSilent: 'the flash app was sent but does not answer. Try again',
   unknownEd: 'unknown edition in the new ROM, untick "keep saves"',
@@ -422,9 +424,15 @@ class Paradise {
     // The flash app always reports 1 (Land). The real edition is the ID page in the flash
     // (0xD49000, Tropical/Glacier 0xD29000), read like the Studio reads a ROM (1.3.0).
     try {
-      const x = await this.read(0xD49000, 4), v = u32(x, 0);
-      if (v >= 1 && v <= 6) this.info.edition = v;
-      else { const y = await this.read(0xD29000, 4), w = u32(y, 0); if (w >= 1 && w <= 6) this.info.edition = w; }
+      // 1.7.3 test11: Tropical/Glacier first, with the page's footer (C minus ID, inverse): a Glacier was taken for Land
+      // (its save data at 0xD49000 can begin with 1..6)
+      const C = [0, 0x70169E2C, 0x70169E2C, 0x70169E2C, 0x849633DB, 0x96CB83B8, 0x96CB83B8];
+      const ok = async (p, ids) => { const a = await this.read(p, 4), v = u32(a, 0); if (!ids.includes(v)) return 0;
+        const f = await this.read(p + 0xFF8, 8), k = u32(f, 0); return ((k + v) >>> 0) === C[v] && u32(f, 4) === (~k >>> 0) ? v : -v; };
+      const g = await ok(0xD29000, [5, 6]), l = g > 0 ? 0 : await ok(0xD49000, [1, 2, 3, 4]);
+      const c = g > 0 || l > 0 ? 0 : await ok(0xEFD000, [1, 2, 3, 4, 5, 6]);   // 1.7.3 test13: a clean ROM's ID page
+      const v = g > 0 ? g : l > 0 ? l : c > 0 ? c : l < 0 ? -l : g < 0 ? -g : 0;
+      if (v) this.info.edition = v;
     } catch (e) { if (!(e instanceof TimeoutError)) throw e; }
     this.info.name = EDITIONS[this.info.edition] || 'Edition ' + this.info.edition;
     return this.info;
@@ -709,7 +717,11 @@ async function connect(io, appImage, opts = {}, status) {
   const link = new Link(io, opts), dev = new Paradise(link);
   try { await dev.hello(2500); return { dev, loaded: false }; }
   catch (e) { if (!(e instanceof TimeoutError)) throw e; }
-  if (!(await probe(link))) throw fe('noAnswer');
+  if (!(await probe(link))) {
+    /* 1.7.3 CONN_DIAG: say whether anything came in at all (driver or cable) or only unreadable bytes */
+    if (CONN_DIAG && io.rx !== undefined) throw fe(io.rx === 0 ? 'noData' : 'garbled', { n: io.rx, h: io.rxHead });
+    throw fe('noAnswer');
+  }
   if (status) status('load', 0, 1);
   await loadApp(link, appImage, (d, t) => status && status('load', d, t));
   await sleep(1200 * (opts.timeScale || 1));
@@ -884,6 +896,20 @@ function keepPlan(F, E, menu, opts = {}) {
           if (sameRom && !mineIn(so, so + sl)) ranges.push([so, so + sl]); else if (!sameRom) notes.push(note('noteEmu'));   // 1.6.11 test2: with the state behind the cartridge RAM; an imported save (changed by the Studio) wins
           continue;
         }
+        if (mag === 0x50584241) {   // ArduboyEmu (1.7.3): settings, EEPROM and state stay with the same game at the same place
+          const sameP = [0x140, 0x148, 0x14C, 0x150].every((k) => u32(dv, k) === u32(img, off + k));
+          const ro = u32(img, off + 0x148), rl = u32(img, off + 0x14C), so = u32(img, off + 0x150);
+          let sameRom = sameP; for (let x = ro & ~0xFFF; sameRom && x < ro + rl; x += SECTOR) if (changed.has(x)) sameRom = false;
+          if (sameRom && !mineIn(so, so + 0x4000)) ranges.push([so, so + 0x4000]); else if (!sameRom) notes.push(note('noteEmu'));
+          continue;
+        }
+        if (mag === 0x50584D50) {   // PokeMiniEmu (1.7.3): settings, EEPROM and state stay with the same game at the same place (not the BIOS behind them)
+          const sameP = [0x140, 0x148, 0x14C, 0x150].every((k) => u32(dv, k) === u32(img, off + k));
+          const ro = u32(img, off + 0x148), rl = u32(img, off + 0x14C), so = u32(img, off + 0x150);
+          let sameRom = sameP; for (let x = ro & ~0xFFF; sameRom && x < ro + rl; x += SECTOR) if (changed.has(x)) sameRom = false;
+          if (sameRom && !mineIn(so, so + 0xC000)) ranges.push([so, so + 0xC000]); else if (!sameRom) notes.push(note('noteEmu'));
+          continue;
+        }
         if (mag === 0x57584D50) {   // Wolf3D (1.6.10 test1): settings and the saved game stay with the same pack at the same place
           const sameW = [0x140, 0x148, 0x14C, 0x150].every((k) => u32(dv, k) === u32(img, off + k));
           const ro = u32(img, off + 0x148), rl = u32(img, off + 0x14C), so = u32(img, off + 0x150);
@@ -985,17 +1011,22 @@ function keepPlan(F, E, menu, opts = {}) {
 const FLASH_APP_B64 = '__FLASH_APP_B64__';
 function embedded() { return FLASH_APP_B64.startsWith('__') ? null : b64(FLASH_APP_B64); }
 
+const CONN_DIAG = true;
+function rxCount(io, v) {
+  for (let i = 0; i < v.length && io.rxHead.length < 48; i++) io.rxHead += (io.rxHead ? ' ' : '') + v[i].toString(16).padStart(2, '0');
+  io.rx += v.length;
+}
 /** Web Serial transport (Chrome, Edge). */
 async function serialOpen(port) {
   await port.open({ baudRate: BAUD, bufferSize: 1 << 16 });
   const writer = port.writable.getWriter();
-  const io = { onData: null, closed: false };
+  const io = { onData: null, closed: false, rx: 0, rxHead: '' };
   let reader = null, stop = false;
   (async () => {
     // a buffer overrun, framing or parity error ends the reader but not the port: take a new one (1.5.6)
     while (!stop && port.readable) {
       reader = port.readable.getReader();
-      try { for (;;) { const { value, done } = await reader.read(); if (done) break; if (value && io.onData) io.onData(value); } }
+      try { for (;;) { const { value, done } = await reader.read(); if (done) break; if (value) rxCount(io, value); if (value && io.onData) io.onData(value); } }
       catch (e) { io.errors = (io.errors || 0) + 1; }
       try { reader.releaseLock(); } catch (e) {}
       if (stop) break;

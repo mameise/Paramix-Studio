@@ -163,9 +163,17 @@ function findWord(b, v, from = 0, to = b.length) { for (let i = from; i + 4 <= t
 
 /** Edition of the ROM: { profile, id } or null. */
 function edition(rom) {
+  // 1.7.3 test11: the ID page with a fitting footer first, Tropical/Glacier before Land (a Glacier was read as Land:
+  // at 0xD49000 it has save data whose first word can be 1..6); without a footer the first word as before
+  // 1.7.3 test13: a clean ROM keeps its ID page at CLEAN_ID (top, so 0xD49000 does not split the room for programs)
+  for (const at of [null, CLEAN_ID]) for (const p of PROFILES.slice().reverse()) {
+    const a = at || p.idPage; if (a + 0x1000 > rom.length) continue;
+    const id = u32(rom, a), k = u32(rom, a + 0xFF8);
+    if (p.edIds.includes(id) && ((k + id) >>> 0) === p.c && u32(rom, a + 0xFFC) === (~k >>> 0)) return { profile: p, id, at: a };
+  }
   for (const p of PROFILES) {
     const id = u32(rom, p.idPage);
-    if (p.edIds.includes(id)) return { profile: p, id };
+    if (p.edIds.includes(id)) return { profile: p, id, at: p.idPage };
   }
   return null;
 }
@@ -243,7 +251,7 @@ function feldApps(rom, tpl) {
   const n = Math.min(u32(rom, c + 392), f.version >= 8 ? 12 : 6);
   for (let i = 0; i < n; i++) { const o = i < 6 ? c + 396 + 16 * i : c + 504 + 16 * (i - 6); r.apps.push({ src: u32(rom, o), name: str(o + 4) }); }
   // 1.6.9 test13 (version 9): main program of the start device out of the list, start when switched on
-  if (f.version >= 9) { r.v9 = true; r.mainSrc = u32(rom, c + 600); r.auto = (u32(rom, c + 604) & 1) === 1; }
+  if (f.version >= 9) { r.v9 = true; r.mainSrc = u32(rom, c + 600); r.auto = (u32(rom, c + 604) & 1) === 1; r.noClock = (u32(rom, c + 604) & 2) === 2; }   // 1.7.3 test7: clean ROM, clock not asked at the start
   if (f.version >= 7) r.dl = u32(rom, c + 500);   // test20: the flash app of the start device (DOWNLOAD)
   return r;
 }
@@ -805,10 +813,11 @@ function feldApply(rom, opts, saved, emb, E) {
  * in its own sector (0x0C0000). Kept from the device: only the ID page (its edition and identity, so the Studio and
  * the flasher know the device). Everything else of the 16 MB is free for programs, besides the rescue start.
  */
+const CLEAN_ID = 0xEFD000;   // 1.7.3 test13: the ID page of a clean ROM (below the kept Paradise settings pages)
 const CLEAN_ROM = true, F_CLEAN = 32, CLOCK_SEC = 0xC0000, CLEAN_SHIM = 0x110568, CLEAN_LO = 0x10000, CLEAN_HI = 0xFF0000;
 /** Areas a clean ROM keeps for itself (programs must not go there). */
-function cleanReserved(idPage) {
-  return [[0, CLEAN_LO], [STUB_OFF, CLOCK_SEC + 0x1000], [CLEAN_SHIM & ~0xFFF, (CLEAN_SHIM & ~0xFFF) + 0x1000], [idPage, idPage + 0x1000], [0xEFE000, 0xF00000], [CLEAN_HI, 0x1000000]];
+function cleanReserved() {
+  return [[0, CLEAN_LO], [STUB_OFF, CLOCK_SEC + 0x1000], [CLEAN_SHIM & ~0xFFF, (CLEAN_SHIM & ~0xFFF) + 0x1000], [CLEAN_ID, 0xF00000], [CLEAN_HI, 0x1000000]];
 }
 function crc32z(b, a, n) {
   let c = 0xFFFFFFFF;
@@ -831,8 +840,7 @@ function cleanBase(src) {
   const ed = edition(src);
   if (!ed) throw new Error('edition not recognised');
   const out = new Uint8Array(0x1000000).fill(0xFF);
-  const id = ed.profile.idPage;
-  out.set(src.subarray(id, id + 0x1000), id);
+  out.set(src.subarray(ed.at, ed.at + 0x1000), CLEAN_ID);   // 1.7.3 test13: at the top (was its own place 0xD49000/0xD29000)
   out.set(src.subarray(0, 0x1000), 0);   // the load table, made ours in cleanApply
   return out;
 }
@@ -848,7 +856,7 @@ function cleanApply(rom, opts, emb) {
   if (f.length > 0xE000) throw new Error('menu program too big');
   // settings: no fields, items or Tama; the programs, DOWNLOAD, the clock sector
   for (let k = 8; k < 36; k += 4) w32(f, ci + k, 0);
-  w32(f, ci + 28, ed.profile.idPage); w32(f, ci + 32, STUB_OFF); w32(f, ci + 36, F_LAUNCH | F_CLEAN);
+  w32(f, ci + 28, CLEAN_ID); w32(f, ci + 32, STUB_OFF); w32(f, ci + 36, F_LAUNCH | F_CLEAN);
   w32(f, ci + 48, 0); w32(f, ci + 272, 0); w32(f, ci + 276, 0); w32(f, ci + 288, 0); w32(f, ci + 284, 0);
   { const nm = (opts.app && opts.name0 || '').slice(0, 12); for (let k = 0; k < 12; k++) f[ci + 380 + k] = k < nm.length ? nm.charCodeAt(k) : 0; }
   const max = 12, apps = (opts.apps || []).slice(0, max);
@@ -861,7 +869,7 @@ function cleanApply(rom, opts, emb) {
   }
   w32(f, ci + 492, 0); w32(f, ci + 496, 0);
   w32(f, ci + 500, opts.dl || 0);
-  w32(f, ci + 600, opts.mainSrc || 0); w32(f, ci + 604, opts.auto ? 1 : 0);
+  w32(f, ci + 600, opts.mainSrc || 0); w32(f, ci + 604, (opts.auto ? 1 : 0) | (opts.noClock ? 2 : 0));
   w32(f, ci + 608, sp.clock);
   const size = page(f.length);
   out.fill(0xFF, FO, FO + size); out.set(f, FO);

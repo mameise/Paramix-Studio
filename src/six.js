@@ -96,6 +96,64 @@ const KINDS = {
       prev: [0x1007564C, 0x3C2E0, 0x3C5C2], cmp: [0x3C470, 0x3C53E, 0x3C5EA, 0x3C69A], set: 0x3C498, read: '90f94a00',
       imm: [[0x22634, 0x4E, 0x48], [0x3C29E, 0x4D, 0x4F], [0x3C3F8, 0x4D, 0x4F]], off: [0x4A, 0x48, 0x4F, 0x64], ent: [0, 1, 2, 0x81] } },
 };
+/* 1.7.3 test23 SIX_HUNT: the egg hunt gives 8 entries per field (picture, item, found bit; two groups of 4, one picked at
+ * random). It was left on the slot's own row, so Sky in the Forest slot gave Jade Forest ingredients. The rows of Land,
+ * Water and Sky as in their firmware (items and found bits), the pictures from this ROM's item table. Jade Forest: Sky in
+ * the Water slot keeps the Water slot's found bits. Option bit 4 in the header. */
+const SIX_HUNT = true;
+const HUNT_ROWS = [
+  [[5003, 0], [5004, 1], [5007, 4], [5008, 5], [5005, 2], [5006, 3], [5007, 4], [5008, 5]],          // Land
+  [[5009, 6], [5010, 7], [5013, 10], [5014, 11], [5011, 8], [5012, 9], [5013, 10], [5014, 11]],     // Water
+  [[5015, 12], [5016, 13], [5017, 14], [5018, 15], [5019, 16], [5020, 17], [5017, 14], [5018, 15]], // Sky
+];
+const HUNT_SITES = { gen3: [[0x4336E, 1, 0x100A0600, 'hunt'], [0x433AC, 0, 0x100A0600, 'hunt']],
+  jade: [[0x3DEE2, 1, 0x1008C1BC, 'hunt'], [0x3DF20, 0, 0x1008C1BC, 'hunt']] };
+/* 1.7.3 test24 SIX_COOK: the kitchen's recipe table (12 pairs dish, ingredient; 4 per field, all three fields of the
+ * firmware) also follows the set byte: Land, Water and Sky recipes as in their firmware (Jade Forest: Sky in place of
+ * Water). Option bit 5 in the header. */
+const SIX_COOK = true;
+const COOK_ROWS = [[5021, 5004, 5022, 5005, 5023, 5006, 5024, 5008], [5025, 5009, 5026, 5010, 5027, 5012, 5028, 5014], [5029, 5016, 5030, 5018, 5031, 5019, 5032, 5020]];
+const COOK_SITES = { gen3: [0x30A72, 0x4B930, 0x4B9A0, 0x4BAB4, 0x4BB7A, 0x6F202].map((o) => [o, 0, 0x10091FBC, 'cook']),
+  jade: [0x2C426, 0x45B94, 0x45C04, 0x45D18, 0x45DDE, 0x635CA].map((o) => [o, 0, 0x1007EB5C, 'cook']) };
+const T_COOK = 0x740;   // 24 halfwords up to the egg hunt table
+/* the add-on tables of six fields: name, sites, place in the helper page, option bit, table for this ROM */
+const EXTRAS = [
+  { name: 'hunt', on: () => SIX_HUNT, sites: HUNT_SITES, at: 0x770, bit: 16,
+    tab: (rom, kind) => kind === 'jade' ? rows(rom, HUNT_SITES.jade[0][2], 24, 3, { 1: huntRow(rom, 2, 6) }) : [0, 1, 2].flatMap((r) => huntRow(rom, r)) },
+  { name: 'cook', on: () => SIX_COOK, sites: COOK_SITES, at: T_COOK, bit: 32,
+    tab: (rom, kind) => kind === 'jade' ? rows(rom, COOK_SITES.jade[0][2], 8, 3, { 1: COOK_ROWS[2] }) : [].concat(...COOK_ROWS) },
+];
+/** SIX_HUNT, SIX_COOK for a ROM that has six fields already (no Land ROM needed): table, site entries, jumps */
+function sixHunt(rom) {
+  let out = rom;
+  for (const X of EXTRAS) out = extraAdd(out, X);
+  return out;
+}
+function extraAdd(rom, X) {
+  const info = sixInfo(rom);
+  if (!X.on() || !info || info.version < 7 || (u32(rom, SIX_OFF + 32) & X.bit) || !extraCan(rom, info.kind, X)) return rom;
+  const K = KINDS[info.kind], f = (o) => 0x11000 + o, out = new Uint8Array(rom), P = SIX_OFF, S = X.sites[info.kind], tab = X.tab(rom, info.kind);
+  for (let i = P + X.at; i < P + X.at + 2 * tab.length; i++) if (out[i] !== 0xFF && out[i] !== 0) return rom;   // free (the program leaves its tables empty)
+  let n = 0; while (u32(out, P + T_SITES + 12 * n) !== 0) { n++; if (12 * (n + S.length + 1) > T_MORE - T_SITES) return rom; }
+  tab.forEach((x, i) => w16(out, P + X.at + 2 * i, x));
+  const fn = (k) => u32(out, P + P_FN + 4 * k) & ~1;
+  S.forEach(([o, r, t], i) => {
+    const e = P + T_SITES + 12 * (n + i); w32(out, e, (XIP(f(o)) + 4) | 1); w32(out, e + 4, t); w32(out, e + 8, SIX_XIP + X.at);
+    const b = new Uint8Array(8); b.set(branch(XIP(f(o)), fn(FN_TAB[r]), true)); w16(b, 4, 0xBF00); w16(b, 6, 0xBF00); out.set(b, f(o));
+  });
+  w32(out, P + T_SITES + 12 * (n + S.length), 0);
+  w32(out, P + 32, u32(out, P + 32) | X.bit);
+  return out;
+}
+function extraCan(rom, kind, X) { const f = (o) => 0x11000 + o; return X.sites[kind].every(([o, r, t]) => hex(rom, f(o), 8) === hex(movPairBytes(r, t), 0, 8)); }
+function huntCan(rom, kind) { return extraCan(rom, kind, EXTRAS[0]); }
+function huntRow(rom, r, bitBase) {
+  const Fd = root.ParamixFeld || (typeof require !== 'undefined' ? require('./feld.js') : null);
+  const cat = Fd ? Fd.itemCatalog(rom) : [], pic = new Map(cat.map((x) => [x.id, x.pic]));
+  const out = [];
+  for (const [id, bit] of HUNT_ROWS[r]) { if (!pic.has(id)) throw new Error('item ' + id + ' missing'); out.push(pic.get(id), id, bitBase === undefined ? bit : bitBase + (bit % 6)); }
+  return out;
+}
 // v1 and v2 (1.2.0, 1.2.1) of Tropical/Glacier jumped from these places too
 const OLD_PATCH = [[0x20ED2, '41f21431c1f20901'], [0x20FBC, '41f22c31c1f20901']];
 // Land firmware: background table, adult table and a few code places (to recognise it)
@@ -610,7 +668,7 @@ function sixInfo(rom) {
   return { version, kind: version >= 3 && u32(rom, SIX_OFF + 28) === 1 ? 'jade' : 'gen3', flagOff: u32(rom, SIX_OFF + 12),
     sprites: u32(rom, SIX_OFF + 16), comps: u32(rom, SIX_OFF + 20), anims: version >= 2 ? u32(rom, SIX_OFF + 24) : 0,
     planet: version >= 5 && (u32(rom, SIX_OFF + 32) & 1) === 1, fieldMenu: version >= 6 && (u32(rom, SIX_OFF + 32) & 2) === 2,
-    games: version >= 7 && (u32(rom, SIX_OFF + 32) & 4) === 4, dna: version >= 7 && (u32(rom, SIX_OFF + 32) & 8) === 8, gamesRest: version >= 7 ? u32(rom, SIX_OFF + 36) : 0 };
+    games: version >= 7 && (u32(rom, SIX_OFF + 32) & 4) === 4, dna: version >= 7 && (u32(rom, SIX_OFF + 32) & 8) === 8, hunt: version >= 7 && (u32(rom, SIX_OFF + 32) & 16) === 16, gamesRest: version >= 7 ? u32(rom, SIX_OFF + 36) : 0 };
 }
 const movPairBytes = (r, t) => concat([movEnc(r, t & 0xFFFF), movEnc(r, t >>> 16, true)]);
 /** Can this ROM get more fields? (Tropical/Glacier: Land, Water, Sky; Jade Forest: Sky) */
@@ -640,7 +698,7 @@ function sixStrip(rom) {
   if (info.dna) dnaStrip(out, K, info);
   put(f(K.bg.at), K.bg.orig); put(f(K.child.at), K.child.orig);
   if (info.kind === 'gen3') for (const [o, h] of OLD_PATCH) put(o, h);
-  for (const [o, r, t] of K.sites.concat(K.planet.sites)) out.set(movPairBytes(r, t), f(o));
+  for (const [o, r, t] of K.sites.concat(K.planet.sites, ...EXTRAS.map((X) => X.sites[info.kind]))) out.set(movPairBytes(r, t), f(o));
   for (const o of K.planet.calls) out.set(branch(XIP(f(o)), K.planet.fn, true), f(o));
   if (info.fieldMenu) fmStrip(out, K);
   if (info.games && info.gamesRest >= B_OFF && info.gamesRest < B_END) {
@@ -687,10 +745,10 @@ function fmInstall(out, page, K) {
 }
 /* Helper page and firmware jumps. alt: alternative tables by name (rows like the original). */
 function install(out, kind, blob, alt, counts, planet, fieldMenu, games) {
-  const K = KINDS[kind], f = (o) => 0x11000 + o, sites = planet ? K.sites.concat(K.planet.sites) : K.sites;
+  const K = KINDS[kind], f = (o) => 0x11000 + o, sites = (planet ? K.sites.concat(K.planet.sites) : K.sites).concat(...EXTRAS.filter((X) => alt[X.name]).map((X) => X.sites[kind]));
   const page = new Uint8Array(0x1000).fill(0xFF); page.set(blob.subarray(0, Math.min(blob.length, P_DNA)));
   w32(page, 8, K.flag); w32(page, 12, FLAG_OFF);
-  w32(page, 16, counts[0]); w32(page, 20, counts[1]); w32(page, 24, counts[2]); w32(page, 28, K.id); w32(page, 32, (planet ? 1 : 0) | (fieldMenu ? 2 : 0) | (games ? 4 : 0)); w32(page, 36, games ? games.rest : 0);
+  w32(page, 16, counts[0]); w32(page, 20, counts[1]); w32(page, 24, counts[2]); w32(page, 28, K.id); w32(page, 32, (planet ? 1 : 0) | (fieldMenu ? 2 : 0) | (games ? 4 : 0) | EXTRAS.reduce((m, X) => m | (alt[X.name] ? X.bit : 0), 0)); w32(page, 36, games ? games.rest : 0);
   // background table and child list
   alt.bg.forEach((v, i) => w16(page, T_BG + 2 * i, v));
   w32(page, P_BG, K.bg.table); w32(page, P_BG + 4, SIX_XIP + T_BG); w32(page, P_BG + 8, K.bg.mode);
@@ -700,10 +758,11 @@ function install(out, kind, blob, alt, counts, planet, fieldMenu, games) {
   let pos = T_MORE; const at = {};
   for (const name of new Set(sites.map((x) => x[3]))) {
     const v = alt[name]; if (v === undefined) throw new Error('table ' + name + ' missing');
+    { const X = EXTRAS.find((y) => y.name === name); if (X) { at[name] = X.at; v.forEach((x, i) => w16(page, X.at + 2 * i, x)); continue; } }   // add-on tables: fixed places (also for the add-on path)
     if (typeof v === 'number') { at[name] = v - SIX_XIP; continue; }   // a value instead of a table
     at[name] = pos; v.forEach((x, i) => w16(page, pos + 2 * i, x)); pos += (2 * v.length + 3) & ~3;
   }
-  if (pos > 0x800) throw new Error('helper page full');
+  if (pos > Math.min(0x800, ...EXTRAS.filter((X) => alt[X.name]).map((X) => X.at))) throw new Error('helper page full');
   if (12 * (sites.length + 1) > T_MORE - T_SITES) throw new Error('helper page full');
   sites.forEach(([o, , t, name], i) => { const e = T_SITES + 12 * i; w32(page, e, (XIP(f(o)) + 4) | 1); w32(page, e + 4, t); w32(page, e + 8, SIX_XIP + at[name]); });
   w32(page, T_SITES + 12 * sites.length, 0);
@@ -803,7 +862,8 @@ function sixApply(rom, land, blob, opts = {}) {
   let fieldMenu = opts.fieldMenu !== false;
   const wantGames = SIX_GAMES && opts.games !== false && kindOf(rom) === 'gen3';
   const wantDna = SIX_DNA && opts.dna !== false && !!(KINDS[have ? have.kind : kindOf(rom)] || {}).dna;
-  if (have && have.version >= SIX_VERSION && have.planet === planet && have.fieldMenu === fieldMenu && have.games === wantGames) return sixDna(rom, blob, wantDna);
+
+  if (have && have.version >= SIX_VERSION && have.planet === planet && have.fieldMenu === fieldMenu && have.games === wantGames) { const r = sixDna(rom, blob, wantDna); return sixHunt(r); }
   if (have) rom = sixStrip(rom);
   const kind = kindOf(rom);
   if (kind && fieldMenu && !fmCan(rom, KINDS[kind])) fieldMenu = false;
@@ -823,6 +883,7 @@ function sixApply(rom, land, blob, opts = {}) {
     // planet: Sky stages in the Water row (the field slot of Sky)
     alt.plTab = rows(rom, 0x1008CBD0, 11, 3, { 1: SKY_PLANET });
     alt.pl0 = rows(rom, 0x100811DA, 11, 1, {}); alt.pl1 = SKY_PLANET; alt.pl2 = rows(rom, 0x100811F0, 11, 1, {});
+    for (const X of EXTRAS) if (X.on() && opts[X.name] !== false && extraCan(rom, 'jade', X)) alt[X.name] = X.tab(rom, 'jade');
     const outJ = install(new Uint8Array(rom), 'jade', blob, alt, [0, 0, 0], planet, fieldMenu);
     if (dnaOk) dnaInstall(outJ, KINDS.jade, blob, fieldMenu);
     return outJ;
@@ -911,6 +972,7 @@ function sixApply(rom, land, blob, opts = {}) {
   alt.plTab = []; for (let i = 0; i < 33; i++) alt.plTab.push(lw(lfw(LAND_PLANET) + 2 * i));
   if (alt.plTab[0] !== 2 || alt.plTab[11] !== 2 || alt.plTab[22] !== 2) throw new Error('unexpected Land planet table');
   alt.pl0 = alt.plTab.slice(0, 11); alt.pl1 = alt.plTab.slice(11, 22); alt.pl2 = alt.plTab.slice(22, 33);
+  for (const X of EXTRAS) if (X.on() && opts[X.name] !== false && extraCan(trop, 'gen3', X)) alt[X.name] = X.tab(trop, 'gen3');
   install(out, 'gen3', blob, alt, [nspr0, ncomp0, nanim0], planet, fieldMenu, games);
   if (dnaOk) dnaInstall(out, KINDS.gen3, blob, fieldMenu);
   // region B: rain cells
@@ -937,6 +999,6 @@ function sixFix(rom) {
 const SIX_B64 = '__SIX_B64__';
 function embedded() { return SIX_B64.startsWith('__') ? null : b64(SIX_B64); }
 
-root.ParamixSix = { VERSION: SIX_VERSION, DNA: SIX_DNA, sixDna, sixDnaCan, sixApply, sixStrip, sixFix, sixCan, sixSource, sixInfo, sixNeedsSource, kindOf, embedded, FLAG_OFF, SIX_OFF, packGroup, reduceOne, mapCells };
+root.ParamixSix = { VERSION: SIX_VERSION, DNA: SIX_DNA, HUNT: SIX_HUNT, sixHunt, sixDna, sixDnaCan, sixApply, sixStrip, sixFix, sixCan, sixSource, sixInfo, sixNeedsSource, kindOf, embedded, FLAG_OFF, SIX_OFF, packGroup, reduceOne, mapCells };
 if (typeof module !== 'undefined') module.exports = root.ParamixSix;
 })(typeof window !== 'undefined' ? window : globalThis);

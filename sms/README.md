@@ -33,3 +33,6 @@ Device simulation: `python3 test/mkimg.py sms.bin game.sms img.bin` then `python
 exercisers (not included) on the Z80.
 
 Author: mameise
+
+No session (1.7.3 test7, switch SESS_FLAG): flags bit 12 set by the Studio ("Remember where you left off" off): leaving writes
+no state, a start drops an old one; only the game's own save (cartridge RAM or EEPROM) is kept.

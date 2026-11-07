@@ -133,6 +133,51 @@ static void P_LoadSubsectors(int lump)
     }
 }
 
+#ifdef PDM_SSFLASH
+/* Paramix 1.7.3 test17: the subsectors (8 bytes each, 4000 on the big Sigil maps = 32 KB) no longer in RAM: they are
+ * read only after loading, so they go straight to the level data in flash, in pieces, with their sector already found
+ * (as P_GroupLines did; the segs are loaded first for that) */
+static void P_LoadSubsectorsFlash(int lump)
+{
+    const mapsubsector_t *data;
+    _g->numsubsectors = W_LumpLength(lump) / sizeof(mapsubsector_t);
+    data = (const mapsubsector_t*) W_CacheLumpNum(lump);
+    if ((!data) || (!_g->numsubsectors))
+        I_Error("P_LoadSubsectors: no subsectors in level");
+    const int CH = 64;
+    subsector_t *buf = Z_Malloc(CH * sizeof(subsector_t), PU_STATIC, 0), *first = NULL;
+    for (int i0 = 0; i0 < _g->numsubsectors; i0 += CH)
+    {
+        int n = _g->numsubsectors - i0 < CH ? _g->numsubsectors - i0 : CH;
+        for (int k = 0; k < n; k++)
+        {
+            mapsubsector_t ms;
+            spiFlashSetAddress((uint32_t) &data[i0 + k]);
+            spiFlashGetData(&ms, sizeof(ms));
+            subsector_t *ss = &buf[k];
+            memset(ss, 0, sizeof(*ss));
+            ss->numlines = (unsigned short) SHORT(ms.numsegs);
+            ss->firstline = (unsigned short) SHORT(ms.firstseg);
+            const seg_t *seg = &_g->segs[ss->firstline];
+            ss->sector = NULL;
+            for (int j = 0; j < ss->numlines; j++, seg++)
+                if (seg->sidenum != NO_INDEX)
+                {
+                    ss->sector = &_g->sectors[_g->sides[seg->sidenum].sector_num];
+                    break;
+                }
+            if (ss->sector == NULL)
+                I_Error("P_GroupLines: Subsector a part of no sector!\n");
+        }
+        subsector_t *fa = writeBufferToFlashRegion(buf, n * sizeof(subsector_t), FLASH_LEVEL_REGION, true);
+        if (!first)
+            first = fa;
+    }
+    Z_Free(buf);
+    _g->subsectors = first;
+}
+#endif
+
 //
 // P_LoadSectors
 //
@@ -486,6 +531,9 @@ static int P_GroupLines(void)
     int i, j, total = _g->numlines;
 
     // figgi
+#ifdef PDM_SSFLASH
+    if (0)   /* the subsectors are in flash with their sector already (P_LoadSubsectorsFlash) */
+#endif
     for (i = 0; i < _g->numsubsectors; i++)
     {
         const seg_t *seg = &_g->segs[_g->subsectors[i].firstline];
@@ -513,6 +561,56 @@ static int P_GroupLines(void)
             total++;
         }
     }
+#ifdef PDM_GROUPCHUNK
+    /* Paramix 1.7.3 test17: big maps (one-humanity, Sigil) ran out of memory here: the line lists of all sectors were
+     * built in one RAM buffer (4 bytes per line side) before going to flash. Now in pieces of up to 2 KB: the sectors of
+     * a piece take their lines (all lines are looked at for each piece), the piece goes to flash right after the one
+     * before, so the flash holds the same lists in the same order as before. */
+    {
+        const int CH = 512;   /* pointers per piece */
+        line_t **buf = Z_Malloc(CH * sizeof(line_t*), PU_STATIC, 0);
+        line_t **flashFirst = NULL;
+        int s0 = 0;
+        while (s0 < _g->numsectors)
+        {
+            int s1 = s0, n = 0;
+            while (s1 < _g->numsectors && (n + _g->sectors[s1].linecount <= CH || s1 == s0))
+                n += _g->sectors[s1++].linecount;
+            if (n > CH)
+            {   /* one sector with more lines than a piece: bigger buffer for it */
+                Z_Free(buf);
+                buf = Z_Malloc(n * sizeof(line_t*), PU_STATIC, 0);
+            }
+            {   /* the lists of this piece in the buffer, in the order of the lines (as before) */
+                line_t **pos = buf;
+                for (int q = s0; q < s1; q++) { _g->sectors[q].lines_ppptr = getPackedAddress(pos); pos += _g->sectors[q].linecount; _g->sectors[q].linecount = 0; }
+                sector_t *lo = &_g->sectors[s0], *hi = &_g->sectors[s1];
+                for (i = 0, li = _g->lines; i < _g->numlines; i++, li++)
+                {
+                    sector_t *f = LN_FRONTSECTOR(li), *b = LN_BACKSECTOR(li);
+                    if (f >= lo && f < hi) P_AddLineToSector(li, f);
+                    if (b && b != f && b >= lo && b < hi) P_AddLineToSector(li, b);
+                }
+            }
+            line_t **fa = writeBufferToFlashRegion(buf, n * sizeof(line_t*), FLASH_LEVEL_REGION, true);
+            if (!flashFirst)
+                flashFirst = fa;
+            for (int q = s0; q < s1; q++)
+            {
+                _g->sectors[q].lines_ppptr = getPackedAddress(fa);
+                fa += _g->sectors[q].linecount;
+            }
+            if (n > CH)
+            {
+                Z_Free(buf);
+                buf = Z_Malloc(CH * sizeof(line_t*), PU_STATIC, 0);
+            }
+            s0 = s1;
+        }
+        Z_Free(buf);
+        (void) flashFirst;
+    }
+#else
 // now we have the total number of lines.
     line_t **linebuffer = Z_Malloc(total * sizeof(line_t*), PU_STATIC, 0);
     line_t **lineBufferArray = linebuffer;
@@ -549,6 +647,7 @@ static int P_GroupLines(void)
     }
     // now we can free the buffer
     Z_Free(lineBufferArray);
+#endif
     // calculate the box that contains each sector.
     // sound will be generated from the center of this box.
     for (i = 0, sector = _g->sectors; i < _g->numsectors; i++, sector++)
@@ -693,13 +792,20 @@ void P_SetupLevel(int episode, int map, int playermask, skill_t skill)
     P_LoadBlockMap(lumpnum + ML_BLOCKMAP);
     printf("P_LoadSubsectors\r\n");
     // subsectors in ram
+#ifdef PDM_SSFLASH
+    P_LoadSegs(lumpnum + ML_SEGS);  // first: the subsectors find their sector through them
+    P_LoadSubsectorsFlash(lumpnum + ML_SSECTORS);
+#else
     P_LoadSubsectors(lumpnum + ML_SSECTORS);
+#endif
     printf("P_LoadNodes\r\n");
     // nodes in flash
     P_LoadNodes(lumpnum + ML_NODES); // 0k
     printf("P_LoadSegs\r\n");
     // segs in flash
+#ifndef PDM_SSFLASH
     P_LoadSegs(lumpnum + ML_SEGS);  // 0k
+#endif
     // line in ram
     printf("P_GroupLines\r\n");
     P_GroupLines();

@@ -44,3 +44,5 @@ cd src && sh dev/build.sh            # arm-none-eabi-gcc 13, newlib-nano -> ../w
 sh host/build.sh                     # gcc -> host/wolfhost (test runner)
 gcc tools/gen_tables.c -lm && ./a.out > pmx/pmx_tables.h
 ```
+
+1.7.3 test12 (`-DEXIT_KEY`): going back follows the Studio's choice (`plat_exit`, `emu/src/emu/exitkey.h`).

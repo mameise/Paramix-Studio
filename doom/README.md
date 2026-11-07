@@ -47,3 +47,9 @@ version 2 for MCUDoomWadUtil.
 
 Leaving DOOM (1.6.8, switch `-DPMXL_BACK` in `dev/build_dev.sh`) writes "PMXL" to the mailbox word 0x20000FFC like the
 emulators, so the autostart of the stub keeps the Paradise after DOOM was left on purpose.
+
+1.7.3 test12: `-DDOOM_EXITKEY`: the way back chosen in the Studio (word at 0x13C, as `emu/src/emu/exitkey.h`; wheel and
+A/C held 1 s, the hold key + a short wheel press is the sound, toggled when the wheel comes up). `-DPDM_ONE_EPI`: a WAD
+with only E2 or E3 is "registered" (it was "indetermined" and the title screen called a missing entry); with one
+episode a new game goes straight to the skill (`pdm_one_epi`). Without the Paradise the Studio puts several episodes
+into the menu, each its own DOOM (WAD and level data inside 8 MB, so E2 and E3 fit).

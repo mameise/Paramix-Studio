@@ -50,6 +50,9 @@ __attribute__((naked)) void SysTick_Handler(void) { __asm__ volatile("b systick_
 
 uint32_t plat_ms(void) { return g_ms; }
 void plat_wait(uint32_t ms) { u32 t0 = g_ms; hw_wdt_feed(); while (g_ms - t0 < ms) __asm__ volatile("wfi"); }
+#include "../../../emu/src/emu/exitkey.h"
+/* 1.7.3 test12: the way back chosen in the Studio (tab Menu); without EXIT_KEY the wheel 2 s as before */
+int plat_exit(uint32_t held) { return EXIT_NOW(held, 2000u); }
 uint32_t plat_keys(void) { hw_wdt_feed(); return hw_buttons() & 15u; }
 int plat_wheel(void)
 {

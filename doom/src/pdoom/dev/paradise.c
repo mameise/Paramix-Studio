@@ -37,8 +37,13 @@ typedef struct { u32 magic, version, guest_off, guest_size, save_off, device; u8
 __attribute__((section(".pmxcfg"), used)) volatile const PmxCfg g_cfg = { 0x43584D50u, 1, 0, 0, 0, 0, {0} };
 #include "pdmcfg.h"
 __attribute__((section(".pdmcfg"), used)) volatile const PdmCfg g_dcfg =
+#ifdef PDM_CMAPXIP
+  { 0x434D4450u, 3, 0x830004u, 0, 0xCA0000u, 0xA8000u, 0x10E000u, 0xB1000u, 1, 3, 1, 1,
+    BTN_A, BTN_B, BTN_C, BTN_WHEEL, BTN_C, 1, 0 };
+#else
   { 0x434D4450u, 2, 0x830004u, 0, 0xCA0000u, 0xA8000u, 0x10E000u, 0xB1000u, 1, 3, 1, 1,   /* v0.2.4: wheel reversed by default */
     BTN_A, BTN_B, BTN_C, BTN_WHEEL, BTN_C, 1 };
+#endif
 
 #define XIP_BASE_REG REG(0x4002F004u)
 #define XIP_CTRL_REG REG(0x4002F000u)
@@ -277,6 +282,17 @@ PRAMF void startDisplayRefresh(uint8_t b){
 }
 
 /* ---- Exit ---- */
+#ifdef PDM_MOREZONE
+/* 1.7.3 test17: out of memory (a map too big for the Paradise's RAM, like the biggest Sigil maps): a line "9 <size>
+ * <in use>" on the screen, holding the wheel 2 s goes back to the menu (before it hung) */
+void plat_leave(void);
+void plat_oom(unsigned size, int used){
+  { u32 v[3]={0x9, size & 0xFFFFFu, (u32)used & 0xFFFFFu}; static const u8 n[3]={1,5,5}; plat_line(3, v, n, 3); }
+  __asm__ volatile("cpsie i");
+  for(u32 t=0;;t++){ hw_wdt_feed(); if(hw_buttons() & BTN_WHEEL){ if(t>2000000u) break; } else t=0; }
+  plat_leave();
+}
+#endif
 PRAMF void plat_leave(void){
   hw_tone(0);
   __asm__ volatile("cpsid i");
@@ -311,6 +327,16 @@ extern void plat_toggle_run(void); void plat_sound_mode_next(void);
  * Fixed: A+C menu, B+C map, wheel 2 s back to the Paradise.
  * The hold key (k_mod) only does its own action after 120 ms and only while the wheel
  * has not been turned, otherwise every weapon switch would also be a step back. */
+#ifdef DOOM_EXITKEY
+/* 1.7.3 test12: the way back chosen in the Studio (tab Menu, "EX" << 16 | mode in the vector table at 0x13C, as
+ * emu/src/emu/exitkey.h): 0 wheel 2 s, 1 wheel and A, 2 wheel and C (1 s: the hold key + a short wheel press stays the
+ * sound), 3 wheel 5 s. Before DOOM always went back after 2 s of wheel. */
+static int doom_exit(u32 held, u32 b){
+  u32 v=*(volatile const u32 *)0x13Cu, m=(v>>16)==0x5845u ? (v&3u) : 0u;
+  if(m==1u || m==2u) return held>1000u && (b & (m==1u ? BTN_A : BTN_C))!=0u;
+  return held>(m==3u ? 5000u : 2000u);
+}
+#endif
 void getKeys(pkey_t *keys){
   static u32 mod_t0, b_last, b_prev, use_left, turn_left, menu_hold, chg_left, chg_dir, wh_seen;
   static int turn_dir, det_seen;
@@ -325,8 +351,16 @@ void getKeys(pkey_t *keys){
   wheel_poll(now, (b & BTN_WHEEL) ? 1u : 0u);
   np=g_wh_press-wh_seen; wh_seen+=np; wdown=g_wh_down; wt0=g_wh_t0;
   __asm__ volatile("cpsie i");
+#ifdef DOOM_EXITKEY
+  /* the sound only when the wheel comes up (held with the hold key it can be the way back) */
+  static u32 snd_pend;
+  if(np){ if(b & km){ det_seen=1; snd_pend=1; } else if(ku==BTN_WHEEL) use_left=3; }
+  if(snd_pend && !wdown){ snd_pend=0; plat_sound_mode_next(); }
+  if(wdown && wt0 && doom_exit(now-wt0, b)) plat_leave();
+#else
   if(np){ if(b & km){ det_seen=1; plat_sound_mode_next(); } else if(ku==BTN_WHEEL) use_left=3; }
   if(wdown && wt0 && now-wt0>2000u) plat_leave();
+#endif
   int det; __asm__ volatile("cpsid i"); det=g_enc_det; g_enc_det=0; __asm__ volatile("cpsie i");
   if(g_dcfg.invert) det=-det;
   if(det){
@@ -643,7 +677,13 @@ __attribute__((section(".pram_text"), noinline, used)) void Reset_Handler(void){
   for(u32 t=0; (hw_buttons() & (BTN_A|BTN_C)) && t<3000u; t++) delay(1);
 #ifdef DOOM_FREE
   /* packed flash pointers reach two 4 MB windows: the ones that hold the WAD and the level data */
+#ifdef PDM_PKREG
+  /* 1.7.3 test15: only the level data (sector line lists) is reached by packed pointers, the WAD by full ones: the
+   * windows follow the level data, so the WAD can be bigger than 8 MB (whole DOOM.WAD in one piece) */
+  g_pk_lo = 0x60000000u + (g_dcfg.region_off & ~0x3FFFFFu); g_pk_hi = g_pk_lo + 0x400000u;
+#else
   g_pk_lo = 0x60000000u + ((g_dcfg.wad_off - 4u) & ~0x3FFFFFu); g_pk_hi = g_pk_lo + 0x400000u;
+#endif
   doom_iwad = (const unsigned char*) (0x60000000u + g_dcfg.wad_off); p_doom_iwad_len = (const unsigned int*) (0x60000000u + g_dcfg.wad_off - 4u);
 #endif
   plat_stage(4); Z_Init(); plat_stage(5); InitGlobals(); plat_stage(6); D_DoomMain();
@@ -651,9 +691,15 @@ __attribute__((section(".pram_text"), noinline, used)) void Reset_Handler(void){
 }
 
 /* v0.1.9: separate stack for fault handling, in case the broken stack itself is the cause */
+#ifdef PDM_MOREZONE
+/* 1.7.3 test17: the fault stack in the small RAM at 0x20000000 (below the mailbox), its 1 KB goes to the zone */
+__attribute__((naked, section(".pram_text"))) static void Fault_Handler(void){
+  __asm__ volatile("mrs r0, msp\n mov r1, lr\n ldr r2, =0x20000800\n mov sp, r2\n b plat_fault\n .ltorg\n"); }
+#else
 __attribute__((section(".bss"), aligned(8))) u32 g_fault_stack[256];
 __attribute__((naked, section(".pram_text"))) static void Fault_Handler(void){
   __asm__ volatile("mrs r0, msp\n mov r1, lr\n ldr r2, =g_fault_stack+1024\n mov sp, r2\n b plat_fault\n .ltorg\n"); }
+#endif
 static int fr_ok(u32 *fr){ u32 a=(u32)fr;
   return ((a>=0x18000000u && a<=0x18020000u-32u) || (a>=0x20001000u && a<=0x20010000u-32u)) && !(a&3u); }
 u32 g_in_fault;
@@ -711,7 +757,11 @@ __attribute__((naked, section(".pram_text"))) static void Usage_Handler(void){
   __asm__ volatile(
     "mrs r0, msp\n mov r1, lr\n push {r1, r4-r11}\n add r2, sp, #4\n bl ua_fix\n cmp r0, #0\n pop {r1, r4-r11}\n"
     "beq 1f\n bx r1\n"
+#ifdef PDM_MOREZONE
+    "1: mrs r0, msp\n ldr r2, =0x20000800\n mov sp, r2\n b plat_fault\n .ltorg\n");
+#else
     "1: mrs r0, msp\n ldr r2, =g_fault_stack+1024\n mov sp, r2\n b plat_fault\n .ltorg\n");
+#endif
 }
 #endif
 __attribute__((used, section(".pram_text"))) void plat_fault(u32 *fr, u32 exc){
@@ -775,9 +825,17 @@ void plat_pram_copy(void *d, const void *s, unsigned n){
   __asm__ volatile("dsb\n isb\n cpsie i");
 }
 /* Flats: 4 slots of 4 KB in PRAM, the least recently used one is replaced */
+#ifdef PDM_MOREZONE
+#define NFLAT 1   /* 1.7.3 test17: one flat in RAM, the 4 KB go to the zone (big maps like Sigil ran out of memory) */
+#else
 #define NFLAT 2   /* v0.1.4: in RAM at 0x2000xxxx instead of PRAM (writing to PRAM is unreliable on the device) */
+#endif
 __attribute__((section(".ram20_bss"), aligned(4))) static uint8_t g_flat[NFLAT][4096];
+#ifdef PDM_MOREZONE
+static int g_flat_lump[NFLAT] = { -1 };
+#else
 static int g_flat_lump[NFLAT] = { -1, -1 };
+#endif
 static u32 g_flat_use[NFLAT], g_flat_clock;
 const uint8_t *plat_flat(int lump, const uint8_t *src){
   g_flat_clock++;

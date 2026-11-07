@@ -45,6 +45,7 @@ static void tick_to (uint32_t ms)
     }
 }
 uint32_t plat_ms (void) { return g_ms; }
+int plat_exit (uint32_t held) { return held > 2000u; }
 void plat_wait (uint32_t ms) { tick_to (g_ms + (ms ? ms : 1)); }
 uint32_t plat_keys (void)
 {

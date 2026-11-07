@@ -27,6 +27,7 @@ typedef struct {
 #define T18F_CLOCK 2u                 /* at every start the clock is set to the Paradise's time (nothing caught up) */
 #define T18F_HOTWIN 4u                /* the Studio put the hot firmware blocks into 0xF00000..0xFFFFFF and a second
                                        * copy of the flash part at T18_XIP_HOT (see main.c, hot window) */
+#define T18F_NOSESS 0x1000u          /* 1.7.3 test7: no session (SESS_FLAG): only the firmware's own save is written */
 
 /* code that is not hot: in the flash at T18_XIP_OFF, seen in the window 0x10000000 (base 0x60011000);
  * it begins with T18_XIP_MAGIC and the build number of the program (T18_BUILD) */

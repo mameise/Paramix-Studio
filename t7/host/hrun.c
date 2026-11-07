@@ -11,7 +11,7 @@ static long g_step; void t7_stop_dbg(int w){ static int n; if (getenv("SDBG") &&
 #ifdef T7_EEDBG
 static double g_now; void t7_eedbg(uint16_t a, uint8_t v){ static double last=-1; if (getenv("EEDBG") && g_now != last) { fprintf(stderr, "ee write at %.2f s: %03x=%02x\n", g_now, a, v); last = g_now; } }
 #endif
-static void frames(double s){ int n=(int)(s*100+0.5); for(int i=0;i<n;i++) { t7_step_cycles(40000);
+static void frames(double s){ static int cyc; if(!cyc) cyc=getenv("CYC")?atoi(getenv("CYC")):40000; int n=(int)(s*100+0.5); for(int i=0;i<n;i++) { t7_step_cycles(cyc);
 #ifdef T7_EEDBG
  g_now += 0.01;
 #endif
@@ -24,8 +24,12 @@ static void shot(const char *f){ uint8_t d[48*31], ic[10]; t7_get_display(d); t7
     fputc(v,o); fputc(v,o); fputc(v,o);} fclose(o); }
 int main(int c, char **v){ size_t n; unsigned char *rom=rd(v[1],&n); host_set_rom(rom,n);
   if(c>2){ size_t fn; unsigned char*f=rd(v[2],&fn); figure_rom_set_active(f,(unsigned)fn); t7_figure_set(1); }
+  if (getenv("EE")) { size_t en; unsigned char *e=rd(getenv("EE"),&en); extern void persist_restore_page(int,const uint8_t*); for (int i=0;i<16 && (size_t)(i+1)*256<=en;i++) persist_restore_page(i,e+i*256); }   /* EE=save: EEPROM from a file */
   if(!t7_init()){ printf("init failed\n"); return 1; }
   if (getenv("SND")) { extern void t7_snd_set_mode(int); t7_snd_set_mode(1); }
+#ifdef T7_JSR_HLE
+  if (getenv("DARK")) g_t7_dark = 1;   /* screen off as on the device */
+#endif
   char l[256]; while(fgets(l,sizeof l,stdin)){ char cmd[16],a[200]; double x=0; int k=sscanf(l,"%15s %199s %lf",cmd,a,&x); if(k<1) continue;
     if(!strcmp(cmd,"p")){ t7_set_buttons(a[0]=='A'?1:a[0]=='B'?2:4); frames(0.2); t7_set_buttons(0); frames(k>2?x:0.8); }
     else if(!strcmp(cmd,"w")) frames(atof(a));
@@ -49,10 +53,29 @@ int main(int c, char **v){ size_t n; unsigned char *rom=rd(v[1],&n); host_set_ro
  if (getenv("TL")) fputc('\n', stderr);
 #endif
  }
+#ifdef T7_JSR_HLE
+    else if(!strcmp(cmd,"dk")){ g_t7_dark=(uint8_t)atoi(a); }   /* dk 1|0: screen off/on */
+#ifdef T7_WAKE_FRESH
+    else if(!strcmp(cmd,"wake")){ extern uint32_t g_t7_blits; uint32_t b0=g_t7_blits, bt=0; int t=0; g_t7_dark=0;   /* wake: on as T7_WAKE_FRESH (light after a drawn picture) */
+      for(;;){ t7_step_cycles(8000); t+=2; if(g_t7_blits!=b0){ b0=g_t7_blits; bt=t; } if((bt && t-bt>=20) || t>=700) break; }
+      printf("wake light after %d ms\n", t); }
+    else if(!strcmp(cmd,"peek")){ extern uint32_t g_t7_blits; uint32_t b0=g_t7_blits, bt=0; int t=0; g_t7_dark=0;   /* peek: one picture with the screen dark, then dark again */
+      for(;;){ t7_step_cycles(8000); t+=2; if(g_t7_blits!=b0){ b0=g_t7_blits; bt=t; } if((bt && t-bt>=20) || t>=700) break; }
+      g_t7_dark=1; shot(a); printf("peek %d ms\n", t); }
+#endif
+#endif
     else if(!strcmp(cmd,"i")){ uint8_t ic[10]; t7_get_icons(ic); printf("icons"); for(int i=0;i<10;i++) printf(" %d",ic[i]); printf("\n"); }
     else if(!strcmp(cmd,"s")) shot(a);
     else if(!strcmp(cmd,"t")) printf("time %02d:%02d:%02d day %d.%d\n", t7_ram_read(0x306),t7_ram_read(0x307),t7_ram_read(t7_rtc_sec_addr()),t7_ram_read(0x305),t7_ram_read(0x304));
     else if(!strcmp(cmd,"poke")){ t7_ram_write((uint16_t)strtol(a,0,16),(uint8_t)x); }
     else if(!strcmp(cmd,"d")){ FILE*o=fopen(a,"wb"); fwrite(g_wram,1,T7_WRAM_SIZE,o); fclose(o); }
+    else if(!strcmp(cmd,"r")){ int a0=(int)strtol(a,0,16), m=x>0?(int)x:1; printf("ram %03x:",a0); for(int i=0;i<m;i++) printf(" %02x",t7_ram_read((uint16_t)(a0+i))); printf("\n"); }
+#ifdef T7_BLIT_CACHE
+    else if(!strcmp(cmd,"bc")){ extern uint32_t g_bc_hit, g_bc_miss; printf("blit cache hit %u miss %u\n", g_bc_hit, g_bc_miss);
+#ifdef T7_BC_LOG
+      { extern void bc_print(void); bc_print(); }
+#endif
+    }
+#endif
     else if(!strcmp(cmd,"q")) break; fflush(stdout); }
   return 0; }

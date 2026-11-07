@@ -28,7 +28,7 @@ void pmx_poll (void)
     if (pmx_k.invert) det = -det;
     pmx_keys = b;
     /* wheel pressed: short = use, held 2 s = leave */
-    if (b & PMX_K_WHEEL) { if (!wh_t0) wh_t0 = now | 1u; else if (now - wh_t0 > 2000u) pmx_leave_req = 1; }
+    if (b & PMX_K_WHEEL) { if (!wh_t0) wh_t0 = now | 1u; else if (plat_exit (now - wh_t0)) pmx_leave_req = 1; }
     else { if (wh_t0 && now - wh_t0 < 800u && pmx_k.use == PMX_K_WHEEL) use_left = 2; wh_t0 = 0; }
     if (det)
     {

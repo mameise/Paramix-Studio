@@ -196,6 +196,21 @@ void S_Start(void)
         else
             mnum = spmus[_g->gamemap - 1];
     }
+#ifdef PDM_LUMPTXT
+    /* Paramix 1.7.3 test17: an episode put in the place of E4 (Sigil) brings its own songs D_E4M1..: the song number
+     * stays (the engine knows no more), the name of the lump changes for it (plat_mus_name) */
+    {
+        extern int pdm_mus_h; extern char pdm_mus_n[9];
+        pdm_mus_h = 0;
+        if (_g->gamemode != commercial && _g->gameepisode == 4 && _g->gamemap >= 1 && _g->gamemap <= 9)
+        {
+            pdm_mus_n[0] = 'D'; pdm_mus_n[1] = '_'; pdm_mus_n[2] = 'E'; pdm_mus_n[3] = '4'; pdm_mus_n[4] = 'M';
+            pdm_mus_n[5] = (char) ('0' + _g->gamemap); pdm_mus_n[6] = 0;
+            if (W_CheckNumForName(pdm_mus_n) >= 0)
+                pdm_mus_h = mnum;
+        }
+    }
+#endif
     S_ChangeMusic(mnum, true);
 }
 

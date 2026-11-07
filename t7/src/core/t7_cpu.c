@@ -810,6 +810,32 @@ uint8_t g_t7_idle_ok, g_t7_halted;
  * blit $E4CD left out while g_t7_dark is set (the screen is off: nothing to see; the picture comes back with the
  * next frame, the game state is the same apart from the random seeds) */
 uint8_t g_t7_hle, g_t7_dark;
+#if defined(T7_WAKE_FRESH) || defined(T7_DARK_PEEK)
+uint32_t g_t7_blits;
+#endif
+#ifdef T7_BLIT_CACHE
+/* 1.7.3 test24 T7_BLIT_CACHE: the blit may only be left out if its time passes as well. The main loop waits for the frame
+ * flag $2D (set by the frame IRQ); a blit takes long enough that the flag is often set already when the loop gets there.
+ * Without that time the game ran differently and counted no care mistakes. So a blit is run once for each set of its
+ * inputs (sprite pointer, bank, position and mode bytes) and its cycles are noted; with the screen off a known blit is
+ * left out and its cycles pass. Measured without JIT (also across runs); the cycles of IRQs inside do not count. */
+#define BC_N 128u
+typedef struct { uint8_t k[12]; uint32_t cyc; } T7BC;
+static T7BC g_bc[BC_N];
+uint32_t g_bc_hit, g_bc_miss;
+static struct { uint32_t on, sp, ret, jit, slot, irq; int32_t start, irq0, irqc; uint8_t k[12]; } g_bm;
+static struct { uint32_t rem, pc, sp; } g_bs;   /* a left out blit: its cycles still to pass (an IRQ may come in between, as inside the blit) */   /* start, irq0: cycles of this run (may be < 0: an earlier run) */
+static inline int bc_same(const uint8_t *a, const uint8_t *b) { for (int i = 0; i < 12; i++) if (a[i] != b[i]) return 0; return 1; }
+static inline void bc_copy(uint8_t *d, const uint8_t *s) { for (int i = 0; i < 12; i++) d[i] = s[i]; }
+static uint32_t bc_key(uint8_t *k)
+{
+  k[0] = g_wram[0x6D]; k[1] = g_wram[0x6E]; k[2] = g_wram[0x6F]; k[3] = g_rom_bank_id;
+  for (int i = 0; i < 6; i++) k[4 + i] = g_wram[0x80 + i];
+  k[10] = g_wram[0x84]; k[11] = 1;   /* never all zero (empty slot) */
+  uint32_t h = 2166136261u; for (int i = 0; i < 12; i++) h = (h ^ k[i]) * 16777619u;
+  return (h ^ (h >> 16)) & (BC_N - 1u);
+}
+#endif
 #endif
 uint32_t g_t7_idle_cyc, g_t7_keyact;   /* keyact: cycles left without STOP after a key changed (T7_STOP_KEYACT) */
 static const uint8_t IDLE_SIG[19] = { 0x20,0xED,0xD2, 0x20,0xF5,0xD2, 0x20,0xFD,0xD2, 0x20,0x05,0xD3, 0x20,0x0D,0xD3, 0xA5,0x2D, 0xF0,0xED };
@@ -837,7 +863,11 @@ void t7_idle_check(void)
   int ok = 1; for (int i = 0; i < 6; i++) if (g_static_rom[0xD460 - 0xC000 + i] != DLY[i]) ok = 0;
   if (ok) g_t7_hle |= 1u;
   ok = 1; for (int i = 0; i < 19; i++) if (g_static_rom[0xE4CD - 0xC000 + i] != BLT[i]) ok = 0;
+#if !defined(T7_NOBLIT_SKIP) || defined(T7_BLIT_CACHE)
   if (ok) g_t7_hle |= 2u;
+#endif
+  /* 1.7.3 test23 T7_NOBLIT_SKIP: the blit is run with the screen off as well. Left out, the game no longer counted
+   * care mistakes (a hungry pet whose call ran out with the screen off: none counted, it grew up as with full care). */
 #endif
 }
 #ifdef T7_IDLE

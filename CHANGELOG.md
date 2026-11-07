@@ -2,6 +2,29 @@
 
 Versions are listed newest first.
 
+## 1.7.3 (2026-11-07)
+
+New:
+- Pokémon mini and Arduboy: your own games in the Paramix menu (also from .zip), with sound and saves. Play time earns Tamapoints.
+- DOOM without the Paradise: several episodes or the whole WAD in one entry, Ultimate DOOM with episode 4, DOOM II, and extra WADs like Sigil and Sigil II. The entries share their pictures and sounds and need less room.
+- V1Emu: own menu icons for Genjintchi, Morino and Umino.
+- TamaEmu: option "Pack the firmware" (saves room, some places can run slower).
+- Each emulator: "Remember where you left off" can be switched off.
+- Without the Paradise: "Set the clock at the start" can be switched off.
+- Start page with an overview of what Paramix can do.
+
+Fixes:
+- TamaEmu: slow in some places, and very slow after transferring items or download content.
+- Own Tama pictures: playdates failed at about 90 %, and the small Tama could show a red tint.
+- T7Emu: with the screen off no care mistakes were counted.
+- When the screen turns on, it shows a recent picture instead of an old one.
+- V1Emu: the clock of the Umino ran too slow.
+- 6 fields: the egg hunt in Land, Water and Sky gave the food of another field.
+- A and C on the home screen could open the flash app instead of the program.
+- Without the Paradise: the free space is shown correctly and used better, and the autostart works again after a reset.
+- A Glacier or Tropical could be recognized as Land.
+- Connecting: clearer message when the adapter sends no data (with a hint for Prolific adapters).
+
 ## 1.7.2 (2026-11-01)
 
 - Start device without the Paradise: almost the whole 16 MB for programs, DOOM is a menu program like the others, any program can start first, the clock is set in the menu.

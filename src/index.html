@@ -155,7 +155,7 @@ img, canvas { image-rendering: pixelated; }
 .chip.del { border-color: var(--warn); text-decoration: line-through; }
 .flash { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--line); }
 .seg { display: block; height: 100%; }
-.seg.fw, .dot.fw { background: #8a9bb8; } .seg.doom, .dot.doom { background: #d9480f; } .seg.emu, .dot.emu { background: var(--sky); } .seg.wolf, .dot.wolf { background: #6b8e23; } .seg.gb, .dot.gb { background: #c9a227; } .seg.sms, .dot.sms { background: #0f8a7e; }
+.seg.fw, .dot.fw { background: #8a9bb8; } .seg.doom, .dot.doom { background: #d9480f; } .seg.emu, .dot.emu { background: var(--sky); } .seg.wolf, .dot.wolf { background: #6b8e23; } .seg.gb, .dot.gb { background: #c9a227; } .seg.sms, .dot.sms { background: #0f8a7e; } .seg.pm, .dot.pm { background: #c2410c; } .seg.ab, .dot.ab { background: #7c3aed; }
 .seg.slots, .dot.slots { background: var(--grass); } .seg.save, .dot.save { background: #b38be0; } .seg.free, .dot.free { background: transparent; } .seg.resv, .dot.resv { background: #c4c4c4; }
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line); }
 .device { margin-bottom: 12px; }
@@ -253,14 +253,16 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
 <input type="file" id="fileDim" hidden accept=".bin,.BIN">
 <input type="file" id="fileEmu" hidden accept=".bin,.BIN,.sav,.SAV">
 <input type="file" id="fileSave" hidden accept=".tamasave">
-<input type="file" id="fileEmuSav" hidden accept=".sav,.SAV,.bin,.BIN">
+<input type="file" id="fileEmuSav" hidden accept=".sav,.SAV,.bin,.BIN,.eep,.EEP">
 <input type="file" id="fileT7Fig" hidden multiple accept=".bin,.BIN">
 <input type="file" id="fileApp" hidden accept=".bin,.BIN">
+<input type="file" id="filePmBios" hidden accept=".min,.MIN,.bin,.BIN,.zip,.ZIP">
 <input type="file" id="fileDlc" hidden multiple accept=".jpg,.JPG,.jpeg,.bin,.zip">
 <input type="file" id="fileT18Item" hidden multiple accept=".txt,.bin,.zip">
 <input type="file" id="fileT18Pic" hidden multiple accept=".png,.json,.zip">
 <input type="file" id="fileField" hidden accept=".zip,.ZIP">
 <input type="file" id="fileWad" hidden accept=".wad,.WAD">
+<input type="file" id="filePwad" hidden multiple accept=".wad,.WAD">
 
 <main>
   <section class="plan help" id="helpBox" hidden>
@@ -328,10 +330,13 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
     <div class="feats">
       <div class="feat"><b data-t="g1t"></b><span data-t="g1"></span></div>
       <div class="feat"><b data-t="g2t"></b><span data-t="g2"></span></div>
+      <div class="feat"><b data-t="g7t"></b><span data-t="g7"></span></div>
       <div class="feat"><b data-t="g3t"></b><span data-t="g3"></span></div>
       <div class="feat"><b data-t="g4t"></b><span data-t="g4"></span></div>
+      <div class="feat"><b data-t="g8t"></b><span data-t="g8"></span></div>
       <div class="feat"><b data-t="g5t"></b><span data-t="g5"></span></div>
       <div class="feat"><b data-t="g6t"></b><span data-t="g6"></span></div>
+      <div class="feat"><b data-t="g9t"></b><span data-t="g9"></span></div>
     </div>
     <div class="facts">
       <div class="fact"><b data-t="f1t"></b><span data-t="f1"></span></div>
@@ -352,6 +357,8 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <button class="tab" role="tab" data-tab="doom" aria-selected="false" data-t="tabDoom"></button>
       <button class="tab" role="tab" data-tab="gb" aria-selected="false" data-t="tabGb"></button>
       <button class="tab" role="tab" data-tab="sms" aria-selected="false" data-t="tabSms"></button>
+      <button class="tab" role="tab" data-tab="pm" aria-selected="false" data-t="tabPm"></button>
+      <button class="tab" role="tab" data-tab="ab" aria-selected="false" data-t="tabAb"></button>
       <button class="tab" role="tab" data-tab="wolf" aria-selected="false" data-t="tabWolf"></button>
       <button class="tab" role="tab" data-tab="feld" aria-selected="false" data-t="tabFeld"></button>
       <button class="tab" role="tab" data-tab="save" aria-selected="false" data-t="tabSave"></button>
@@ -415,8 +422,11 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
     <div class="pane" id="pane-doom" hidden>
       <div class="tools">
         <button class="btn small" id="btnWad" data-t="doomPick"></button>
-        <label class="check"><span data-t="doomEp"></span> <select id="doomEp"></select></label>
+        <label class="check" id="doomEpLbl"><span data-t="doomEp"></span> <select id="doomEp"></select></label>
+        <span class="tools" id="doomEpsBox" hidden></span>
         <label class="check"><input type="checkbox" id="doomMusic" checked> <span data-t="doomMusic"></span></label>
+        <button class="btn small" id="btnPwad" data-t="pwadPick" hidden></button>
+        <button class="btn small" id="btnPwadOff" data-t="pwadOff" hidden></button>
         <button class="btn small" id="btnDoomOff" data-t="doomOff" hidden></button>
         <span class="hint" data-t="doomHint"></span>
       </div>
@@ -469,6 +479,45 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
           <button class="btn small" id="btnSmsKeysDef" data-t="gbKeysDef"></button>
         </div>
         <p class="hint" id="smsKeysStat"></p>
+      </div>
+    </div>
+    <div class="pane" id="pane-pm" hidden>
+      <div class="tools">
+        <button class="btn small" id="btnPm" data-t="pmPick"></button>
+        <input type="file" id="filePm" hidden multiple accept=".min,.MIN,.zip,.ZIP">
+        <span class="hint" data-t="pmHint"></span>
+      </div>
+      <div class="dlcbox" id="pmList"></div>
+      <div class="tools">
+        <button class="btn small" id="btnPmBios" data-t="pmBiosPick"></button>
+        <button class="btn small" id="btnPmBiosDel" data-t="pmBiosDel"></button>
+        <span class="hint" id="pmBiosStat"></span>
+      </div>
+      <div class="keys" id="pmKeys">
+        <h3 data-t="gbKeysTitle"></h3>
+        <div class="keygrid" id="pmKeyGrid"></div>
+        <div class="tools">
+          <label class="check"><input type="checkbox" id="pmInv"> <span data-t="kInv"></span></label>
+          <button class="btn small" id="btnPmKeysDef" data-t="gbKeysDef"></button>
+        </div>
+        <p class="hint" id="pmKeysStat"></p>
+      </div>
+    </div>
+    <div class="pane" id="pane-ab" hidden>
+      <div class="tools">
+        <button class="btn small" id="btnAb" data-t="abPick"></button>
+        <input type="file" id="fileAb" hidden multiple accept=".hex,.HEX,.zip,.ZIP">
+        <span class="hint" data-t="abHint"></span>
+      </div>
+      <div class="dlcbox" id="abList"></div>
+      <div class="keys" id="abKeys">
+        <h3 data-t="gbKeysTitle"></h3>
+        <div class="keygrid" id="abKeyGrid"></div>
+        <div class="tools">
+          <label class="check"><input type="checkbox" id="abInv"> <span data-t="kInv"></span></label>
+          <button class="btn small" id="btnAbKeysDef" data-t="gbKeysDef"></button>
+        </div>
+        <p class="hint" id="abKeysStat"></p>
       </div>
     </div>
     <div class="pane" id="pane-wolf" hidden>
@@ -551,6 +600,10 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <div class="tools" id="cleanRow" hidden>
         <label class="check"><input type="checkbox" id="cleanOn"> <span data-t="cleanOn"></span></label>
         <span class="hint" data-t="cleanHint"></span>
+      </div>
+      <div class="tools" id="cleanClockRow" hidden>
+        <label class="check"><input type="checkbox" id="cleanClock" checked> <span data-t="cleanClock"></span></label>
+        <span class="hint" data-t="cleanClockHint"></span>
       </div>
       <div class="tools">
         <label class="check"><input type="checkbox" id="feldOn"> <span data-t="feldOn"></span></label>

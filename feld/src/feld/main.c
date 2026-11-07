@@ -590,14 +590,18 @@ static void apps_detect(void){
 #include <stdlib.h>
 static u32 h_mb, h_gpio=0xFFFFFFFFu, h_cnt;   /* host: from the environment (AUTO_MB, AUTO_GPIO, AUTO_CNT) */
 #define AUTO_MB (&h_mb)
+static u32 h_seen;
+#define AUTO_SEEN h_seen
 #define AUTO_GPIO h_gpio
 #define AUTO_CNT h_cnt
 #else
 #define AUTO_MB ((volatile u32*)0x20000FFCu)
+#define AUTO_SEEN REG(0x20000FF8u)
 #define AUTO_GPIO REG(0x40018000u)
 #define AUTO_CNT REG(0x45000304u)
 #endif
 #define MB_L 0x4C584D50u
+#define MB_S 0x53584D50u   /* "PMXS": this "PMXL" was seen (FELD_SEEN) */
 #define MB_M 0x4D584D50u
 #define MB_R 0x52584D50u
 static void start_app_i(u32 i);
@@ -612,6 +616,9 @@ static int clean_mode(void);
  * after a reset or when a program went back. */
 static void b_fallback(void){
   if(!g_dl || (AUTO_GPIO & 0x400u)) return;
+#ifdef FELD_BFALL_NOA
+  if(!(AUTO_GPIO & 0x200u)) return;   /* 1.7.3 test29: not with A held too (A and C: the program key) */
+#endif
   volatile u32 *mb=AUTO_MB; u32 m=*mb;
   if(m==MB_L) return;
 #ifdef FELD_CLEAN
@@ -622,6 +629,9 @@ static void b_fallback(void){
   start_app_i(g_dl-1u);
 }
 #endif
+#ifdef FELD_AUTODBG
+static u32 g_adbg[4];   /* 1.7.3 test8: the autostart's mailbox, GPIO0 and B decision, shown small on the home screen */
+#endif
 static int auto_go(void){
   if(g_cfg.version<9u || !(g_cfg.vflags & 1u) || !g_napp || !(g_cfg.flags & F_LAUNCH)) return 0;
   volatile u32 *mb=AUTO_MB; u32 m=*mb;
@@ -631,7 +641,25 @@ static int auto_go(void){
    * program unless a program went back ("PMXL"). test21: "PMXM" of an earlier menu stays in the RAM over a write and
    * a reset (Bernd: clock set, then the menu): it no longer counts, and "PMXL" counts once. */
   if(clean_mode()){
-    if(!(AUTO_GPIO & 0x800u) || m==MB_L){ *mb=0; return 0; }
+#ifdef FELD_BSETTLE
+    /* 1.7.3 test8: B is only "held" when it reads low over 5 looks a few ms apart (the pins may not have settled
+     * right after the start, a reset could take that for B and show the menu) */
+    int bh=1; for(u32 k=0;k<5u && bh;k++){ for(volatile u32 t=0;t<60000u;t++){} if(AUTO_GPIO & 0x800u) bh=0; }
+#else
+    int bh=!(AUTO_GPIO & 0x800u);
+#endif
+#ifdef FELD_AUTODBG
+    g_adbg[0]=m; g_adbg[1]=AUTO_GPIO; g_adbg[2]=1u+(u32)bh; g_adbg[3]=AUTO_SEEN;
+#endif
+#ifdef FELD_SEEN
+    /* 1.7.3 test9: Bernd: back from T18Emu with the wheel, then reset: the mailbox still said "PMXL" at the reset (menu
+     * instead of the autostart). The menu notes that it has shown itself for this "PMXL" in the word before the mailbox
+     * (the programs set it to 0 when they write "PMXL"); a "PMXL" seen already is an old one: a reset, autostart. */
+    if(m==MB_L && AUTO_SEEN) m=0;   /* test12: any other word there is old too (the Paradise's stub counts in it: a device
+                                      * written right after a program had gone back to the Paradise showed the menu once) */
+    if(m==MB_L) AUTO_SEEN=MB_S;
+#endif
+    if(bh || m==MB_L){ *mb=0; return 0; }
     *mb=MB_R; return 1;
   }
 #endif
@@ -801,7 +829,13 @@ static void apps_menu(int top){
     }
 #ifdef BAT_SHOW
     /* test17: the start device's home screen shows the battery bottom right */
-    if(top && launch_mode()){ char bt[12]; bat_text(bt); text(5,119,"B START",GREY,1); if(n<=8u) text(123-text_w(bt,1),119,bt,GREY,1); }
+    if(top && launch_mode()){ char bt[12]; bat_text(bt); text(5,119,"B START",GREY,1); if(n<=8u) text(123-text_w(bt,1),119,bt,GREY,1);
+#ifdef FELD_AUTODBG
+      if(g_adbg[2]){ static const char hx[]="0123456789ABCDEF"; char d[8]; u32 mm=g_adbg[0];
+        d[0]= mm==MB_L ? 'L' : mm==MB_M ? 'M' : mm==MB_R ? 'R' : mm ? '?' : '0'; d[1]=hx[(g_adbg[1]>>8)&15u]; d[2]=g_adbg[2]==2u ? 'B' : '-'; d[3]= g_adbg[3]==MB_S ? 'S' : g_adbg[3] ? '?' : '0'; d[4]=0;
+        text(58,119,d,GREY,1); }
+#endif
+    }
     else
 #endif
     ctext(119, top && launch_mode() ? "B START" : "B OK   C BACK",GREY,1);
@@ -892,6 +926,13 @@ static void set_write(const char *what){
 #define CK_MAGIC 0x4B584D50u                /* "PMXK" */
 typedef struct { u32 magic, t0, c0, idle, chk; } Clk;
 static int clean_mode(void){ return g_cfg.version>=10u && (g_cfg.flags & F_CLEAN) && g_cfg.clock_sec; }
+#ifdef FELD_NOCLK
+/* 1.7.3 test7: vflags bit 1 = the Studio's "set the clock at the start" off: the clock is only set under SETTINGS
+ * (the programs keep their own clocks, as the real toys) */
+#define CLK_ASK() (!(g_cfg.vflags & 2u))
+#else
+#define CLK_ASK() 1
+#endif
 #ifdef HOST
 static u32 rtc_cnt(void){ return 100u; }
 #else
@@ -1666,14 +1707,18 @@ static void run(void){
   apps_detect();
 #ifdef FELD_AUTO
 #ifdef HOST
-  { const char *e; if((e=getenv("AUTO_MB"))) h_mb=(u32)strtoul(e,0,16); if((e=getenv("AUTO_GPIO"))) h_gpio=(u32)strtoul(e,0,16); if((e=getenv("AUTO_CNT"))) h_cnt=(u32)strtoul(e,0,10); }
+  { const char *e; if((e=getenv("AUTO_MB"))) h_mb=(u32)strtoul(e,0,16); if((e=getenv("AUTO_GPIO"))) h_gpio=(u32)strtoul(e,0,16); if((e=getenv("AUTO_CNT"))) h_cnt=(u32)strtoul(e,0,10);
+#ifdef FELD_SEEN
+    if((e=getenv("AUTO_SEEN"))) h_seen=(u32)strtoul(e,0,16);
+#endif
+  }
 #endif
 #ifdef FELD_BFALL
   b_fallback();
 #endif
   if(auto_go()){
 #if defined(FELD_CLEAN) && defined(CLEAN_AUTO)
-    if(clean_mode() && !clk_now()){ lset_load(); clock_menu(1); }   /* new batteries: the time first, then the main program */
+    if(clean_mode() && !clk_now() && CLK_ASK()){ lset_load(); clock_menu(1); }   /* new batteries: the time first, then the main program */
 #endif
     start_app_i(0);
   }
@@ -1716,7 +1761,7 @@ static void run(void){
   if(launch_mode()){
     lset_load();
 #ifdef FELD_CLEAN
-    if(clean_mode() && !clk_now()) clock_menu(1);   /* new batteries: the time first */
+    if(clean_mode() && !clk_now() && CLK_ASK()) clock_menu(1);   /* new batteries: the time first */
 #endif
     while(!g_napp) message("NO PROGRAMS","IN THIS ROM","");
     apps_menu(1);

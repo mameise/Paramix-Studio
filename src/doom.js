@@ -59,7 +59,9 @@ function writeWad(L, ident) {
 /** Which episodes does the WAD have? E.g. ['1'] (Shareware), ['1','2','3'] (DOOM), or also '4' (Ultimate). */
 function wadEpisodes(d) {
   const eps = new Set();
-  for (const [nm] of readWad(d)) { const m = /^E(\d)M\d$/.exec(nm); if (m) eps.add(m[1]); }
+  let d2 = 0;
+  for (const [nm] of readWad(d)) { const m = /^E(\d)M\d$/.exec(nm); if (m) eps.add(m[1]); if (/^MAP\d\d$/.test(nm)) d2++; }
+  if (!eps.size && D2 && d2) return ['M'];   // 1.7.3 test15: DOOM II (all maps MAP01..MAP32 as one "episode" M)
   if (!eps.size) throw new Error('no DOOM maps in the WAD (DOOM 2 is not supported)');
   return [...eps].sort();
 }
@@ -70,6 +72,16 @@ const ANIMS = [['NUKAGE3', 'NUKAGE1'], ['FWATER4', 'FWATER1'], ['SWATER4', 'SWAT
 const TANIMS = [['BLODGR4', 'BLODGR1'], ['SLADRIP3', 'SLADRIP1'], ['BLODRIP4', 'BLODRIP1'], ['FIREWALL', 'FIREWALA'], ['GSTFONT3', 'GSTFONT1'], ['FIRELAVA', 'FIRELAV3'], ['FIREMAG3', 'FIREMAG1'], ['FIREBLU2', 'FIREBLU1'], ['ROCKRED3', 'ROCKRED1'], ['BFALL4', 'BFALL1'], ['SFALL4', 'SFALL1'], ['WFALL4', 'WFALL1'], ['DBRAIN4', 'DBRAIN1']];
 const MON = { 3004: ['POSS'], 9: ['SPOS'], 3001: ['TROO', 'BAL1'], 3002: ['SARG'], 58: ['SARG'], 3003: ['BOSS', 'BAL7'], 3005: ['HEAD', 'BAL2'], 3006: ['SKUL'], 16: ['CYBR'], 7: ['SPID'] };
 const FULL = new Set(['TITLEPIC', 'HELP1', 'HELP2', 'CREDIT', 'VICTORY2', 'PFUB1', 'PFUB2', 'INTERPIC']);
+/* 1.7.3 test14 E4: Ultimate DOOM. Its end picture ENDPIC (full screen, only in the WAD with E4) and the flat behind each
+ * episode's end text are kept. */
+const E4 = true;
+if (E4) FULL.add('ENDPIC');
+const END_FLAT = { 1: 'FLOOR4_8', 2: 'SFLR6_1', 3: 'MFLR8_4', 4: 'MFLR8_3' };
+/* 1.7.3 test15 D2: DOOM II (and WADs like it with MAP01..): every map, the three skies, all music, the flats behind the
+ * texts between maps and the big picture behind the cast at the end */
+const D2 = true;
+const D2_FLATS = ['SLIME16', 'RROCK14', 'RROCK07', 'RROCK17', 'RROCK13', 'RROCK19'];
+if (D2) { FULL.add('BOSSBACK'); FULL.add('HELP'); }
 const upName = (b, o) => name8(b, o).toUpperCase();
 
 function readTex(dd) {
@@ -128,16 +140,16 @@ function shrink(img, w, h, pal) {
 }
 
 /** Partial WAD: only episode eps (e.g. '1'), only used textures, flats and monsters, full-screen pictures 128x128. */
-function wadSub(src, eps, music) {
+function wadSub(src, eps, music, only) {   // only (1.7.3 test17): Set of the map names to keep (a map pack alone)
   const L = readWad(src).map(([n, d]) => [n, d]);
   let out = []; const usedtex = new Set(), usedflat = new Set(), usedthings = new Set();
   let i = 0;
   const musRe = new RegExp('^D_E[' + eps + ']M\\d$');
   while (i < L.length) {
     const [nm] = L[i];
-    const m = /^E(\d)M(\d)$/.exec(nm);
+    const m = /^E(\d)M(\d)$/.exec(nm) || (D2 && eps === 'M' && /^MAP\d\d$/.test(nm) ? [nm, 'M'] : null);
     if (m) {
-      const keep = eps.includes(m[1]);
+      const keep = eps.includes(m[1]) && (!only || only.has(nm));
       let j = i + 1; while (j < L.length && MAPL.has(L[j][0])) j++;
       if (keep) {
         for (let k = i; k < j; k++) {
@@ -150,11 +162,13 @@ function wadSub(src, eps, music) {
       }
       i = j; continue;
     }
-    if (nm.startsWith('D_') && music && (musRe.test(nm) || ['D_INTER', 'D_INTRO', 'D_INTROA', 'D_VICTOR'].includes(nm))) { out.push(L[i]); i++; continue; }
+    if (nm.startsWith('D_') && music && (musRe.test(nm) || ['D_INTER', 'D_INTRO', 'D_INTROA', 'D_VICTOR'].includes(nm) || (D2 && eps === 'M'))) { out.push(L[i]); i++; continue; }
     if (nm.startsWith('DS') || nm.startsWith('D_') || ['ENDOOM', 'GENMIDI', 'DMXGUS'].includes(nm) || /^DEMO\d$/.test(nm)) { i++; continue; }
     out.push(L[i]); i++;
   }
-  for (const e of eps) usedtex.add('SKY' + e);
+  if (D2 && eps === 'M') { ['SKY1', 'SKY2', 'SKY3'].forEach((t) => usedtex.add(t)); D2_FLATS.forEach((f) => usedflat.add(f)); }
+  else for (const e of eps) usedtex.add('SKY' + e);
+  if (E4) for (const e of eps) if (END_FLAT[e]) usedflat.add(END_FLAT[e]);
   for (const t of [...usedtex]) { if (t.startsWith('SW1')) usedtex.add('SW2' + t.slice(3)); if (t.startsWith('SW2')) usedtex.add('SW1' + t.slice(3)); }
   let names = out.map(x => x[0]);
   let fs = names.indexOf('F_START'), fe = names.indexOf('F_END');
@@ -191,7 +205,8 @@ function wadSub(src, eps, music) {
   }
   out = out.filter((x, j) => !(fs < j && j < fe && !usedflat.has(x[0]) && !x[0].endsWith('_START') && !x[0].endsWith('_END')));
   const dropfull = new Set(['WIMAP0', 'WIMAP1', 'WIMAP2', 'VICTORY2', 'PFUB1', 'PFUB2']);
-  for (const e of eps) { dropfull.delete('WIMAP' + (+e - 1)); if (e === '2') dropfull.delete('VICTORY2'); if (e === '3') { dropfull.delete('PFUB1'); dropfull.delete('PFUB2'); } }
+  if (E4) dropfull.add('ENDPIC');
+  for (const e of eps) { dropfull.delete('WIMAP' + (+e - 1)); if (e === '2') dropfull.delete('VICTORY2'); if (e === '4') dropfull.delete('ENDPIC'); if (e === '3') { dropfull.delete('PFUB1'); dropfull.delete('PFUB2'); } }
   out = out.filter(x => !dropfull.has(x[0]));
   names = out.map(x => x[0]);
   const pal = out[names.indexOf('PLAYPAL')][1].subarray(0, 768);
@@ -203,6 +218,163 @@ function wadSub(src, eps, music) {
     out[k] = [nm, fullEncode(shrink(p.img, p.w, p.h, pal), PW, PH)];
   });
   return writeWad(out, 'IWAD');
+}
+
+// ------------------------------------------------- extra WADs (PWAD): Sigil, map packs (1.7.3 test17)
+/* PWAD = true: an extra WAD the user brings. Two kinds:
+ *  - maps that replace maps of the base WAD (same names, e.g. MAP01 of a DOOM II map pack)
+ *  - its own episode E5..E9 (Sigil E5, Sigil II E6): the engine knows four episodes, so it goes into the place of E4
+ *    (maps E4M1..E4M9, its sky as SKY4, its pictures, names, end text and songs; UMAPINFO says which ones). */
+const PWAD = true;
+const MARKERS = /^(P|PP|P1|P2|P3|F|FF|F1|F2|F3|S|SS)_(START|END)$/;
+const PWAD_DROP = new Set(['DEHACKED', 'MAPINFO', 'UMAPINFO', 'ZMAPINFO', 'EMAPINFO', 'LANGUAGE', 'GAMEINFO', 'EMENUS', 'DD_DEFNS',
+  'CHNGLG', 'OPTIONS', 'ANIMATED', 'SWITCHES', 'TITLEPIC', 'HELP1', 'HELP2', 'D_INTER', 'D_INTRO', 'D_INTROA', 'D_VICTOR', 'DEMO1',
+  'DEMO2', 'DEMO3', 'DEMO4', 'GENMIDI', 'DMXGUS', 'ENDOOM', 'SNDINFO', 'SNDSEQ', 'MUSINFO', 'DECORATE', 'ZSCRIPT', 'TEXTURES',
+  'KEYCONF', 'MENUDEF', 'SBARINFO', 'COLORMAP', 'PLAYPAL']);
+
+/** UMAPINFO: { E5M1: { levelname, levelpic, music, skytexture, exitpic, endpic, intertext, next, nextsecret, episode } } */
+function umapinfo(txt) {
+  const out = {}; const re = /map\s+(\w+)\s*\{([^}]*)\}/gi; let m;
+  while ((m = re.exec(txt))) {
+    const o = {}, body = m[2].replace(/\/\/[^\n]*/g, '');
+    const kv = /(\w+)\s*=\s*((?:"[^"]*"\s*,?\s*)+|[^\n]+)/g; let k;
+    while ((k = kv.exec(body))) {
+      const key = k[1].toLowerCase(), strs = [...k[2].matchAll(/"([^"]*)"/g)].map((x) => x[1]);
+      o[key] = strs.length ? (key === 'intertext' ? strs.join('\n') : strs[0]) : k[2].trim();
+    }
+    out[m[1].toUpperCase()] = o;
+  }
+  return out;
+}
+/** What does the PWAD hold? { eps: ['5'] (own episodes 5..9), maps: names that replace maps, title } */
+function pwadInfo(d, fileName) {
+  const L = readWad(d), eps = new Set(), maps = [];
+  for (const [nm] of L) { const m = /^E(\d)M\d$/.exec(nm); if (m) { if (+m[1] >= 5) eps.add(m[1]); else maps.push(nm); } else if (/^MAP\d\d$/.test(nm)) maps.push(nm); }
+  if (!eps.size && !maps.length) throw new Error('no maps in the extra WAD');
+  const ui = L.find((x) => x[0] === 'UMAPINFO'), info = ui ? umapinfo(new TextDecoder('latin1').decode(ui[1])) : {};
+  let title = '';
+  for (const v of Object.values(info)) if (v.episode) { const q = [...String(v.episode).matchAll(/"([^"]*)"/g)]; title = q[1] ? q[1][1] : ''; }
+  if (!title && fileName) title = fileName.replace(/\.wad$/i, '').replace(/[_-]?v\d.*$/i, '').replace(/_/g, ' ');
+  // maps that probably need more RAM than the Paradise has (about 74 KB for a map): lines, sides, sectors, things
+  const big = [];
+  L.forEach(([nm], i) => {
+    if (!/^(E\dM\d|MAP\d\d)$/.test(nm)) return;
+    const g = (n) => { const y = L.slice(i + 1, i + 12).find((z) => z[0] === n); return y ? y[1].length : 0; };
+    if (g('LINEDEFS') / 14 * 6 + g('SIDEDEFS') / 30 + g('SECTORS') / 26 * 44 + g('THINGS') / 10 * 92 > 85000) big.push(nm);
+  });
+  return { eps: [...eps].sort(), maps, big, title: (title || 'EXTRA').toUpperCase().slice(0, 16) };
+}
+// MIDI (MThd) -> MUS: the DOOM program plays MUS only. 140 ticks per second, channel 10 of MIDI is 15 of MUS.
+const MUS_CTRL = { 0: 1, 1: 2, 7: 3, 10: 4, 11: 5, 91: 6, 93: 7, 64: 8, 67: 9 }, MUS_SYS = { 120: 10, 123: 11, 126: 12, 127: 13, 121: 14 };
+function mid2mus(mid) {
+  const r32 = (o) => ((mid[o] << 24) | (mid[o + 1] << 16) | (mid[o + 2] << 8) | mid[o + 3]) >>> 0, r16 = (o) => (mid[o] << 8) | mid[o + 1];
+  if (String.fromCharCode(mid[0], mid[1], mid[2], mid[3]) !== 'MThd') return null;
+  const ntr = r16(10), div = r16(12); if (div & 0x8000) return null;
+  const ev = [], tempos = [[0, 500000]]; let p = 8 + r32(4);
+  for (let t = 0; t < ntr && p + 8 <= mid.length; t++) {
+    const len = r32(p + 4); let q = p + 8; const end = q + len; let tick = 0, run = 0;
+    while (q < end) {
+      let d = 0, b; do { b = mid[q++]; d = (d << 7) | (b & 127); } while (b & 128); tick += d;
+      let st = mid[q]; if (st & 128) q++; else st = run;
+      if (st === 0xFF) { const ty = mid[q++]; let l = 0; do { b = mid[q++]; l = (l << 7) | (b & 127); } while (b & 128); if (ty === 0x51) tempos.push([tick, (mid[q] << 16) | (mid[q + 1] << 8) | mid[q + 2]]); q += l; continue; }
+      if (st === 0xF0 || st === 0xF7) { let l = 0; do { b = mid[q++]; l = (l << 7) | (b & 127); } while (b & 128); q += l; continue; }
+      run = st; const hi = st & 0xF0, ch = st & 15, a = mid[q++], c = (hi === 0xC0 || hi === 0xD0) ? 0 : mid[q++];
+      ev.push([tick, ev.length, hi, ch, a, c]);
+    }
+    p = end;
+  }
+  tempos.sort((x, y) => x[0] - y[0]); ev.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+  const sec = (tick) => { let s = 0, t0 = 0, us = 500000; for (const [tt, u] of tempos) { if (tt >= tick) break; s += (tt - t0) * us / div / 1e6; t0 = tt; us = u; } return s + (tick - t0) * us / div / 1e6; };
+  const chMap = new Map(), vol = new Array(16).fill(-1), out = [];
+  const musCh = (ch) => { if (ch === 9) return 15; if (!chMap.has(ch)) { if (chMap.size >= 15) return -1; chMap.set(ch, chMap.size); } return chMap.get(ch); };
+  let last = -1, tPrev = 0;
+  const put = (bytes, t) => {
+    if (last >= 0) { let d = Math.max(0, Math.round((t - tPrev) * 140)); if (d) { out[last] |= 0x80; const v = []; v.unshift(d & 127); d >>= 7; while (d) { v.unshift(0x80 | (d & 127)); d >>= 7; } out.push(...v); tPrev = Math.round(t * 140) / 140; } }
+    last = out.length; out.push(...bytes);
+  };
+  for (const [tick, , hi, ch, a, c] of ev) {
+    const m = musCh(ch); if (m < 0) continue; const t = sec(tick);
+    if (hi === 0x90 && c > 0) { if (vol[m] !== c) { vol[m] = c; put([0x10 | m, 0x80 | a, c], t); } else put([0x10 | m, a], t); }
+    else if (hi === 0x80 || hi === 0x90) put([0x00 | m, a], t);
+    else if (hi === 0xE0) put([0x20 | m, c * 2 + (a >> 6) & 255], t);
+    else if (hi === 0xC0) put([0x40 | m, 0, a], t);
+    else if (hi === 0xB0) { if (MUS_SYS[a] !== undefined) put([0x30 | m, MUS_SYS[a]], t); else if (MUS_CTRL[a] !== undefined) put([0x40 | m, MUS_CTRL[a], c & 127], t); }
+  }
+  put([0x60], ev.length ? sec(ev[ev.length - 1][0]) : 0);
+  const head = 16, score = out.length, res = new Uint8Array(head + score);
+  res.set([0x4D, 0x55, 0x53, 0x1A]); w16(res, 4, score); w16(res, 6, head); w16(res, 8, chMap.size); w16(res, 10, 0); w16(res, 12, 0); w16(res, 14, 0);
+  res.set(out, head);
+  return score <= 0xFFFF ? res : null;
+}
+/** Base IWAD + extra WADs. pw: [{ data, slot }]: slot true = its own episode goes into the place of E4. */
+function wadMerge(base, pw) {
+  let L = readWad(base).map(([n, d]) => [n, d]);
+  const MAPL2 = new Set(['THINGS', 'LINEDEFS', 'SIDEDEFS', 'VERTEXES', 'SEGS', 'SSECTORS', 'NODES', 'SECTORS', 'REJECT', 'BLOCKMAP', 'BEHAVIOR']);
+  const isMap = (n) => /^E\dM\d$/.test(n) || /^MAP\d\d$/.test(n);
+  const set = (name, data) => { const i = L.findIndex((x) => x[0] === name); if (i >= 0) L[i] = [name, data]; else L.push([name, data]); };
+  for (const { data, slot } of pw) {
+    const P = readWad(data).map(([n, d]) => [n, d]), info = pwadInfo(data), e = slot && info.eps[0];
+    const ui = P.find((x) => x[0] === 'UMAPINFO'), um = ui ? umapinfo(new TextDecoder('latin1').decode(ui[1])) : {};
+    const get = (n) => { const x = P.find((y) => y[0] === n); return x ? x[1] : null; };
+    const ren = new Map();   // lumps of the PWAD under a new name (into the place of E4)
+    if (e) {
+      const names = [], txt = []; let back = '';
+      for (let k = 1; k <= 9; k++) {
+        const u = um['E' + e + 'M' + k] || {};
+        names.push(('E' + e + 'M' + k + ': ' + (u.levelname || '')).toUpperCase());
+        const pic = u.levelpic || ('WILV' + (+e - 1) + (k - 1)); if (get(pic)) ren.set(pic, 'WILV3' + (k - 1));
+        const mus = get(u.music || ('D_E' + e + 'M' + k));
+        if (mus) { const mm = mus[0] === 0x4D && mus[1] === 0x55 && mus[2] === 0x53 ? mus : mid2mus(mus); if (mm) set('D_E4M' + k, mm); }
+        if (u.exitpic && get(u.exitpic)) ren.set(u.exitpic, 'INTERPIC');
+        if (u.endpic && get(u.endpic)) ren.set(u.endpic, 'ENDPIC');
+        if (u.intertext) txt.push(u.intertext);
+        if (k === 9 && u.next) { const m = /M(\d)$/.exec(u.next); if (m) back = m[1]; }
+        if (k === 1 && u.episode) { const q = /"?(\w+)"?/.exec(u.episode); if (q && get(q[1])) ren.set(q[1], 'M_EPI4'); }
+      }
+      if (!um['E' + e + 'M1'] && get('M_EPI' + e)) ren.set('M_EPI' + e, 'M_EPI4');
+      const et = txt.length ? txt[txt.length - 1] : (get('E' + e + 'TEXT') ? new TextDecoder('latin1').decode(get('E' + e + 'TEXT')) : '');
+      const enc = (s) => Uint8Array.from([...s.replace(/\r/g, '')].map((c) => c.charCodeAt(0) & 255).concat([0]));
+      set('PDMHU4', enc(names.join('\n')));
+      if (et) set('PDMTXT4', enc(et.toUpperCase()));
+      if (back) set('PDMNXT4', enc(back));
+      ren.set('CREDIT', ren.get('CREDIT') || null);   // its own title pictures stay out (the base keeps its own)
+      // the sky: the texture of its maps becomes SKY4 (the engine takes SKY4 for E4)
+      const sky = (um['E' + e + 'M1'] || {}).skytexture || ('SKY' + e);
+      for (const tn of ['TEXTURE1', 'TEXTURE2']) {
+        const td = get(tn); if (!td) continue;
+        const cnt = u32(td, 0);
+        for (let i = 0; i < cnt; i++) {
+          const o = u32(td, 4 + 4 * i), nm = upName(td, o);
+          const put = (s) => { for (let q = 0; q < 8; q++) td[o + q] = q < s.length ? s.charCodeAt(q) : 0; };
+          if (nm === 'SKY4') put('SKY4OLD'); else if (nm === sky) put('SKY4');
+        }
+      }
+    }
+    // maps: a map of the PWAD replaces the one of the same name (E5M3 becomes E4M3 in the place of E4)
+    const outMaps = [], flats = [], sprites = [], rest = [];
+    let sect = '';
+    for (let i = 0; i < P.length; i++) {
+      const [n, d] = P[i];
+      if (MARKERS.test(n)) { sect = n.endsWith('_START') ? n[0] : ''; continue; }
+      if (isMap(n)) { let j = i + 1; while (j < P.length && MAPL2.has(P[j][0])) j++; const nn = e && n.startsWith('E' + e + 'M') ? 'E4M' + n[3] : n; outMaps.push([nn, P.slice(i + 1, j)]); i = j - 1; continue; }
+      if (sect === 'F') { flats.push([n, d]); continue; }
+      if (sect === 'S') { sprites.push([n, d]); continue; }
+      if (PWAD_DROP.has(n) || /^D_E\dM\d$/.test(n) || /_ZD$/.test(n)) continue;
+      if (ren.has(n)) { const to = ren.get(n); if (to) rest.push([to, d]); continue; }
+      if (e && new RegExp('^(WILV' + (+e - 1) + '\\d|M_EPI' + e + '|E' + e + 'TEXT|CREDIT)$').test(n)) continue;
+      if (e && d.length > 8 && s16(d, 0) === 320 && s16(d, 2) === 200) continue;   // its other full pictures (title, end) are not used
+      rest.push([n, d]);
+    }
+    for (const [nm, lumps] of outMaps) {
+      const i = L.findIndex((x) => x[0] === nm);
+      if (i >= 0) { let j = i + 1; while (j < L.length && MAPL2.has(L[j][0])) j++; L.splice(i, j - i, [nm, new Uint8Array(0)], ...lumps); }
+      else { let k = -1; L.forEach((x, q) => { if (isMap(x[0])) k = q; }); let j = k + 1; while (j < L.length && MAPL2.has(L[j][0])) j++; L.splice(j, 0, [nm, new Uint8Array(0)], ...lumps); }
+    }
+    const into = (endName, items) => { for (const [n, d] of items) { const i = L.findIndex((x) => x[0] === n); if (i >= 0) L[i] = [n, d]; else { const k = L.findIndex((x) => x[0] === endName); if (k >= 0) L.splice(k, 0, [n, d]); else L.push([n, d]); } } };
+    into('F_END', flats); into('S_END', sprites);
+    for (const [n, d] of rest) set(n, d);
+  }
+  return writeWad(L, 'IWAD');
 }
 
 // ------------------------------------------------- extra lumps (gbaextras.py)
@@ -359,6 +531,6 @@ function embedded() {
   return { app: b64(DOOM_APP_B64), xip: b64(DOOM_XIP_B64), wasm: b64(DOOM_WASM_B64), appF: fr ? b64(DOOMF_APP_B64) : null, xipF: fr ? b64(DOOMF_XIP_B64) : null };
 }
 
-root.ParamixDoom = { KEYS_DEFAULT, doomKeysGet, doomKeysSet, doomKeysCheck, readWad, writeWad, wadEpisodes, wadSub, gbaExtras, convert, doomPatch, doomBuild, embedded, WAD_OFF, REGION_OFF, REGION_END, CODE_OFF, SAVE_OFF, SAVE_END };
+root.ParamixDoom = { PWAD, pwadInfo, wadMerge, mid2mus, umapinfo, KEYS_DEFAULT, doomKeysGet, doomKeysSet, doomKeysCheck, readWad, writeWad, wadEpisodes, wadSub, gbaExtras, convert, doomPatch, doomBuild, embedded, WAD_OFF, REGION_OFF, REGION_END, CODE_OFF, SAVE_OFF, SAVE_END };
 if (typeof module !== 'undefined') module.exports = root.ParamixDoom;
 })(typeof window !== 'undefined' ? window : globalThis);

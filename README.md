@@ -408,6 +408,25 @@ Since 1.6.12 also Game Gear games (.gg, 160 x 144 shrunk to 128 x 115, START on 
 holding the wheel, and "Restart game" in the settings. Own emulator (Z80, video chip, Sega mapper), program and
 details: `sms/`.
 
+### Pokemon mini (1.7.3)
+Tab "Pokemon mini": choose your own Pokemon mini games (.min, also inside .zip files). They go into the Paramix menu
+(switch the menu on in the tab "Menu"). The screen grows from 96 x 64 to 128 x 85 (3 dots to 4, mixed), with the grey
+shades the games make by switching dots every frame. The keys are set in the tab for all games (default: A left, C
+right, B = B, wheel press = A, wheel up and down, A+C = C, A+B shake). On the device: A+B+C together opens the
+settings (with Power and sound), holding the wheel for 2 s saves the whole game and goes back. The games' EEPROM saves
+are kept, export and import as .eep in the tab "Save". Without an own BIOS the free BIOS of PokeMini runs; an own BIOS
+(4 KB, chosen in the tab) goes into the ROM next to the games. The Pokemon mini clock keeps running while the game
+waits. Core: PokeMini (GPL), program and details: `pm/`.
+
+### Arduboy (1.7.3)
+Tab "Arduboy": choose your own Arduboy games (.hex, also inside .zip files). They go into the Paramix menu (switch the
+menu on in the tab "Menu"). The screen shows the Arduboy's 128 x 64 at 1:1, 3:2 or 2:1 height (setting on the device),
+greys made by switching pictures come out grey. The keys are set in the tab for all games (default: A left, C right,
+B = B, wheel press = A, wheel up and down). On the device: A+B+C together opens the settings (with picture size and
+sound), holding the wheel for 2 s saves the whole game and goes back. The games' EEPROM saves are kept, export and
+import as .eep in the tab "Save". Games that need a lot of computing run slower than on the Arduboy. Own emulator
+(ATmega32U4, display, timers), program and details: `ab/`.
+
 ### Simulated visit for the Paradise itself (1.6.9)
 Under "Device" the Studio can play a second Paradise over the dongle, so one device is enough for a playdate.
 The Paradise runs its normal game (no flash app). "Connect" above is not needed for it.
@@ -469,7 +488,7 @@ Starting and leaving:
 | Wheel short | nothing | settings menu | nothing |
 | Wheel in the first 3 s after a resumed start | asks first (A yes, B no); yes drops the saved state, back to the Paradise; next start fresh from the Tama's own save | same | same |
 | Autostart on, hold B while the Paradise starts | the Paradise starts instead of the emulator | same | same |
-| Hold C while the device starts (1.7.2) | the flash app opens (way back when a program or a save leaves the screen black) | same | same |
+| Hold C while the device starts (1.7.2) | the flash app opens (way back when a program or a save leaves the screen black; C alone, A and C is the program key since 1.7.3) | same | same |
 | Reset button, battery change | with autostart: the emulator starts again | same | same |
 
 Leaving with the wheel saves the whole state (CPU, memory, screen). The next
@@ -721,6 +740,8 @@ or later, see [LICENSE](LICENSE). It builds on the work of others, see
 - **DOOM** is based on nRF52840 Doom by next-hack, GBADoom by doomhack, PrBoom
   and the DOOM source by id Software (GPL-2.0-or-later). The WAD converter is
   MCUDoomWadUtil by Nicola Wrachien (GPL-2.0).
+- **PokeMiniEmu** is based on [PokeMini](https://github.com/libretro/PokeMini) by
+  JustBurn (GPL-3.0-or-later), with its FreeBIOS.
 - File format research: [tama-para-research](https://github.com/GMMan/tama-para-research)
   and the S1C33 SLEIGH definition by GMMan.
 

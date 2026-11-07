@@ -45,6 +45,10 @@ Leaving with a long press does not save the session if the core stopped or
 guest writes were lost. Pressing the wheel within the first 3 seconds after a
 resumed start drops the saved session.
 
+Settings flags bit 12 (0x1000, version 4 and up, build switch `SESS_FLAG`, 1.7.3 test7): no session. Leaving, the
+autosave and an empty battery write only the guest flash (the toy's own save), never the run state; a session found at
+the start is dropped and the guest boots from its own save.
+
 ## Autostart
 
 With "Start when switched on" the stub decides once per boot, at the first
@@ -175,3 +179,8 @@ works, with 30 ms it ends in つうしん しっぱい.
 
 Room: `boot()` (everything before the translator starts) runs from `.initcode`, the translator's area later, and a
 few rarely used functions are built small (minsize). The translator area is 11772 bytes (before: 11608).
+
+Key with the screen dark (1.7.3 test7, switch EMU_KEY_AWAKE): a key woke the chip from deep sleep and reached the
+guest, but once it was let go the program slept again before the guest had switched its screen on; the guest's
+wake-up then waited for the next RTC second. Now the chip stays awake for 2 s after a key (g_btn_ms). devemu.py, iD L
+dark at 200 s, key 150 ms in the middle of an RTC second: picture 663 ms after the key before.

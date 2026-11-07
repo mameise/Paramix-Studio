@@ -70,6 +70,12 @@
   cbz r3, 7f
   tst r1, #0x400           @ C (P0.10); B at switching on already skips the autostart
   bne 7f
+#ifndef BFALL_WITH_A
+@ 1.7.3 test29 (BFALL_NOA): not with A held too. A and C is the program key on the home screen; the first home
+@ handler call of a boot with A+C held (within 30 s of switching on, or after a reset) started the flash app instead.
+  tst r1, #0x200           @ A (P0.9) held: the menu key, no way back
+  beq 7f
+#endif
   ldr r2, =0x20000FFC
   ldr r2, [r2]
   ldr r0, =0x4C584D50

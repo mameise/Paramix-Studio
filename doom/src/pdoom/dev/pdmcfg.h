@@ -16,6 +16,9 @@ typedef struct {
   /* from version 2 (KEYMAP): key mapping as button masks (BTN_A 1, BTN_B 2, BTN_C 4, BTN_WHEEL 8) */
   uint32_t k_fire, k_fwd, k_back, k_use, k_mod;   /* k_mod: hold + wheel = switch weapon, hold + press wheel = sound */
   uint32_t run_dbl;                     /* 1 = double tap forward toggles run */
+#ifdef PDM_CMAPXIP
+  uint32_t cmap_off;                    /* version 3 (1.7.3 test17): flash place of a COLORMAP copy in the program part (0: none) */
+#endif
 } PdmCfg;
 extern volatile const PdmCfg g_dcfg;
 #ifdef DOOM_FREE

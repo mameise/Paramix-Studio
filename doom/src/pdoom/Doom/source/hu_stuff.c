@@ -394,6 +394,20 @@ void HU_Start(void)
             case registered:
             case retail:
                 s = HU_TITLE;
+#ifdef PDM_LUMPTXT
+                /* 1.7.3 test17: names of an episode in the place of E4 (Sigil): lump PDMHU4, one line per map */
+                if (_g->gameepisode == 4)
+                {
+                    static char t[40]; int l = W_CheckNumForName("PDMHU4");
+                    if (l >= 0)
+                    {
+                        const char *p = (const char*) W_CacheLumpNum(l), *e = p + W_LumpLength(l);
+                        for (int k = 1; k < _g->gamemap && p < e; p++) if (*p == '\n') k++;
+                        int n = 0; while (p < e && *p != '\n' && *p && n < 39) t[n++] = *p++;
+                        t[n] = 0; if (n) s = t;
+                    }
+                }
+#endif
                 break;
 
             case commercial:

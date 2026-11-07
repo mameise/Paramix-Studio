@@ -104,6 +104,7 @@ typedef struct { u32 magic, version, guest_off, guest_size, save_off, device; u8
 #define PMX_VER 1u
 #endif
 /* version 4 (1.5.1): flags bit 1 = at every start the guest clock is set to the Paradise's time */
+/* 1.7.3 test7 (SESS_FLAG): flags bit 12 = no session: leaving, SESS_AUTO and battery empty write only the guest flash */
 /* version 3 (v0.9.2): spare_end = end of the guest area; the room behind the packed firmware holds spare pages */
 __attribute__((section(".pmxcfg"), used))
 volatile const PmxCfg g_cfg = { 0x43584D50u, PMX_VER, 0x940000u, 0x400000u, 0xC0000u, 0,
@@ -925,6 +926,9 @@ static void boot(void){
   (void)swn; (void)swf; (void)swk;
 #endif
   g_sc.guest_off=g_cfg.guest_off; g_sc.guest_size=g_cfg.guest_size; g_sc.save_off=g_cfg.save_off; g_sc.device=g_cfg.device; g_sc.map=g_cfg.map; g_sc.spare_end = g_cfg.version>=3u ? g_cfg.spare_end : 0u;
+#ifdef SESS_FLAG
+  g_sc.nosess = g_cfg.version>=4u && (g_cfg.flags & 0x1000u);   /* 1.7.3 test7: flags bit 12 = no session (run state) */
+#endif
   hw_init();
 #ifdef PARA_FLASH_LATE
   /* 1.7.2 test16: neither SRAM nor mailbox: the base in the Paradise's settings page (readable only after hw_init), as T7Emu */
@@ -1109,6 +1113,12 @@ void Reset_Handler(void){
 #ifdef EMU_PW
     /* screen dark, no key, tone or link traffic: 12 MHz from the internal RC, deep sleep once caught up (below). The
      * guest's time runs on behind (nobody sees it); more than 2.5 s behind: full clock until caught up */
+#ifdef EMU_KEY_AWAKE
+    /* 1.7.3 test7: a key with the screen dark woke the chip, the guest got it, but once the key was let go the program
+     * went back to deep sleep before the guest had switched its screen on: the guest's wake-up then waited for the
+     * next RTC second (up to 1 s, more when the ms tick was behind). Now it stays awake for 2 s after a key
+     * (g_btn_ms: the last key the guest got). */
+#endif
     int pw_quiet = !g_bl && !g_hw_tone_hz && !periph_tone_hz(e) && !wheel_ms
 #ifdef EMU_TONE_Q
       && tq_h == tq_w
@@ -1116,7 +1126,11 @@ void Reset_Handler(void){
 #ifdef TC_IRLINK
       && !(g_pl.last_rx && now-g_pl.last_rx<30000u) && !g_irtxn
 #endif
-      && !hw_buttons();
+      && !hw_buttons()
+#ifdef EMU_KEY_AWAKE
+      && now-g_btn_ms>2000u
+#endif
+      ;
     if(pw_quiet && (s32)(now-emu_ms)<2500){   /* after a deep sleep 1 s behind: caught up at 12 MHz */
 #ifdef CLK_ECO
       if(!g_pw_low) hw_clk_shift(0, CORE_HZ);

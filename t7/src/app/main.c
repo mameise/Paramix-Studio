@@ -64,6 +64,11 @@ volatile uint32_t g_t7_ninstr;
 #define SESSION (g_cfg.save_off)
 #define EEPROM  (g_cfg.save_off + 0x1000u)
 #define SETTINGS (g_cfg.save_off + 0x5000u)
+#ifdef SESS_FLAG
+#define NOSESS ((g_cfg.flags & T7_F_NOSESS) != 0u)   /* 1.7.3 test7: no session, the toy runs from its EEPROM */
+#else
+#define NOSESS 0
+#endif
 
 /* Settings and the clock note: own sector (stays when the session is dropped) */
 int plat_store_load(uint8_t *b, uint32_t n)
@@ -335,12 +340,12 @@ static void leave(int save)
   REG(0x20000FFCu) = 0x4C584D50u;        /* "PMXL": back on purpose, the autostart stays off */
 #ifdef T7_SESS_EESEQ
   t7_eeprom_flush(); eeprom_store(EEPROM, g_sec);   /* the pet's own save first, the session notes its state */
-  if (save) {
+  if (save && !NOSESS) {   /* 1.7.3 test7 */
     uint32_t n = app_save(g_sec, sizeof g_sec);
     if (n && n <= 0xFF0u) { for (uint32_t i = n; i < 0x1000u; i++) g_sec[i] = 0xFF; sess_mark(g_sec); flash_update4k(SESSION, g_sec); }
   }
 #else
-  if (save) {
+  if (save && !NOSESS) {
     uint32_t n = app_save(g_sec, sizeof g_sec);
     if (n) { for (uint32_t i = n; i < 0x1000u; i++) g_sec[i] = 0xFF; flash_update4k(SESSION, g_sec); }
   }
@@ -358,6 +363,17 @@ static void leave(int save)
 static void drop_session(void) { if (!flash_isff(SESSION, 0x1000u)) flash_erase4k(SESSION); }
 #ifdef SESS_AUTO
 #ifndef SESS_T1
+#ifdef T7_DARK_PEEK
+/* 1.7.3 test27: wk_on 1 waking (light at once, the panel shows the last peek; drawn again once the game has drawn anew),
+ * 2 a peek with the screen dark (the game draws once, the picture goes to the sleeping panel, without light) */
+extern uint32_t g_t7_blits; extern uint8_t g_t7_hle;
+static int wk_on; static uint32_t wk_t, wk_b, wk_bt, pk_t;
+#define WK_START(t) do { hw_backlight(1); if (g_t7_hle & 2u) { wk_on = 1; wk_t = (t); wk_b = g_t7_blits; wk_bt = 0; } else app_render(1); } while (0)
+#elif defined(T7_WAKE_FRESH)
+extern uint32_t g_t7_blits; extern uint8_t g_t7_hle;
+static int wk_on; static uint32_t wk_t, wk_b, wk_bt;   /* waking: light once the game has drawn anew (only where its drawing was left out) */
+#define WK_START(t) do { if (g_t7_hle & 2u) { wk_on = 1; wk_t = (t); wk_b = g_t7_blits; wk_bt = 0; } else { hw_backlight(1); app_render(1); } } while (0)
+#endif
 #define SESS_T1 600000u    /* screen dark: 10 minutes after the last time at the earliest */
 #define SESS_T2 1800000u   /* otherwise every 30 minutes */
 #endif
@@ -369,10 +385,10 @@ static void sess_auto(uint32_t now)
   hw_tone(0);
 #ifdef T7_SESS_EESEQ
   t7_eeprom_flush(); if (eeprom_dirty()) eeprom_store(EEPROM, g_sec);
-  uint32_t n = app_save(g_sec, sizeof g_sec);
+  uint32_t n = NOSESS ? 0u : app_save(g_sec, sizeof g_sec);   /* 1.7.3 test7: NOSESS, only the EEPROM */
   if (n && n <= 0xFF0u) { for (uint32_t i = n; i < 0x1000u; i++) g_sec[i] = 0xFF; sess_mark(g_sec); flash_update4k(SESSION, g_sec); }
 #else
-  uint32_t n = app_save(g_sec, sizeof g_sec);
+  uint32_t n = NOSESS ? 0u : app_save(g_sec, sizeof g_sec);
   if (n) { for (uint32_t i = n; i < 0x1000u; i++) g_sec[i] = 0xFF; flash_update4k(SESSION, g_sec); }
   t7_eeprom_flush(); if (eeprom_dirty()) eeprom_store(EEPROM, g_sec);
 #endif
@@ -488,7 +504,10 @@ void Reset_Handler(void)
   { const volatile uint8_t *s = XIP_PTR(SESSION);
     for (u32 i = 0; i < 0x1000u; i++) g_sec[i] = s[i]; }
 #ifdef T7_SESS_EESEQ
-  if (!sess_eq_ok(g_sec)) { drop_session(); for (u32 i = 0; i < 4u; i++) g_sec[i] = 0xFF; }   /* the EEPROM is newer */
+  /* the EEPROM is newer; 1.7.3 test7: NOSESS drops an old session too, boot from the EEPROM */
+  if (NOSESS || !sess_eq_ok(g_sec)) { drop_session(); for (u32 i = 0; i < 4u; i++) g_sec[i] = 0xFF; }
+#else
+  if (NOSESS) { drop_session(); for (u32 i = 0; i < 4u; i++) g_sec[i] = 0xFF; }   /* 1.7.3 test7 */
 #endif
   if (app_load(g_sec, sizeof g_sec, &saved)) {
     restored = 1;
@@ -586,7 +605,11 @@ void Reset_Handler(void)
 #ifdef T7_PW
         pw_full();
 #endif
+#if defined(T7_WAKE_FRESH) || defined(T7_DARK_PEEK)
+        bl = 1; WK_START(now); while (hw_buttons()) hw_wdt_feed();
+#else
         bl = 1; hw_backlight(1); app_render(1); while (hw_buttons()) hw_wdt_feed();
+#endif
 #ifdef WAKE_WHEEL
         wheel_ms = 0;   /* 1.7.2: the wheel only wakes, its release does not open the settings */
 #endif
@@ -618,7 +641,11 @@ void Reset_Handler(void)
 #ifdef CLK_ECO
           hw_clk_shift(0, CORE_HZ);   /* test22: full speed before the panel wakes */
 #endif
+#if defined(T7_WAKE_FRESH) || defined(T7_DARK_PEEK)
+          WK_START(now); }
+#else
           hw_backlight(1); app_render(1); }
+#endif
         if (dimmed) { dimmed = 0; app_dim(0); } }
       bell0 = bell; }
 #endif
@@ -635,7 +662,13 @@ void Reset_Handler(void)
     if ((int32_t)(now - emu_ms) > 3000) { g_t7st[1] += now - 3000u - emu_ms; emu_ms = now - 3000u; }   /* far behind: the clock is set by app_clock */
     uint32_t t0 = g_ms;
 #ifdef T7_JSR_HLE
+#ifdef T7_DARK_PEEK
+    if (bl) pk_t = now;
+    else if (!wk_on && (g_t7_hle & 2u) && now - pk_t >= 60000u && !app_menu_open()) { wk_on = 2; wk_t = now; wk_b = g_t7_blits; wk_bt = 0; }
+    g_t7_dark = (uint8_t)(!bl && !app_menu_open() && wk_on != 2);   /* a peek: the game draws once */
+#else
     g_t7_dark = (uint8_t)(!bl && !app_menu_open());   /* 1.6.12 test1: screen off: the game's sprite drawing is left out */
+#endif
 #endif
 #ifdef T7_CATCHUP_SMOOTH
     /* 1.6.13 test4: screen on and behind after a slow moment: catch up at most a quarter faster than real time.
@@ -711,6 +744,24 @@ void Reset_Handler(void)
 #endif
 #ifdef T7_DIAG
     dg_tick(now, emu_ms);
+#endif
+#ifdef T7_DARK_PEEK
+    /* 1.7.3 test27 (Bernd: not a picture from long ago when the screen comes on, but quickly): with the screen off the
+     * game's drawing is left out. Once a minute it draws one picture, which goes to the sleeping panel without light.
+     * After a key the light comes at once with that picture; the game's own picture follows once it has drawn anew
+     * (its blits, then 20 ms without one, at the latest after 0.7 s; before: up to half a second empty). */
+    if (wk_on) { if (g_t7_blits != wk_b) { wk_b = g_t7_blits; wk_bt = now | 1u; }
+      if ((wk_bt && now - wk_bt >= 20u) || now - wk_t >= 700u || (wk_on == 2 && bl)) {
+        if (wk_on == 2 && bl) { wk_on = 1; wk_t = now; wk_bt = 0; }
+        else { wk_on = 0; pk_t = now; app_render(1); last_draw = now; } } }
+    else
+#elif defined(T7_WAKE_FRESH)
+    /* 1.7.3 test26: with the screen off the game's drawing is left out, its picture was empty or old. After a wake the
+     * light comes once the game has drawn anew (its blits, then 20 ms without one), at the latest after 0.7 s. Before the
+     * light came at once: up to half a second without the Tama on the screen. */
+    if (wk_on) { if (g_t7_blits != wk_b) { wk_b = g_t7_blits; wk_bt = now | 1u; }
+      if ((wk_bt && now - wk_bt >= 20u) || now - wk_t >= 700u || !bl) { wk_on = 0; if (bl) { app_render(1); hw_backlight(1); last_draw = now; } } }
+    else
 #endif
     if (now - last_draw >= 33u) { last_draw = now; if (bl) app_render(0); }
     if (now - last_fill >= 500u) { last_fill = now; app_setup_fill(plat_rtc()); }

@@ -310,7 +310,7 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
       ok(F.isClean(img) && !F.isClean(src) && !F.isClean(base), 'CLEAN_ROM: isClean only for the built image');
       ok(u(0x10) === 0x600B1000 && (u(8) & 1) === 0 && u(0x80) === 0, 'CLEAN_ROM: load table points to the menu, not encrypted');
       ok(u(0x110568) === 0x49024801 && u(0x11056C) === 0xBF004708 && u(0x110570) === 0x100A0000, 'CLEAN_ROM: restart routine in place');
-      ok(F.cleanReserved(ed.profile.idPage).some(([a, b]) => a <= ed.profile.idPage && b > ed.profile.idPage), 'CLEAN_ROM: ID page reserved');
+      ok(F.cleanReserved().some(([a, b]) => a <= 0xEFD000 && b > 0xEFD000), 'CLEAN_ROM: ID page reserved');
       const w = FL.withRescue(img, new Uint8Array(fs4.readFileSync(__dirname + '/../flash/flashapp.bin')));
       ok(!!w && F.isClean(w), 'CLEAN_ROM: rescue start with the battery text');
       const bt = FL.batText(); ok(bt && bt.length > 0, 'CLEAN_ROM: battery text picture ' + (bt ? bt.length : 0) + ' bytes');

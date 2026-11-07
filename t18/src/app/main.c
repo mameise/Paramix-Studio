@@ -743,6 +743,9 @@ static uint32_t g_wk;                          /* panel wake: time << 2 | step (
 #ifdef T18_WAKE_KEEP
 static uint32_t frame_hash_all(void);
 #endif
+#ifdef T18_WAKE_FRESH
+static uint32_t g_wkt;                         /* when the light started to wait for a new picture */
+#endif
 /* 1.6.4: the picture goes to the panel right when the firmware has finished it (before it starts the
  * next one), else it was read half drawn: built up from the top, black behind texts.
  * Switch T18_PRESENT_LATE: in the main loop as before. */
@@ -945,7 +948,13 @@ LXIP static uint32_t rows_diff(uint32_t lim)
 LXIP static void present(int force)
 {
   if (g_stage < 8) g_stage = 8;
-#ifdef T18_WAKE_KEEP
+#ifdef T18_WAKE_FRESH
+  /* 1.7.3 test26 (Bernd: in the morning first the Tama awake in the living room, 2 s later asleep in bed): after a wake
+   * the light stays off until the game has drawn a new picture; that one is drawn, then the light comes. Before
+   * (T18_WAKE_KEEP) the panel showed the last picture from before the sleep, often hours old. */
+  int lite = 0;
+  if ((g_wk & 3u) == 3u) { if ((frame_hash_all() | 3u) == g_wk) return; g_wk = 0; lite = 1; }
+#elif defined(T18_WAKE_KEEP)
   if ((g_wk & 3u) == 3u) { if ((frame_hash_all() | 3u) == g_wk) return; g_wk = 0; }
 #endif
 #ifdef T18_PROF_OVL
@@ -1031,6 +1040,9 @@ LXIP static void present(int force)
     }
   }
   if (g_ovl == 1) draw_overlay();
+#ifdef T18_WAKE_FRESH
+  if (lite) hw_wake_step(3);
+#endif
 #ifdef T18_PROF_OVL
   g_pflag &= ~1u;
 #endif
@@ -1064,6 +1076,18 @@ static uint32_t frame_hash_all(void)
   return h;
 }
 #endif
+#endif
+#ifdef T18_DARK_PEEK
+/* the picture is all one colour (black while the game blanks it) */
+static int frame_plain(void)
+{
+  uint32_t src = g_pres_src, rows = g_pres_len / 256u; if (rows > 128u) rows = 128u;
+  const uint16_t *p0 = guest_row(src); if (!p0) return 1;
+  uint16_t c = p0[0];
+  for (uint32_t y = 0; y < rows; y++) { const uint16_t *p = guest_row(src + y * 256u); if (!p) return 1;
+    for (int i = 0; i < 128; i++) if (p[i] != c) return 0; }
+  return 1;
+}
 #endif
 /* ---- clock note and session ---- */
 typedef struct { uint32_t magic, rtc, tm[6], flags, gday, rday; } Note;   /* test4: gday/rday (0xFFFFFFFF in older notes) */
@@ -1133,6 +1157,9 @@ COLD static void session_save(void)
   uint32_t n = tg18_state_size(T);
   if (n + 16 > 0x1000u) return;
   c_release();
+#ifdef SESS_FLAG
+  if (g_cfg.flags & T18F_NOSESS) return;   /* 1.7.3 test7: no session, only the firmware's own save (c_release) */
+#endif
   hw_tone(0);
   for (uint32_t o = 0; o < T18_SRAM_SIZE; o += 0x1000u) {
     hw_wdt_feed();
@@ -1321,7 +1348,13 @@ COLD static int app_start(void)
 #ifdef T18_CLOCK_AFTER
   tg18_set_rtc_cb(T, clock_after_set);   /* 1.6.8: the game's own clock setting does not overwrite the Paradise's time */
 #endif
+#ifdef SESS_FLAG
+  /* 1.7.3 test7: no session: an old one is dropped, the firmware boots from its own save */
+  uint32_t saved_rtc = 0, restored = 0;
+  if (g_cfg.flags & T18F_NOSESS) session_drop(); else restored = (uint32_t)session_load(&saved_rtc);
+#else
   uint32_t saved_rtc = 0, restored = (uint32_t)session_load(&saved_rtc);
+#endif
 #ifdef T18_DAY_FIX
   { Note n; if (note_load(&n) && n.gday && n.gday < 0x10000u && n.rday < 0x10000u) g_nd = n.gday << 16 | n.rday; }
 #endif
@@ -2085,7 +2118,11 @@ static void main_loop(int restored)
        * switches its light on and off: the panel's steps go on, the light waits for the game. */
       if (!bl && !on && !g_wk && (b & 7u) && hw_wake_step(1)) g_wk = (g_ms << 2) | 1u;
 #ifdef T18_WAKE_KEEP
+#ifdef T18_WAKE_FRESH
+      if ((g_wk & 3u) == 3u && on != bl) { g_wk = 0; if (!on) hw_wake_step(0); }   /* went dark again before its picture: the panel sleeps (light was still off) */
+#else
       if ((g_wk & 3u) == 3u && on != bl) g_wk = 0;
+#endif
 #endif
       if (on != bl) { blchg = 1; bl = on; if (!on) { if (!g_wk) { g_lcd_on = 0; hw_backlight(0); } } else if (g_wk) {} else if (hw_wake_step(1)) g_wk = (g_ms << 2) | 1u; else { g_lcd_on = 1; present(1); } }
       if ((g_wk & 3u) == 1u && ((g_ms - (g_wk >> 2)) & 0x3FFFFFFFu) >= 125u) { hw_wdt_feed(); hw_wake_step(2); g_wk = (g_ms << 2) | 2u; }
@@ -2093,8 +2130,15 @@ static void main_loop(int restored)
       /* test19 (Bernd: picture on, then 1-2 s black, then the game): at the light the firmware's buffer still holds
        * what was there before it slept (often black) until the game has drawn anew. The panel keeps the last picture
        * from before the sleep until a picture differs from that buffer (g_wk: its check value | 3). */
+#ifdef T18_WAKE_FRESH
+      else if ((g_wk & 3u) == 2u && on && ((g_ms - (g_wk >> 2)) & 0x3FFFFFFFu) >= 20u) { g_lcd_on = 1; g_wkt = g_ms;
+        if (g_pres_len) g_wk = frame_hash_all() | 3u; else { g_wk = 0; present(1); hw_wake_step(3); } }
+      /* no new picture within 3 s: the one there is, with light */
+      else if ((g_wk & 3u) == 3u && g_ms - g_wkt >= 3000u) { g_wk = 0; present(1); hw_wake_step(3); }
+#else
       else if ((g_wk & 3u) == 2u && on && ((g_ms - (g_wk >> 2)) & 0x3FFFFFFFu) >= 20u) { hw_wake_step(3); g_lcd_on = 1;
         if (g_pres_len) g_wk = frame_hash_all() | 3u; else { g_wk = 0; present(1); } }
+#endif
 #else
       else if ((g_wk & 3u) == 2u && on && ((g_ms - (g_wk >> 2)) & 0x3FFFFFFFu) >= 20u) { hw_wake_step(3); g_wk = 0; g_lcd_on = 1; present(1); }
 #endif
@@ -2127,6 +2171,18 @@ static void main_loop(int restored)
     (void)last_pres;
 #endif
     if (now - sp_t >= 1000u) { g_speed = sp_emu * 100u / (now - sp_t); sp_t = now; sp_emu = 0; if (g_ovl == 1 && on) draw_overlay();
+#ifdef T18_DARK_PEEK
+      /* 1.7.3 test27 (Bernd: in the morning first the Tama awake in the living room, 2 s later asleep in bed): with the
+       * screen dark the game's picture goes to the sleeping panel now and then (light off), once it has stayed the same
+       * for about 4 s and is not all one colour (the game blanks it at times). After a key the light comes at once as
+       * before and shows a recent picture instead of the one from before the dark. */
+      { static uint16_t pk_h, pk_shown;   /* check values (16 bit: no room in the hole) */
+        if (g_lcd_on || g_wk) { pk_h = 0; pk_shown = 0; }
+        else if (!((now >> 10) & 3u) && g_pres_len) {
+          uint16_t h = (uint16_t)(frame_hash_all() | 1u);
+          if (h == pk_h && h != pk_shown && !frame_plain()) { hw_wdt_feed(); present(0); pk_shown = h; }
+          pk_h = h; } }
+#endif
 #ifdef T18_PROF_OVL
       prof_tick();
 #endif
