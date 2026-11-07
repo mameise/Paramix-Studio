@@ -298,7 +298,10 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
     const F = require('../src/feld.js'), FL = require('../src/flash.js'), fs4 = require('fs');
     const src = new Uint8Array(0x1000000).fill(0x5A);
     src.set(Buffer.from('SONIXDEV'), 0); src[8] = 1;
-    let pid = 0; const prof = [[0xD49000, 1]]; for (const [o, id] of prof) { src[o] = id; src[o + 1] = src[o + 2] = src[o + 3] = 0; if (F.edition(src)) { pid = o; break; } }
+    let pid = 0; const prof = [[0xD49000, 1]]; for (const [o, id] of prof) { src[o] = id; src[o + 1] = src[o + 2] = src[o + 3] = 0;
+      // 1.7.3: a real ID page has its footer (k + id = family constant, ~k); a clean ROM finds it at the top only with it
+      const k = (0x70169E2C - id) >>> 0; for (let b = 0; b < 4; b++) { src[o + 0xFF8 + b] = (k >>> (8 * b)) & 255; src[o + 0xFFC + b] = (~k >>> (8 * b)) & 255; }
+      if (F.edition(src)) { pid = o; break; } }
     const ed = F.edition(src);
     ok(!!ed, 'CLEAN_ROM: made-up edition word found at 0x' + pid.toString(16));
     if (ed) {
