@@ -67,7 +67,7 @@ int main(int c, char **v)
     while (b[k] && b[k] != '.' && k < 15) { cfg.fig[i - 2].name[k] = b[k]; k++; }
     cfg.nfig++;
   }
-  if (getenv("EE")) { size_t en; unsigned char *e = rd(getenv("EE"), &en); extern void persist_restore_page(int, const uint8_t *); for (int i = 0; i < 16 && (size_t)(i + 1) * 256 <= en; i++) persist_restore_page(i, e + i * 256); }   /* EE=save */
+  if (getenv("EE")) { size_t en; unsigned char *e = rd(getenv("EE"), &en); size_t m2 = en; extern void persist_restore_page(int, const uint8_t *); for (int i = 0; i < 16 && (size_t)(i + 1) * 256 <= en; i++) persist_restore_page(i, e + (m2 == 4098 ? 2 : 0) + i * 256); }   /* EE=save (Studio save.bin: u16 have first) */
   app_init(&cfg);
   t7_init();
   t7_snd_config(T7_CLOCK_RATE, 16000); t7_snd_capture(0); t7_snd_set_mode(1);
@@ -106,6 +106,7 @@ int main(int c, char **v)
     else if (!strcmp(cmd, "wb")) { unsigned ad, v; sscanf(l, "%*s %x %x", &ad, &v); t7_ram_write((uint16_t)ad, (uint8_t)v); }   /* test30 */
     else if (!strcmp(cmd, "dump")) { FILE *o = fopen(a, "wb"); for (int i = 0; i < 0x600; i++) fputc(t7_ram_read((uint16_t)i), o); fclose(o); }
     else if (!strcmp(cmd, "dark")) dark = atoi(a);
+    else if (!strcmp(cmd, "noclk")) cfg.flags &= ~2u;   /* clock not from the Paradise */
     else if (!strcmp(cmd, "q")) break;
     fflush(stdout);
   }

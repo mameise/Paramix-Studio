@@ -104,6 +104,12 @@ typedef struct {
 } arm7_state_t;
 void arm7_save(arm7_t *c, arm7_state_t *s);
 void arm7_load(arm7_t *c, const arm7_state_t *s);
+#ifdef T18_HLE_FILL
+extern uint32_t t18_hle_pc, t18_hle_n;   /* 1.7.4: the firmware's picture fill natively (t18hle.c) */
+int t18_hle_find(void);
+extern volatile uint32_t t18_hle_done;
+int t18_hle_busy(void);
+#endif
 #ifdef T18_RAW_LABEL
 /* 1.6.13 test4: the firmware's label routine (Thumb "strh r0,[r5]" after a call of its per-pixel routine) writes
  * colour table numbers into the picture first (blue box behind the name on a call); the panel keeps what was there

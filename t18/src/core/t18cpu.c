@@ -246,8 +246,14 @@ void arm7_reset(arm7_t *c, uint32_t pc) {
     c->halted = 0;
 }
 
+#ifdef T18_HLE_CHECK
+extern uint32_t t18_exc_n;
+#endif
 void arm7_exception(arm7_t *c, uint32_t mode, uint32_t vec, uint32_t ret) {
     uint32_t old = c->cpsr;
+#ifdef T18_HLE_CHECK
+    t18_exc_n++;
+#endif
     arm7_set_mode(c, mode);
     c->spsr = old;
     c->r[14] = ret;
@@ -913,6 +919,9 @@ static void idle_try(arm7_t *c, uint64_t target) {
     int wmax = W_MAXI;
 #endif
     for (int n = 0; n < wmax && !c->attn && c->cycles < target && !w_bad; n++) {
+#ifdef T18_HLE_FILL
+        if (c->r[15] == t18_hle_pc) break;              /* the fill: not idle, arm7_run does it natively */
+#endif
 #ifdef T18_IDLE_RUN
         /* test14: one instruction through arm7_run (in the PRAM) instead of arm7_step (in the flash window:
          * on the device a quarter of the time while the pet calls) */
@@ -1004,6 +1013,9 @@ static inline int idle_due(arm7_t *c, uint64_t target) {
     return c->cycles >= c->idle_next;
 }
 
+#ifdef T18_HLE_FILL
+#include "t18hle.c"
+#endif
 /* Run until cycles >= target. Interrupts are taken before each instruction. */
 int64_t arm7_run(arm7_t *c, uint64_t target) {
     uint64_t start = c->cycles;
@@ -1025,6 +1037,12 @@ int64_t arm7_run(arm7_t *c, uint64_t target) {
             if (c->halted) { c->idle_cycles += target - c->cycles; c->cycles = target; break; }
             c->attn = c->irq_line | c->fiq_line;
         }
+#if defined(T18_HLE_FILL) && defined(T18_HLE_CHECK)
+        t18_hle_chk(c);
+#elif defined(T18_HLE_FILL)
+        /* before the idle check: idle_try would step the routine's own code from here */
+        if (c->r[15] == t18_hle_pc && (c->cpsr & ARM7_T) && t18_hle_fill(c, target)) continue;
+#endif
         if (idle_due(c, target)) { idle_try(c, target); continue; }
 #ifdef T18_JIT
         /* stop at the next idle check, so a chained loop comes back to it */
@@ -1065,6 +1083,9 @@ int64_t arm7_run(arm7_t *c, uint64_t target) {
 #endif
         if (c->cpsr & ARM7_T) { c->r[15] = pc + 2; cyc = exec_thumb(c, rd16(c, pc)); }
         else { c->r[15] = pc + 4; cyc = exec_arm(c, rd32a(c, pc)); }
+#if defined(T18_HLE_FILL) && defined(T18_HLE_CHECK)
+        if (hle_own(pc)) t18_hle_own += (uint32_t)cyc;
+#endif
 #ifdef T18_CYC32
         c->cycles += (uint32_t)cyc * c->cyc_mult;      /* 1.6.8: 32-bit product (cyc is small) */
 #else

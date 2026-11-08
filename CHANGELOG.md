@@ -2,6 +2,19 @@
 
 Versions are listed newest first.
 
+## 1.7.4 (2026-11-08)
+
+Fixes:
+- TamaEmu, T7Emu, T18Emu, V1Emu, V3Emu and Pokémon mini: the sound no longer cuts off when one note follows another directly.
+- TamaEmu: saves that ran for a long time (for example P's and 4U) are now accepted instead of "firmware too big". They are packed when needed.
+- TamaEmu: the Tamagotchi iD (also Lovely Melody) no longer starts in debug mode. In the menu it is called "ID".
+- T7Emu: after a pause the Tama starts right away, only the clock and the date are set (no more "Catching up").
+- T18Emu: faster, above all with many figures on the screen (for example twins). Walks (for example to the park) are shown step by step instead of standing still and jumping to the end.
+- T18Emu: after leaving the settings the whole picture is shown at once, no longer split.
+- T18Emu: a call lights the screen again when it went dark through "Screen off after".
+- T18Emu: a key on the dark screen during a call no longer shows a stray patch where the name is first.
+- More fields: Land, Water and Sky food now gives food symbols, so the Tama becomes the young stage of its field (Tropical/Glacier, and Sky on Jade Forest).
+
 ## 1.7.3 (2026-11-07)
 
 New:

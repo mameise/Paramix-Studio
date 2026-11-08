@@ -65,6 +65,11 @@ const clash = addr.some((a, i) => (a < 0x10F000 && a + f.slotSize > 0x10F000) ||
 ok(!clash, 'slots: ' + addr.map((a) => '0x' + a.toString(16)).join(' '));
 const again = F.feldApply(F.feldStrip(m, emb, E), { fields: true, bag: true }, F.feldSlots(m, emb.stub), emb, E);
 ok(Buffer.compare(Buffer.from(again), Buffer.from(m)) === 0, 'remove and add the menu gives the same ROM');
+// food per field (1.7.4): Land, Water, Sky food counted for the young stage
+{ const bl = (b, o) => (b[o + 1] >> 3) === 0x1E;
+  ok(bl(six, 0x11000 + 0x1027E) && bl(six, 0x11000 + 0x81D70) && u32(six, 0x10F000 + 0xC40 + 44) !== 0xFFFFFFFF, 'food per field hooked');
+  const old = new Uint8Array(six); old.set([0x0d, 0xf0, 0x55, 0xfd], 0x11000 + 0x1027E); old.set([0x80, 0xb5, 0x96, 0xb0], 0x11000 + 0x81D70);
+  ok(Buffer.compare(Buffer.from(S.sixApply(old, land, blob)), Buffer.from(six)) === 0, 'older ROM with DNA gets the food places'); }
 // Jade Forest: Sky as 4th field (optional third argument)
 if (process.argv[4]) {
   const jade = F.feldStrip(rd(process.argv[4]), emb, E);
@@ -77,6 +82,11 @@ if (process.argv[4]) {
   { const jt = (o) => { const h1 = j4[o] | j4[o + 1] << 8, h2 = j4[o + 2] | j4[o + 3] << 8; return h1 >> 11 === 0x1E && (h2 >> 14) >= 2; };
     ok(jt(0x11000 + 0x2262C) && jt(0x11000 + 0x3C470) && jt(0x11000 + 0x3C498) && jt(0x11000 + 0x3C2E0) && j4[0x11000 + 0x3C29E + 2] === 0x4F, 'Jade: game field menu hooked'); }
   ok(Buffer.compare(Buffer.from(S.sixStrip(j4)), Buffer.from(jade)) === 0, 'Jade: strip gives the original');
+  { const bl = (b, o) => (b[o + 1] >> 3) === 0x1E;
+    ok(S.sixInfo(j4).food && bl(j4, 0x11000 + 0xE7F6) && bl(j4, 0x11000 + 0x72750), 'Jade: food per field (Sky food counts)');
+    const old = new Uint8Array(j4); old.set([0x0c, 0xf0, 0x35, 0xf9], 0x11000 + 0xE7F6); old.set([0x80, 0xb5, 0x90, 0xb0], 0x11000 + 0x72750);
+    old[0x10F000 + 32] &= ~64; old.fill(0xFF, 0x10F000 + 0xC00, 0x110000);
+    ok(Buffer.compare(Buffer.from(S.sixApply(old, null, blob)), Buffer.from(j4)) === 0, 'Jade: older ROM gets the food part'); }
 }
 console.log(bad ? bad + ' WRONG' : 'all good');
 process.exit(bad ? 1 : 0);

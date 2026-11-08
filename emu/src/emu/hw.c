@@ -273,12 +273,16 @@ HCOLD void hw_tone(u32 hz){
 #else
   u32 per = TONE_CLK / hz, mr0 = per - per/32u;
 #endif
+#ifndef HW_TONE_RESTART
+  /* 1.7.4 HW_TONE_RESTART: a new pitch written into the running timer left the buzzer silent on the device (GBEmu
+   * test39; users: the sound cuts off in the emulators). With it every new pitch starts the timer anew below. */
   if(on){ REG(CT7+0x24)=per; REG(CT7+0x18)=mr0;
 #ifdef TONE_SAFE   /* 1.6.9 test38 (GBEmu): a shorter period below the running counter left the buzzer silent until the
                     * 32-bit counter wrapped (~60 s); then the counter starts again */
     if(REG(CT7+0x08) >= per){ REG(CT7+0x00)=2; REG(CT7+0x08)=0; REG(CT7+0x00)=1; }
 #endif
     return; }
+#endif
   REG(CT7+0x34)=0;
   REG(CT7+0x00)=2; REG(CT7+0x08)=0; REG(CT7+0x00)=0;
   REG(CT7+0x18)=mr0; REG(CT7+0x1C)=0; REG(CT7+0x20)=0;

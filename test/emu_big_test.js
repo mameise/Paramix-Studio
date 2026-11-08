@@ -36,6 +36,13 @@ ok(r.rom.subarray(0xD49000).every((v, i) => v === land[0xD49000 + i]), 'save are
   ok(back.rom.every((v, i) => v === r.rom[i] || (i >= 0xA0000 && i < 0xC0000)), 'swap back gives the same layout');
   const rm = E.emuRemove(r.rom);
   ok(ff(rm, 0x830000, 0xD48000) && ff(rm, 0xA0000, 0xB0000), 'removal clears everything');
+  // 1.7.4 BIG_LZ: a save that ran for a long time (92 blocks) only fits packed: accepted, read back the same
+  { const g = new Uint8Array(0x800000).fill(0xFF); g.set(big.subarray(0, 0x800000));
+    let used = 0; for (let b = 0; b < 128; b++) if (!ff(g, b << 16, (b + 1) << 16)) used++;
+    let x = 12345; for (let b = 0x56; b < 128 && used < 92; b++) if (ff(g, b << 16, (b + 1) << 16)) { for (let i = 0; i < 0x10000; i++) { x = (Math.imul(x, 1103515245) + 12345) >>> 0; g[(b << 16) + i] = x >>> 24; } used++; }
+    let pr = null; try { pr = E.emuPatch(land, g, app, stub); } catch (e) { console.log(e.message); }
+    let same = false; if (pr) { const cfg = SV.emuCfg(pr.rom.subarray(0xA0000, 0xA1000)); const b3 = await SV.emuGuestAsync((a, n) => pr.rom.subarray(a, a + n), cfg); same = b3.every((v, i) => v === g[i]); }
+    ok(same, 'long-running save with ' + used + ' blocks: packed, read back the same'); }
   // 1.6.6: a save of another emulator with download content holds more blocks than fit: the sparsest go into spare pages
   { const g = new Uint8Array(0x800000).fill(0xFF); g.set(big.subarray(0, 0x800000));
     let added = 0; for (let b = 1; b < 128 && added < 4; b++) if (ff(g, b << 16, (b + 1) << 16)) { g.fill(0x5A, b << 16, (b << 16) + 0x3000); added++; }

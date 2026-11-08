@@ -27,6 +27,9 @@ const SIX_VERSION = 7;
 /* DNA per field (1.7.2, switch): the DNA history and the per slot values of the firmware follow the six
  * fields. An add-on of the version 7 page (code from 0xC00), so a ROM with six fields gets it without the
  * Land ROM. Option bit 3 in the header. */
+/* 1.7.4 SIX_FOOD (switch): food per field. Land, Water, Sky food counted for the young stage (the
+ * firmware took the Land, Water, Sky characters for its own fields). Part of the DNA part. */
+const SIX_FOOD = true;
 const SIX_DNA = true, P_DNA = 0xC00, P_DNA_FN = 0xC40, DNA_CHILD = 7, DNA_FSET = 9, DNA_END = 0x1000;
 // page layout (six/src/six.s)
 const P_FM = 0x800, P_FM_FN = 0x830, P_PMAP = 0x1B0, P_BG = 0x1C0, P_CHILD = 0x1CC, P_FN = 0x1E0, T_BG = 0x200, T_CHILD = 0x340, T_CHILD_O = 0x348, T_SITES = 0x380, T_MORE = 0x500;
@@ -77,7 +80,9 @@ const KINDS = {
       sites: [[0x10081C68, '80b590b0', 'bw', 0], [0x10081CEC, '80b590b0', 'bw', 1], [0x1000AE44, '81b08df8', 'bw', 2],
         [0x1003BFB2, '0328', 'hex', '0628'], [0x1008211C, 'fff7a4fd', 'bl', 3], [0x10082124, '0228', 'hex', '0528'],
         [0x10013BBE, '90f8ef01', 'bl', 4], [0x10072676, '90f8ef01', 'bl', 4], [0x10013C78, '91f8ef01', 'bl', 5],
-        [0x10013C3E, '91f9ef11', 'bl', 6], [0x10013F42, '91f9ef11', 'bl', 6], [0x10068B54, '28f018f981790ca830f81100', 'bl', 8]] } },
+        [0x10013C3E, '91f9ef11', 'bl', 6], [0x10013F42, '91f9ef11', 'bl', 6], [0x10068B54, '28f018f981790ca830f81100', 'bl', 8]],
+      // food per field: history offset, first food kind per field 0..5, check of the kind, young stage branch
+      food: { hist: 0x13E, kinds: [12, 15, 9, 0, 3, 6], sites: [[0x1001027E, '0df055fd', 'bl', 10], [0x10081D70, '80b596b0', 'bw', 11]] } } },
   jade: { id: 1, idPage: 0xD49000, ids: [4], flag: 0x18000BA0 + 0xF00, slots: [1],
     bg: { at: 0x966C, orig: '81b08df8', table: 0x1007F98C, mode: 1 },
     child: { at: 0xE1DA, orig: '40f61500adf8', back: 0xE1F4, sp: 0xBC, list: [2002, 2003, 2069] },
@@ -94,7 +99,10 @@ const KINDS = {
         [0x5082E, 1, 0x100811F0, 'pl2'], [0x50886, 1, 0x100811DA, 'pl0']] },
     fm: { obj: 0x180140B8, field: 0x18000BA0 + 0x1B7, level: 0x18000BA0 + 0x78, build: [0x2262C, 0x10014954],
       prev: [0x1007564C, 0x3C2E0, 0x3C5C2], cmp: [0x3C470, 0x3C53E, 0x3C5EA, 0x3C69A], set: 0x3C498, read: '90f94a00',
-      imm: [[0x22634, 0x4E, 0x48], [0x3C29E, 0x4D, 0x4F], [0x3C3F8, 0x4D, 0x4F]], off: [0x4A, 0x48, 0x4F, 0x64], ent: [0, 1, 2, 0x81] } },
+      imm: [[0x22634, 0x4E, 0x48], [0x3C29E, 0x4D, 0x4F], [0x3C3F8, 0x4D, 0x4F]], off: [0x4A, 0x48, 0x4F, 0x64], ent: [0, 1, 2, 0x81] },
+    // food per field without the DNA part (option bit 64): settings block, field byte, switched slots, history,
+    // first food kind per field (Land, Water, Forest, -, Sky in the Water slot, -), check and young stage branch
+    food: { ram: 0x18000BA0, field: 0x1B7, slots: 2, hist: 0x132, kinds: [0, 3, 9, 0, 6, 0], sites: [[0x1000E7F6, '0cf035f9', 'bl', 10], [0x10072750, '80b590b0', 'bw', 11]] } },
 };
 /* 1.7.3 test23 SIX_HUNT: the egg hunt gives 8 entries per field (picture, item, found bit; two groups of 4, one picked at
  * random). It was left on the slot's own row, so Sky in the Forest slot gave Jade Forest ingredients. The rows of Land,
@@ -668,7 +676,7 @@ function sixInfo(rom) {
   return { version, kind: version >= 3 && u32(rom, SIX_OFF + 28) === 1 ? 'jade' : 'gen3', flagOff: u32(rom, SIX_OFF + 12),
     sprites: u32(rom, SIX_OFF + 16), comps: u32(rom, SIX_OFF + 20), anims: version >= 2 ? u32(rom, SIX_OFF + 24) : 0,
     planet: version >= 5 && (u32(rom, SIX_OFF + 32) & 1) === 1, fieldMenu: version >= 6 && (u32(rom, SIX_OFF + 32) & 2) === 2,
-    games: version >= 7 && (u32(rom, SIX_OFF + 32) & 4) === 4, dna: version >= 7 && (u32(rom, SIX_OFF + 32) & 8) === 8, hunt: version >= 7 && (u32(rom, SIX_OFF + 32) & 16) === 16, gamesRest: version >= 7 ? u32(rom, SIX_OFF + 36) : 0 };
+    games: version >= 7 && (u32(rom, SIX_OFF + 32) & 4) === 4, dna: version >= 7 && (u32(rom, SIX_OFF + 32) & 8) === 8, hunt: version >= 7 && (u32(rom, SIX_OFF + 32) & 16) === 16, food: version >= 7 && (u32(rom, SIX_OFF + 32) & 64) === 64, gamesRest: version >= 7 ? u32(rom, SIX_OFF + 36) : 0 };
 }
 const movPairBytes = (r, t) => concat([movEnc(r, t & 0xFFFF), movEnc(r, t >>> 16, true)]);
 /** Can this ROM get more fields? (Tropical/Glacier: Land, Water, Sky; Jade Forest: Sky) */
@@ -696,6 +704,7 @@ function sixStrip(rom) {
   const out = new Uint8Array(rom), K = KINDS[info.kind], f = (o) => 0x11000 + o;
   const put = (o, h) => { for (let k = 0; k < h.length / 2; k++) out[o + k] = parseInt(h.substr(2 * k, 2), 16); };
   if (info.dna) dnaStrip(out, K, info);
+  if (info.food && K.food) foodStrip(out, K);
   put(f(K.bg.at), K.bg.orig); put(f(K.child.at), K.child.orig);
   if (info.kind === 'gen3') for (const [o, h] of OLD_PATCH) put(o, h);
   for (const [o, r, t] of K.sites.concat(K.planet.sites, ...EXTRAS.map((X) => X.sites[info.kind]))) out.set(movPairBytes(r, t), f(o));
@@ -797,7 +806,43 @@ function gamesInstall(out, page, K, games) {
 function dnaCan(rom, K) {
   const D = K && K.dna, fo = (x) => x - 0x10000000 + 0x11000;
   if (!SIX_DNA || !D) return false;
-  return D.sites.every(([x, h]) => hex(rom, fo(x), h.length / 2) === h);
+  return dnaSites(D).every(([x, h]) => hex(rom, fo(x), h.length / 2) === h);
+}
+/* the firmware places of the DNA part (with the food places when on) */
+function dnaSites(D) { return SIX_FOOD && D.food ? D.sites.concat(D.food.sites) : D.sites; }
+/* An old DNA part without the food places: put the DNA part in again (the saved values stay).
+ * Jade Forest (no DNA part): the food part alone. */
+function sixFood(rom, blob) {
+  const info = sixInfo(rom), K = info && KINDS[info.kind], fo = (x) => x - 0x10000000 + 0x11000;
+  if (!SIX_FOOD || !info || info.version < 7 || !K || !blob || blob.length <= P_DNA_FN + 4 * 11 || u32(blob, P_DNA_FN + 4 * 11) === 0) return rom;
+  const F = K.dna ? K.dna.food : K.food;
+  if (!F || !F.sites.every(([x, h]) => hex(rom, fo(x), h.length / 2) === h)) return rom;
+  const out = new Uint8Array(rom);
+  if (K.dna) { if (!info.dna) return rom; dnaStrip(out, K, info); dnaInstall(out, K, blob, info.fieldMenu); }
+  else if (!info.dna) foodInstall(out, K, blob);
+  return out;
+}
+/* Food part alone (Jade Forest): the code of the DNA part, only the values the food code reads. */
+function foodInstall(out, K, blob) {
+  const F = K.food, page = out.subarray(SIX_OFF, SIX_OFF + 0x1000);
+  page.fill(0xFF, P_DNA, DNA_END); page.set(blob.subarray(P_DNA), P_DNA); page.fill(0, P_DNA, P_DNA + 0x40);
+  w32(page, P_DNA, F.ram); w16(page, P_DNA + 6, F.field); page[P_DNA + 15] = F.slots;
+  w16(page, P_DNA + 0x34, F.hist); F.kinds.forEach((v, i) => { page[P_DNA + 0x36 + i] = v; });
+  w32(page, 32, u32(page, 32) | 64);
+  sitesPut(out, F.sites, (k) => u32(page, P_DNA_FN + 4 * k) & ~1);
+}
+function foodStrip(out, K) {
+  const F = K.food, page = out.subarray(SIX_OFF, SIX_OFF + 0x1000);
+  for (const [x, h] of F.sites) for (let k = 0; k < h.length / 2; k++) out[x - 0x10000000 + 0x11000 + k] = parseInt(h.substr(2 * k, 2), 16);
+  w32(page, 32, u32(page, 32) & ~64); page.fill(0xFF, P_DNA, DNA_END);
+}
+function sitesPut(out, sites, fn) {
+  for (const [x, h, how, a] of sites) {
+    const n = h.length / 2, b = new Uint8Array(n);
+    if (how === 'hex') { for (let k = 0; k < n; k++) b[k] = parseInt(a.substr(2 * k, 2), 16); }
+    else { b.set(branch(x, fn(a), how === 'bl')); for (let k = 4; k < n; k += 2) w16(b, k, 0xBF00); }
+    out.set(b, x - 0x10000000 + 0x11000);
+  }
 }
 /* Puts the DNA part in (page at SIX_OFF of out, its code from blob) and patches the firmware. */
 function dnaInstall(out, K, blob, fieldMenu) {
@@ -809,14 +854,10 @@ function dnaInstall(out, K, blob, fieldMenu) {
   w16(page, P_DNA + 12, D.bits); page[P_DNA + 14] = D.mask; page[P_DNA + 15] = D.slots;
   page.fill(0, P_DNA + 0x10, P_DNA + 0x28); D.regions.forEach(([o, n], i) => { w16(page, P_DNA + 0x10 + 4 * i, o); w16(page, P_DNA + 0x12 + 4 * i, n); });
   D.icons.forEach((v, i) => w16(page, P_DNA + 0x28 + 2 * i, v));
+  if (SIX_FOOD && D.food) { w16(page, P_DNA + 0x34, D.food.hist); D.food.kinds.forEach((v, i) => { page[P_DNA + 0x36 + i] = v; }); }
   w32(page, 32, u32(page, 32) | 8);
   const fn = (k) => u32(page, P_DNA_FN + 4 * k) & ~1;
-  for (const [x, h, how, a] of D.sites) {
-    const n = h.length / 2, b = new Uint8Array(n);
-    if (how === 'hex') { for (let k = 0; k < n; k++) b[k] = parseInt(a.substr(2 * k, 2), 16); }
-    else { b.set(branch(x, fn(a), how === 'bl')); for (let k = 4; k < n; k += 2) w16(b, k, 0xBF00); }
-    out.set(b, fo(x));
-  }
+  sitesPut(out, dnaSites(D), fn);
   out.set(branch(XIP(0x11000 + K.child.at), fn(DNA_CHILD), true), 0x11000 + K.child.at);
   if (fieldMenu) out.set(branch(0x10000000 + K.fm.set, fn(DNA_FSET), true), 0x11000 + K.fm.set);
 }
@@ -824,7 +865,7 @@ function dnaInstall(out, K, blob, fieldMenu) {
 function dnaStrip(out, K, info) {
   const D = K.dna, fo = (x) => x - 0x10000000 + 0x11000, page = out.subarray(SIX_OFF, SIX_OFF + 0x1000);
   if (!D) return;
-  for (const [x, h] of D.sites) for (let k = 0; k < h.length / 2; k++) out[fo(x) + k] = parseInt(h.substr(2 * k, 2), 16);
+  for (const [x, h] of D.food ? D.sites.concat(D.food.sites) : D.sites) for (let k = 0; k < h.length / 2; k++) out[fo(x) + k] = parseInt(h.substr(2 * k, 2), 16);
   const fn = (k) => u32(page, P_FN + 4 * k) & ~1;
   out.set(branch(XIP(0x11000 + K.child.at), fn(FN_CHILD), true), 0x11000 + K.child.at);
   if (info.fieldMenu) out.set(branch(0x10000000 + K.fm.set, u32(page, P_FM_FN + 8) & ~1, true), 0x11000 + K.fm.set);
@@ -836,6 +877,8 @@ function dnaStrip(out, K, info) {
  */
 function sixDna(rom, blob, on) {
   const info = sixInfo(rom);
+  if (info && info.version >= 7 && on && (info.dna || !KINDS[info.kind].dna)) return sixFood(rom, blob);
+  if (info && info.food && !on) { const o = new Uint8Array(rom); foodStrip(o, KINDS[info.kind]); return o; }
   if (!info || info.version < 7 || !!info.dna === !!on) return rom;
   const K = KINDS[info.kind], out = new Uint8Array(rom);
   if (!on) { dnaStrip(out, K, info); return out; }
@@ -862,8 +905,9 @@ function sixApply(rom, land, blob, opts = {}) {
   let fieldMenu = opts.fieldMenu !== false;
   const wantGames = SIX_GAMES && opts.games !== false && kindOf(rom) === 'gen3';
   const wantDna = SIX_DNA && opts.dna !== false && !!(KINDS[have ? have.kind : kindOf(rom)] || {}).dna;
+  const wantFood = SIX_FOOD && opts.dna !== false;
 
-  if (have && have.version >= SIX_VERSION && have.planet === planet && have.fieldMenu === fieldMenu && have.games === wantGames) { const r = sixDna(rom, blob, wantDna); return sixHunt(r); }
+  if (have && have.version >= SIX_VERSION && have.planet === planet && have.fieldMenu === fieldMenu && have.games === wantGames) { let r = sixDna(rom, blob, wantDna); if (wantFood) r = sixFood(r, blob); return sixHunt(r); }
   if (have) rom = sixStrip(rom);
   const kind = kindOf(rom);
   if (kind && fieldMenu && !fmCan(rom, KINDS[kind])) fieldMenu = false;
@@ -886,6 +930,7 @@ function sixApply(rom, land, blob, opts = {}) {
     for (const X of EXTRAS) if (X.on() && opts[X.name] !== false && extraCan(rom, 'jade', X)) alt[X.name] = X.tab(rom, 'jade');
     const outJ = install(new Uint8Array(rom), 'jade', blob, alt, [0, 0, 0], planet, fieldMenu);
     if (dnaOk) dnaInstall(outJ, KINDS.jade, blob, fieldMenu);
+    else if (wantFood) return sixFood(outJ, blob);
     return outJ;
   }
   if (!sixSource(land)) throw new Error('the second ROM must be a Land, Water or Sky ROM');

@@ -7,6 +7,7 @@
 #include <string.h>
 #include <zlib.h>
 #include <unistd.h>
+#include <math.h>
 
 static uint8_t *g_flash;
 uint8_t t18_flash_rd(uint32_t a) { return g_flash[a & 0x7FFFFF]; }
@@ -24,6 +25,21 @@ void t18_prof(uint32_t pc, uint32_t thumb) {
 }
 #endif
 static int nshot;
+#ifdef T18_HLE_LOG
+void t18_hle_log(arm7_t *c, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) { fprintf(stderr, "fill %.1f ms rows %u-%u cols %u-%u\n", (double)c->cycles / c->cyc_mult / 96000.0, a0 & 255, a1 & 255, a2 & 255, a3); }
+#endif
+#ifdef T18_HLE_FP
+void t18_hle_fp(int k, uint32_t fa, uint32_t fp, uint32_t fs) { fprintf(stderr, "hle kind %d fill fp %08xu, pixel fp %08xu, sample fp %08xu\n", k, fa, fp, fs); }
+#endif
+#ifdef T18_HLE_CHECK
+/* samples for the cycle fit (HLE_SAMPLES=file): the counters of t18hle.c and the guest's cycles of the routine */
+static int hs_n;
+void t18_hle_cfit(const uint32_t *cnt, int n, uint64_t cycles, int clean) {
+    if (!clean) return; hs_n++;
+    static FILE *sf; if (!sf && getenv("HLE_SAMPLES")) sf = fopen(getenv("HLE_SAMPLES"), "a");
+    if (sf) { for (int i = 0; i < n; i++) fprintf(sf, "%u ", cnt[i]); fprintf(sf, "%llu\n", (unsigned long long)cycles); fflush(sf); } }
+static void hle_fit(void) { extern uint32_t t18_hle_bad, t18_hle_ok, t18_hle_cbad; fprintf(stderr, "hle check: %u same, %u different, %d samples, %u cycle sums off\n", t18_hle_ok, t18_hle_bad, hs_n, t18_hle_cbad); }
+#endif
 #ifdef T18_WMAP
 uint8_t t18_wmap[512];
 #endif
@@ -243,6 +259,10 @@ int main(int argc, char **argv)
     FILE *sc = fopen(argv[2], "r"); char l[256];
     while (fgets(l, sizeof l, sc)) {
         char cmd[32], a[128] = ""; int k = sscanf(l, "%31s %127s", cmd, a); if (k < 1) continue;
+#ifdef T18_HLE_FILL
+        { extern uint32_t t18_hle_q; if (getenv("HLE_Q")) t18_hle_q = (uint32_t)atoi(getenv("HLE_Q")); }
+        if (t18_hle_pc == 1u && t18_hle_find()) fprintf(stderr, "hle fill at %08x\n", t18_hle_pc);
+#endif
         if (!strcmp(cmd, "wait")) {
             arm7_t *c = tg18_cpu(T); uint64_t c0 = c->cycles, i0 = c->idle_cycles, s0 = c->idle_skipped;
             tg18_run_us(T, (uint32_t)(atof(a) * 1000));
@@ -399,6 +419,11 @@ int main(int argc, char **argv)
     { int hi = 0; for (int i = 0; i < 512; i++) if (t18_wmap[i]) hi = i;
       fprintf(stderr, "highest written page %05x\n", hi << 8);
       for (int i = 0; i < 512; i++) fputc(t18_wmap[i] ? '#' : '.', stderr); fputc('\n', stderr); }
+#endif
+#ifdef T18_HLE_CHECK
+    hle_fit();
+#elif defined(T18_HLE_FILL)
+    fprintf(stderr, "hle fills %u\n", t18_hle_n);
 #endif
     return 0;
 }

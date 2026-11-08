@@ -626,6 +626,7 @@ void app_clock(uint32_t rtc, int guard)
 
 /* After a pause: one full hour after the other through the game (at most 30, like the
  * phone app), the rest of the time is set directly. Returns the hours run. */
+static void add_days(uint32_t *y, uint32_t *m, uint32_t *d, uint32_t n);
 int app_catchup(uint32_t rtc, void (*progress)(int, int))
 {
   int obs = tama_sod();
@@ -633,7 +634,16 @@ int app_catchup(uint32_t rtc, void (*progress)(int, int))
   int32_t ahead = (int32_t)(rtc - g_last_cnt);    /* seconds since the save */
   if (ahead < 0) { g_ref_cnt = rtc; g_ref_sod = (uint32_t)obs; g_last_obs = (uint32_t)obs; g_last_cnt = rtc; return 0; }   /* counter went back: keep the game time */
   int hours = (int)((obs % 3600 + ahead) / 3600);
+#ifdef T7_NO_CATCHUP
+  /* 1.7.3 (Bernd: "kein Catching up, das Tama startet normal und nur die Uhr wird angepasst"): nothing is run through,
+   * the clock (and the date by the days in between) is set directly, as with the clock from the Paradise */
+  int n = 0;
+  { uint32_t days = (uint32_t)(((uint32_t)obs + (uint32_t)ahead) / 86400u);
+    if (days) { uint32_t y = 0, m = t7_ram_read(RTC_MO), d = t7_ram_read(RTC_D); add_days(&y, &m, &d, days);
+      t7_ram_write(RTC_MO, (uint8_t)m); t7_ram_write(RTC_D, (uint8_t)d); } }
+#else
   int n = hours > 30 ? 30 : hours;
+#endif
   for (int k = 0; k < n; k++) {
     if (progress) progress(k, n);
     int h0 = t7_ram_read(RTC_H);
@@ -646,7 +656,7 @@ int app_catchup(uint32_t rtc, void (*progress)(int, int))
   set_ms(exp);
   int now = tama_sod();
   g_last_obs = (uint32_t)(now < 0 ? exp : now); g_last_cnt = rtc;
-  if (progress) progress(n, n);
+  if (progress && n) progress(n, n);
   return n;
 }
 

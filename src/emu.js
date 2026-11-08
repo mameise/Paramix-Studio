@@ -61,6 +61,15 @@ function b64(s) {
   return new Uint8Array(Buffer.from(s, 'base64'));
 }
 
+// 1.7.4 test2: ID_STRAP_ON: the Tamagotchi iD firmwares (also Lovely Melody) read the debug pin the other way round than the
+// Plus Color; flags bit 13 tells TamaEmu to leave the pin on "no debug"
+const ID_STRAP_ON = true, ID_STRAP = 0x2000;
+function idFirmware(g) {
+  if (!ID_STRAP_ON || !g || g.length > 0x400000) return false;
+  const t = [0x54, 0x41, 0x4D, 0x41, 0x47, 0x4F, 0x00];   // "TAMAGO\0", only in the iD firmwares
+  outer: for (let i = 0; i + t.length <= g.length; i++) { for (let j = 0; j < t.length; j++) if (g[i + j] !== t[j]) continue outer; return true; }
+  return false;
+}
 /** Which firmware is this? Returns 'pc' or 'idl', or throws an error. */
 function emuDetect(g) {
   if (g.length >= 0x100 && g.length <= 0x400000) {
@@ -140,6 +149,11 @@ function guestPagesIn(rom, c, g) {
  * block's part list from the table, 0 = not packed), per packed block 65 u32 (part k from [k] to [k+1]: same = erased,
  * 1024 bytes = stored, else LZ4), then the data. */
 const GUEST_LZ = true, LZ_PART = 0x400;
+/* 1.7.4 BIG_LZ: a save that ran for a long time fills more blocks than fit (User: P's and 4U, "firmware too big: 92
+ * blocks"). Then the cold blocks are packed, also when "Pack the firmware" is off (packing was only for room before). */
+const BIG_LZ = true;
+/** BIG_LZ: does this firmware only fit packed? */
+function tamaNeedsLz(g, dev) { if (!BIG_LZ) return false; try { packGuest(g, dev, { sparse: true }); return false; } catch (e) { try { packGuest(g, dev, { lz: true }); return true; } catch (e2) { return false; } } }
 const MAIN_LZ = true;   // 1.7.2 test13: also for the main TamaEmu (emuPatch)
 const LZ_WARM = {   // read in the device simulation (besides HOT): stay whole
   idl: [0x00, 0x08, 0x09, 0x0b, 0x0c, 0x0d, 0x0e, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x25, 0x40, 0x41, 0x44, 0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x5b],
@@ -241,7 +255,8 @@ function packGuest(fw, dev, opts = {}) {
   const room = BIG_END - BIG_OFF, PG_RES = 4;
   const need = (nb, np) => np ? ((((nb << 16) + 0x1FFF) & ~0x1FFF) + 0x2000 + ((np + PG_RES) << 13)) : (nb << 16) + SPARE_MIN;
   let paged = [], lzb = [];
-  if (need(used.length, 0) > room) {
+  const lzBig = BIG_LZ && GUEST_LZ && opts.lz && !opts.lzOnly && !!LZ_WARM[dev] && need(used.length, 0) > room;
+  if (need(used.length, 0) > room && !lzBig) {
     const cand = used.filter((b) => b !== D.par).map((b) => ({ b, p: parts(b) })).sort((x, y) => x.p.length - y.p.length);
     let nb = used.length, np = 0;
     for (const c of cand) {
@@ -272,6 +287,7 @@ function packGuest(fw, dev, opts = {}) {
   if (BIG_OFF + blob.length + SPARE_MIN > BIG_END) throw new Error('firmware too big: ' + order.length + ' blocks');
   if (lzb.length) {   // GUEST_LZ: the packed cold blocks behind the others
     const z = lzPack(g, lzb), all = new Uint8Array(blob.length + z.length); all.set(blob); all.set(z, blob.length);
+    if (BIG_OFF + all.length + SPARE_MIN > BIG_END) throw new Error('firmware too big: ' + (order.length + lzb.length) + ' blocks');
     return { map, blob: all, lzOff: blob.length, lzBlocks: lzb.length, blocks: order.length, big: !!opts.lzOnly && GUEST_OFF + all.length + SPARE_MIN > GUEST_END, pages };
   }
   return { map, blob, blocks: order.length, big: pages.length > 0 || GUEST_OFF + blob.length + SPARE_MIN > GUEST_END, pages };
@@ -367,7 +383,7 @@ function emuPatch(rom, guest, app, stubTpl, opts = {}) {
   w32(a, ci + 4, v4 ? 4 : 3); w32(a, ci + 8, gOff); w32(a, ci + 12, blob.length); w32(a, ci + 16, SAVE_OFF); w32(a, ci + 20, DEVICES[dev].kind);
   a.set(map, ci + 24);
   w32(a, ci + 152, gEnd);
-  if (v4) w32(a, ci + 156, (opts.clock === false ? 0 : 2) | (opts.lang === 'en' ? 1 : 0));   // bit 0 (1.6.6): English texts
+  if (v4) w32(a, ci + 156, (opts.clock === false ? 0 : 2) | (opts.lang === 'en' ? 1 : 0) | (dev === 'pc' && idFirmware(guest) ? ID_STRAP : 0));   // bit 0 (1.6.6): English texts
   if (lzMain && v4) { w32(a, ci + 4, 5); w32(a, ci + 160, pk.lzOff !== undefined ? gOff + pk.lzOff : 0); }   // MAIN_LZ: version 5, table of the packed blocks
   out.fill(0x00, APP_OFF, APP_OFF + APP_MAX);
   out.set(a, APP_OFF);
@@ -1583,6 +1599,7 @@ function doomParts(x, xipLen) {
 const IDL_NAMES = { 0x024CA8FE: 'ID L JP', 0x024CA942: 'ID L JP', 0x024CAA72: 'ID L', 0x024BD18A: 'ID L 15TH', 0x024C14F6: 'ID L SPACY' };
 function tamaName(guest, dev) {
   if (dev === 'idl' && guest && guest.length >= 0x400004) { const n = IDL_NAMES[u32(guest, 0x400000)]; if (n) return n; }
+  if (dev === 'pc' && idFirmware(guest)) return 'ID';   // 1.7.4 test2
   return TX_NAMES[dev] || 'TAMAEMU';
 }
 function extraName(x) { const k = extraKind(x); return k === 'doom' ? (x.title ? x.title : x.ep && x.ep !== 'all' ? 'DOOM E' + x.ep : x.d2 ? 'DOOM II' : x.name && /^[A-Z0-9 .'!-]{1,16}$/.test(x.name) ? x.name : 'DOOM') : k === 'tama' ? tamaName(x.guest, x.dev) : k === 't18' ? 'TAMA MEETS' : k === 'v1' ? v1Name(x.rom) : k === 'gb' ? gbTitle(x.rom) : k === 'sms' ? (x.title || 'MASTER SYSTEM') : k === 'pm' ? (x.title || 'POKEMON MINI') : k === 'ab' ? (x.title || 'ARDUBOY') : k === 'wolf' ? (wolfSod(x.pack) ? 'SPEAR OF DESTINY' : 'WOLFENSTEIN 3D') : t7XName(x.rom); }
@@ -1594,7 +1611,7 @@ function extraSize(x, txs) {
     // 1.7.2 SIZE_CACHE: packing takes up to half a second; the firmware arrays are new ones whenever they change
     const ck = (txs || 0) + ':' + x.dev + (x.pack ? ':z' : ''), hit = SIZE_CACHE && sizeCache.get(x.guest); if (hit && hit[ck] !== undefined) return hit[ck];
     // TAMA_RAW (test18): the size as it goes in when there is room (unpacked)
-    let n = 0; try { const pk = packGuest(x.guest, x.dev, { sparse: true, lz: GUEST_LZ && (PACK_OPT ? !!x.pack : !TAMA_RAW) }); n = ((pk.blob.length + txSpare(pk, txs) + 0xFFFF) & ~0xFFFF) + 0x10000 + TX_STATE; } catch (e) { n = 0; }
+    let n = 0; try { const pk = packGuest(x.guest, x.dev, { sparse: true, lz: GUEST_LZ && (PACK_OPT ? !!x.pack || tamaNeedsLz(x.guest, x.dev) : !TAMA_RAW) }); n = ((pk.blob.length + txSpare(pk, txs) + 0xFFFF) & ~0xFFFF) + 0x10000 + TX_STATE; } catch (e) { n = 0; }
     if (SIZE_CACHE && x.guest) { const m = hit || {}; m[ck] = n; sizeCache.set(x.guest, m); }
     return n;
   }
@@ -1686,7 +1703,7 @@ function appsPlace0(rom, extras, app, opts = {}) {
     // 1.7.3 test7: opts.noClock (clean ROM, clock not set at the start): no program takes the Paradise's clock; x.sess false:
     // no session on leaving (flags bit 12, SESS_FLAG in the programs)
     const clk = !opts.noClock && (x.clock !== undefined ? x.clock !== false : opts.clock !== false), nfc = x.nfc !== undefined ? x.nfc !== false : opts.nfc !== false;
-    const flags = (opts.lang === 'en' ? 1 : 0) | (clk ? 2 : 0) | (nfc ? 0 : 4) | optBits(x.opt) | (x.sess === false ? NOSESS : 0);
+    const flags = (opts.lang === 'en' ? 1 : 0) | (clk ? 2 : 0) | (nfc ? 0 : 4) | optBits(x.opt) | (x.sess === false ? NOSESS : 0) | (k === 'tama' && idFirmware(x.guest) ? ID_STRAP : 0);
     if (k !== 't7' && k !== 'v1' && k !== 'gb' && k !== 'sms' && k !== 'pm' && k !== 'ab' && k !== 'wolf' && !opts.launch) throw new Error(name + ': only in a start device');
     if (k === 't7') {
       if (!t7Detect(x.rom)) throw new Error('not a V7 ROM');
@@ -1904,7 +1921,7 @@ function appsPlace0(rom, extras, app, opts = {}) {
       res.push([at, at + size]); if (!pl.hi) top = Math.min(top, at);
     } else if (k === 'tama') {
       if (!apps.tama) throw new Error('TamaEmu missing');
-      const lzCan = GUEST_LZ && tamaLzCan(apps.tama) && (PACK_OPT ? !!x.pack : !opts.tamaRaw);
+      const lzCan = GUEST_LZ && tamaLzCan(apps.tama) && (PACK_OPT ? !!x.pack || tamaNeedsLz(x.guest, x.dev) : !opts.tamaRaw);
       const memo = SIZE_CACHE && !x.lzAll && !x.lzExtra ? (sizeCache.get(x.guest) || {}) : null, mk = 'pk:' + x.dev + ':' + lzCan;   // SIZE_CACHE: trial builds pack only once
       const pk = (memo && memo[mk]) || packGuest(x.guest, x.dev, { sparse: true, lz: lzCan, lzAll: !!x.lzAll, lzExtra: x.lzExtra }), { map, blob, pages } = pk;
       if (memo && !memo[mk]) { memo[mk] = pk; sizeCache.set(x.guest, memo); }
@@ -2236,7 +2253,7 @@ function mainSpare(r) {
 function mainPick(g, dev, app, pack) {
   const lz = MAIN_LZ && !!app && tamaLzCan(app);
   if (lz && pack) return packGuest(g, dev, { lz: true });
-  const r = packGuest(g, dev, {});
+  let r; try { r = packGuest(g, dev, {}); } catch (e) { if (BIG_LZ && lz) return packGuest(g, dev, { lz: true }); throw e; }   // BIG_LZ: only fits packed
   if (lz && mainSpare(r) < MAIN_RAW_MIN) {
     if (MAIN_FEW && LZ_WARM[dev]) {
       const G = new Uint8Array(DEVICES[dev].size).fill(0xFF); G.set(g.subarray(0, Math.min(g.length, G.length)));

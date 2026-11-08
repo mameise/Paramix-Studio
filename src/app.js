@@ -16,7 +16,7 @@ const T = {
     startTitle: 'Mehr aus deinem Tamagotchi Paradise',
     startText: 'Paramix Studio baut dein eigenes Paradise-ROM um. Lade dein Paradise-Abbild (16 MB Flash-Dump) oder lies es direkt vom Gerät aus, wähl aus, was dazukommen soll, und schreib das neue ROM zurück.',
     featHead: 'Was du damit machen kannst',
-    g1t: 'Tamagotchi-Emulatoren', g1: 'Farb-Tamas (iD L, Plus Color, P\'s, 4U, 4U+), Tama-Go mit Figuren, Friends, Meets und On, Connection V3, P1, P2, Angel und weitere erste Tamagotchis sowie Digimon V1 und V2. Mehrere zusammen im Menü, jeder mit eigenem Spielstand. Die ROMs bringst du selbst mit.',
+    g1t: 'Tamagotchi-Emulatoren', g1: 'Farb-Tamas (iD, iD L, Plus Color, P\'s, 4U, 4U+), Tama-Go mit Figuren, Friends, Meets und On, Connection V3, P1, P2, Angel und weitere erste Tamagotchis sowie Digimon V1 und V2. Mehrere zusammen im Menü, jeder mit eigenem Spielstand. Die ROMs bringst du selbst mit.',
     g2t: 'DOOM und Wolfenstein 3D', g2: 'DOOM, Wolfenstein 3D und Spear of Destiny auf dem Paradise, mit eigener Tastenbelegung. Die Spieldateien bringst du selbst mit.',
     g7t: 'Spielkonsolen', g7: 'Game Boy, Game Boy Color, Master System, Game Gear, Pokémon mini und Arduboy, mit Ton und Spielständen. Deine eigenen Spiele kommen ins Menü.',
     g3t: 'Alle Felder', g3: 'Alle sechs Felder in einem ROM, mit Bildern, Spezialfiguren, passendem Planeten und den Lab-Spielen des Felds.',
@@ -136,7 +136,7 @@ const T = {
     startTitle: 'Get more out of your Tamagotchi Paradise',
     startText: 'Paramix Studio rebuilds your own Paradise ROM. Load your Paradise dump (16 MB flash image) or read it straight from the device, pick what to add, and write the new ROM back.',
     featHead: 'What you can do',
-    g1t: 'Tamagotchi emulators', g1: 'Colour tamas (iD L, Plus Color, P\'s, 4U, 4U+), Tama-Go with figures, Friends, Meets and On, Connection V3, P1, P2, Angel and more first Tamagotchis plus Digimon V1 and V2. Several together in the menu, each with its own save. Bring your own ROMs.',
+    g1t: 'Tamagotchi emulators', g1: 'Colour tamas (iD, iD L, Plus Color, P\'s, 4U, 4U+), Tama-Go with figures, Friends, Meets and On, Connection V3, P1, P2, Angel and more first Tamagotchis plus Digimon V1 and V2. Several together in the menu, each with its own save. Bring your own ROMs.',
     g2t: 'DOOM and Wolfenstein 3D', g2: 'DOOM, Wolfenstein 3D and Spear of Destiny on the Paradise, with your own key layout. Bring your own game files.',
     g7t: 'Game consoles', g7: 'Game Boy, Game Boy Color, Master System, Game Gear, Pokémon mini and Arduboy, with sound and saves. Your own games go into the menu.',
     g3t: 'All fields', g3: 'All six fields in one ROM, with pictures, special characters, the matching planet and the field\'s lab games.',
@@ -1842,7 +1842,7 @@ async function addExtra(g, fname, preset) {
   else if (E.v1Detect(g)) x = { kind: 'v1', rom: g };   // 1.6.8: V1Emu (first Tamagotchis, Digital Monster)
   else if (E.t7Detect(g)) x = { rom: g };
   else if (E.t18Detect(g)) x = { kind: 't18', fw: g };
-  else { try { const dev = E.emuDetect(g); E.packGuest(g, dev); x = { kind: 'tama', guest: g, dev }; } catch (err) { x = null; } }
+  else { try { const dev = E.emuDetect(g); try { E.packGuest(g, dev); } catch (e1) { E.packGuest(g, dev, { lz: true }); } x = { kind: 'tama', guest: g, dev }; } catch (err) { x = null; } }
   if (!x) {
     let main = false; try { main = !!E.t18Detect(g) || (E.emuDetect(g) && true); } catch (err) { main = false; }
     toast(t(main && !state.launch ? 'appBadMain' : state.launch ? 'appBadL' : 'appBad', { f: fname }), true); return;

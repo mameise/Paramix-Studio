@@ -495,9 +495,11 @@ w_dna:   .word 0                  @ 0x00 settings block (RAM)
          .byte 0, 0               @ 0x0E its mask, slots switched by the set byte (bits 0..2)
 dna_reg: .space 24                @ 0x10 up to 6 regions (u16 offset, u16 length), length 0 ends
 dna_ic:  .space 12                @ 0x28 picture per field 0..5
-         .space 4
+food_h:  .hword 0                 @ 0x34 offset of the food history (count, 4 entries) in the settings block
+food_b:  .space 6                 @ 0x36 first food kind (0 based) of the three kinds per field 0..5
 .org 0xC40
   .word dna_maj, dna_maj6, dna_icon, dna_majf, dna_f6_r0, dna_f6_r1_r0, dna_f6_r1_r1, dna_child, dna_hchild, dna_fset
+  .word dna_fok, dna_fbr
 
 @ r0 = slot 0..2 -> r0 = field (slot + 3 when the set byte is on and the slot switches). Uses r12.
 s2f:
@@ -739,6 +741,100 @@ dna_fset:
   strb r3,[r2]
   bl dna_swap
 1:pop {r1-r3,pc}
+
+@ Food per field (1.7.4): a food kind is 1..18 (Land 1..3, Water 4..6, Sky 7..9, Forest 10..12,
+@ Tropical 13..15, Glacier 16..18). Eating counts a kind only when it belongs to the Tama's field.
+@ The firmware knows the field from the character's edition code (Tropical 5, Glacier 6, Forest 4)
+@ and took Land, Water, Sky (1, 2, 3) for its own slots, so their food never counted.
+@ In place of the firmware's check: r0 = edition code, r1 = food kind -> r0 = 0 counts, 1 not.
+.thumb_func
+dna_fok:
+  uxth r0,r0
+  subs r2,r0,#1
+  cmp r2,#2
+  bls 2f
+  movs r2,#9
+  cmp r0,#4
+  beq 3f
+  movs r2,#12
+  cmp r0,#5
+  beq 3f
+  movs r2,#15
+  cmp r0,#6
+  beq 3f
+  movs r0,#1
+  bx lr
+2:add r2,r2,r2,lsl #1
+3:subs r1,r1,r2
+  subs r1,#1
+  movs r0,#0
+  cmp r1,#2
+  it hi
+  movhi r0,#1
+  bx lr
+
+@ In place of the firmware's young stage branch (b.w at its entry): counts the last 4 food symbols per
+@ kind, the field picks its three kinds (field 0..5, food_b) -> r0 = the kind (0..2) eaten more than
+@ both others, else 3 (the plain young stage).
+.thumb_func
+dna_fbr:
+  push {r4-r6,lr}
+  sub sp,#72
+  movs r1,#0
+  movs r2,#18
+  mov r0,sp
+1:str r1,[r0],#4
+  subs r2,#1
+  bne 1b
+  ldr r4,=w_dna
+  ldr r5,[r4]
+  ldrh r1,[r4,#0x34]
+  add r1,r1,r5
+  ldrb r2,[r1],#1
+  cmp r2,#4
+  it hi
+  movhi r2,#4
+2:cbz r2,3f
+  ldrb r3,[r1],#1
+  cmp r3,#18
+  bhs 4f
+  ldr r6,[sp,r3,lsl #2]
+  adds r6,#1
+  str r6,[sp,r3,lsl #2]
+4:subs r2,#1
+  b 2b
+3:movs r6,#3
+  ldrh r0,[r4,#6]
+  ldrsb r0,[r5,r0]
+  cmp r0,#2
+  bhi 9f
+  bl s2f
+  add r1,r4,#0x36
+  ldrb r1,[r1,r0]
+  add r1,sp,r1,lsl #2
+  ldr r2,[r1]
+  ldr r3,[r1,#4]
+  ldr r1,[r1,#8]
+  cmp r2,r3
+  ble 5f
+  cmp r2,r1
+  ble 5f
+  movs r6,#0
+  b 9f
+5:cmp r3,r2
+  ble 6f
+  cmp r3,r1
+  ble 6f
+  movs r6,#1
+  b 9f
+6:cmp r1,r2
+  ble 9f
+  cmp r1,r3
+  ble 9f
+  movs r6,#2
+9:mov r0,r6
+  add sp,#72
+  pop {r4-r6,pc}
 
 @ Live per slot values <-> stash. Keeps all registers.
 dna_swap:

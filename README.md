@@ -100,7 +100,7 @@ characters whose eyes do not fit stay original.
 
 ### TamaEmu
 Tab "Emulator": choose the firmware of a colour Tamagotchi (4 MB or 8 MB image).
-Known: Plus Color, iD L, P's, 4U+ and 4U. The 4U and 4U+ firmware keeps asking
+Known: Plus Color, iD (also Lovely Melody), iD L, P's, 4U+ and 4U. The 4U and 4U+ firmware keeps asking
 its NFC chip, which the Paradise does not have; TamaEmu answers in its place,
 so the menus react to a single press ("4U: emulate the NFC chip", on by
 default). The P's and 4U firmware is bigger and
@@ -557,6 +557,8 @@ to the end first.
   simulation, no download item store) are packed in 1 KB LZ4 parts behind the other blocks. The program (settings
   version 5, `lz_off`) unpacks a part when the guest reads it into one of two 1 KB buffers at 0x20000400. iD L about
   1 MB less, P's 1.65 MB, 4U+ 1.45 MB, Plus Color 1.75 MB; in the simulation the same pictures and load as before.
+- A save that ran for a long time (1.7.4, `BIG_LZ`): when its blocks do not fit unpacked (a P's or 4U with
+  92 written blocks), the cold blocks are packed anyway, also without "Pack the firmware".
 - Without the Paradise (1.7.2, `CLEAN_ROM`): second switch under "Start device". No Paradise code is left:
   the load table at 0 starts the menu directly (not encrypted), the menu sets up the hardware itself, has its own
   clock (SETTINGS, CLOCK; first start asks for it; sector "PMXK" at 0x0C0000) and passes the time to the programs.

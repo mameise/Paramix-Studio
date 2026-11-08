@@ -328,6 +328,8 @@ while state['ms'] < total_ms and 'back' not in state:
         st = struct.unpack('<8I', bytes(u.mem_read(st_sym, 32)))
         if 'g_pres_n' in syms: pn = struct.unpack('<I', bytes(u.mem_read(syms['g_pres_n'], 4)))[0]; print('      pictures', pn - state.get('pn', 0)); state['pn'] = pn
         print('%4d s: emulated %4d ms, dropped %5d ms, flash writes %d, rows %d%s' % (state['ms'] // 1000, st[0] - last[0], st[1], state['flashw'], state['rows'], ', uncached reads %d' % UNC[0] if os.environ.get('UNCOUNT') else ''), flush=True); UNC[0] = 0
+        for _s in os.environ.get('SYMSEC', '').split(','):   # 1.7.4: 32-bit symbols each second
+            if _s in syms: print('      %s %d' % (_s, struct.unpack('<I', bytes(u.mem_read(syms[_s], 4)))[0]))
         last = st
 st = struct.unpack('<8I', bytes(u.mem_read(st_sym, 32)))
 print('emulated ms', st[0], 'dropped ms', st[1], 'flash', st[2], 'map', st[3], 'lost', st[5])

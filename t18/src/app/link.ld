@@ -30,7 +30,7 @@ SECTIONS {
     *(.rodata*)
     . = ALIGN(4);
   } > PRAM
-  .stack (NOLOAD) : { __stack_bottom = .; . += 0x5B0; __stack_top = .; } > HOLE   /* 1.6.13 test6: 0x600 -> 0x5E0 (804 bytes used, measured); test21: 0x5D0 (16 bytes for BAT_GUARD); 1.7.2 test16: 0x5C0 (16 bytes for T18_CLK_DISC); test19: 0x5B0 (T18_WAKE_KEEP) */
+  .stack (NOLOAD) : { __stack_bottom = .; . += STACKSZ; __stack_top = .; } > HOLE   /* build.sh STACKSZ (1.7.4: 0x560 with T18_HLE_FILL); 1.6.13 test6: 0x600 -> 0x5E0 (804 bytes used, measured); test21: 0x5D0 (16 bytes for BAT_GUARD); 1.7.2 test16: 0x5C0 (16 bytes for T18_CLK_DISC); test19: 0x5B0 (T18_WAKE_KEEP) */
   .data : { __data_start = .; *(.ramfunc*) *(.data*) . = ALIGN(4); __data_end = .; } > HOLE AT > PRAM
   __data_load = LOADADDR(.data);
   .init : { KEEP(*(.initcode)) KEEP(*(.initdata*)) KEEP(*(.initcode_z)) . = ALIGN(4); } > PRAM

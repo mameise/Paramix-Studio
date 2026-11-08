@@ -981,6 +981,10 @@ static void boot(void){
   /* device: 0 Plus Color (4 MB), 1 iD L, 2 P's, 3 4U+, 4 4U (all 8 MB, same map as the iD L; the 4U runs at 30 MHz) */
   if(g_cfg.device>=1){ tc_profile_idl(&e->dev); if(g_cfg.device>=3) e->dev.osc3_hz=30000000u; }
   else tc_profile_plus_color(&e->dev);
+#ifdef ID_STRAP
+  /* 1.7.4 test2: Tamagotchi iD firmwares (flags bit 13 from the Studio): debug pin P06 reads "no debug" like on the iD L */
+  if(g_cfg.version>=4u && (g_cfg.flags & 0x2000u)) e->dev.debug_strap_high=false;
+#endif
   /* 1.6.8: 4U/4U+ get an answering NFC chip (flags bit 2 switches it off again) */
   if(g_cfg.device>=3u && g_cfg.device<=4u && !(g_cfg.flags & 4u)) e->dev.nfc_pn512=true;
 #ifdef TC_IRLINK

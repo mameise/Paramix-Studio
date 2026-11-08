@@ -67,6 +67,9 @@ int main(void)
     tg18_set_present(T, pres, 0);
     for (;;) {
         mb_wait();
+#ifdef T18_HLE_FILL
+        if (t18_hle_pc == 1u && t18_hle_find()) t18_jit_reset();
+#endif
         switch (g_mb[0]) {
         case 1:
 #ifdef T18_CLOCK_AFTER

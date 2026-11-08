@@ -1290,6 +1290,9 @@ static int translate_thumb(arm7_t *c, uint32_t pc, jent_t *e)
 #ifdef T18_RAW_LABEL
         if (a == t18_raw_pc) break;                                  /* the label store: the interpreter notes it */
 #endif
+#ifdef T18_HLE_FILL
+        if (a == t18_hle_pc) break;                                  /* the fill: arm7_run does it natively */
+#endif
         if (!t_decode(c, a, d)) break;
 #ifdef T18_BLK_MAXCYC
         bcyc += d->cyc;

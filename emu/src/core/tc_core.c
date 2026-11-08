@@ -26,7 +26,11 @@ TC_INIT void tc_profile_plus_color(DeviceProfile *d)
     d->io_base = 0x00300000u; d->io_end = 0x00302000u; d->io_size = 0x2000u;
     d->lcd_cmd_addr = 0x00600000u; d->lcd_data_addr = 0x00600001u;
     d->flash_top_boot = true;
+#ifdef TC_STRAP_TEST
+    d->debug_strap_high = false;   /* test only */
+#else
     d->debug_strap_high = true;
+#endif
     d->has_sleep_flag = true; d->sleep_flag = 0x00000368u;
     d->ttbr_reset = 0x00C00000u;
     d->osc3_hz = 20000000u;

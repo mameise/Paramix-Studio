@@ -743,6 +743,9 @@ static uint32_t g_wk;                          /* panel wake: time << 2 | step (
 #ifdef T18_WAKE_KEEP
 static uint32_t frame_hash_all(void);
 #endif
+#if defined(T18_WAKE_FILL) && defined(T18_HLE_FILL)
+static uint32_t g_wkd;                         /* fills done (16 bits) and time in 16 ms (16 bits) when the light came */
+#endif
 #ifdef T18_WAKE_FRESH
 static uint32_t g_wkt;                         /* when the light started to wait for a new picture */
 #endif
@@ -945,6 +948,24 @@ LXIP static uint32_t rows_diff(uint32_t lim)
   return n;
 }
 #endif
+#if defined(T18_PEEK_RAW) && defined(T18_RAW_LABEL)
+/* the name box's colour numbers (T18_RAW_LABEL) still in the picture */
+COLD static int raw_in_frame(void)
+{
+#ifdef T18_HLE_FILL
+  if (t18_hle_busy()) return 1;
+#endif
+  if (!t18_raw_n) return 0;
+  uint32_t src = g_pres_src, len = g_pres_len;
+  if (t18_raw_lo < src || t18_raw_lo >= src + len) return 0;
+  uint32_t a = t18_raw_lo & ~1u, e = t18_raw_hi + 2u; if (e > src + len) e = src + len;
+  for (; a < e; a += 2u) {
+    uint32_t o = a - 0xF8000000u; uint16_t v = (uint16_t)(*t18_sram_rp(o) | *t18_sram_rp(o + 1u) << 8);
+    if (v && (v == t18_raw_v[0] || v == t18_raw_v[1] || v == t18_raw_v[2] || v == t18_raw_v[3])) return 1;
+  }
+  return 0;
+}
+#endif
 LXIP static void present(int force)
 {
   if (g_stage < 8) g_stage = 8;
@@ -955,7 +976,15 @@ LXIP static void present(int force)
   int lite = 0;
   if ((g_wk & 3u) == 3u) { if ((frame_hash_all() | 3u) == g_wk) return; g_wk = 0; lite = 1; }
 #elif defined(T18_WAKE_KEEP)
-  if ((g_wk & 3u) == 3u) { if ((frame_hash_all() | 3u) == g_wk) return; g_wk = 0; }
+  if ((g_wk & 3u) == 3u) { if ((frame_hash_all() | 3u) == g_wk) return;
+#if defined(T18_WAKE_FILL) && defined(T18_HLE_FILL)
+    /* 1.7.4 test6 (Bernd: a call, screen dark, a key: first the name box over the old living room, then the picture):
+     * the game draws the name box first (colour numbers), then fills the whole picture. While a fill runs, or the box is
+     * there and no fill has finished since the light came, the last picture stays (at most 1.5 s) */
+    if ((t18_hle_busy() || (t18_raw_n && (uint16_t)t18_hle_done == (uint16_t)g_wkd))
+        && (uint16_t)((g_ms >> 4) - (g_wkd >> 16)) < 94u) return;
+#endif
+    g_wk = 0; }
 #endif
 #ifdef T18_PROF_OVL
   if (g_ovl == 2) return;
@@ -1789,7 +1818,14 @@ static void main_loop(int restored)
         uint32_t n = hw_opts_menu(g_opt, (g_cfg.flags & T18F_EN) != 0);
 #endif
         if (n != g_opt) { g_opt = n; opt_apply(n); opt_store(); }
-        g_scr_dark = 0; g_key_ms = g_ms; lock = 1; present(1); }
+        g_scr_dark = 0; g_key_ms = g_ms; lock = 1;
+#if defined(T18_MENU_FILL) && defined(T18_HLE_FILL)
+        /* 1.7.4 test5 (Bernd: after the settings the picture was split): the game stood still in the middle of a fill,
+         * half of it new, half old. That fill is finished first (at most 1 s of game time; the time in the menu is
+         * dropped anyway), then the whole picture goes out. */
+        for (uint32_t k = 0; t18_hle_busy() && k < 250u; k++) { tg18_run_us(T, 4000u); emu_ms += 4u; }
+#endif
+        present(1); }
       wheel_ms = 0; }
 #elif defined(T18_PROF_OVL)
     } else if (wheel_ms) { if (WNOW() - wheel_ms < 1000u) { g_ovl = (g_ovl + 1) % 3; if (g_ovl == 2) prof_show(); else present(1); } wheel_ms = 0; }
@@ -1819,6 +1855,14 @@ static void main_loop(int restored)
       if (b) g_t18st[4] = (uint32_t)(swallow << 28) | ((uint32_t)g_scr_dark << 24) | ((uint32_t)(bl & 1) << 20) | ((uint32_t)tg18_power(T) << 16) | b;
 #endif
       if (swallow) { if (b) b = 0; else swallow = 0; }
+#ifdef T18_CALL_LIGHT
+      /* 1.7.4 test8 (Bernd: a call with the screen off, the tone comes but the screen stays dark): "screen off after"
+       * kept the screen dark when the game switched its screen on for a call, or rang with its screen on. The game
+       * switching its screen on, or a tone while the game's screen is on, lights it again like a key (not swallowed). */
+      { static int gon0; static uint32_t hz0; int gon = tg18_power(T) && tg18_backlight(T) > 0; uint32_t hz = tg18_tone_hz(T);
+        if ((gon && !gon0) || (gon && hz && !hz0 && g_scr_dark)) { g_scr_dark = 0; g_key_ms = now; }
+        gon0 = gon; hz0 = hz; }
+#endif
       if (g_scr_ms && (int32_t)(now - g_key_ms) > (int32_t)g_scr_ms) g_scr_dark = 1; }   /* signed: right after the menu */
 #endif
 #ifdef T18_GROW
@@ -1896,6 +1940,11 @@ static void main_loop(int restored)
 #endif
 #ifdef T18_RAW_LABEL
     if (t18_raw_pc == 1u && bl && (uint16_t)((now >> 6) - g_raw_look) > 31u) { g_raw_look = (uint16_t)(now >> 6); raw_find(); }
+#endif
+#ifdef T18_HLE_FILL
+    /* 1.7.4: the firmware's picture fill natively (core/t18hle.c): look for it every 2 s until found */
+    { static uint16_t g_hle_look;
+      if (t18_hle_pc == 1u && bl && (uint16_t)((now >> 6) - g_hle_look) > 31u) { g_hle_look = (uint16_t)(now >> 6); if (t18_hle_find()) t18_jit_reset(); } }
 #endif
 #ifdef T18_PW
     /* the game sleeps: its time passes in steps of 8 ms (the core runs no instructions then: cheap; when its alarm
@@ -2063,6 +2112,17 @@ static void main_loop(int restored)
 #else
         if (g_lcd_on && g_pres_len && ((waited && tn - pt >= 33u) || tn - pt >= T18_PRESENT_MAXMS)) { pt = tn; present(0); }
 #endif
+#if defined(T18_PRES_FILL) && defined(T18_HLE_FILL)
+        /* 1.7.4 test4 (Bernd: in the park the picture stood still for 1-2 s, then the Tama was at the end of the way):
+         * while it walks the firmware fills the whole screen again and again (each fill about 150 ms of game time),
+         * the picture never held still and none went out. A fill is the last step of a picture: one that finished
+         * (no new one started since) goes out right away, at most 30 a second. */
+        { static uint32_t fd; static uint8_t fc;
+          if (t18_hle_done != fd) { fd = t18_hle_done; fc = 1; }
+          else if (fc && !t18_hle_busy() && g_lcd_on && g_pres_len && tn - pt >= 33u && !SW_ACT) {
+            fc = 0; uint32_t h = frame_hash_all();
+            if (h != g_pres_h) { pt = tn; g_pres_h = h; present(0); } } }
+#endif
 #ifdef T18_PRES_ANIM
         if (g_lcd_on && g_pres_len && tn - pt >= T18_ANIM_MS) {
           uint32_t h = frame_hash_all();
@@ -2137,6 +2197,9 @@ static void main_loop(int restored)
       else if ((g_wk & 3u) == 3u && g_ms - g_wkt >= 3000u) { g_wk = 0; present(1); hw_wake_step(3); }
 #else
       else if ((g_wk & 3u) == 2u && on && ((g_ms - (g_wk >> 2)) & 0x3FFFFFFFu) >= 20u) { hw_wake_step(3); g_lcd_on = 1;
+#if defined(T18_WAKE_FILL) && defined(T18_HLE_FILL)
+        g_wkd = (t18_hle_done & 0xFFFFu) | ((g_ms >> 4) << 16);
+#endif
         if (g_pres_len) g_wk = frame_hash_all() | 3u; else { g_wk = 0; present(1); } }
 #endif
 #else
@@ -2180,7 +2243,14 @@ static void main_loop(int restored)
         if (g_lcd_on || g_wk) { pk_h = 0; pk_shown = 0; }
         else if (!((now >> 10) & 3u) && g_pres_len) {
           uint16_t h = (uint16_t)(frame_hash_all() | 1u);
+#if defined(T18_PEEK_RAW) && defined(T18_RAW_LABEL)
+          /* 1.7.4 test6 (Bernd: a call, screen dark, a key: first an artefact where the name is, then the picture): the
+           * game had drawn the name box in colour numbers and waits with the screen dark; that picture went to the
+           * panel with the living room kept behind the box, and the light showed it first. Such a picture is not sent. */
+          if (h == pk_h && h != pk_shown && !frame_plain() && !raw_in_frame()) { hw_wdt_feed(); present(0); pk_shown = h; }
+#else
           if (h == pk_h && h != pk_shown && !frame_plain()) { hw_wdt_feed(); present(0); pk_shown = h; }
+#endif
           pk_h = h; } }
 #endif
 #ifdef T18_PROF_OVL
