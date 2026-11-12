@@ -2,6 +2,19 @@
 
 Versions are listed newest first.
 
+## 1.7.5 (2026-11-12)
+
+Fixes:
+- TamaEmu: a colour Tama firmware is only packed when "Pack the firmware" is on. If a long-running save only fits packed, the Studio says so. Saving or writing a ROM with a packed firmware asks first, because packed the game runs slower.
+- TamaEmu: a ROM read back no longer shows "Pack the firmware" switched on when it was off.
+- T18Emu: Connection (Playdate, Download, App) no longer makes the emulator restart.
+- T18Emu: worn accessories are shown again (Wondergarden, Fantasy, Pastel, Sweets).
+- Own character pictures keep more of their colours (one colour more, small bright spots keep their colour).
+- V1Emu: the toy's time runs at the right speed. Before it ran up to 9 % fast (the Umino clock gained 1 to 2 hours a day).
+- TamaEmu iD L and Plus Color: FULL CARE also ends the call (name bubble and attention icon) and cures a sick Tama.
+- TamaEmu iD L (v050 from January 2011): FULL CARE fills the hunger again, and Gotchi Points no longer make poop appear.
+- Pokémon mini: grey areas no longer show as a checkerboard (e.g. Pokémon Breeder), and the picture follows the game more evenly (Pokémon Race).
+
 ## 1.7.4 (2026-11-08)
 
 Fixes:

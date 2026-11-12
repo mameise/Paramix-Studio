@@ -350,7 +350,7 @@ GLUE __attribute__((naked, used)) void j_indbx_plain(void)
 }
 #endif
 #ifdef T18_HOLE_FAST
-_Static_assert(T18_HOLE_LO == 0xE600u && T18_HOLE_HI == 0x14400u && T18_HOLE_PG == 512u, "j_slow: hole constants");
+_Static_assert(T18_HOLE_LO == 0xE600u && T18_HOLE_HI == 0x14400u && T18_HOLE_PG == (1u << T18_HOLE_SH), "j_slow: hole constants");
 #endif
 #ifdef T18_FF_FAST
 uint8_t t18_fff[128];                     /* 1: guest flash block empty and not being written (platform keeps it) */
@@ -400,10 +400,22 @@ GLUE __attribute__((naked, used)) void j_slow(void)
         "subs r2, #1\n"
         "tst r0, r2\n"
         "bne 9f\n"
+#ifdef T18_HOLE_IX
+        "lsrs r2, r0, #6\n"
+        "ldr r3, =t18_hole_ix\n"
+        "ldrb r3, [r3, r2]\n"
+        "ubfx r0, r0, #0, #6\n"
+        "lsls r3, r3, #6\n"                          /* page number -> offset (0 stays 0) */
+        "ittt ne\n"
+        "ldrne r2, =t18_hole_base\n"
+        "ldrne r2, [r2]\n"
+        "addne r3, r3, r2\n"
+#else
         "lsrs r2, r0, #9\n"
         "ldr r3, =t18_hole_pg\n"
         "ldr r3, [r3, r2, lsl #2]\n"
         "ubfx r0, r0, #0, #9\n"
+#endif
         "tst r12, #0x80\n"
         "beq 8f\n"
         "cmp r3, #0\n"
@@ -615,6 +627,28 @@ GLUE __attribute__((naked, used)) void j_slow(void)
 #define CHK_FLASH(SH, FL) ""
 #endif
 #ifdef T18_CHK_HOLE
+#ifdef T18_HOLE_IX
+#define HOLE_SHS "6"
+#define HOLE_LOOK \
+        "lsr lr, r12, #6\n" \
+        "ubfx r12, r12, #0, #6\n" \
+        "ldr r11, =t18_hole_ix\n" \
+        "ldrb r11, [r11, lr]\n" \
+        "lsls r11, r11, #6\n" \
+        "beq 8f\n" \
+        "ldr lr, =t18_hole_base\n" \
+        "ldr lr, [lr]\n" \
+        "add r11, r11, lr\n"
+#else
+#define HOLE_SHS "9"
+#define HOLE_LOOK \
+        "lsr lr, r12, #9\n" \
+        "ubfx r12, r12, #0, #9\n" \
+        "ldr r11, =t18_hole_pg\n" \
+        "ldr r11, [r11, lr, lsl #2]\n" \
+        "cmp r11, #0\n" \
+        "beq 8f\n"
+#endif
 /* 1.6.8: aligned loads and stores of the guest's bytes in the hole (pages of 512 bytes) without j_slow,
  * when the page is made. Same contract as CHK_FLASH; r11 is rebuilt before falling through. */
 #define CHK_HOLE(SH, FL) \
@@ -625,12 +659,7 @@ GLUE __attribute__((naked, used)) void j_slow(void)
         "tst r11, #((1 << " #SH ") - 1)\n" \
         "bne 9f\n" \
         "push {lr}\n" \
-        "lsr lr, r12, #9\n" \
-        "ubfx r12, r12, #0, #9\n" \
-        "ldr r11, =t18_hole_pg\n" \
-        "ldr r11, [r11, lr, lsl #2]\n" \
-        "cmp r11, #0\n" \
-        "beq 8f\n" \
+        HOLE_LOOK \
         "10: add r12, r12, r11\n" \
         FL \
         "pop {lr}\n" \
@@ -642,14 +671,14 @@ GLUE __attribute__((naked, used)) void j_slow(void)
         "itt ne\n" \
         "ldrne r11, =t18_zero_pg\n" \
         "bne 10b\n" \
-        "add r12, r12, lr, lsl #9\n" \
+        "add r12, r12, lr, lsl #" HOLE_SHS "\n" \
         "add r12, r12, #0xE600\n" \
         "add r11, r12, #0xF8000000\n" \
         "pop {lr}\n" \
         "b 9f\n" \
         ".ltorg\n" \
         "9:\n"
-_Static_assert(T18_HOLE_LO == 0xE600u && T18_HOLE_HI == 0x14400u && T18_HOLE_PG == 512u, "CHK_HOLE: constants");
+_Static_assert(T18_HOLE_LO == 0xE600u && T18_HOLE_HI == 0x14400u && T18_HOLE_PG == (1u << T18_HOLE_SH), "CHK_HOLE: constants");
 #else
 #define CHK_HOLE(SH, FL) ""
 #endif

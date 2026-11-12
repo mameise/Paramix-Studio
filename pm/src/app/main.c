@@ -160,6 +160,18 @@ static void out_row(int r, const u8 *v)
  * frames are grey (games make their grey by switching dots every frame) */
 static u8 g_prev[8 * 96], g_src[96 * 64] __attribute__((aligned(4)));
 static void lcd_snap(void) { for (int p = 0; p < 8; p++) for (int x = 0; x < 96; x++) g_prev[p * 96 + x] = LCDData[p * 256 + x]; }
+#ifdef PM_PRC_MIX
+int pm_prc_img;
+static u8 g_cur[8 * 96] __attribute__((aligned(4)));
+static int g_pend;   /* a new picture not shown yet */
+/* a new picture: the one before becomes g_prev, the new one g_cur */
+static void lcd_take(void) { for (int i = 0; i < 8 * 96; i++) g_prev[i] = g_cur[i]; for (int p = 0; p < 8; p++) for (int x = 0; x < 96; x++) g_cur[p * 96 + x] = LCDData[p * 256 + x]; }
+#define MIX_SRC g_cur
+#define MIX_STRIDE 96
+#else
+#define MIX_SRC LCDData
+#define MIX_STRIDE 256
+#endif
 static void lcd_mix(void)
 {
   if (!MinxLCD.DisplayOn) { for (int i = 0; i < 96 * 64; i++) g_src[i] = 0; return; }
@@ -168,7 +180,7 @@ static void lcd_mix(void)
   u32 inv = MinxLCD.InvAllPix & 1u, set = MinxLCD.SetAllPix & 1u;
   for (int y = 0; y < 64; y++) {
     int yp = (y + MinxLCD.StartLine) & 63; if (MinxLCD.RowOrder) yp = 63 - yp;
-    const u8 *c = LCDData + (yp >> 3) * 256, *q = g_prev + (yp >> 3) * 96; u32 sh = (u32)yp & 7u; u8 *d = g_src + y * 96;
+    const u8 *c = MIX_SRC + (yp >> 3) * MIX_STRIDE, *q = g_prev + (yp >> 3) * 96; u32 sh = (u32)yp & 7u; u8 *d = g_src + y * 96;
     for (int x = 0; x < 96; x++) { u32 a = (((c[x] >> sh) & 1u) ^ inv) | set, b = (((q[x] >> sh) & 1u) ^ inv) | set; d[x] = lv[a + b]; }
   }
 }
@@ -497,8 +509,13 @@ void Reset_Handler(void)
       { int hz = 0, vol = 0; pm_audio_now(&hz, &vol); tone(!g_set.mute && vol && hz >= 40 && hz <= 12000 ? (u32)hz : 0u); }
       drawn ^= 1;
 #ifdef PM_FASTLCD
+#ifdef PM_PRC_MIX
+      if (pm_prc_img) { lcd_take(); g_pend = 1; }
+      if (g_pend && now - last_push >= 25u) { g_pend = 0; last_push = now; lcd_mix(); frame_grow(); push(0); g_pmst[1]++; }
+#else
       if (!drawn) lcd_snap();
       else if (now - last_push >= 25u) { last_push = now; lcd_mix(); frame_grow(); push(0); g_pmst[1]++; }
+#endif
 #else
       if (drawn && now - last_push >= 25u) { last_push = now; frame_grow(); push(0); g_pmst[1]++; }
 #endif

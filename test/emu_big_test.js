@@ -40,7 +40,10 @@ ok(r.rom.subarray(0xD49000).every((v, i) => v === land[0xD49000 + i]), 'save are
   { const g = new Uint8Array(0x800000).fill(0xFF); g.set(big.subarray(0, 0x800000));
     let used = 0; for (let b = 0; b < 128; b++) if (!ff(g, b << 16, (b + 1) << 16)) used++;
     let x = 12345; for (let b = 0x56; b < 128 && used < 92; b++) if (ff(g, b << 16, (b + 1) << 16)) { for (let i = 0; i < 0x10000; i++) { x = (Math.imul(x, 1103515245) + 12345) >>> 0; g[(b << 16) + i] = x >>> 24; } used++; }
-    let pr = null; try { pr = E.emuPatch(land, g, app, stub); } catch (e) { console.log(e.message); }
+    // 1.7.5 PACK_ASK: not packed by itself any more: the Studio asks for "Pack the firmware"
+    let ask = false; try { E.emuPatch(land, g, app, stub); } catch (e) { ask = !!e.needPack; }
+    ok(!E.PACK_ASK || ask, 'long-running save without "Pack the firmware": asks for it');
+    let pr = null; try { pr = E.emuPatch(land, g, app, stub, { pack: true }); } catch (e) { console.log(e.message); }
     let same = false; if (pr) { const cfg = SV.emuCfg(pr.rom.subarray(0xA0000, 0xA1000)); const b3 = await SV.emuGuestAsync((a, n) => pr.rom.subarray(a, a + n), cfg); same = b3.every((v, i) => v === g[i]); }
     ok(same, 'long-running save with ' + used + ' blocks: packed, read back the same'); }
   // 1.6.6: a save of another emulator with download content holds more blocks than fit: the sparsest go into spare pages

@@ -646,17 +646,32 @@ static u32 g_sw_n, g_sw_f, g_sw_k;
 #ifdef EMU_CARE
 /* test30: care and Gotchi Points in the settings, per firmware (its reset vector), found in the simulation and checked
  * on the game's status pages: hunger (raised to its full value), happy/love (P's ring, 4U love), Gotchi Points (u32) */
+#ifdef EMU_CARE_SICK
+/* 1.7.5 test4: iD L: sk = the sick flag's offset from hun (hun+0x0C, the skull, found in the simulation: the game's own
+ * medicine clears it and the counter after it; the rest the game cleans up itself), 0 = none. FULL CARE clears both, and
+ * a short C afterwards makes the game draw its room again (healthy, without skull) */
+typedef struct { u32 rv; u16 hun, hap, pts, med; u8 hmax, mul, add, mask, sk; } EmuCare;   /* 0x8xxx: dstram 0x84xxx, else a0ram */
+#define CARE_SK(x) , x
+static u32 g_care_c;
+#else
 typedef struct { u32 rv; u16 hun, hap, pts, med; u8 hmax, mul, add, mask; } EmuCare;   /* 0x8xxx: dstram 0x84xxx, else a0ram */
+#define CARE_SK(x)
+#endif
 /* test32: the happy bar (iD L: friend level, Plus Color: HAPPY!, P's: ring, 4U: love) only as far as the game itself
  * lets it grow, read from each firmware's own code: mul * (medals in med, bits of mask) + add; mask 0 (4U): 100 once
  * the stage byte med is above 2, else 30 */
 OVL_RO static const EmuCare CARE[] = {
-  { 0x00C2F0ECu, 0x8125u, 0x812Cu, 0x8138u, 0x815Eu, 4, 10, 10, 0x7F },   /* Plus Color v040 */
+  { 0x00C2F0ECu, 0x8125u, 0x812Cu, 0x8138u, 0x815Eu, 4, 10, 10, 0x7F CARE_SK(0x0C) },   /* Plus Color v040 (test5: same sick and call bytes as iD L) */
+#ifdef EMU_CARE_SICK
+  /* test4: v050 (2011-01-14) has its block 4 bytes lower: hunger 0x8221, points 0x8234 (0x8238 there is the poop) */
+  { 0x024CA8FEu, 0x8221u, 0x8228u, 0x8234u, 0x826Cu, 4, 20, 19, 0x0F, 0x0C },   /* iD L v050 */
+#else
   { 0x024CA8FEu, 0x8225u, 0x8228u, 0x8238u, 0x826Cu, 4, 20, 19, 0x0F },   /* iD L v050 */
-  { 0x024CA942u, 0x8225u, 0x822Cu, 0x8238u, 0x8270u, 4, 20, 19, 0x0F },   /* iD L v050 (2011-02-24) */
-  { 0x024CAA72u, 0x8225u, 0x822Cu, 0x8238u, 0x8270u, 4, 20, 19, 0x0F },   /* iD L v053 (English) */
-  { 0x024BD18Au, 0x8201u, 0x8208u, 0x8214u, 0x8250u, 4, 20, 19, 0x0F },   /* iD L v054 (15th) */
-  { 0x024C14F6u, 0x8201u, 0x8208u, 0x8214u, 0x8250u, 4, 20, 19, 0x0F },   /* iD L v055 (Princess Spacy) */
+#endif
+  { 0x024CA942u, 0x8225u, 0x822Cu, 0x8238u, 0x8270u, 4, 20, 19, 0x0F CARE_SK(0x0C) },   /* iD L v050 (2011-02-24) */
+  { 0x024CAA72u, 0x8225u, 0x822Cu, 0x8238u, 0x8270u, 4, 20, 19, 0x0F CARE_SK(0x0C) },   /* iD L v053 (English) */
+  { 0x024BD18Au, 0x8201u, 0x8208u, 0x8214u, 0x8250u, 4, 20, 19, 0x0F CARE_SK(0x0C) },   /* iD L v054 (15th) */
+  { 0x024C14F6u, 0x8201u, 0x8208u, 0x8214u, 0x8250u, 4, 20, 19, 0x0F CARE_SK(0x0C) },   /* iD L v055 (Princess Spacy) */
   { 0x024FDFE6u, 0x12ACu, 0x12B4u, 0x12C0u, 0x12FAu, 4, 4, 4, 0x0F },     /* P's */
   { 0x024F6256u, 0x11A1u, 0x11A8u, 0x11B4u, 0x11E2u, 6, 0, 0, 0 },        /* 4U+ */
   { 0x024C680Au, 0x12A9u, 0x12B0u, 0x12BCu, 0x12EAu, 6, 0, 0, 0 },        /* 4U v001 */
@@ -1050,7 +1065,17 @@ OVL_FN static void menu_run(Emu *e){
         u32 n=hw_opts_menu_xn(g_opt, en, cx, 2);
 #endif
         if(n & 0x80000000u){ u8 *p=care_p(e,c->pts);
-          if(n & (1u<<28)){ u8 *h=care_p(e,c->hun); if(*h<c->hmax) *h=c->hmax; { u32 m=*care_p(e,c->med), cap; if(c->mask){ m&=c->mask; cap=0; while(m){ cap+=c->mul; m&=m-1u; } cap+=c->add; } else cap=m>2u?100u:30u; h=care_p(e,c->hap); if(*h<cap) *h=(u8)cap; } }
+          if(n & (1u<<28)){ u8 *h=care_p(e,c->hun); if(*h<c->hmax) *h=c->hmax; { u32 m=*care_p(e,c->med), cap; if(c->mask){ m&=c->mask; cap=0; while(m){ cap+=c->mul; m&=m-1u; } cap+=c->add; } else cap=m>2u?100u:30u; h=care_p(e,c->hap); if(*h<cap) *h=(u8)cap; }
+#ifdef EMU_CARE_SICK
+            if(c->sk){ u8 *k=care_p(e,(u16)(c->hun+c->sk)); k[0]=0; k[1]=0; g_care_c=1u;
+#ifdef EMU_CARE_CALL
+              /* test5: the call (name in the bubble, attention icon): hun+5 = its reasons (bit0 hunger, bit1 the other
+               * need), hun+4 and hun+9 their minute timers; feeding in the game clears bit0 and hun+4 */
+              k=care_p(e,c->hun); k[4]=0; k[5]=0; k[9]=0;
+#endif
+            }
+#endif
+          }
           else { u32 v=p[0]|(u32)p[1]<<8|(u32)p[2]<<16; if(hw_num_edit("GOTCHI POINTS",&v,5,99999u,en)){ p[0]=(u8)v; p[1]=(u8)(v>>8); p[2]=(u8)(v>>16); p[3]=0; } }
           n&=0x0FFFFFFFu; }
 #else
@@ -1318,6 +1343,9 @@ void Reset_Handler(void){
       else if((b&BTN_WHEEL) && !g_bl && !wheel_ms){ ww=1; b&=~BTN_WHEEL; }
       if(wc){ if(now-wc<150u) b|=BTN_C; else wc=0; } }
 #endif
+#ifdef EMU_CARE_SICK
+    if(g_care_c){ if(g_care_c==1u) g_care_c=now+2u; if(now+2u-g_care_c<150u) b|=BTN_C; else g_care_c=0; }
+#endif
     periph_buttons(e,(uint8_t)(b&7));
     if(b) g_btn_ms=now;
     /* v0.9.2: wheel within the first 3 s after resuming a saved session: throw the session away
@@ -1355,7 +1383,17 @@ void Reset_Handler(void){
         u32 n=hw_opts_menu_xn(g_opt, en, cx, 2);
 #endif
         if(n & 0x80000000u){ u8 *p=care_p(e,c->pts);
-          if(n & (1u<<28)){ u8 *h=care_p(e,c->hun); if(*h<c->hmax) *h=c->hmax; { u32 m=*care_p(e,c->med), cap; if(c->mask){ m&=c->mask; cap=0; while(m){ cap+=c->mul; m&=m-1u; } cap+=c->add; } else cap=m>2u?100u:30u; h=care_p(e,c->hap); if(*h<cap) *h=(u8)cap; } }
+          if(n & (1u<<28)){ u8 *h=care_p(e,c->hun); if(*h<c->hmax) *h=c->hmax; { u32 m=*care_p(e,c->med), cap; if(c->mask){ m&=c->mask; cap=0; while(m){ cap+=c->mul; m&=m-1u; } cap+=c->add; } else cap=m>2u?100u:30u; h=care_p(e,c->hap); if(*h<cap) *h=(u8)cap; }
+#ifdef EMU_CARE_SICK
+            if(c->sk){ u8 *k=care_p(e,(u16)(c->hun+c->sk)); k[0]=0; k[1]=0; g_care_c=1u;
+#ifdef EMU_CARE_CALL
+              /* test5: the call (name in the bubble, attention icon): hun+5 = its reasons (bit0 hunger, bit1 the other
+               * need), hun+4 and hun+9 their minute timers; feeding in the game clears bit0 and hun+4 */
+              k=care_p(e,c->hun); k[4]=0; k[5]=0; k[9]=0;
+#endif
+            }
+#endif
+          }
           else { u32 v=p[0]|(u32)p[1]<<8|(u32)p[2]<<16; if(hw_num_edit("GOTCHI POINTS",&v,5,99999u,en)){ p[0]=(u8)v; p[1]=(u8)(v>>8); p[2]=(u8)(v>>16); p[3]=0; } }
           n&=0x0FFFFFFFu; }
 #else

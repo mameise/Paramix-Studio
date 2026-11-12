@@ -249,7 +249,11 @@ extern uint32_t __stack_bottom;
 
 /* ---- pages for the guest's bytes in the hole ---- */
 #ifndef NPOOL
+#ifdef T18_HOLE_IX
+#define NPOOL 93                 /* 1.7.5: 64-byte pages in the same RAM (12 x 512 bytes and the pointer table before) */
+#else
 #define NPOOL 12
+#endif
 #endif
 static uint8_t g_pool[NPOOL][T18_HOLE_PG] __attribute__((aligned(4)));
 static uint32_t g_pool_n;
@@ -339,7 +343,14 @@ __attribute__((noreturn, section(".xiptext"), noinline)) static void fatal_rows(
   hw_back_to_paradise();
   for (;;) {}
 }
+#ifdef T18_FATAL_FLUSH
+COLD static void c_release(void);
+/* 1.7.5: a stop in the main loop (no page for the hole, stack) first writes the game's own flash bytes still in the
+ * buffer, so its save is not older than the last write of the game */
+__attribute__((noreturn)) static void fatal(uint32_t code, uint32_t info) { if (code == 2u || code == 3u) c_release(); fatal_rows(code, &info, 1); }
+#else
 __attribute__((noreturn)) static void fatal(uint32_t code, uint32_t info) { fatal_rows(code, &info, 1); }
+#endif
 /* E1: two columns. PC LR / CFSR fault address / stage guest PC / r0 r1 / r2 r3 / r12 xPSR /
  * SP EXC_RETURN / HFSR translator (blocks, bit 31 = interpreter only) */
 extern uint32_t t18_jit_stat[8];
@@ -1333,6 +1344,9 @@ COLD static void lk_init(void);
 COLD static int app_start(void)
 {
   t18_sram = (uint8_t *)0x18000000u; t18_hole_new = hole_new; t18_hole_free = hole_free;
+#ifdef T18_HOLE_IX
+  t18_hole_base = (uint8_t *)g_pool - T18_HOLE_PG;   /* page number 1 = g_pool[0] */
+#endif
   map_load();
 #ifdef T18_XIP_PROBE
   { uint32_t v[16] = { 0 }, gmin = 0xFFFFFFFFu, gmax = 0;

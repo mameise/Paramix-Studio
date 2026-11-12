@@ -140,8 +140,17 @@ static uint32_t fnv(const uint8_t *p, size_t n, uint32_t h) { for (size_t i = 0;
 /* hash over the guest's view of its SRAM (with a hole: its pages, not the host bytes) */
 static uint32_t sram_hash(void) { uint32_t h = 2166136261u; for (uint32_t o = 0; o < T18_SRAM_SIZE; o += 256) h = fnv(t18_sram_rp(o), 256, h); return h; }
 #if T18_HOLE_HI > T18_HOLE_LO
+#ifdef T18_HOLE_IX
+static uint8_t g_pool[255][T18_HOLE_PG]; static int g_pool_n;
+#else
 static uint8_t g_pool[64][T18_HOLE_PG]; static int g_pool_n;
-static uint8_t *hole_new(void) { if (g_pool_n >= (getenv("T18_NPOOL") ? atoi(getenv("T18_NPOOL")) : 64)) return 0; uint8_t *p = g_pool[g_pool_n++]; memset(p, 0, T18_HOLE_PG); return p; }
+#endif
+#ifdef T18_HOLE_IX
+#define HOLE_ON(i) t18_hole_ix[i]
+#else
+#define HOLE_ON(i) t18_hole_pg[i]
+#endif
+static uint8_t *hole_new(void) { if (g_pool_n >= (getenv("T18_NPOOL") ? atoi(getenv("T18_NPOOL")) : (int)(sizeof g_pool / sizeof g_pool[0]))) return 0; uint8_t *p = g_pool[g_pool_n++]; memset(p, 0, T18_HOLE_PG); return p; }
 static void hole_free(void) { g_pool_n = 0; }
 #endif
 
@@ -242,6 +251,9 @@ int main(int argc, char **argv)
 #if T18_HOLE_HI > T18_HOLE_LO
     memset(t18_sram + T18_HOLE_LO, 0xA5, T18_HOLE_HI - T18_HOLE_LO);   /* not the guest's: must never be used */
     t18_hole_new = hole_new; t18_hole_free = hole_free;
+#ifdef T18_HOLE_IX
+    t18_hole_base = (uint8_t *)g_pool - T18_HOLE_PG;
+#endif
 #endif
     for (int i = 0; i < 128; i++) t18_fblk[i] = g_flash + (i << 16);
     T = calloc(1, tg18_struct_size());
@@ -312,6 +324,8 @@ int main(int argc, char **argv)
         }
 #endif
 #ifdef T18_PANEL_MODEL
+        else if (!strcmp(cmd, "burst")) { int ms = atoi(a), mx = 0, mx10 = 0, p10 = g_pool_n; for (int i = 0; i < ms; i++) { int p0 = g_pool_n; tg18_run_us(T, 1000); if (g_pool_n - p0 > mx) mx = g_pool_n - p0; if (i % 10 == 9) { if (g_pool_n - p10 > mx10) mx10 = g_pool_n - p10; p10 = g_pool_n; } } fprintf(stderr, "burst max per ms %d per 10 ms %d now %d\n", mx, mx10, g_pool_n); }
+        else if (!strcmp(cmd, "holes")) { fprintf(stderr, "hole pages %u:", (unsigned)g_pool_n); for (uint32_t i = 0; i < T18_HOLE_N; i++) if (HOLE_ON(i)) fprintf(stderr, " %x", (unsigned)(0xF8000000u + T18_HOLE_LO + i * T18_HOLE_PG)); fprintf(stderr, "\n"); }
         else if (!strcmp(cmd, "mwait")) m_run_ms(atof(a));
         else if (!strcmp(cmd, "mpress")) {   /* mpress <keys> [ms]: as press, the panel model running */
             int m = 0; for (char *p = a; *p; p++) m |= *p == 'A' ? 1 : *p == 'B' ? 2 : *p == 'C' ? 4 : 0;

@@ -272,6 +272,12 @@ void MinxPRC_On72HzRefresh(int prcrender)
 #ifdef PM_FASTLCD
 	/* PokeMiniEmu: the Paradise program reads the LCD memory itself, only for the frames it shows (and mixes two
 	 * frames for the grey shades); the per-dot buffers and the decay are left out (they took about 18 % of the time) */
+#ifdef PM_PRC_MIX
+	/* PokeMiniEmu 1.7.5: 1 = the PRC copied a new picture this refresh, 0 = none, 2 = PRC copy off (the game writes the
+	 * LCD itself: every refresh counts). The grey of the games alternates per PRC picture (36 Hz or slower), not per
+	 * 72 Hz refresh, so the program mixes the last two pictures */
+	{ extern int pm_prc_img; pm_prc_img = MinxPRC.PRCMode ? (prcrender ? 1 : 0) : 2; }
+#endif
 	(void)prcrender; LCDDirty = 0;
 #else
 	if ((PokeMini_LCDMode == LCDMODE_3SHADES) && (prcrender)) memcpy(LCDPixelsA, LCDPixelsD, 96*64);

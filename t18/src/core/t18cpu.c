@@ -46,7 +46,14 @@ void arm7_init(arm7_t *c) {
 
 /* ---- memory ---- */
 uint8_t *t18_sram;                 /* guest 0xF8000000, 128 KB (see t18cpu.h for the hole) */
+#ifdef T18_HOLE_IX
+uint8_t t18_hole_ix[T18_HOLE_N + 1];
+uint8_t *t18_hole_base;
+#define HPG(i) (t18_hole_ix[i] ? t18_hole_base + ((uint32_t)t18_hole_ix[i] << T18_HOLE_SH) : (uint8_t *)0)
+#else
 uint8_t *t18_hole_pg[T18_HOLE_N + 1];
+#define HPG(i) t18_hole_pg[i]
+#endif
 uint8_t *(*t18_hole_new)(void);
 void (*t18_hole_free)(void);
 int t18_oom;
@@ -54,14 +61,23 @@ const uint8_t *t18_fblk[128];      /* guest flash 0x20000000 in 64 KB blocks, 0 
 const uint32_t t18_zero_pg[T18_HOLE_PG / 4];   /* 1.6.8: also read by j_chk (CHK_HOLE) */
 const uint8_t *t18_sram_rp(uint32_t o) {
     if (!t18_hole(o)) return t18_sram + o;
-    const uint8_t *p = t18_hole_pg[(o - T18_HOLE_LO) / T18_HOLE_PG];
+    const uint8_t *p = HPG((o - T18_HOLE_LO) / T18_HOLE_PG);
     return (p ? p : (const uint8_t *)t18_zero_pg) + (o & (T18_HOLE_PG - 1));
 }
 uint8_t *t18_sram_wp(uint32_t o, int make) {
     if (!t18_hole(o)) return t18_sram + o;
-    uint8_t **pp = &t18_hole_pg[(o - T18_HOLE_LO) / T18_HOLE_PG];
-    if (!*pp && make) { *pp = t18_hole_new ? t18_hole_new() : 0; if (!*pp) t18_oom = 1; }
-    return *pp ? *pp + (o & (T18_HOLE_PG - 1)) : 0;
+    uint32_t i = (o - T18_HOLE_LO) / T18_HOLE_PG;
+    uint8_t *p = HPG(i);
+    if (!p && make) {
+        p = t18_hole_new ? t18_hole_new() : 0;
+        if (!p) t18_oom = 1;
+#ifdef T18_HOLE_IX
+        else t18_hole_ix[i] = (uint8_t)((uint32_t)(p - t18_hole_base) >> T18_HOLE_SH);
+#else
+        else t18_hole_pg[i] = p;
+#endif
+    }
+    return p ? p + (o & (T18_HOLE_PG - 1)) : 0;
 }
 uint32_t t18_sram_rd(uint32_t o, int size) {
     uint32_t v = 0;
@@ -79,7 +95,11 @@ void t18_sram_clear(void) {
     if (!T18_HOLE_N) { memset(t18_sram, 0, T18_SRAM_SIZE); return; }
     memset(t18_sram, 0, T18_HOLE_LO);
     memset(t18_sram + T18_HOLE_HI, 0, T18_SRAM_SIZE - T18_HOLE_HI);
+#ifdef T18_HOLE_IX
+    for (uint32_t i = 0; i < T18_HOLE_N; i++) t18_hole_ix[i] = 0;
+#else
     for (uint32_t i = 0; i < T18_HOLE_N; i++) t18_hole_pg[i] = 0;
+#endif
     if (t18_hole_free) t18_hole_free();
     t18_oom = 0;
 }

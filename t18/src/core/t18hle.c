@@ -120,7 +120,13 @@ typedef struct { uint8_t n, slow; uint16_t tail; hent_t e[HLE_MAXR]; } hrow_t;
 static inline uint32_t rej_kind(const uint8_t *e, uint32_t y)
 {
     if (!g32(e)) return K_Z;
+#ifdef T18_HLE_K2VIS
+    /* 1.7.5 (user: Wondergarden, worn accessories not shown): only the kind-1 pixel routine (fairy, magic, sanrio)
+     * skips layers with bit 14; the kind-2 routine (wondergarden, fantasy, pastel, sweets) draws them */
+    if (hv.kind == 1u && (g16(e + 14) & 0x4000u)) return K_H;
+#else
     if (g16(e + 14) & 0x4000u) return K_H;
+#endif
     int32_t dy = (int16_t)(uint16_t)(y - g16(e + 6));
     if (dy < 0) return K_DN;
     if (dy >= (int32_t)e[9]) return K_DB;

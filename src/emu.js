@@ -152,6 +152,9 @@ const GUEST_LZ = true, LZ_PART = 0x400;
 /* 1.7.4 BIG_LZ: a save that ran for a long time fills more blocks than fit (User: P's and 4U, "firmware too big: 92
  * blocks"). Then the cold blocks are packed, also when "Pack the firmware" is off (packing was only for room before). */
 const BIG_LZ = true;
+/* 1.7.5 PACK_ASK: a firmware that only fits packed (long save) is no longer packed by itself: the Studio says so and the
+ * user switches on "Pack the firmware" (Bernd: packing only by choice) */
+const PACK_ASK = true;
 /** BIG_LZ: does this firmware only fit packed? */
 function tamaNeedsLz(g, dev) { if (!BIG_LZ) return false; try { packGuest(g, dev, { sparse: true }); return false; } catch (e) { try { packGuest(g, dev, { lz: true }); return true; } catch (e2) { return false; } } }
 const MAIN_LZ = true;   // 1.7.2 test13: also for the main TamaEmu (emuPatch)
@@ -227,6 +230,19 @@ function lzPack(g, blocks) {
   return out;
 }
 /* back into the guest image g (rd(off, len) reads the flash at the table) */
+/* 1.7.5 PACK_WARN: how many 64 KB blocks a TamaEmu keeps packed (table of 128 u32 at lzOff, absolute in the ROM). The
+ * main TamaEmu always packs 2 or 3 cold blocks for its spare pages (MAIN_FEW): that does not count as packed. */
+const PACK_FEW = 8;
+function lzCount(rom, lzOff) { if (!lzOff || lzOff + 512 > rom.length) return 0; let n = 0; for (let b = 0; b < 128; b++) if (u32(rom, lzOff + 4 * b)) n++; return n; }
+/** PACK_WARN: names of the TamaEmus in the menu that are packed */
+function appsPacked(rom, apps) {
+  const out = [];
+  for (const e of apps || []) {
+    const off = e.src - 0x10000000 + XIP_DEC; if (off < 0 || off + 0x10000 > rom.length) continue;
+    const c = extraCfg(rom, off); if (c && c.kind === 'tama' && lzCount(rom, c.lzOff) > PACK_FEW) out.push(e.name || TX_NAMES[c.dev] || 'TAMAEMU');
+  }
+  return out;
+}
 function lzUnpack(rd, g) {
   const t = rd(0, 512);
   for (let b = 0; b < 128 && (b << 16) < g.length; b++) {
@@ -1611,7 +1627,7 @@ function extraSize(x, txs) {
     // 1.7.2 SIZE_CACHE: packing takes up to half a second; the firmware arrays are new ones whenever they change
     const ck = (txs || 0) + ':' + x.dev + (x.pack ? ':z' : ''), hit = SIZE_CACHE && sizeCache.get(x.guest); if (hit && hit[ck] !== undefined) return hit[ck];
     // TAMA_RAW (test18): the size as it goes in when there is room (unpacked)
-    let n = 0; try { const pk = packGuest(x.guest, x.dev, { sparse: true, lz: GUEST_LZ && (PACK_OPT ? !!x.pack || tamaNeedsLz(x.guest, x.dev) : !TAMA_RAW) }); n = ((pk.blob.length + txSpare(pk, txs) + 0xFFFF) & ~0xFFFF) + 0x10000 + TX_STATE; } catch (e) { n = 0; }
+    let n = 0; try { const pk = packGuest(x.guest, x.dev, { sparse: true, lz: GUEST_LZ && (PACK_OPT ? !!x.pack || (!PACK_ASK && tamaNeedsLz(x.guest, x.dev)) : !TAMA_RAW) }); n = ((pk.blob.length + txSpare(pk, txs) + 0xFFFF) & ~0xFFFF) + 0x10000 + TX_STATE; } catch (e) { n = 0; }
     if (SIZE_CACHE && x.guest) { const m = hit || {}; m[ck] = n; sizeCache.set(x.guest, m); }
     return n;
   }
@@ -1921,7 +1937,8 @@ function appsPlace0(rom, extras, app, opts = {}) {
       res.push([at, at + size]); if (!pl.hi) top = Math.min(top, at);
     } else if (k === 'tama') {
       if (!apps.tama) throw new Error('TamaEmu missing');
-      const lzCan = GUEST_LZ && tamaLzCan(apps.tama) && (PACK_OPT ? !!x.pack || tamaNeedsLz(x.guest, x.dev) : !opts.tamaRaw);
+      if (PACK_ASK && PACK_OPT && !x.pack && GUEST_LZ && tamaLzCan(apps.tama) && tamaNeedsLz(x.guest, x.dev)) throw Object.assign(new Error(extraName(x) + ' only fits packed'), { needPack: true, prog: extraName(x) });
+      const lzCan = GUEST_LZ && tamaLzCan(apps.tama) && (PACK_OPT ? !!x.pack || (!PACK_ASK && tamaNeedsLz(x.guest, x.dev)) : !opts.tamaRaw);
       const memo = SIZE_CACHE && !x.lzAll && !x.lzExtra ? (sizeCache.get(x.guest) || {}) : null, mk = 'pk:' + x.dev + ':' + lzCan;   // SIZE_CACHE: trial builds pack only once
       const pk = (memo && memo[mk]) || packGuest(x.guest, x.dev, { sparse: true, lz: lzCan, lzAll: !!x.lzAll, lzExtra: x.lzExtra }), { map, blob, pages } = pk;
       if (memo && !memo[mk]) { memo[mk] = pk; sizeCache.set(x.guest, memo); }
@@ -2253,7 +2270,7 @@ function mainSpare(r) {
 function mainPick(g, dev, app, pack) {
   const lz = MAIN_LZ && !!app && tamaLzCan(app);
   if (lz && pack) return packGuest(g, dev, { lz: true });
-  let r; try { r = packGuest(g, dev, {}); } catch (e) { if (BIG_LZ && lz) return packGuest(g, dev, { lz: true }); throw e; }   // BIG_LZ: only fits packed
+  let r; try { r = packGuest(g, dev, {}); } catch (e) { if (BIG_LZ && lz && PACK_ASK) throw Object.assign(new Error('this firmware only fits packed'), { needPack: true }); if (BIG_LZ && lz) return packGuest(g, dev, { lz: true }); throw e; }   // BIG_LZ: only fits packed
   if (lz && mainSpare(r) < MAIN_RAW_MIN) {
     if (MAIN_FEW && LZ_WARM[dev]) {
       const G = new Uint8Array(DEVICES[dev].size).fill(0xFF); G.set(g.subarray(0, Math.min(g.length, G.length)));
@@ -2271,6 +2288,6 @@ function embedded() {
   return { app: b64(EMU_APP_B64), stub: b64(EMU_STUB_B64) };
 }
 
-root.ParamixEmu = { PACK_OPT, doomLinks, doomUnlink, DOOM_LINK, packMain, lzEnc, lzDec, lzPack, lzUnpack, tamaLzCan, GUEST_LZ, doomCfg, doomParts, gbTrim, gbUntrim, hiFree, t7Outdated, wolfSod, wolfSodEmbedded, smsEmbedded, smsDetect, smsGameGear, smsTitle, SMS_MAGIC, SMS_KEYS_DEFAULT, abEmbedded, abHex, abTitle, AB_MAGIC, AB_KEYS_DEFAULT, AB_SAVE, AB_MAX, pmEmbedded, pmDetect, pmTooBig, pmBiosDetect, pmTitle, PM_MAGIC, PM_KEYS_DEFAULT, PM_SAVE, PM_BIOS_AT, wolfEmbedded, wolfInfo, wolfPackOk, WOLF_MAGIC, WOLF_KEYS_DEFAULT, gbEmbedded, gbcEmbedded, gbIsColor, gbDetect, gbColorOnly, gbTitle, GB_MAGIC, GB_KEYS_DEFAULT, emuOptGet, emuOptSet, emuSessGet, emuSessSet, v1Embedded, v3Embedded, v3Detect, v1Detect, v1Name, v1Clock, v1Patch, v1FromRom, v1Upgrade, V1_MAGIC, installApp, dlcStores, dlcRoute, dlcAdd, dlcFree, dlcSlots, dlcRecord, dlcPut, dlcName, emuDetect, sceneTable, packGuest, emuPatch, emuUpgrade, emuRemove, t7Embedded, t7Detect, t7Kind, appsPlace, appsRead, appsClear, appReserved, extraKind, extraName, extraSize, extraCfg, t7XName, T7X_SAVE, APPX_MAX, t7FigDetect, t7FigData, t7FigName, t7Cfg, t7FromRom, t7Room, t7Patch, t7Upgrade, t7Wall, T7_MAGIC, t18Embedded, t18Detect, t18FromRom, t18Items, t18ItemAdd, t18ItemDel, t18ItemCount, t18RoomReset, t18Points, t18iScan, t18RomWriteGuest, T18_ADULTS, t18AdultFind, t18PicMake, t18PicsWrite, t18PicsRead, t18PicRgba, t18Addrs, t18Cfg, t18Free, t18Low, t18Patch, t18Upgrade, t18Wall, t18ClockGet, t18ClockSet, emuClockGet, emuClockSet, tamaName, emuNfcGet, emuNfcSet, T18_MAGIC, T18_XIP_OFF, T18_SAVE_LEN, OPT_LV, autoGet, autoGetOld, autoSet, STUB_OFF, installedOrigs, embedded, DEVICES, GUEST_OFF, BIG_OFF };
+root.ParamixEmu = { PACK_OPT, PACK_ASK, PACK_FEW, lzCount, appsPacked, doomLinks, doomUnlink, DOOM_LINK, packMain, lzEnc, lzDec, lzPack, lzUnpack, tamaLzCan, GUEST_LZ, doomCfg, doomParts, gbTrim, gbUntrim, hiFree, t7Outdated, wolfSod, wolfSodEmbedded, smsEmbedded, smsDetect, smsGameGear, smsTitle, SMS_MAGIC, SMS_KEYS_DEFAULT, abEmbedded, abHex, abTitle, AB_MAGIC, AB_KEYS_DEFAULT, AB_SAVE, AB_MAX, pmEmbedded, pmDetect, pmTooBig, pmBiosDetect, pmTitle, PM_MAGIC, PM_KEYS_DEFAULT, PM_SAVE, PM_BIOS_AT, wolfEmbedded, wolfInfo, wolfPackOk, WOLF_MAGIC, WOLF_KEYS_DEFAULT, gbEmbedded, gbcEmbedded, gbIsColor, gbDetect, gbColorOnly, gbTitle, GB_MAGIC, GB_KEYS_DEFAULT, emuOptGet, emuOptSet, emuSessGet, emuSessSet, v1Embedded, v3Embedded, v3Detect, v1Detect, v1Name, v1Clock, v1Patch, v1FromRom, v1Upgrade, V1_MAGIC, installApp, dlcStores, dlcRoute, dlcAdd, dlcFree, dlcSlots, dlcRecord, dlcPut, dlcName, emuDetect, sceneTable, packGuest, emuPatch, emuUpgrade, emuRemove, t7Embedded, t7Detect, t7Kind, appsPlace, appsRead, appsClear, appReserved, extraKind, extraName, extraSize, extraCfg, t7XName, T7X_SAVE, APPX_MAX, t7FigDetect, t7FigData, t7FigName, t7Cfg, t7FromRom, t7Room, t7Patch, t7Upgrade, t7Wall, T7_MAGIC, t18Embedded, t18Detect, t18FromRom, t18Items, t18ItemAdd, t18ItemDel, t18ItemCount, t18RoomReset, t18Points, t18iScan, t18RomWriteGuest, T18_ADULTS, t18AdultFind, t18PicMake, t18PicsWrite, t18PicsRead, t18PicRgba, t18Addrs, t18Cfg, t18Free, t18Low, t18Patch, t18Upgrade, t18Wall, t18ClockGet, t18ClockSet, emuClockGet, emuClockSet, tamaName, emuNfcGet, emuNfcSet, T18_MAGIC, T18_XIP_OFF, T18_SAVE_LEN, OPT_LV, autoGet, autoGetOld, autoSet, STUB_OFF, installedOrigs, embedded, DEVICES, GUEST_OFF, BIG_OFF };
 if (typeof module !== 'undefined') module.exports = root.ParamixEmu;
 })(typeof window !== 'undefined' ? window : globalThis);

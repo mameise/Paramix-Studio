@@ -19,7 +19,16 @@
 #define T18_HOLE_LO 0u
 #define T18_HOLE_HI 0u
 #endif
+#ifdef T18_HOLE_IX
+/* 1.7.5 T18_HOLE_IX (user: the connection screen made the emulator restart): pages of 64 bytes, a byte table of
+ * page numbers (1..255, 0 = not made) instead of pointers. The connection screen writes 9 KB into the hole in
+ * 512-byte pages (18 of 12), 4.7 KB in 64-byte pages. */
+#define T18_HOLE_PG 64u
+#define T18_HOLE_SH 6
+#else
 #define T18_HOLE_PG 512u
+#define T18_HOLE_SH 9
+#endif
 #define T18_HOLE_N ((T18_HOLE_HI - T18_HOLE_LO) / T18_HOLE_PG)
 static inline int t18_hole(uint32_t o) { return o - T18_HOLE_LO < T18_HOLE_HI - T18_HOLE_LO; }
 /* a range [o, o + n) that touches the hole */
@@ -66,7 +75,12 @@ struct arm7 {
 };
 
 extern uint8_t *t18_sram;              /* guest SRAM, 128 KB (the hole part is not the guest's) */
+#ifdef T18_HOLE_IX
+extern uint8_t t18_hole_ix[T18_HOLE_N + 1];    /* page number of each part of the hole, 0 = not made yet (reads 0) */
+extern uint8_t *t18_hole_base;                 /* page n is at t18_hole_base + n * T18_HOLE_PG */
+#else
 extern uint8_t *t18_hole_pg[T18_HOLE_N + 1];   /* pages of the hole, 0 = not made yet (reads 0) */
+#endif
 extern uint8_t *(*t18_hole_new)(void);  /* platform: a zeroed page of 512 bytes, 0 = none left */
 extern int t18_oom;                     /* a write into the hole was lost (no page left) */
 const uint8_t *t18_sram_rp(uint32_t o); /* guest SRAM offset -> byte, valid up to the end of its 512-byte page */

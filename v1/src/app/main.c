@@ -175,6 +175,9 @@ __attribute__((noinline)) static void tq_pump(void)
 
 /* ---- HAL for TamaLIB: virtual time in us, moved on by the core's own waits ---- */
 static u32 g_vt;
+#ifdef V1_VT_ABS
+static u32 g_vtt;
+#endif
 static u8 g_mat[16][32], g_icon[8], g_dirty = 1;
 static u32 g_freq, g_snd_on, g_sound = 1, g_tone_now, g_tone_since, g_tone_cut;
 static void *h_malloc(u32_t s) { (void)s; return 0; }
@@ -836,7 +839,16 @@ void Reset_Handler(void)
     u32 t0 = g_ms;
     while ((s32)(now - emu_ms) > 0 && g_ms - t0 < 20u) {
 #endif
+#ifdef V1_VT_ABS
+      /* 1.7.4 (user: Umino clock ahead 1 to 2 hours a day): "g_vt + 1000" also counted the last step's overshoot
+       * (up to 150 us) as a full ms, so every toy ran 6 to 9 % fast. Now the toy's time goes on 1000 us per ms
+       * exactly; a jump of g_vt (session, fallback) starts the count anew. */
+      g_vtt += 1000u;
+      if ((s32)(g_vt - g_vtt) > 5000 || (s32)(g_vtt - g_vt) > 5000) g_vtt = g_vt + 1000u;
+      u32 target = g_vtt;
+#else
       u32 target = g_vt + 1000u;
+#endif
 #ifdef V1_STALL
       /* 1.7.3 test21: the old fallback (+31 us whenever a step did not move the time) put the pacing time ahead of the
        * CPU's own time; in OSC3 (1 MHz, Umino) an instruction takes 5..12 us, so from then on every step added 31 us

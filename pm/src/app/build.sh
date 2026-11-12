@@ -4,7 +4,7 @@ set -e
 cd "$(dirname "$0")"
 E=../../../emu/src/emu
 C=../core
-CF="--target=thumbv7m-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -nostdlib -fno-common -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-but-set-variable -Wno-parentheses -Wno-dangling-else -fno-builtin-memset -ffunction-sections -isystem ../stub -I$C -DPERFORMANCE -DPM_SYNCCYCLES=64 -DPM_FASTLCD -DPM_HEAP=0x7400 -DFAST_LCD -DEXIT_KEY -DLCD_FASTCLK -DTONE_FIX -DHW_TONE_RESTART -DBL_SLEEP -DPARA_BACK -DPARA_MB_KEEP -DBL_PWM -DBL_MR3RST -DTONE_SAFE -DGPLAY -DSESS_FLAG $XCF"
+CF="--target=thumbv7m-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -nostdlib -fno-common -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-but-set-variable -Wno-parentheses -Wno-dangling-else -fno-builtin-memset -ffunction-sections -isystem ../stub -I$C -DPERFORMANCE -DPM_SYNCCYCLES=64 -DPM_FASTLCD -DPM_PRC_MIX -DPM_HEAP=0x7400 -DFAST_LCD -DEXIT_KEY -DLCD_FASTCLK -DTONE_FIX -DHW_TONE_RESTART -DBL_SLEEP -DPARA_BACK -DPARA_MB_KEEP -DBL_PWM -DBL_MR3RST -DTONE_SAFE -DGPLAY -DSESS_FLAG $XCF"
 O=""
 for f in main.c $C/*.c $E/hw.c $E/flash.c $E/libc.c; do
   n=$(basename $f .c); OPT=-Os

@@ -325,10 +325,11 @@ function spriteEncode(orig, subs, opts = {}) {
     indexOf = (p) => (p[3] < 128 && transpIdx >= 0) ? transpIdx : nearestIndex(pk, p[0], p[1], p[2], transpIdx);
   } else if (figureMode) {
     const FREE = [8, 9, 10, 11, 12, 13, 14, 15];
-    const dark = (r, g, b) => r + g + b < 90;
+    // FIG_QUANT2: the outline colour of the game (0x000C = 0,0,98) also counts as dark (it took one of the 8 slots)
+    const dark = FIG_QUANT2 ? (r, g, b) => r + g + b < 90 || (r <= 8 && g <= 8 && b <= 106) : (r, g, b) => r + g + b < 90;
     const opaque = [];
     for (const s of subs) for (let i = 0; i < s.data.length; i += 4) if (s.data[i + 3] >= 128 && !dark(s.data[i], s.data[i + 1], s.data[i + 2])) opaque.push([s.data[i], s.data[i + 1], s.data[i + 2]]);
-    const pal = opaque.length ? quantize(opaque, FREE.length) : [];
+    const pal = !opaque.length ? [] : FIG_QUANT2 ? mergeColours(opaque, FREE.length) : quantize(opaque, FREE.length);
     transpIdx = 0;
     palBlock = new Uint8Array(32);
     w16(palBlock, 0, 0x07e0); w16(palBlock, 2, 0x000c);
@@ -410,6 +411,28 @@ const SPR_ALIGN = true;
  * colours that sit in slots 2-7. The game recolours those per Tama (colour, field), so the small Tama on the field
  * showed fewer colours or a red tint (Glacier: Icy Irukatchi, Ginjirotchi, Yukiraratchi). Those slots are left out. */
 const FIG_NOVAR = true;
+/* 1.7.5 FIG_QUANT2 (user: Irukatchi on Icy Irukatchi, small picture: the shine on the head had the wrong colour): the
+ * 8 free colours of a character picture. The outline colour no longer takes one, and with more than 8 colours the
+ * two closest are joined step by step (weighted by how often they occur), so a small bright spot keeps its colour. */
+const FIG_QUANT2 = true;
+function mergeColours(px, n) {
+  const m = new Map();
+  for (const p of px) { const k = (p[0] << 16) | (p[1] << 8) | p[2]; const e = m.get(k); if (e) e.n++; else m.set(k, { r: p[0], g: p[1], b: p[2], n: 1 }); }
+  const c = [...m.values()];
+  while (c.length > n) {
+    let bi = 0, bj = 1, bd = Infinity;
+    for (let i = 0; i < c.length; i++) for (let j = i + 1; j < c.length; j++) {
+      const a = c[i], b = c[j], dr = a.r - b.r, dg = a.g - b.g, db = a.b - b.b;
+      const d = (2 * dr * dr + 4 * dg * dg + 3 * db * db) * (a.n * b.n / (a.n + b.n));
+      if (d < bd) { bd = d; bi = i; bj = j; }
+    }
+    const a = c[bi], b = c[bj], t = a.n + b.n;
+    // the joined colour: the more frequent one (no mixed colours that were never drawn)
+    c[bi] = a.n >= b.n ? { r: a.r, g: a.g, b: a.b, n: t } : { r: b.r, g: b.g, b: b.b, n: t };
+    c.splice(bj, 1);
+  }
+  return c.map((e) => [e.r, e.g, e.b]);
+}
 /** SPR_ALIGN: a character picture with a length that is not a multiple of 4 (own pictures before 1.7.3 test21),
  *  padded with zeros; null when it is fine. */
 function spriteAlign(e) {

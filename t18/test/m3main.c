@@ -14,7 +14,11 @@ void t18_flash_prog(uint32_t a, uint8_t b) { FW[a & 0x7FFFFF] &= b; }
 void t18_flash_erase(uint32_t a, uint32_t size) { memset(FW + (a & 0x7FFFFF), 0xFF, size); }
 static uint32_t g_t[3600 / 4];
 #ifndef NPOOL
+#ifdef T18_HOLE_IX
+#define NPOOL 93
+#else
 #define NPOOL 12
+#endif
 #endif
 static uint8_t g_pool[NPOOL][T18_HOLE_PG] __attribute__((aligned(4))); static int g_pool_n;
 static uint8_t *hole_new(void) { if (g_pool_n >= NPOOL) return 0; uint8_t *p = g_pool[g_pool_n++]; memset(p, 0, T18_HOLE_PG); return p; }
@@ -53,6 +57,9 @@ int main(void)
     tg18_t *T = (tg18_t *)g_t;
     if (tg18_struct_size() > sizeof g_t) { g_mb[15] = tg18_struct_size(); for (;;) mb_wait(); }
     t18_sram = (uint8_t *)0x18000000u; t18_hole_new = hole_new; t18_hole_free = hole_free;
+#ifdef T18_HOLE_IX
+    t18_hole_base = (uint8_t *)g_pool - T18_HOLE_PG;
+#endif
     for (int i = 0; i < 128; i++) t18_fblk[i] = FW + (i << 16);
 #if defined(T18_FF_FAST) || defined(T18_EMPTY_SLOW)
     {                                /* as on the device: empty blocks have no pointer (FF_FAST: the translator answers 0xFF) */

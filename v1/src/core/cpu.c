@@ -1755,7 +1755,13 @@ static timestamp_t wait_for_cycles(timestamp_t since, u8_t cycles) {
 		return g_hal->get_timestamp();
 	}
 
+#ifdef V1_TS_EXACT
+	/* 1.7.4: the rest of the division is kept (OSC1: 5 cycles are 152.6 us, cut to 152 the toy ran 0.3 % fast) */
+	{ static u32_t ts_rest; u32_t den = cpu_frequency * speed_ratio, num = cycles * ts_freq + ts_rest;
+	  deadline = since + num / den; ts_rest = num % den; }
+#else
 	deadline = since + (cycles * ts_freq)/(cpu_frequency * speed_ratio);
+#endif
 	g_hal->sleep_until(deadline);
 
 	return deadline;
