@@ -101,8 +101,9 @@ Validation: `node test/feld_bulk_test.js`, `node test/feld_menu_test.js`,
 `node test/feld_slot_clock_test.js`, `node test/unit_test.js`, and both ARM builds. Menu tests use synthetic data
 with ASan/UBSan and two separate socket-connected processes, including dropped
 ACK, duplicate frames, incompatible resources, disconnect, and different clock
-counters. Physical two-device UART transfer and cross-field gameplay have not
-yet been tested. No device is flashed by these commands.
+counters. Physical two-device UART save transfer has been tested and confirmed
+working. Cross-field gameplay compatibility requires separate validation.
+No device is flashed by these commands.
 
 Settings block of the program (372 bytes at program + 0x140, version 4): slots,
 ID page (footer, constant), fields (ID, name, colour), factory settings per
