@@ -263,6 +263,7 @@ function feldApps(rom, tpl) {
  * every slot page except the header pages, numbered slot by slot.
  */
 const POOL_MAGIC = 0x4C4F4F50, DPG_OFF = 2032, DPG_MAX = 1024;
+const SLOT_TIME_MAGIC = 0x43544D50, SLOT_TIME_OFF = 4080;
 function poolPages(f) { return f.slotSize / 0x1000 - 1; }
 function poolAddr(f, k) { const n = poolPages(f); return slotAddr(f, Math.floor(k / n)) + (k % n + 1) * 0x1000; }
 /** Read slot i with read(addr, len) (sync, or async with slotReadAsync). { head, field, bytes, stream } or null. */
@@ -304,6 +305,8 @@ function slotPlace(out, f, i, s, used) {
   if (pages.length < nd || nd > DPG_MAX) throw new Error('the stored saves do not fit into the room for the fields');
   const h = new Uint8Array(0x1000).fill(0xFF);
   h.set(s.head.subarray(0, DPG_OFF));
+  // Imported UART saves carry clock origins outside the pool-page table.
+  h.set(s.head.subarray(SLOT_TIME_OFF, 0x1000), SLOT_TIME_OFF);
   w32(h, 4, i + 1); w32(h, 20, POOL_MAGIC); w32(h, 24, nd); w32(h, 28, 0);
   pages.forEach((x, k) => { h[DPG_OFF + 2 * k] = x & 255; h[DPG_OFF + 2 * k + 1] = x >> 8; });
   const b = slotAddr(f, i), written = [b];
@@ -362,6 +365,21 @@ function lzPack(p) {
   return Uint8Array.from(out);
 }
 /** Pages of a stored save (from slotRead/slotReadAsync): Map address -> 4 KB. */
+function slotClock(p, h) {
+  if (u32(h, SLOT_TIME_OFF) !== SLOT_TIME_MAGIC) return p;
+  const from = u32(h, SLOT_TIME_OFF + 4), to = u32(h, SLOT_TIME_OFF + 8);
+  if (u32(h, SLOT_TIME_OFF + 12) !== ((SLOT_TIME_MAGIC ^ from ^ to) >>> 0)) throw new Error('stored save clock damaged');
+  const crc = () => {
+    let c = 0;
+    for (let i = 4; i < p.length; i++) { c ^= p[i]; for (let b = 0; b < 8; b++) c = c & 1 ? (c >>> 1) ^ 0xA001 : c >>> 1; }
+    return c;
+  };
+  const c = crc(), days = u32(p, 12), sec = u32(p, 16), base = days * 86400 + sec + from - to;
+  if (u16(p, 0) !== c || u16(p, 2) !== (~c & 0xFFFF) || days > 40000 || sec >= 86400 || base < 0 || base > 0xFFFFFFFF) throw new Error('stored save clock damaged');
+  w32(p, 12, Math.floor(base / 86400)); w32(p, 16, base % 86400);
+  const next = crc(); w16(p, 0, next); w16(p, 2, ~next);
+  return p;
+}
 function slotPages(s) {
   const np = u32(s.head, 8), pages = new Map(); let pos = 0, sum = 0;
   for (let k = 0; k < s.bytes; k++) sum = (sum + s.stream[k]) >>> 0;
@@ -369,7 +387,8 @@ function slotPages(s) {
   for (let k = 0; k < np; k++) {
     const pg = u16(s.head, 32 + 4 * k), n = u16(s.head, 34 + 4 * k);
     if (pos + n > s.bytes) throw new Error('stored save damaged');
-    pages.set(pg * 0x1000, lzUnpack(s.stream.subarray(pos, pos + n), n)); pos += n;
+    const addr = pg * 0x1000, p = lzUnpack(s.stream.subarray(pos, pos + n), n);
+    pages.set(addr, addr === 0xEFE000 || addr === 0xEFF000 ? slotClock(p, s.head) : p); pos += n;
   }
   return pages;
 }

@@ -10,4 +10,4 @@ ld.lld -T link.ld --no-rosegment $O -o $N.elf
 llvm-objcopy -O binary -j .text $N.elf $N.bin
 llvm-size $N.elf; ls -l $N.bin
 # 1.7.2 CLEAN_ROM: a second build for ROMs without the Paradise (own clock); the start device keeps the build above
-if [ -z "$XCF" ]; then XCF=-DFELD_CLEAN OUT=feldc sh "$0" --inner; fi
+if [ -z "$XCF" ]; then XCF=-DFELD_CLEAN OUT=feldc sh ./build.sh --inner; fi

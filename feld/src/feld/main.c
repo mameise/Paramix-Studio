@@ -104,7 +104,9 @@ typedef struct {
 #else
 #define CFG_QUAL const
 #endif
+#ifndef HOST
 __attribute__((section(".pmxcfg"), used))
+#endif
 #ifdef FELD_CLEAN
 #define CFG_SIZE_OK (sizeof(Cfg)==612 && offsetof(Cfg,clock_sec)==608)
 #define CFG_VER 10
@@ -141,6 +143,9 @@ typedef struct {
   u16 dpg[DPG_MAX];
 } SlotHdr;
 _Static_assert(sizeof(SlotHdr)<=4096u, "slot header fits one page");
+#define SLOT_TIME_OFF 4080u
+#define SLOT_TIME_MAGIC 0x43544D50u /* PMTC: sender/receiver counter origin */
+_Static_assert(sizeof(SlotHdr)<=SLOT_TIME_OFF, "clock metadata fits header tail");
 
 #define GPIO2 0x4001A000u
 
@@ -256,6 +261,10 @@ static void wait_release(void){
 }
 #endif
 static int yes_no(void){ wait_release(); for(;;){ int k=input(); if(k==K_OK) return 1; if(k==K_BACK) return 0; } }
+/* Poll without repainting or waiting for release again on idle samples.
+ * input() normally returns 0; repaint/release on every sample can swallow a
+ * physical B/C press before its rising edge reaches the menu handler. */
+static int menu_key(void){ int k; do { k=input(); } while(!k); return k; }
 
 /* ---------------------------------------------------------------- Compression
  * LZSS per page: flag byte for 8 entries (bit 1 = reference), reference =
@@ -410,6 +419,18 @@ static void factory_page(u32 i, u8 *p){
   stamp(p);
 }
 
+/* Reserve enough pool space before invalidating an old header. extra is used
+ * by copy-and-switch to reserve both the copy and the current live backup. */
+static int stash_capacity(u32 fi,u32 extra){
+  u32 bytes=0,np=0;
+  for(u32 a=g_cfg.user_start;a<g_cfg.user_end;a+=PAGE) if(!page_ff(a)){
+    if(++np>NPAGE_MAX) return 0;
+    flash_read(a,g_page,PAGE); bytes+=lz_pack(g_page,g_cmp);
+  }
+  pool_mark(fi); u32 free=0,n=pool_n(); if(n>sizeof(g_used)*8u) return 0;
+  for(u32 i=0;i<n;i++) if(!(g_used[i>>3]&(1u<<(i&7u)))) free++;
+  return (bytes+PAGE-1u)/PAGE+extra<=free;
+}
 static int stash(u32 fi){
   u32 b=slot_base(fi), cap=g_cfg.slot_size-PAGE;
   u32 tot=0; for(u32 a=g_cfg.user_start;a<g_cfg.user_end;a+=PAGE) if(!page_ff(a)) tot++;
@@ -450,6 +471,23 @@ static int stash(u32 fi){
   return 0;
 }
 
+/* A received save uses the sender's seconds-counter origin. Rebase only its
+ * clock base when loading/copying, never the receiver's hardware counter or
+ * other slots. Packed data and its checksum remain unchanged. */
+static int slot_time(u32 fi,u32 addr,u8 *p){
+  u32 o=slot_base(fi)+SLOT_TIME_OFF;
+  if((addr!=SET_A && addr!=SET_B) || rd32(o)!=SLOT_TIME_MAGIC) return 0;
+  u32 from=rd32(o+4),to=rd32(o+8);
+  if(rd32(o+12)!=(SLOT_TIME_MAGIC^from^to) || !set_ok(p)) return 1;
+  u32 days=p[12]|((u32)p[13]<<8)|((u32)p[14]<<16)|((u32)p[15]<<24);
+  u32 sec=p[16]|((u32)p[17]<<8)|((u32)p[18]<<16)|((u32)p[19]<<24);
+  if(days>40000u || sec>=86400u) return 1;
+  long long base=(long long)days*86400+sec+(long long)from-to;
+  if(base<0 || base>0xFFFFFFFFu) return 1;
+  u32 d=(u32)base/86400u,s=(u32)base%86400u;
+  for(u32 k=0;k<4;k++){ p[12+k]=(u8)(d>>(k*8u)); p[16+k]=(u8)(s>>(k*8u)); }
+  stamp(p); return 0;
+}
 static int restore(u32 fi, int fresh){
   u32 b=slot_base(fi), np=0, off=0, ix=0;
   if(!fresh){
@@ -470,7 +508,7 @@ static int restore(u32 fi, int fresh){
         if(set){ if(pass) { factory_page(fi,g_page); want=1; } else continue; }
       } else if(ix2<np && rd16(b+32+ix2*4)==(a>>12)){
         u32 n=rd16(b+34+ix2*4);
-        if(set==(int)pass){ slot_get(fi,o2,n,g_cmp); if(lz_unpack(g_cmp, n, g_page)) return 21; want=1; }
+        if(set==(int)pass){ slot_get(fi,o2,n,g_cmp); if(lz_unpack(g_cmp, n, g_page) || slot_time(fi,a,g_page)) return 21; want=1; }
         o2+=n; ix2++;
         if(!want) continue;
       } else if(set!=(int)pass) continue;
@@ -510,12 +548,18 @@ static void message(const char *l1, const char *l2, const char *l3){
   for(;;){ int k=input(); if(k==K_OK||k==K_BACK) return; }
 }
 static void done_screen(const char *what, u16 col){
-  rect(0,0,128,128,BG);
-  ctext(40,"DONE",WHITE,2);
-  ctext(66,what,col,1);
-  show();
-  delay_loop(6000000u);
-  leave();
+  u32 exit=0;
+  for(;;){
+    rect(0,0,128,128,BG); ctext(8,"DONE",WHITE,2); ctext(34,what,col,1);
+    ctext(58,"EXIT MENU?",WHITE,1);
+    rect(8,exit?94:78,120,exit?107:91,RGB(60,60,110));
+    ctext(81,"NO - KEEP EDITING",GOLD,1); ctext(97,"YES - EXIT MENU",WHITE,1);
+    ctext(118,"B OK   C STAY",GREY,1); show(); wait_release();
+    int k=menu_key();
+    if(k==1 || k==K_A) exit^=1u;
+    if(k==K_BACK) return;
+    if(k==K_OK){ if(exit) leave(); return; }
+  }
 }
 
 /* Program in the stub? 0 = none, 1 = DOOM, 2 = TamaEmu, 3 = other, 4 = T7Emu */
@@ -707,6 +751,7 @@ static void act_mark(u32 j){
 }
 /* Live save to slot g_act, then slot tgt (has) or a fresh start on field fld into the live area. */
 static void field_switch2(u32 tgt, int has, u32 fld){
+  if(!stash_capacity((u32)g_act,0)){ message("NOT ENOUGH ROOM","CURRENT SAVE KEPT",""); return; }
   rect(0,0,128,128,BG); ctext(8,"PLEASE WAIT",WHITE,1); ctext(20,"DO NOT SWITCH OFF",GREY,1); show();
   int e=stash((u32)g_act);
   if(e){ erase_page(slot_base((u32)g_act)); error_screen(e); }
@@ -717,6 +762,8 @@ static void field_switch2(u32 tgt, int has, u32 fld){
   if(saves_mode()) act_mark(tgt);
   { u32 b=slot_base((u32)g_act); flash_read(b, g_out, PAGE); g_out[28]=g_out[29]=g_out[30]=g_out[31]=0; flash_prog4k(b, g_out); }   /* switch done */
   if(has) erase_page(slot_base(tgt));
+  g_act=(int)tgt; g_cur=(int)fld;
+  flash_read(SET_A,g_set,PAGE);
   done_screen(fname(fld), fcol(fld));
 }
 static void field_switch(u32 tgt, int has){ field_switch2(tgt, has, tgt); }
@@ -859,6 +906,7 @@ static void field_menu(int with_app, int top){
   u32 n = nf + na;
   u32 sel = na ? nf : (u32)g_cur;
   for(;;){
+    for(u32 i=0;i<nf;i++) has[i]=slot_valid(i);
     rect(0,0,128,128,BG);
     int y0 = n>=4u ? 1 : 12;
     if(n<4u) ctext(2, top ? "PARAMIX" : "FIELD", WHITE,1);
@@ -1265,7 +1313,13 @@ static void list_draw(const char *title, u32 n, u32 sel, u32 top, int (*row)(u32
   show();
 }
 
-/* Bag list: index -> slot (only items that are not fixed), entry 0 = add */
+/* Circular navigation, including accelerated wheel steps. */
+static u32 wrap_step(u32 v, int step, u32 lo, u32 hi){
+  int n=(int)(hi-lo+1u), x=(int)(v-lo)+step%n;
+  return lo+(u32)((x%n+n)%n);
+}
+/* Bag list: three actions, then slots (only items that are not fixed). */
+#define BAG_ACTIONS 3u
 static u16 g_bag[640]; static u32 g_bagn;
 #ifdef BAG_DEL
 #define BAG_SHOWN(i) (count_get(i) != 0u)
@@ -1277,15 +1331,24 @@ static void bag_build(void){ g_bagn=0; u32 n=list_len(); for(u32 i=0;i<n;i++) if
 #define BAG_SHOWN(i) 1
 #endif
 static int bag_row(u32 i, char *name, char *right, u16 *col){
-  if(i==0){ const char *s="+ ADD ITEM"; int k=0; while(s[k]){ name[k]=s[k]; k++; } name[k]=0; *col=GOLD; return 0; }
-  u32 slot=g_bag[i-1]; const char *s=item_name(list_id(slot)); int k=0; while(s[k] && k<22){ name[k]=s[k]; k++; } name[k]=0;
+  if(i<BAG_ACTIONS){ const char *s=i==0 ? "+ ADD ITEM" : i==1 ? "+ ADD ALL MISSING" : "= SET OWNED COUNTS"; int k=0; while(s[k]){ name[k]=s[k]; k++; } name[k]=0; *col=GOLD; return 0; }
+  u32 slot=g_bag[i-BAG_ACTIONS]; const char *s=item_name(list_id(slot)); int k=0; while(s[k] && k<22){ name[k]=s[k]; k++; } name[k]=0;
   right[0]='x'; utoa_(count_get(slot), right+1);
   return 0;
 }
 static u16 g_cat[512]; static u32 g_catn;
-static void cat_build(void){ g_catn=0; for(u32 k=0;k<g_cfg.cat_n && g_catn<512u;k++){ u32 o=g_cfg.cat_off+8u+28u*k; if(!fl(o+2)[0]) g_cat[g_catn++]=(u16)rd16(o); } }
+static int g_show_max;
+static u32 owned_count(u32 id){ u32 n=list_len(); for(u32 i=0;i<n;i++) if(list_id(i)==id) return count_get(i); return 0; }
+static void cat_build(void){
+  g_catn=0;
+  for(u32 k=0;k<g_cfg.cat_n && g_catn<512u;k++){
+    u32 o=g_cfg.cat_off+8u+28u*k, id=rd16(o);
+    if(id && !fl(o+2)[0] && (g_show_max || owned_count(id)<15u)) g_cat[g_catn++]=(u16)id;
+  }
+}
 static int cat_row(u32 i, char *name, char *right, u16 *col){
-  u32 id=g_cat[i]; const char *s=item_name(id); int k=0; while(s[k] && k<22){ name[k]=s[k]; k++; } name[k]=0;
+  if(!i){ const char *s=g_show_max ? "SHOW MAX ITEMS: YES" : "SHOW MAX ITEMS: NO"; int k=0; while(s[k]){ name[k]=s[k]; k++; } name[k]=0; *col=GOLD; return 0; }
+  u32 id=g_cat[i-1u]; const char *s=item_name(id); int k=0; while(s[k] && k<22){ name[k]=s[k]; k++; } name[k]=0;
   u32 n=list_len(); for(u32 j=0;j<n;j++) if(list_id(j)==id){
 #ifdef BAG_DEL
     if(!count_get(j)) break;
@@ -1319,7 +1382,7 @@ static u32 count_edit(u32 id, u32 v){
     show(); wait_release();
     for(;;){
       int k=input();
-      if(k==1){ int nv=(int)v+(g_step>0?1:-1); if(nv<(int)lo) nv=(int)lo; if(nv>15) nv=15; v=(u32)nv; break; }
+      if(k==1){ v=wrap_step(v,g_step,lo,15u); break; }
       if(k==K_A){ v = v>=15u ? lo : v+1u; break; }
       if(k==K_OK) return v;
 #ifdef BAG_DEL
@@ -1331,30 +1394,100 @@ static u32 count_edit(u32 id, u32 v){
   }
 }
 static int g_dirty;
-static void cat_pick(void){
-  cat_build();
-  if(!g_catn){ message("NO ITEM LIST","IN THIS ROM",""); return; }
-  u32 sel=0, top=0;
+/* Plan before changing RAM: capacity failure must leave even zero-count entries
+ * untouched. Missing means absent OR count zero. Never recycle another ID's slot.
+ * Walk the complete catalog, independently of the single-item picker's UI limit.
+ * Returns affected entries, or 641 if there is not enough room. */
+static u32 bulk_items(int missing, u32 v, int apply){
+  if(v<1u || v>15u) return 0;
+  u32 n=list_len(), changed=0, extra=0;
+  if(missing){
+    for(u32 k=0;k<g_cfg.cat_n;k++){
+      u32 o=g_cfg.cat_off+8u+28u*k;
+      if(fl(o+2u)[0]) continue;
+      u32 id=rd16(o), slot=0;
+      if(!id) continue;
+      while(slot<n && list_id(slot)!=id) slot++;
+      if(slot==n){ extra++; changed++; }
+      else if(!count_get(slot)) changed++;
+    }
+    if(extra>640u-n) return 641u;
+    if(!apply) return changed;
+    for(u32 k=0;k<g_cfg.cat_n;k++){
+      u32 o=g_cfg.cat_off+8u+28u*k;
+      if(fl(o+2u)[0]) continue;
+      u32 id=rd16(o), slot=0;
+      if(!id) continue;
+      while(slot<n && list_id(slot)!=id) slot++;
+      if(slot==n){ list_set(n++,id); count_set(slot,v); }
+      else if(!count_get(slot)) count_set(slot,v);
+    }
+    if(n<640u) list_set(n,0);
+  } else {
+    for(u32 i=0;i<n;i++) if(!cat_fixed(list_id(i)) && count_get(i) && count_get(i)!=v){
+      changed++;
+      if(apply) count_set(i,v);
+    }
+  }
+  return changed;
+}
+static void bulk_menu(int missing){
+  u32 v=1u;
+  const char *title=missing ? "ADD ALL MISSING" : "SET OWNED COUNTS";
   for(;;){
+    u32 changed=bulk_items(missing,v,0);
+    if(changed>640u){ message("BAG IS FULL","NOTHING CHANGED",""); return; }
+    rect(0,0,128,128,BG); ctext(4,title,WHITE,1);
+    char s[12]; s[0]='x'; utoa_(v,s+1); ctext(30,s,GOLD,3);
+    utoa_(changed,s); ctext(64,s,GOLD,2); ctext(83,"ITEMS TO CHANGE",GREY,1);
+    ctext(108,"WHEEL: COUNT",GREY,1); ctext(119,"B OK   C BACK",GREY,1);
+    show(); wait_release();
+    for(;;){
+      int k=input();
+      if(k==1){ v=wrap_step(v,g_step,1u,15u); break; }
+      if(k==K_A){ v=v>=15u ? 1u : v+1u; break; }
+      if(k==K_BACK) return;
+      if(k==K_OK){
+        if(!changed){ message("NOTHING TO CHANGE","",""); return; }
+        rect(0,0,128,128,BG); ctext(12,title,WHITE,1);
+        utoa_(changed,s); ctext(32,s,GOLD,2); ctext(52,"ITEMS TO CHANGE",GREY,1);
+        s[0]='x'; utoa_(v,s+1); ctext(68,s,GOLD,2);
+        ctext(96,"B APPLY",WHITE,1); ctext(110,"C CANCEL",GREY,1); show();
+        if(yes_no() && bulk_items(missing,v,1)) g_dirty=1;
+        return;
+      }
+    }
+  }
+}
+static void cat_pick(void){
+  g_show_max=0; cat_build();
+  u32 sel=g_catn ? 1u : 0u, top=0;
+  for(;;){
+    u32 n=g_catn+1u;
     if(sel<top) top=sel; if(sel>=top+10u) top=sel-9u;
-    char t[24]; const char *g=group_name(g_cat[sel]); int k=0; const char *a="ADD: "; while(a[k]){ t[k]=a[k]; k++; } int j=0; while(g[j]){ t[k++]=g[j++]; } t[k]=0;
-    list_draw(t, g_catn, sel, top, cat_row, "A NEXT GROUP  C BACK");
+    const char *title=!g_catn ? "ALL ITEMS AT MAX" : sel ? group_name(g_cat[sel-1u]) : "ADD ITEM FILTER";
+    list_draw(title,n,sel,top,cat_row,"A NEXT GROUP  C BACK");
     wait_release();
     for(;;){
       int c=input();
-      if(c==1){ int s=(int)sel+g_step; if(s<0) s=0; if(s>=(int)g_catn) s=(int)g_catn-1; sel=(u32)s; break; }
-      if(c==K_A){ u32 gr=g_cat[sel]/1000u; u32 s=sel; while(s<g_catn && g_cat[s]/1000u==gr) s++; sel = s<g_catn ? s : 0u; break; }
+      if(c==1){ sel=wrap_step(sel,g_step,0,n-1u); break; }
+      if(c==K_A){
+        if(!sel){ if(g_catn) sel=1u; }
+        else { u32 i=sel-1u, gr=g_cat[i]/1000u; while(i<g_catn && g_cat[i]/1000u==gr) i++; sel=i<g_catn ? i+1u : 0u; }
+        break;
+      }
       if(c==K_BACK) return;
       if(c==K_OK){
-        u32 id=g_cat[sel], n=list_len(), slot=n;
+        if(!sel){ g_show_max=!g_show_max; cat_build(); sel=top=0; break; }
+        u32 id=g_cat[sel-1u], n=list_len(), slot=n;
         for(u32 i=0;i<n;i++) if(list_id(i)==id){ slot=i; break; }
         if(slot>=640u){ message("BAG IS FULL","",""); return; }
 #ifdef BAG_DEL
-        u32 v=count_edit(id, slot<n ? count_get(slot) : 1u, 1u);
-        if(v<16u){ list_set(slot,id); count_set(slot,v); g_dirty=1; return; }
+        u32 v=count_edit(id,slot<n ? count_get(slot) : 1u,1u);
+        if(v<16u){ list_set(slot,id); count_set(slot,v); if(slot==n && n+1u<640u) list_set(n+1u,0); g_dirty=1; return; }
 #else
-        u32 v=count_edit(id, slot<n ? count_get(slot) : 1u);
-        if(v){ list_set(slot,id); count_set(slot,v); g_dirty=1; return; }
+        u32 v=count_edit(id,slot<n ? count_get(slot) : 1u);
+        if(v){ list_set(slot,id); count_set(slot,v); if(slot==n && n+1u<640u) list_set(n+1u,0); g_dirty=1; return; }
 #endif
         break;
       }
@@ -1367,26 +1500,27 @@ static void items_menu(void){
   u32 sel=0, top=0;
   for(;;){
     bag_build();
-    u32 n=g_bagn+1u; if(sel>=n) sel=n-1u;
+    u32 n=g_bagn+BAG_ACTIONS; if(sel>=n) sel=n-1u;
     if(sel<top) top=sel; if(sel>=top+10u) top=sel-9u;
     list_draw("ITEMS", n, sel, top, bag_row, "B EDIT   C BACK");
     wait_release();
     for(;;){
       int c=input();
-      if(c==1){ int s=(int)sel+g_step; if(s<0) s=0; if(s>=(int)n) s=(int)n-1; sel=(u32)s; break; }
+      if(c==1){ sel=wrap_step(sel,g_step,0,n-1u); break; }
       if(c==K_A){ sel=(sel+1u)%n; break; }
       if(c==K_OK){
         if(sel==0){ cat_pick(); }
+        else if(sel<BAG_ACTIONS){ bulk_menu(sel==1u); }
 #ifdef BAG_DEL
-        else { u32 slot=g_bag[sel-1]; u32 v=count_edit(list_id(slot), count_get(slot), 0u); if(v<16u && v!=count_get(slot)){ count_set(slot,v); g_dirty=1; } }
+        else { u32 slot=g_bag[sel-BAG_ACTIONS]; u32 v=count_edit(list_id(slot), count_get(slot), 0u); if(v<16u && v!=count_get(slot)){ count_set(slot,v); g_dirty=1; } }
 #else
-        else { u32 slot=g_bag[sel-1]; u32 v=count_edit(list_id(slot), count_get(slot)); if(v && v!=count_get(slot)){ count_set(slot,v); g_dirty=1; } }
+        else { u32 slot=g_bag[sel-BAG_ACTIONS]; u32 v=count_edit(list_id(slot), count_get(slot)); if(v && v!=count_get(slot)){ count_set(slot,v); g_dirty=1; } }
 #endif
         break;
       }
       if(c==K_BACK){
         if(!g_dirty) return;
-        rect(0,0,128,128,BG); ctext(34,"SAVE CHANGES?",WHITE,1); ctext(60,"THE TAMA RESTARTS",GREY,1);
+        rect(0,0,128,128,BG); ctext(34,"SAVE CHANGES?",WHITE,1); ctext(60,"YOU CAN KEEP EDITING",GREY,1);
         ctext(92,"B = YES",WHITE,1); ctext(106,"C = NO",GREY,1); show();
         if(yes_no()) set_write("ITEMS SAVED");
         return;
@@ -1394,7 +1528,7 @@ static void items_menu(void){
     }
   }
 }
-static void points_menu(void){
+static void points_edit(void){
   if(set_check_msg()) return;
   u32 v=money_get(); if(v>99999u) v=99999u;
   u8 dg[5]; { u32 t=v; for(int i=4;i>=0;i--){ dg[i]=(u8)(t%10u); t/=10u; } }
@@ -1421,11 +1555,33 @@ static void points_menu(void){
         u32 nv=0; for(int i=0;i<5;i++) nv=nv*10u+dg[i];
         if(nv==money_get()) return;
         rect(0,0,128,128,BG); ctext(24,"SET TAMAPOINTS TO",WHITE,1);
-        char s[8]; utoa_(nv,s); ctext(44,s,GOLD,2); ctext(70,"THE TAMA RESTARTS",GREY,1);
+        char s[8]; utoa_(nv,s); ctext(44,s,GOLD,2); ctext(70,"YOU CAN KEEP EDITING",GREY,1);
         ctext(92,"B = YES",WHITE,1); ctext(106,"C = NO",GREY,1); show();
         if(yes_no()){ money_put(nv); set_write("TAMAPOINTS SAVED"); }
         return;
       }
+    }
+  }
+}
+
+static int points_row(u32 i,char *name,char *right,u16 *col){
+  const char *s=i ? "EDIT AMOUNT" : "SET MAX: 99999"; int k=0;
+  while(s[k]){ name[k]=s[k]; k++; } name[k]=0; (void)right; *col=i?WHITE:GOLD; return 0;
+}
+static void points_menu(void){
+  if(set_check_msg()) return;
+  u32 sel=0;
+  for(;;){
+    list_draw("TAMAPOINTS",2,sel,0,points_row,"B OK   C BACK"); wait_release();
+    int k=menu_key();
+    if(k==1 || k==K_A) sel^=1u;
+    if(k==K_BACK) return;
+    if(k==K_OK){
+      if(sel){ points_edit(); continue; }
+      rect(0,0,128,128,BG); ctext(24,"SET TAMAPOINTS TO",WHITE,1); ctext(44,"99999",GOLD,2);
+      ctext(70,"YOU CAN KEEP EDITING",GREY,1); ctext(92,"B = YES",WHITE,1); ctext(106,"C = NO",GREY,1); show();
+      if(yes_no() && money_get()!=99999u){ money_put(99999u); set_write("TAMAPOINTS SAVED"); }
+      continue;
     }
   }
 }
@@ -1489,7 +1645,7 @@ static void chr_pick(void){
         u32 kk=g_chr[sel], o=g_cfg.cat_off+8u+28u*kk, nw=rd16(o), st=fl(o+6)[0], old=t_id();
         char nm[24]; chr_name(kk,nm);
         rect(0,0,128,128,BG); ctext(24,"YOUR TAMA BECOMES",WHITE,1); ctext(42,nm,GOLD,1); ctext(54,stage_name(st),GREY,1);
-        ctext(76,"THE TAMA RESTARTS",GREY,1); ctext(96,"B = YES",WHITE,1); ctext(108,"C = NO",GREY,1); show();
+        ctext(76,"YOU CAN KEEP EDITING",GREY,1); ctext(96,"B = YES",WHITE,1); ctext(108,"C = NO",GREY,1); show();
         if(!yes_no()) break;
         u32 to=g_cfg.tama_off;
 #ifdef FELD_TAMA_ANY
@@ -1533,7 +1689,7 @@ static void level_edit(void){
 }
 static void care_full(void){
   rect(0,0,128,128,BG); ctext(24,"FULL CARE:",WHITE,1); ctext(40,"FED, HAPPY, HEALTHY",GOLD,1);
-  ctext(70,"THE TAMA RESTARTS",GREY,1); ctext(92,"B = YES",WHITE,1); ctext(106,"C = NO",GREY,1); show();
+  ctext(70,"YOU CAN KEEP EDITING",GREY,1); ctext(92,"B = YES",WHITE,1); ctext(106,"C = NO",GREY,1); show();
   if(!yes_no()) return;
   u32 to=g_cfg.tama_off;
   g_set[to+0x1Cu]=6u; g_set[to+0x1Du]=20u; g_set[to+0x10u]=0u;
@@ -1565,22 +1721,32 @@ static void tama_menu(void){
 
 /* ---------------------------------------------------------------- Saves (1.6.8) */
 /* settings block of the save in slot i (unpacked into out). 0 = ok */
+#ifdef HOST
+static u32 g_slot_settings_reads;
+#endif
 static int slot_set(u32 i, u8 *out){
   if(!slot_valid(i)) return 1;
   u32 b=slot_base(i), np=rd32(b+8), pos=0;
   for(u32 k=0;k<np;k++){
     u32 pg=rd16(b+32u+k*4u), n=rd16(b+34u+k*4u);
-    if(pg==(SET_A>>12)){ slot_get(i,pos,n,g_cmp); return lz_unpack(g_cmp,n,out) ? 2 : 0; }
+    if(pg==(SET_A>>12)){
+#ifdef HOST
+      g_slot_settings_reads++;
+#endif
+      slot_get(i,pos,n,g_cmp); return lz_unpack(g_cmp,n,out) ? 2 : 0;
+    }
     pos+=n;
   }
   return 3;
 }
 static int g_sfld[NF_MAX]; static char g_snm[NF_MAX][16];
+static u8 g_shas[NF_MAX];
 /* field and Tama name of each save */
 static void saves_scan(void){
   for(u32 i=0;i<g_cfg.nslots && i<NF_MAX;i++){
     g_sfld[i]=-1; g_snm[i][0]=0;
     int live=(int)i==g_act;
+    g_shas[i]=(u8)(live || slot_valid(i));
     if(live) flash_read(SET_A, g_out, PAGE); else if(slot_set(i, g_out)) continue;
     g_sfld[i]=field_of(g_out);
     if(g_sfld[i]<0) g_sfld[i]=live ? g_cur : -1;
@@ -1590,6 +1756,8 @@ static void saves_scan(void){
     }
   }
 }
+#include "save_tools.h"
+
 static u32 field_pick(void){                 /* field for a new game, 0xFF = back */
   u32 nf=nfields(), sel=0;
   for(;;){
@@ -1603,52 +1771,105 @@ static u32 field_pick(void){                 /* field for a new game, 0xFF = bac
       if(k==K_OK) return sel; }
   }
 }
-static void saves_menu(int with_app, int top){
-  saves_scan();
-  u32 ns=g_cfg.nslots>NF_MAX?NF_MAX:g_cfg.nslots;
-  u32 na = with_app ? (g_napp>1u ? 1u : g_napp) : 0u, n=ns+na, sel = na ? ns : (u32)g_act;
+/* Slot selectors always show field, pet and an explicit ACTIVE/EMPTY state. */
+static void save_label(u32 i,char *s){
+  const char *a="SLOT "; int k=0; while(a[k]){ s[k]=a[k]; k++; } s[k++]=(char)('1'+i); s[k]=0;
+}
+#include "save_link.h"
+
+static int g_slot_action;
+static u32 g_copy_src[NF_MAX], g_copy_n;
+static int save_action_row(u32 i,char *name,char *right,u16 *col){
+  const char *s;
+  if(g_slot_action==0){
+    if(!i) s="NO COPY - NEW GAME";
+    else if(i==g_copy_n+1u) s="RECEIVE FROM TAMA";
+    else { save_label(g_copy_src[i-1u],name); u32 q=g_copy_src[i-1u];
+      int k=slen(name); const char *f=g_sfld[q]>=0 ? fname((u32)g_sfld[q]) : "?";
+      name[k++]=' '; while(*f && k<22) name[k++]=*f++; name[k]=0;
+      const char *r=(int)q==g_act ? "ACTIVE" : "COPY"; k=0; while(r[k]){ right[k]=r[k]; k++; } right[k]=0; return 0; }
+  } else s=i==0 ? "LOAD / RESUME" : i==1 ? "CLEAR THIS SLOT" : "SEND TO TAMA";
+  int k=0; while(s[k]){ name[k]=s[k]; k++; } name[k]=0; *col=i==1 && g_slot_action ? RED : WHITE; return 0;
+}
+/* 0xff cancel; source selector 0=new game, 1..=source; existing 0=load,1=clear */
+static u32 save_action(u32 tgt,int existing){
+  g_slot_action=existing; g_copy_n=0;
+  if(!existing) for(u32 i=0;i<g_cfg.nslots && i<NF_MAX;i++) if(i!=tgt && g_sfld[i]>=0 && g_shas[i]) g_copy_src[g_copy_n++]=i;
+  u32 n=existing ? 3u : g_copy_n+2u, sel=0;
   for(;;){
-    rect(0,0,128,128,BG);
-    if(n<=4u) ctext(2, top ? "PARAMIX" : "SAVES", WHITE,1);
+    char title[24]; save_label(tgt,title);
+    list_draw(title,n,sel,0,save_action_row,"B OK   C BACK");
+    if(!existing && sel && sel<=g_copy_n){ ctext(106,g_snm[g_copy_src[sel-1u]],GREY,1); show(); }
+    wait_release();
+    int k=menu_key();
+    if(k==1) sel=wrap_step(sel,g_step,0,n-1u);
+    if(k==K_A) sel=(sel+1u)%n;
+    if(k==K_BACK) return 0xFFu;
+    if(k==K_OK) return sel;
+  }
+}
+static int clear_confirm(u32 tgt){
+  if((int)tgt==g_act){ message("SLOT IS ACTIVE","SWITCH SLOTS FIRST",""); return 0; }
+  u32 yes=0;
+  for(;;){
+    rect(0,0,128,128,BG); char t[12]; save_label(tgt,t);
+    ctext(14,"CLEAR SAVE?",RED,1); ctext(30,t,WHITE,2);
+    if(g_sfld[tgt]>=0) ctext(54,fname((u32)g_sfld[tgt]),WHITE,1);
+    ctext(66,g_snm[tgt],GREY,1); ctext(86,"CANNOT BE UNDONE",RED,1);
+    ctext(104,yes ? "< YES >" : "< CANCEL >",GOLD,1); ctext(118,"B OK   C BACK",GREY,1); show(); wait_release();
+    int k=menu_key();
+    if(k==1 || k==K_A) yes^=1u;
+    if(k==K_BACK || (k==K_OK && !yes)) return 0;
+    if(k==K_OK) return !slot_clear(tgt);
+  }
+}
+static void saves_menu(int with_app,int top){
+  u32 ns=g_cfg.nslots>NF_MAX?NF_MAX:g_cfg.nslots;
+  u32 na=with_app ? (g_napp?1u:0u) : 0u, n=ns+na, sel=na?ns:(u32)g_act;
+  saves_scan();
+  wait_release();
+  for(;;){
+    rect(0,0,128,128,BG); ctext(1,"SAVES",WHITE,1);
     for(u32 i=0;i<n;i++){
-      char nm[12], st[24]; u16 c=ORANGE, stc=GREY;
+      int y=12+(int)i*15; u16 col=i<ns && g_sfld[i]>=0 ? fcol((u32)g_sfld[i]) : GREY;
+      if(i==sel){ rect(0,y,128,y+15,col); rect(1,y+1,127,y+14,BG); }
+      char nm[16]; if(i<ns) save_label(i,nm); else { const char *s="PROGRAMS"; int k=0; while((nm[k]=s[k])) k++; }
+      text(3,y+1,nm,WHITE,1);
       if(i<ns){
-        const char *a="SAVE "; int k=0; while(a[k]){ nm[k]=a[k]; k++; } nm[k++]=(char)('1'+i); nm[k]=0;
-        int f=g_sfld[i]; char *p=st;
-        if((int)i!=g_act && !slot_valid(i)){ const char *e="EMPTY"; while(*e) *p++=*e++; c=GREY; }
-        else if(n>4u && g_snm[i][0]){ for(int q=0;g_snm[i][q];q++) *p++=g_snm[i][q]; if(f>=0) c=fcol((u32)f); }   /* compact: the Tama, field by colour */
-        else { const char *e=f>=0 ? fname((u32)f) : "?"; while(*e) *p++=*e++; if(g_snm[i][0]){ *p++=' '; for(int q=0;g_snm[i][q];q++) *p++=g_snm[i][q]; } if(f>=0) c=fcol((u32)f); }
-        *p=0; if((int)i==g_act) stc=WHITE;
-      } else { const char *e=g_napp>1u ? "PROGRAMS" : g_appnm[0]; int k=0; while(e[k] && k<11){ nm[k]=e[k]; k++; } nm[k]=0; e=g_napp>1u?"CHOOSE":"START"; int q=0; while(e[q]){ st[q]=e[q]; q++; } st[q]=0; }
-      if(n>4u){
-        int y=2+(int)i*16;
-        if(i==sel){ rect(1,y,127,y+15,c); rect(2,y+1,126,y+14,BG); }
-        text(5,y+4,nm,c,1); int w=text_w(st,1); int x=123-w; if(x<48) x=48; textn(x,y+4,st,(124-x)/6,stc,1);
-      } else big_entry((n<4u?12:1)+(int)i*29, i==sel, nm, st, c, stc);
-    }
-    ctext(119,"B OK   C BACK",GREY,1);
-    show(); wait_release();
-    for(;;){
-      int k=input();
-      if(k==1){ sel=(u32)((int)sel + (g_step>0?1:-1) + (int)n) % n; break; }
-      if(k==K_A){ sel=(sel+1u)%n; break; }
-      if(k==K_BACK){ if(top) leave(); return; }
-      if(k==K_OK){
-        if(sel>=ns){ if(g_napp>1u) apps_menu(0); else start_app_i(0); break; }
-        if((int)sel==g_act){ if(top) leave(); return; }
-        int has=slot_valid(sel); u32 fld;
-        if(has){ fld=(u32)g_sfld[sel]; if(g_sfld[sel]<0){ message("SAVE","UNREADABLE",""); break; } }
-        else { fld=field_pick(); if(fld==0xFFu) break; }
-        rect(0,0,128,128,BG);
-        char t[8]="SAVE "; t[5]=(char)('1'+sel); t[6]=0;
-        ctext(14, has ? "LOAD" : "NEW GAME IN", WHITE,1); ctext(28,t,WHITE,2);
-        ctext(52,fname(fld),fcol(fld),1); if(has && g_snm[sel][0]) ctext(64,g_snm[sel],GREY,1);
-        ctext(80,"YOUR GAME IS KEPT",GREY,1);
-        ctext(96,"B = YES",WHITE,1); ctext(108,"C = NO",GREY,1); show();
-        if(yes_no()) field_switch2(sel, has, fld);
-        break;
+        const char *status=(int)i==g_act ? "ACTIVE" : g_shas[i] ? "SAVED" : "EMPTY";
+        text(125-text_w(status,1),y+1,status,(int)i==g_act?GOLD:GREY,1);
+        char detail[24]; int k=0;
+        const char *f=g_sfld[i]>=0 ? fname((u32)g_sfld[i]) : "";
+        while(*f && k<20) detail[k++]=*f++;
+        if(k && g_snm[i][0] && k<20) detail[k++]=' ';
+        for(int q=0;g_snm[i][q] && k<20;q++) detail[k++]=g_snm[i][q]; detail[k]=0;
+        text(5,y+8,detail,col,1);
       }
     }
+    ctext(118,"B OPTIONS   C BACK",GREY,1); show();
+    int k=menu_key();
+    if(k==1) sel=wrap_step(sel,g_step,0,n-1u);
+    if(k==K_A) sel=(sel+1u)%n;
+    if(k==K_BACK){ if(top) leave(); return; }
+    if(k!=K_OK) continue;
+    if(sel>=ns){ if(g_napp>1u) apps_menu(0); else start_app_i(0); continue; }
+    int has=g_shas[sel];
+    u32 action=save_action(sel,has); if(action==0xFFu) continue;
+    if(has && action==1u){ if(clear_confirm(sel)) saves_scan(); continue; }
+    if((has && action==2u) || (!has && action==g_copy_n+1u)){ if(save_link_menu(sel,!has)) saves_scan(); continue; }
+    if(has && (int)sel==g_act){ if(top) leave(); return; }
+    u32 src=0xFFu, fld;
+    if(has){ if(g_sfld[sel]<0){ message("SAVE UNREADABLE","",""); continue; } fld=(u32)g_sfld[sel]; }
+    else { if(action) src=g_copy_src[action-1u]; fld=field_pick(); if(fld==0xFFu) continue; }
+    rect(0,0,128,128,BG); char t[16]; save_label(sel,t);
+    ctext(10,has?"LOAD SAVE":src!=0xFFu?"COPY SAVE TO":"NEW GAME IN",WHITE,1); ctext(24,t,WHITE,2);
+    if(src!=0xFFu){ save_label(src,t); ctext(46,"FROM",GREY,1); ctext(57,t,GOLD,1); }
+    ctext(70,fname(fld),fcol(fld),1); ctext(82,"YOUR GAME IS KEPT",GREY,1);
+    ctext(98,"B = YES",WHITE,1); ctext(110,"C = NO",GREY,1); show();
+    if(!yes_no()) continue;
+    if(src!=0xFFu){ int e=slot_copy(src,sel,fld); if(e){ message("COPY FAILED",e==3?"NOT ENOUGH ROOM":"SAVE UNREADABLE","SOURCE IS KEPT"); continue; } has=1; saves_scan(); }
+    field_switch2(sel,has,fld);
+    saves_scan();
   }
 }
 
@@ -1682,7 +1903,7 @@ static void main_menu(void){
       }
     }
     g_small = 0;
-    ctext(119,"B OK   C BACK",GREY,1);
+    ctext(119,"B OK   C EXIT",GREY,1);
     show(); wait_release();
     for(;;){
       int k=input();

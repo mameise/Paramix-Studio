@@ -65,7 +65,11 @@ jobs:
 
       - name: Self test (no ROM needed)
         working-directory: ${{ env.PROJECT }}
-        run: node test/unit_test.js
+        run: |
+          node test/unit_test.js
+          node test/feld_bulk_test.js
+          node test/feld_menu_test.js
+          node test/feld_slot_clock_test.js
 
       - name: Build
         working-directory: ${{ env.PROJECT }}
