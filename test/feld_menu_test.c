@@ -123,21 +123,24 @@ static void flash_tool_tests(void){
   /* Without apps/launcher flags/dl_src, root still reaches FLASH TOOL. */
   flash_fixture(); g_cfg.dl_src=0; keys("pbcc"); jump=setjmp(g_jb); if(!jump) main_menu();
   assert(jump==1 && host_leave_count==leaves+1u && !host_flash_tool_src && !g_seq[g_pos]);
-  /* Four ordinary categories retain the original large two-line page; FLASH
-   * lives on page two. Up/down wrap across pages without changing item order. */
-  flash_fixture(); root_pause(""); assert(g_fb[1u*128u+3u]==fcol((u32)g_cur));
-  root_pause("p"); assert(g_fb[12u*128u+3u]==ORANGE && g_fb[41u*128u+3u]==BG);
-  root_pause("pn"); assert(g_fb[1u*128u+3u]==fcol((u32)g_cur));
-  root_pause("nnnn"); assert(g_fb[12u*128u+3u]==ORANGE);
+  /* Circular viewport: crossing either end keeps adjacent wrapped entries
+   * visible and scrolls only one row, rather than switching whole pages. */
+  flash_fixture(); root_pause(""); assert(g_fb[12u*128u+3u]==fcol((u32)g_cur));
+  u32 title_pixels=0; for(u32 y=1;y<8;y++) for(u32 x=49;x<127;x++) if(g_fb[y*128u+x]==GREY) title_pixels++;
+  assert(title_pixels>10u); /* version is actually rendered after PARAMIX */
+  root_pause("p"); assert(g_fb[12u*128u+3u]==ORANGE && g_fb[39u*128u+3u]==BG);
+  root_pause("pn"); assert(g_fb[39u*128u+3u]==fcol((u32)g_cur)); /* SAVES below wrapped FLASH */
+  root_pause("nnnn"); assert(g_fb[93u*128u+3u]==ORANGE); /* one-row shift to FLASH */
+  root_pause("nnnnn"); assert(g_fb[93u*128u+3u]==fcol((u32)g_cur)); /* wrap while retaining viewport */
   flash_fixture(); g_cfg.flags=F_BAG; root_pause(""); assert(g_fb[12u*128u+3u]==PINK);
-  root_pause("nn"); assert(g_fb[12u*128u+3u]==ORANGE && g_fb[41u*128u+3u]==BG);
-  /* All six categories: preserve PROGRAM default on page two,
-   * wrap to the first and back, then launch from the actual root action. */
+  root_pause("nn"); assert(g_fb[66u*128u+3u]==ORANGE); /* three items fit without scrolling */
+  /* All six categories: preserve PROGRAM default, scroll through FLASH and
+   * back around to SAVES, then launch from the actual root action. */
   flash_fixture(); g_napp=1; g_appsrc[0]=0; strcpy(g_appnm[0],"TEST APP");
-  root_pause(""); assert(g_fb[12u*128u+3u]==ORANGE && g_fb[41u*128u+3u]==BG); /* PROGRAM is first on page two */
-  root_pause("n"); assert(g_fb[41u*128u+3u]==ORANGE && g_fb[49u*128u+126u]==BG); /* FLASH is second on page two, full label fits */
-  root_pause("nn"); assert(g_fb[1u*128u+3u]==fcol((u32)g_cur));
-  root_pause("nnp"); assert(g_fb[41u*128u+3u]==ORANGE);
+  root_pause(""); assert(g_fb[93u*128u+3u]==ORANGE);
+  root_pause("n"); assert(g_fb[93u*128u+3u]==ORANGE && g_fb[103u*128u+126u]==BG);
+  root_pause("nn"); assert(g_fb[93u*128u+3u]==fcol((u32)g_cur));
+  root_pause("nnp"); assert(g_fb[66u*128u+3u]==ORANGE);
   keys("nnpbb"); jump=setjmp(g_jb); if(!jump) main_menu();
   assert(jump==1 && host_flash_tool_src==0x10FDF000u && !g_seq[g_pos]);
   assert(!memcmp(rescue,host_flash+FT_BASE,sizeof rescue));

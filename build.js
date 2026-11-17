@@ -76,6 +76,10 @@ let feld = fs.readFileSync(__dirname + '/src/feld.js', 'utf8');
 {
   const d = (f) => fs.readFileSync(__dirname + '/feld/' + f).toString('base64');
   for (const f of ['feld.bin', 'stub_feld_tpl.bin']) if (!fs.existsSync(__dirname + '/feld/' + f)) throw new Error('feld/' + f + ' fehlt');
+  for (const name of ['feld.bin', 'feldc.bin']) {
+    if (!fs.readFileSync(__dirname + '/feld/' + name).includes(Buffer.from('PMXVER:' + v + '\0')))
+      throw new Error('Paramix menu version does not match VERSION; run sh feld/src/feld/build.sh first');
+  }
   feld = feld.replace('__FELD_B64__', d('feld.bin')).replace('__FELD_STUB_B64__', d('stub_feld_tpl.bin'));
   if (fs.existsSync(__dirname + '/feld/feldc.bin')) feld = feld.replace('__FELDC_B64__', d('feldc.bin'));   // 1.7.2 CLEAN_ROM: menu for ROMs without the Paradise
 }
@@ -92,10 +96,7 @@ let flash = fs.readFileSync(__dirname + '/src/flash.js', 'utf8');
 {
   const f = __dirname + '/flash/flashapp.bin';
   if (!fs.existsSync(f)) throw new Error('flash/flashapp.bin fehlt');
-  const image = fs.readFileSync(f);
-  if (!image.includes(Buffer.from('PMXVER:' + v + '\0')))
-    throw new Error('Flash-Tool version does not match VERSION; run sh flash/src/build.sh first');
-  flash = flash.replace('__FLASH_APP_B64__', image.toString('base64'));
+  flash = flash.replace('__FLASH_APP_B64__', fs.readFileSync(f).toString('base64'));
 }
 // every script must parse (a stray quote in a text broke the whole page once)
 {

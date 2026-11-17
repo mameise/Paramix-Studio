@@ -254,7 +254,6 @@ static u32 cobs_encode(const u8* s, u32 n, u8* o){
  * ANZEIGE=0 builds the app without display (dump only), like mameise-flashtool.pdlo.
  */
 #include "assets.h"
-#include "version.h"
 #include "disp_power.h"
 #define PANEL 0x4000E000u
 static u16* const fb = (u16*)0x18008000u;   /* 128x128 framebuffer in SRAM */
@@ -395,12 +394,6 @@ static void draw(const u16* status, u32 num, u32 den){
   for(int r=0;r<16;r++) for(int c=0;c<SCR_W;c++) fb[(STATUS_Y+r)*SCR_W+c]=status[r*SCR_W+c];
   u32 fillx = BAR_X0 + ((BAR_X1-BAR_X0)*num)/(den?den:1);
   for(u32 y=BAR_Y0;y<BAR_Y1;y++) for(u32 x=BAR_X0;x<fillx;x++) fb[y*SCR_W+x]=ACC565;
-  /* The progress strip ends at y92; keep these two rows outside live updates. */
-  for(u32 row=0;row<14u;row++){
-    u32 y=102u+row+(row>=7u?4u:0u);
-    for(u32 x=0;x<128u;x++)
-      fb[y*SCR_W+x]=(flash_version_bits[row][x>>3] & (0x80u>>(x&7u)))?0xEF7Eu:0x0883u;
-  }
   push_fb();
 #else
   (void)status; (void)num; (void)den;

@@ -9,11 +9,7 @@ device off and on returns to the normal firmware.
 - `src/fw.c`: source. Talks the PAU1 protocol on UART1 at 460800 baud and shows
   its own screen with a progress bar.
 - Device status labels are English: READY, READING, WRITING, and DONE.
-- PARAMIX and the complete Studio version remain below the progress strip.
-  `gen_version.py` generates compact version pixels from the repository `VERSION`
-  during `build.sh`. The offline build rejects a binary with a different version.
-  New versions appear on the device after updating its installed rescue image;
-  entering FLASH TOOL from the menu launches that ROM's installed copy.
+
 
 ## PAU1
 
@@ -39,7 +35,7 @@ The host side is `src/flash.js` in the Studio.
 
 ```
 python3 src/gen_status.py  # regenerate status bitmaps after changing their labels
-sh src/build.sh            # generates version.h, then builds flashapp.bin (at most 0xE000 bytes)
+sh src/build.sh            # builds flashapp.bin (at most 0xE000 bytes)
 ```
 
 License: GNU GPL version 3 or later.

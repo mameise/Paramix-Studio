@@ -2,6 +2,12 @@
 
 Versions are listed newest first.
 
+## 1.7.5-plus.21 (2026-11-18)
+
+- Move the Studio version to the Paramix menu title and remove the misplaced Flash-Tool version display.
+- Replace home-menu pages with a continuous circular viewport, retaining large separate name/status lines and B/C hints.
+- Generate and verify matching versions for both standard and clean menu binaries.
+
 ## 1.7.5-plus.20 (2026-11-18)
 
 - Use `<upstream version>-plus.<revision>` for this fork, retaining the existing revision sequence (menu19 becomes plus.19; this update is plus.20).

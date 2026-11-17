@@ -16,9 +16,11 @@ screen). Texts on the device are English, the font and graphics are our own.
   confirmation, then starts that copy through the existing uncached source
   launcher. Missing/damaged copies show an error instead of jumping to blank
   flash. This action does not erase or modify either boot header or the save;
-  writing remains a separate action in Studio. The root menu uses up to four large two-line entries per page, with a page
-  counter. FLASH TOOL stays on page two, alongside PROGRAMS when present. Wheel
-  and A navigation wrap across pages. Launcher-mode `DOWNLOAD` is unchanged.
+  writing remains a separate action in Studio. The root menu shows four large
+  two-line entries through a circular scrolling viewport. Wheel/A navigation
+  continues across both ends without page changes. Its title displays the
+  installed Studio version, generated from VERSION. Launcher-mode `DOWNLOAD`
+  is unchanged.
 
 - **Field switch:** the save of the active field is packed (LZSS per 4 KB page)
   into its own slot, the save of the chosen field is restored (or the factory

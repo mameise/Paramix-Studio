@@ -1,3 +1,4 @@
+#include "version.h"
 /* Paramix menu for the Paradise (field switch, items, Tamapoints, app launch).
  *
  * Started by the stub (A+C on the home screen), runs from PRAM.
@@ -2009,18 +2010,18 @@ static void main_menu(void){
   if(tama_ok()) kinds[n++]=4;
   if(g_napp) kinds[n++]=3;
   u32 sel = g_napp ? n-1u : 0u;       /* keep the installed program selected */
-  u32 split=n<4u?n:4u;               /* FLASH TOOL starts the second page even with fewer categories */
   if(!(g_cfg.flags & F_LAUNCH)) kinds[n++]=5;
-  if(!split) split=n;                /* an otherwise empty menu has only FLASH TOOL */
+  u32 shown=n<4u?n:4u, top=sel>=shown?sel-shown+1u:0u;
   for(;;){
     int ok=set_load()==0;
     rect(0,0,128,128,BG);
-    u32 page=sel>=split?1u:0u, top=page?split:0u, shown=page?n-split:split;
-    int y0 = shown>=4u ? 1 : 12, dy = 29;
-    if(shown<4u) ctext(2,"PARAMIX",WHITE,1);
-    g_small = 0;                     /* retain separate name and status lines on every page */
+    int y0=10, dy=27;
+    const char *title="PARAMIX " PARAMIX_VERSION;
+    if(text_w(title,1)>126) title="PMX " PARAMIX_VERSION;
+    ctext(1,title,GREY,1);
+    g_small = 0;                     /* separate name and status lines */
     for(u32 row=0;row<shown;row++){
-      u32 i=top+row; int y=y0+(int)row*dy; char st[24];
+      u32 i=(top+row)%n; int y=y0+(int)row*dy; char st[24];
       switch(kinds[i]){
         case 0: if(saves_mode()){ const char *a="SAVE "; int q=0; while(a[q]){ st[q]=a[q]; q++; } st[q++]=(char)('1'+g_act); st[q++]=' '; a=fname((u32)g_cur); while(*a && q<22) st[q++]=*a++; st[q]=0; big_entry(y,i==sel,"SAVES",st,fcol((u32)g_cur),WHITE); }
                 else big_entry(y,i==sel,"FIELD",fname((u32)g_cur),fcol((u32)g_cur),WHITE); break;
@@ -2035,13 +2036,16 @@ static void main_menu(void){
       }
     }
     g_small = 0;
-    if(split<n){ char footer[]="1/2 B OK C EXIT"; footer[0]=(char)('1'+page); ctext(119,footer,GREY,1); }
-    else ctext(119,"B OK   C EXIT",GREY,1);
+    ctext(120,"B OK   C EXIT",GREY,1);
     show(); wait_release();
     for(;;){
       int k=input();
-      if(k==1){ sel=(u32)((int)sel + (g_step>0?1:-1) + (int)n) % n; break; }
-      if(k==K_A){ sel=(sel+1u)%n; break; }
+      if(k==1 || k==K_A){
+        int dir=k==K_A || g_step>0 ? 1 : -1;
+        sel=(u32)((int)sel+dir+(int)n)%n;
+        if((sel+n-top)%n>=shown) top=dir>0?(sel+n-shown+1u)%n:sel;
+        break;
+      }
       if(k==K_BACK) leave();
       if(k==K_OK){
         switch(kinds[sel]){ case 0: if(saves_mode()) saves_menu(0,0); else field_menu(0,0); break; case 1: items_menu(); break; case 2: points_menu(); break; case 4: tama_menu(); break; case 5: flash_tool_menu(); break; default: if(g_napp>1u) apps_menu(0); else start_app_i(0); }
