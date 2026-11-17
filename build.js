@@ -92,7 +92,10 @@ let flash = fs.readFileSync(__dirname + '/src/flash.js', 'utf8');
 {
   const f = __dirname + '/flash/flashapp.bin';
   if (!fs.existsSync(f)) throw new Error('flash/flashapp.bin fehlt');
-  flash = flash.replace('__FLASH_APP_B64__', fs.readFileSync(f).toString('base64'));
+  const image = fs.readFileSync(f);
+  if (!image.includes(Buffer.from('PMXVER:' + v + '\0')))
+    throw new Error('Flash-Tool version does not match VERSION; run sh flash/src/build.sh first');
+  flash = flash.replace('__FLASH_APP_B64__', image.toString('base64'));
 }
 // every script must parse (a stray quote in a text broke the whole page once)
 {

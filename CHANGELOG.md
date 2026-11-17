@@ -2,6 +2,12 @@
 
 Versions are listed newest first.
 
+## 1.7.5-plus.20 (2026-11-18)
+
+- Use `<upstream version>-plus.<revision>` for this fork, retaining the existing revision sequence (menu19 becomes plus.19; this update is plus.20).
+- Show PARAMIX and the corresponding Studio version below the Flash-Tool progress bar, generated from the same VERSION file.
+- Refuse offline builds with a mismatched Flash-Tool binary and reject rescue binaries exceeding their 0xE000-byte region.
+
 ## 1.7.5-menu19 (2026-11-18)
 
 - Leave the optional PARAMIX game-menu shortcut unchecked by default. Loading a ROM preserves an existing installed shortcut; older menus without one no longer opt in automatically.

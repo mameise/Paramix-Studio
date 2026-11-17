@@ -47,6 +47,16 @@ Everything runs locally in one HTML file. Your ROM, firmware and WAD never leave
 your computer. The Studio contains no ROM, no firmware, no WAD and no game
 graphics; you need your own.
 
+## Fork versions
+
+This fork uses `<upstream base>-plus.<revision>`, for example `1.7.5-plus.20`.
+The base is the upstream version these changes build on; the revision increases
+for fork updates and continues across base upgrades (for example `1.7.6-plus.21`).
+The earlier `menu19` naming corresponds to revision 19. `VERSION` is the single
+source for the browser/release version and the Flash-Tool display. After changing
+it, rebuild `flash/flashapp.bin` with `sh flash/src/build.sh` before `node build.js`.
+The Flash-Tool version on a physical device identifies its installed rescue copy.
+
 ## Disclaimer
 
 Use this tool at your own risk. Changing a ROM and writing it to a device can
