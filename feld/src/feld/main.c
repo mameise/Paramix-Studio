@@ -728,13 +728,15 @@ static int g_small;                   /* five entries: lower boxes, state at the
 static void big_entry(int y, int sel, const char *name, const char *st, u16 c, u16 stc){
   if(g_small){
     if(sel){ rect(3,y,125,y+22,c); rect(5,y+2,123,y+20,BG); }
-    text(9,y+4,name,c,2);
-    int w=text_w(st,1), x=121-w, nx=9+text_w(name,2)+4; if(x<nx) x=nx;
+    int sc=text_w(name,2)>112?1:2;
+    text(9,y+(sc==1?8:4),name,c,sc);
+    int w=text_w(st,1), x=121-w, nx=9+text_w(name,sc)+4; if(x<nx) x=nx;
     textn(x,y+8,st,(121-x)/6,stc,1);
     return;
   }
   if(sel){ rect(3,y,125,y+28,c); rect(5,y+2,123,y+26,BG); }
-  text(9,y+4,name,c,2);
+  int w=text_w(name,2), sc=w>118?1:2;
+  text(w>112?6:9,y+4,name,c,sc);
   text(9,y+19,st,stc,1);
 }
 
@@ -1565,22 +1567,23 @@ static void points_edit(void){
 }
 
 static int points_row(u32 i,char *name,char *right,u16 *col){
-  const char *s=i ? "EDIT AMOUNT" : "SET MAX: 99999"; int k=0;
-  while(s[k]){ name[k]=s[k]; k++; } name[k]=0; (void)right; *col=i?WHITE:GOLD; return 0;
+  const char *s=i==0 ? "SET MAX: 99999" : i==1 ? "SET ZERO: 0" : "EDIT AMOUNT"; int k=0;
+  while(s[k]){ name[k]=s[k]; k++; } name[k]=0; (void)right; *col=i==0?GOLD:i==1?ORANGE:WHITE; return 0;
 }
 static void points_menu(void){
   if(set_check_msg()) return;
   u32 sel=0;
   for(;;){
-    list_draw("TAMAPOINTS",2,sel,0,points_row,"B OK   C BACK"); wait_release();
+    list_draw("TAMAPOINTS",3,sel,0,points_row,"B OK   C BACK"); wait_release();
     int k=menu_key();
-    if(k==1 || k==K_A) sel^=1u;
+    if(k==1 || k==K_A) sel=wrap_step(sel,k==K_A?1:g_step,0,2);
     if(k==K_BACK) return;
     if(k==K_OK){
-      if(sel){ points_edit(); continue; }
-      rect(0,0,128,128,BG); ctext(24,"SET TAMAPOINTS TO",WHITE,1); ctext(44,"99999",GOLD,2);
+      if(sel==2){ points_edit(); continue; }
+      u32 value=sel==0?99999u:0u;
+      rect(0,0,128,128,BG); ctext(24,"SET TAMAPOINTS TO",WHITE,1); ctext(44,sel==0?"99999":"0",sel==0?GOLD:ORANGE,2);
       ctext(70,"YOU CAN KEEP EDITING",GREY,1); ctext(92,"B = YES",WHITE,1); ctext(106,"C = NO",GREY,1); show();
-      if(yes_no() && money_get()!=99999u){ money_put(99999u); set_write("TAMAPOINTS SAVED"); }
+      if(yes_no() && money_get()!=value){ money_put(value); set_write("TAMAPOINTS SAVED"); }
       continue;
     }
   }
@@ -1592,78 +1595,65 @@ static int tama_ok(void){ return (g_cfg.flags & F_TAMA) && g_cfg.version>=6u && 
 static u32 lv_get(void){ return g_set[g_cfg.level_off] & 15u; }
 static u32 t_id(void){ u32 o=g_cfg.tama_off+4u; return g_set[o]|(g_set[o+1]<<8); }
 static u32 t_stage(void){ return (g_set[g_cfg.tama_off+0x18u]>>2)&7u; }
+#include "tama_tools.h"
+#include "tama_preview.h"
 static const char *stage_name(u32 st){ switch(st){ case 1: return "EGG"; case 2: return "BABY"; case 3: return "KID"; case 4: return "YOUNG"; case 5: return "ADULT"; default: return "?"; } }
 static u16 g_chr[256]; static u32 g_chrn;
 static void chr_build(u32 st){ g_chrn=0; for(u32 k=0;k<g_cfg.cat_n && g_chrn<256u;k++){ u32 o=g_cfg.cat_off+8u+28u*k; if(fl(o+2)[0]==2u && fl(o+6)[0]==st) g_chr[g_chrn++]=(u16)k; } }
 static void chr_name(u32 k, char *out){ u32 o=g_cfg.cat_off+8u+28u*k, n=fl(o+3)[0]; if(n>20u) n=20u; for(u32 i=0;i<n;i++) out[i]=(char)fl(o+8u+i)[0]; out[n]=0; }
-static int chr_row(u32 i, char *name, char *right, u16 *col){
-  u32 k=g_chr[i], o=g_cfg.cat_off+8u+28u*k; chr_name(k,name);
-  u32 f=fl(o+7)[0]; const char *fn=""; if(f && f-1u<nfields()){ fn=fname(f-1u); *col=fcol(f-1u); }
-  int q=0; while(fn[q] && q<3){ right[q]=fn[q]; q++; } right[q]=0;
-  if(rd16(o)==t_id()) *col=GOLD;
-  return 0;
+static u16 chr_color(u32 id,u16 fallback){
+  int k=cat_find(id); if(k<0) return fallback;
+  u32 o=g_cfg.cat_off+8u+28u*(u32)k, field=fl(o+7u)[0];
+  return fl(o+2u)[0]==2u && field && field-1u<nfields()?fcol(field-1u):fallback;
 }
-/* the pet's own file (pages of the save with the character in the header): character there too */
-static u32 tama_files(u32 old, u32 nw){
-  u32 n=0;
-  for(u32 a=g_cfg.user_start; a+PAGE<=g_cfg.user_end && a<SET_A; a+=PAGE){
-#ifdef FELD_TAMA_ANY
-    /* 1.7.2 test25 (GitHub: after Breed the change was confirmed but the Tama stayed): the file of a bred Tama was
-     * not found. Now: a small number at +8 (not only 1) and the character at +0x0C or +0x0E */
-    { u32 g=rd32(a+8u); if(g==0u || g>255u || (rd16(a+14u)!=old && rd16(a+12u)!=old)) continue; }
-#else
-    if(rd32(a+8u)!=1u || rd16(a+14u)!=old) continue;
-#endif
-    flash_read(a, g_page, PAGE);
-#ifdef FELD_TAMA_ANY
-    if((g_page[14]|(g_page[15]<<8))==old)
-#endif
-    { g_page[14]=(u8)nw; g_page[15]=(u8)(nw>>8); }
-    if((g_page[12]|(g_page[13]<<8))==old){ g_page[12]=(u8)nw; g_page[13]=(u8)(nw>>8); }
-    if((g_page[0x10A]|(g_page[0x10B]<<8))==old){ g_page[0x10A]=(u8)nw; g_page[0x10B]=(u8)(nw>>8); }
-    flash_prog4k(a, g_page); n++;
-  }
-  return n;
-}
-static void chr_pick(void){
-  static const u8 st_list[3]={3,4,5}; u32 si=t_stage()>=3u && t_stage()<=5u ? t_stage()-3u : 2u;
-  u32 sel=0, top=0;
+static void chr_pick_mode(int eyes){
+  static const u8 st_list[4]={2,3,4,5};
+  u32 cur=eyes?t_word(6):t_id(), si=t_stage()>=2u && t_stage()<=5u?t_stage()-2u:3u;
+  int found=cat_find(cur);
+  if(found>=0){ u32 st=fl(g_cfg.cat_off+8u+28u*(u32)found+6u)[0]; if(st>=2u && st<=5u) si=st-2u; }
+  u32 sel=0;
   chr_build(st_list[si]);
+  for(u32 i=0;i<g_chrn;i++) if(rd16(g_cfg.cat_off+8u+28u*g_chr[i])==cur) sel=i;
   for(;;){
     if(!g_chrn){ message("NO CHARACTERS","IN THIS ROM",""); return; }
-    if(sel>=g_chrn) sel=g_chrn-1u;
-    if(sel<top) top=sel; if(sel>=top+10u) top=sel-9u;
-    char t[24]; const char *a="TAMA: "; int k=0; while(a[k]){ t[k]=a[k]; k++; } const char *b=stage_name(st_list[si]); int j=0; while(b[j]) t[k++]=b[j++]; t[k]=0;
-    list_draw(t, g_chrn, sel, top, chr_row, "A STAGE  B OK  C BACK");
-    wait_release();
-    for(;;){
-      int c=input();
-      if(c==1){ int s=(int)sel+g_step; if(s<0) s=0; if(s>=(int)g_chrn) s=(int)g_chrn-1; sel=(u32)s; break; }
-      if(c==K_A){ si=(si+1u)%3u; chr_build(st_list[si]); sel=0; top=0; break; }
-      if(c==K_BACK) return;
-      if(c==K_OK){
-        u32 kk=g_chr[sel], o=g_cfg.cat_off+8u+28u*kk, nw=rd16(o), st=fl(o+6)[0], old=t_id();
-        char nm[24]; chr_name(kk,nm);
-        rect(0,0,128,128,BG); ctext(24,"YOUR TAMA BECOMES",WHITE,1); ctext(42,nm,GOLD,1); ctext(54,stage_name(st),GREY,1);
-        ctext(76,"YOU CAN KEEP EDITING",GREY,1); ctext(96,"B = YES",WHITE,1); ctext(108,"C = NO",GREY,1); show();
-        if(!yes_no()) break;
-        u32 to=g_cfg.tama_off;
-#ifdef FELD_TAMA_ANY
-        /* without the Tama's file the game keeps showing the old Tama: say so instead of "changed" (files first, the
-         * settings block in RAM stays untouched then) */
-        if(old && old!=nw && !tama_files(old, nw)){ message("TAMA NOT FOUND","NOTHING CHANGED",""); return; }
-#endif
-        g_set[to+4]=(u8)nw; g_set[to+5]=(u8)(nw>>8); g_set[to+6]=(u8)nw; g_set[to+7]=(u8)(nw>>8);
-        g_set[to+0x18u]=(u8)((g_set[to+0x18u]&~0x1Cu)|((st&7u)<<2));
-#ifdef FELD_TAMA_ANY
-#else
-        if(old && old!=nw) tama_files(old, nw);
-#endif
-        set_write("TAMA CHANGED");
-        return;
+    char title[24]; const char *a=eyes?"EYES: ":"BODY: "; int j=0;
+    while(*a) title[j++]=*a++; a=stage_name(st_list[si]); while(*a) title[j++]=*a++; title[j]=0;
+    u32 candidate=rd16(g_cfg.cat_off+8u+28u*g_chr[sel]);
+    rect(0,0,128,128,BG); ctext(2,title,WHITE,1);
+    char name[24],pos[24]; chr_name(g_chr[sel],name); ctext(16,name,chr_color(candidate,WHITE),1);
+    text(38,25,"ID:",GREY,1); utoa_(candidate,pos); text(62,25,pos,GOLD,1);
+    tama_preview(eyes?t_id():candidate,eyes?candidate:t_word(6),t_color());
+    utoa_(sel+1u,pos); int p=0; while(pos[p]) p++; pos[p++]='/'; utoa_(g_chrn,pos+p);
+    int current=candidate==(eyes?t_word(6):t_id());
+    if(current){ while(pos[p]) p++; const char *s=" CURRENT"; while(*s) pos[p++]=*s++; pos[p]=0; }
+    ctext(102,pos,current?GOLD:GREY,1);
+    ctext(118,"A STAGE  B OK  C BACK",GREY,1); show(); wait_release();
+    int k=menu_key();
+    if(k==1){ sel=wrap_step(sel,g_step,0,g_chrn-1u); continue; }
+    if(k==K_A){
+      for(u32 i=0;i<4u;i++){ si=(si+1u)%4u; chr_build(st_list[si]); if(g_chrn) break; }
+      sel=0; continue;
+    }
+    if(k==K_BACK) return;
+    if(k==K_OK){
+      u32 o=g_cfg.cat_off+8u+28u*g_chr[sel], id=rd16(o);
+      char name[24]; chr_name(g_chr[sel],name);
+      rect(0,0,128,128,BG); ctext(24,eyes?"CHANGE EYES TO":"CHANGE BODY TO",WHITE,1);
+      ctext(44,name,GOLD,1); ctext(72,eyes?"BODY IS KEPT":"EYES ARE KEPT",GREY,1);
+      ctext(96,"B YES   C CANCEL",WHITE,1); show();
+      if(!yes_no()) continue;
+      if(!t_visual(eyes?t_id():id,eyes?id:t_word(6),t_color(),eyes?t_stage():fl(o+6u)[0])){
+        message("TAMA FILE MISSING","OR AMBIGUOUS","NOTHING CHANGED"); return;
       }
+      set_write(eyes?"EYES SAVED":"BODY SAVED"); return;
     }
   }
+}
+static void chr_pick(void){ chr_pick_mode(0); }
+/* Descriptive labels for the ROM's palette variants; save IDs stay unchanged. */
+static const char *t_color_name(u32 v){
+  static const char *const names[17]={"RED","PINK","MAGENTA","PURPLE","BLUE","CYAN","GREEN","YELLOW","ORANGE","ROSE","LAVENDER","SKY BLUE","LIME","CREAM","WHITE","GRAY","DEFAULT"};
+  return v<17u?names[v]:"UNKNOWN";
 }
 static void level_edit(void){
   u32 v=lv_get(), old=v;
@@ -1687,34 +1677,126 @@ static void level_edit(void){
     }
   }
 }
+/* A cycles age step (1/10/100); B reviews, C cancels without writing. */
+static void tama_number(u32 kind){
+  u32 t=g_cfg.tama_off, old=kind==0?t_word(0xCu):kind==1?g_set[t+0x1Cu]:kind==2?g_set[t+0x1Du]:t_color();
+  u32 max=kind==0?999u:kind==1?6u:kind==2?20u:16u, v=old>max?max:old, step=1;
+  const char *title=kind==0?"AGE (DAYS)":kind==1?"FOOD":kind==2?"HAPPINESS":"BODY COLOR";
+  for(;;){
+    rect(0,0,128,128,BG); ctext(kind==3?2:10,title,GOLD,1);
+    char str[16]; utoa_(v,str);
+    if(kind==3){
+      ctext(16,t_color_name(v),WHITE,1); text(30,25,"COLOR ID:",GREY,1); utoa_(v==16u?31u:v,str); text(90,25,str,GOLD,1);
+      tama_preview(t_id(),t_word(6),v);
+      ctext(103,v==old?"CURRENT COLOR":"WHEEL / A: COLOR",v==old?GOLD:GREY,1);
+    } else ctext(39,str,WHITE,3);
+    if(kind==0){ text(22,78,"STEP",GREY,1); utoa_(step,str); text(67,78,str,GOLD,1); ctext(93,"A: CHANGE STEP",GREY,1); }
+    else if(kind!=3) ctext(83,"WHEEL / A: CHANGE",GREY,1);
+    ctext(112,"B REVIEW  C BACK",GREY,1); show(); wait_release();
+    int k=menu_key();
+    if(k==K_BACK) return;
+    if(k==K_A && kind==0){ step=step==100u?1u:step*10u; continue; }
+    if(k==1 || k==K_A){
+      if(kind==0){ int n=(int)v+(g_step>0?(int)step:-(int)step); v=n<0?max:(u32)n>max?0u:(u32)n; }
+      else v=wrap_step(v,k==K_A?1:g_step,0,max);
+      continue;
+    }
+    if(k!=K_OK || v==old){ if(k==K_OK) return; continue; }
+    rect(0,0,128,128,BG); ctext(24,title,WHITE,1); utoa_(v,str);
+    ctext(48,kind==3 && v==16u?"DEFAULT":str,GOLD,2); ctext(94,"B SAVE  C CANCEL",WHITE,1); show();
+    if(!yes_no()) continue;
+    if(kind==0) t_put(0xCu,v);
+    else if(kind==1){ if(v==6u) t_care(1); else g_set[t+0x1Cu]=(u8)v; }
+    else if(kind==2){ if(v==20u) t_care(2); else g_set[t+0x1Du]=(u8)v; }
+    else if(!t_visual(t_id(),t_word(6),v,t_stage())){ message("TAMA FILE MISSING","OR AMBIGUOUS","NOTHING CHANGED"); return; }
+    set_write("TAMA SAVED"); return;
+  }
+}
 static void care_full(void){
   rect(0,0,128,128,BG); ctext(24,"FULL CARE:",WHITE,1); ctext(40,"FED, HAPPY, HEALTHY",GOLD,1);
-  ctext(70,"YOU CAN KEEP EDITING",GREY,1); ctext(92,"B = YES",WHITE,1); ctext(106,"C = NO",GREY,1); show();
+  ctext(56,"CLEAN TAMA",GOLD,1); ctext(92,"B = YES",WHITE,1); ctext(106,"C = NO",GREY,1); show();
   if(!yes_no()) return;
-  u32 to=g_cfg.tama_off;
-  g_set[to+0x1Cu]=6u; g_set[to+0x1Du]=20u; g_set[to+0x10u]=0u;
-  set_write("TAMA CARED FOR");
+  t_care(15); set_write("TAMA CARED FOR");
+}
+static u32 g_care_mask;
+static int care_row(u32 i,char *name,char *right,u16 *col){
+  static const char *const rows[8]={"FULL CARE","EDIT FOOD","EDIT HAPPINESS","CLEAN TAMA","REFILL FOOD","REFILL HAPPINESS","HEAL","APPLY SELECTED"};
+  static const u8 bits[4]={8,1,2,4};
+  const char *s=rows[i]; int n=0; while(*s) name[n++]=*s++; name[n]=0;
+  if(i>=3u && i<=6u){ const char *r=g_care_mask&bits[i-3u]?"ON":"OFF"; n=0; while(*r) right[n++]=*r++; right[n]=0; }
+  *col=i==7u?GOLD:WHITE; return 0;
+}
+static void care_menu(void){
+  u32 sel=0; g_care_mask=0;
+  static const u8 bits[4]={8,1,2,4};
+  for(;;){
+    list_draw("CARE",8,sel,0,care_row,"B SELECT  C BACK"); wait_release();
+    int k=menu_key();
+    if(k==K_BACK) return;
+    if(k==1 || k==K_A){ sel=wrap_step(sel,k==K_A?1:g_step,0,7); continue; }
+    if(k!=K_OK) continue;
+    if(sel==0) care_full();
+    else if(sel<3) tama_number(sel);
+    else if(sel<7) g_care_mask^=bits[sel-3u];
+    else if(g_care_mask){
+      rect(0,0,128,128,BG); ctext(16,"APPLY SELECTED CARE?",GOLD,1);
+      int y=39; static const char *const names[4]={"REFILL FOOD","REFILL HAPPINESS","HEAL","CLEAN TAMA"};
+      for(u32 i=0;i<4u;i++) if(g_care_mask&(1u<<i)){ ctext(y,names[i],WHITE,1); y+=13; }
+      ctext(109,"B SAVE  C CANCEL",GREY,1); show();
+      if(yes_no()){ t_care(g_care_mask); set_write("CARE SAVED"); g_care_mask=0; }
+    }
+  }
 }
 static void big_entry(int y, int sel, const char *name, const char *st, u16 c, u16 stc);
+static const char *const tama_rows[7]={"CARE","PLANET LEVEL","BODY / STAGE","EYES","BODY COLOR","AGE (DAYS)","PREVIEW"};
+static void tama_value(u32 i,char *out){
+  const char *s=""; out[0]=0;
+  if(i==0){
+    char *p=out; s="FOOD "; while(*s) *p++=*s++; utoa_(g_set[g_cfg.tama_off+0x1Cu],p); while(*p) p++;
+    s=" JOY "; while(*s) *p++=*s++; utoa_(g_set[g_cfg.tama_off+0x1Du],p); while(*p) p++;
+    if(g_set[g_cfg.tama_off+0x10u]){ s=" SICK"; while(*s) *p++=*s++; } *p=0; return;
+  }
+  if(i==1){ utoa_(lv_get(),out); return; }
+  if(i==2 || i==3){ int k=cat_find(t_word(i==2?4:6)); if(k>=0){ chr_name((u32)k,out); return; } s="UNKNOWN"; }
+  if(i==4) s=t_color_name(t_color());
+  if(i==5){ utoa_(t_word(0xCu),out); return; }
+  if(i==6) s="VIEW CURRENT TAMA";
+  while(*s) *out++=*s++; *out=0;
+}
 static void tama_menu(void){
   if(set_check_msg()) return;
+  if(!t_layout()){ message("TAMA SAVE FORMAT","NOT SUPPORTED",""); return; }
   u32 sel=0;
   for(;;){
     rect(0,0,128,128,BG); ctext(2,"TAMA",WHITE,1);
-    char st[24], nm[24]; nm[0]=0;
-    utoa_(lv_get(),st); big_entry(12,sel==0,"LEVEL",st,GOLD,GREY);
-    { u32 id=t_id(); int k=cat_find(id); if(k>=0 && fl(g_cfg.cat_off+8u+28u*(u32)k+2u)[0]==2u) chr_name((u32)k,nm); else utoa_(id,nm); }
-    big_entry(41,sel==1,"CHANGE",nm,PINK,GREY);
-    { u32 to=g_cfg.tama_off; char *p=st; const char *a="FOOD "; while(*a) *p++=*a++; utoa_(g_set[to+0x1Cu],p); while(*p) p++; a=" JOY "; while(*a) *p++=*a++; utoa_(g_set[to+0x1Du],p); while(*p) p++; if(g_set[to+0x10u]){ a=" SICK"; while(*a) *p++=*a++; } *p=0; }
-    big_entry(70,sel==2,"CARE",st,ORANGE,GREY);
-    ctext(119,"B OK   C BACK",GREY,1);
-    show(); wait_release();
-    for(;;){
-      int k=input();
-      if(k==1){ sel=(u32)((int)sel+(g_step>0?1:-1)+3)%3u; break; }
-      if(k==K_A){ sel=(sel+1u)%3u; break; }
-      if(k==K_BACK) return;
-      if(k==K_OK){ if(sel==0) level_edit(); else if(sel==1) chr_pick(); else care_full(); break; }
+    for(u32 i=0;i<7u;i++){
+      int y=12+(int)i*14; char value[24]; tama_value(i,value);
+      if(i==sel) rect(0,y,128,y+14,RGB(60,60,110));
+      text(3,y,tama_rows[i],i==0?ORANGE:i==1?GOLD:PINK,1);
+      if(i==0){
+        int x=9; const char *s=value; u16 digits=RGB(120,240,140);
+        while(*s){
+          if(*s=='J') digits=PINK;
+          char ch[2]={*s,0}; text(x,y+7,ch,*s>='0' && *s<='9'?digits:i==sel?WHITE:GREY,1); x+=6; s++;
+        }
+      } else {
+        u16 color=i==2 || i==3?chr_color(t_word(i==2?4:6),WHITE):i==1?GOLD:i==5?RGB(120,240,140):i==sel?WHITE:GREY;
+        textn(9,y+7,value,19,color,1);
+      }
+    }
+    ctext(118,"B OK   C BACK",GREY,1); show(); wait_release();
+    int k=menu_key();
+    if(k==1 || k==K_A){ sel=wrap_step(sel,k==K_A?1:g_step,0,6); continue; }
+    if(k==K_BACK) return;
+    if(k!=K_OK) continue;
+    if(sel==1){ level_edit(); continue; }
+    if(!t_alive()){ message("NO CURRENT TAMA","HATCH AN EGG FIRST",""); continue; }
+    if(sel==0) care_menu(); else if(sel==2) chr_pick(); else if(sel==3) chr_pick_mode(1);
+    else if(sel==4) tama_number(3); else if(sel==5) tama_number(0);
+    else {
+      rect(0,0,128,128,BG); ctext(8,"CURRENT TAMA",GOLD,1); tama_preview(t_id(),t_word(6),t_color());
+      ctext(116,"B / C BACK",GREY,1); show(); wait_release();
+      for(;;){ k=menu_key(); if(k==K_OK || k==K_BACK) break; }
     }
   }
 }
@@ -1873,23 +1955,72 @@ static void saves_menu(int with_app,int top){
   }
 }
 
+/* A direct route to the rescue Flash-Tool already installed by Studio. Never
+ * change either boot header here: the flash app performs all subsequent writes.
+ * The source launch entry copies uncached flash into PRAM before restarting. */
+#define FT_BASE 0xFF0000u
+#define FT_TABLE 0xFFE000u
+#define FT_SIZE 0xE000u
+static int flash_tool_header(void){
+  u32 sp=rd32(FT_BASE), pc=rd32(FT_BASE+4u);
+  return rd32(FT_TABLE)==0x494E4F53u && rd32(FT_TABLE+4u)==0x56454458u &&
+    !(rd32(FT_TABLE+8u)&1u) && rd32(FT_TABLE+0x10u)==0x60000000u+FT_BASE &&
+    rd32(FT_TABLE+0x14u)==FT_SIZE && sp>=0x18000000u && sp<=0x18020000u &&
+    !(sp&7u) && (pc&1u) && pc<FT_SIZE;
+}
+static int flash_tool_stub(void){
+  return g_cfg.version>=5u && g_cfg.stub_off>=0x90000u && g_cfg.stub_off<0x110000u &&
+    !(g_cfg.stub_off&0xFFFu) && rd32(g_cfg.stub_off+0x0Cu)==0x4604B672u;
+}
+static int flash_tool_valid(void){
+  if(!flash_tool_header()) return 0;
+  u32 crc=0xFFFFFFFFu;
+  for(u32 i=0;i<FT_SIZE;i++){ crc=sl_crc(crc,fl(FT_BASE+i)[0]); if(!(i&0xFFFu)) hw_wdt_feed(); }
+  return (crc^0xFFFFFFFFu)==rd32(FT_TABLE+0x24u);
+}
+#ifdef HOST
+static u32 host_flash_tool_src;
+#endif
+static void flash_tool_menu(void){
+  if(!flash_tool_header()){ message("FLASH TOOL MISSING","UPDATE ROM FIRST",""); return; }
+  if(!flash_tool_stub()){ message("CANNOT START","UPDATE MENU FIRST",""); return; }
+  rect(0,0,128,128,BG); ctext(35,"CHECKING FLASH TOOL",WHITE,1); show();
+  if(!flash_tool_valid()){ message("FLASH TOOL DAMAGED","CRC CHECK FAILED","UPDATE ROM FIRST"); return; }
+  rect(0,0,128,128,BG); ctext(12,"FLASH TOOL",GOLD,2);
+  ctext(44,"CONNECT TO STUDIO",WHITE,1); ctext(61,"ENTER FLASH MODE?",WHITE,1);
+  ctext(92,"B = YES",WHITE,1); ctext(108,"C = NO",GREY,1); show();
+  if(!yes_no()) return;
+  rect(0,0,128,128,0); show();
+  u32 src=0x10000000u+FT_BASE-XIP_DEC;
+#ifdef HOST
+  host_flash_tool_src=src; host_exit("FLASH TOOL");
+#else
+  ((void(*)(u32))(0x10000000u+g_cfg.stub_off-XIP_DEC+0x0Du))(src);
+  for(;;){}
+#endif
+}
+
 /* ---------------------------------------------------------------- Main menu */
 static void main_menu(void){
   int fields = (g_cfg.flags & F_FIELDS) && g_cur>=0 && g_cfg.nfields>=2u;
-  u32 kinds[5], n=0;                   /* 0 field, 1 items, 2 Tamapoints, 3 program, 4 Tama */
+  u32 kinds[6], n=0;                   /* 0 field, 1 items, 2 points, 3 program, 4 Tama, 5 flash */
   if(fields) kinds[n++]=0;
   if(g_cfg.flags & F_BAG){ kinds[n++]=1; kinds[n++]=2; }
   if(tama_ok()) kinds[n++]=4;
   if(g_napp) kinds[n++]=3;
-  u32 sel = g_napp ? n-1u : 0u;
+  u32 sel = g_napp ? n-1u : 0u;       /* keep the installed program selected */
+  u32 split=n<4u?n:4u;               /* FLASH TOOL starts the second page even with fewer categories */
+  if(!(g_cfg.flags & F_LAUNCH)) kinds[n++]=5;
+  if(!split) split=n;                /* an otherwise empty menu has only FLASH TOOL */
   for(;;){
     int ok=set_load()==0;
     rect(0,0,128,128,BG);
-    int y0 = n>=4u ? 1 : 12, dy = n>=5u ? 23 : 29;
-    if(n<4u) ctext(2,"PARAMIX",WHITE,1);
-    g_small = n>=5u;
-    for(u32 i=0;i<n;i++){
-      int y=y0+(int)i*dy; char st[24];
+    u32 page=sel>=split?1u:0u, top=page?split:0u, shown=page?n-split:split;
+    int y0 = shown>=4u ? 1 : 12, dy = 29;
+    if(shown<4u) ctext(2,"PARAMIX",WHITE,1);
+    g_small = 0;                     /* retain separate name and status lines on every page */
+    for(u32 row=0;row<shown;row++){
+      u32 i=top+row; int y=y0+(int)row*dy; char st[24];
       switch(kinds[i]){
         case 0: if(saves_mode()){ const char *a="SAVE "; int q=0; while(a[q]){ st[q]=a[q]; q++; } st[q++]=(char)('1'+g_act); st[q++]=' '; a=fname((u32)g_cur); while(*a && q<22) st[q++]=*a++; st[q]=0; big_entry(y,i==sel,"SAVES",st,fcol((u32)g_cur),WHITE); }
                 else big_entry(y,i==sel,"FIELD",fname((u32)g_cur),fcol((u32)g_cur),WHITE); break;
@@ -1899,11 +2030,13 @@ static void main_menu(void){
                 big_entry(y,i==sel,"POINTS",st,GOLD,GREY); break;
         case 4: { int k=cat_find(t_id()); if(ok && k>=0 && fl(g_cfg.cat_off+8u+28u*(u32)k+2u)[0]==2u) chr_name((u32)k,st); else if(ok) utoa_(t_id(),st); else { st[0]='-'; st[1]=0; }
                   big_entry(y,i==sel,"TAMA",st,RGB(120,220,120),GREY); } break;
+        case 5: big_entry(y,i==sel,"FLASH TOOL","PC FLASH",ORANGE,GREY); break;
         default: big_entry(y,i==sel,g_napp>1u ? "PROGRAMS" : g_appnm[0],g_napp>1u ? "CHOOSE" : "START",ORANGE,GREY); break;
       }
     }
     g_small = 0;
-    ctext(119,"B OK   C EXIT",GREY,1);
+    if(split<n){ char footer[]="1/2 B OK C EXIT"; footer[0]=(char)('1'+page); ctext(119,footer,GREY,1); }
+    else ctext(119,"B OK   C EXIT",GREY,1);
     show(); wait_release();
     for(;;){
       int k=input();
@@ -1911,7 +2044,7 @@ static void main_menu(void){
       if(k==K_A){ sel=(sel+1u)%n; break; }
       if(k==K_BACK) leave();
       if(k==K_OK){
-        switch(kinds[sel]){ case 0: if(saves_mode()) saves_menu(0,0); else field_menu(0,0); break; case 1: items_menu(); break; case 2: points_menu(); break; case 4: tama_menu(); break; default: if(g_napp>1u) apps_menu(0); else start_app_i(0); }
+        switch(kinds[sel]){ case 0: if(saves_mode()) saves_menu(0,0); else field_menu(0,0); break; case 1: items_menu(); break; case 2: points_menu(); break; case 4: tama_menu(); break; case 5: flash_tool_menu(); break; default: if(g_napp>1u) apps_menu(0); else start_app_i(0); }
         break;
       }
     }

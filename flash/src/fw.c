@@ -498,7 +498,7 @@ static void handle(const u8* f, u32 flen){
 #if ANZEIGE
     arm_for_dump();
 #if HALTBILD
-    if((off & 0x000FFFFFu)==0) draw_live(st_lesen, off, FLASH_SIZE);
+    if((off & 0x000FFFFFu)==0) draw_live(st_reading, off, FLASH_SIZE);
 #endif
 #endif
     u32 len=plen>=4?rd32(pl):MAXP; if(len>MAXP) len=MAXP;
@@ -534,7 +534,7 @@ static void handle(const u8* f, u32 flen){
 #if ANZEIGE && HALTBILD
     /* Last block of the dump: set the display to "done", otherwise "reading..."
        would stay on screen (a dump has no finish command). */
-    if(off + len >= FLASH_SIZE) draw_live(st_fertig, 1, 1);
+    if(off + len >= FLASH_SIZE) draw_live(st_done, 1, 1);
 #endif
     return;
   }
@@ -542,7 +542,7 @@ static void handle(const u8* f, u32 flen){
 #if ANZEIGE
     arm_for_dump();
 #if HALTBILD
-    if((off & 0x000FFFFFu)==0) draw_live(st_schreiben, off, FLASH_SIZE);
+    if((off & 0x000FFFFFu)==0) draw_live(st_writing, off, FLASH_SIZE);
 #endif
 #endif
     u32 len=plen>=4?rd32(pl):0;
@@ -562,7 +562,7 @@ static void handle(const u8* f, u32 flen){
 #if ANZEIGE && HALTBILD
     /* Switch to "writing" right away, otherwise the "done" from the dump stays
        on screen until the first sector on a 1 MB boundary. */
-    *g_wrcnt=0; draw_live(st_schreiben, 0, 1);
+    *g_wrcnt=0; draw_live(st_writing, 0, 1);
 #endif
     u8* p=reply_head(9,seq,off,0,4); wr32(p,0); send_frame(28+4); return;
   }
@@ -588,7 +588,7 @@ static void handle(const u8* f, u32 flen){
 #if ANZEIGE && HALTBILD
     /* Bar based on counted sectors (keeps the display moving forward, since the
        write order is not sequential). Redraw every 16 sectors. */
-    { u32 n=++(*g_wrcnt); if((n & 0x0Fu)==0) draw_live(st_schreiben, n, FLASH_SIZE/0x1000u); }
+    { u32 n=++(*g_wrcnt); if((n & 0x0Fu)==0) draw_live(st_writing, n, FLASH_SIZE/0x1000u); }
 #endif
     u32 c=crc32_flash(base, 0x1000u);        /* CRC read back (XIP), checked by the tool */
     /* Byte compare on the device: 0 = sector matches, otherwise error status 1 */
@@ -599,7 +599,7 @@ static void handle(const u8* f, u32 flen){
   }
   if(type==12){ /* WRITE_FINISH */
 #if ANZEIGE && HALTBILD
-    draw_live(st_fertig, 1, 1);
+    draw_live(st_done, 1, 1);
 #endif
     u8* p=reply_head(12,seq,off,0,0); send_frame(28+0); return;
   }
@@ -727,7 +727,7 @@ void Reset_Handler(void){
 #if ANZEIGE
   display_power();
   display_init();
-  draw(st_bereit, 0, 1);
+  draw(st_ready, 0, 1);
   backlight_on();
   *g_armed=0;   /* dump switch not done yet; screen stays on while idle */
 #endif

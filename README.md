@@ -30,7 +30,8 @@ the device over a UART dongle.
   Forest, with pictures, special characters and the matching planet.
 - **Menu:** an on-device menu with several saves (each on a field of your
   choice), items in the bag, Tamapoints and changes to the Tama (level, care,
-  character).
+  character). FLASH TOOL in the Paramix home menu starts the installed rescue
+  flash app directly, without the game's Connection menu.
 - **Save editor:** change level, character and care of a Paradise save
   (a .tamasave or the save inside the loaded ROM).
 - **Characters:** export every character as an image sheet, edit it in any paint
@@ -626,6 +627,10 @@ middle = GND, right = TX of the dongle. 3.3 V, not 5 V.
 
 1. On the Paradise open the download screen: Planet, A, Connect, Download,
    Download.
+   Alternatively, in updated Paramix menus press A+C on the game's home screen,
+   select FLASH TOOL, and confirm. This validates and starts the installed rescue
+   flash app in RAM; it does not clear the boot header or saves. If the rescue
+   program is missing or invalid, the menu reports it without jumping to it.
    On a start device choose DOWNLOAD in the menu instead.
 2. Click "Device", then "Connect" and pick the port. The Studio loads its own
    flash app into the device's RAM (nothing is written for this; switching the
@@ -729,6 +734,11 @@ Paramix Studio is free software under the GNU General Public License version 3
 or later, see [LICENSE](LICENSE). It builds on the work of others, see
 [NOTICE.md](NOTICE.md) for the full list:
 
+- Original Paramix Studio and its on-device tools: **mameise**. This fork's
+  menu extensions and compatibility work: **ZW Cai (@x43x61x69)**.
+- Runtime Language/Settings interoperability follows **sawaYch's**
+  [Traditional Chinese patcher](https://github.com/sawaYch/tamagotchi-paradise-zh-patcher)
+  (MIT); attribution and license details are retained in NOTICE.md.
 - **TamaEmu** is based on [tamaemu](https://github.com/maragotchi/tamaemu) by
   maragotchi (GPL-3.0). The JIT and the Paradise port were written for this
   project; the emulator core and the download content layout come from tamaemu.

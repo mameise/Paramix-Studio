@@ -26,6 +26,7 @@ const FELD_MAGIC = 0x444C4546, SLOT_MAGIC = 0x544C5346, CAT_MAGIC = 0x54414350, 
 const PH_APP = 0x1234ABCD, PH_FELD = 0x6789EF01, PH_AUTO = 0x66666661, PH_ORIG = [0x22222221, 0x33333331, 0x44444441, 0x55555551];
 const HOOK_OFF = [0x40, 0x46, 0x4C, 0x52];
 const F_FIELDS = 1, F_BAG = 2, F_TAMA = 4, F_SAVES = 8, F_LAUNCH = 16;
+const F_NO_SHORTCUT = 128; // persisted opt-out; the A+C menu remains enabled
 /* GPLAY (1.7.2 test14): play time in DOOM, Wolfenstein, Game Boy and Master System earns Tamapoints (the programs read
  * this flag from the menu's settings block, see emu/src/emu/gplay.h). Only in a ROM with the Paradise. */
 const F_GPLAY = 64, GPLAY = true;
@@ -209,9 +210,34 @@ function appKind(rom) {
  * In editions whose firmware code still occupies that spot (Tropical, Glacier),
  * right after the code in the first free region below 0x110000.
  */
-function freeStubOff(rom) {
-  if (isFF(rom, STUB_OFF, 0x2000)) return STUB_OFF;
-  let p = 0x10F000;
+/** Shared with paradise-zh-patcher: a complete erase page, never save-pool
+ * padding. Validate the marker before trusting or reallocating this region. */
+function languagePatchPages(rom) {
+  const pages = [];
+  for (let p = 0x90000; p < 0x110000; p += 0x1000) {
+    const magic = String.fromCharCode(...rom.subarray(p + 0x80, p + 0x88));
+    if (magic !== 'ZHLANG01' && magic !== 'ZHLANG02') continue;
+    const version = magic === 'ZHLANG02' ? 2 : 1;
+    let sum = 0; for (let i = 0; i < 0x80; i++) sum += rom[p + i];
+    let valid = u32(rom, p + 0x88) === version && u32(rom, p + 0x8C) === p && u32(rom, p + 0x98) === 0x1000 &&
+      u32(rom, p + 0x94) < 3 && u32(rom, p + 0x9C) === sum;
+    if (version === 1) valid = valid && u32(rom, p + 36) === u32(rom, p + 0x90);
+    else {
+      const flags = u32(rom, p + 0xA0), label = u32(rom, p + 0xA4), stub = u32(rom, p + 0xA8);
+      let metaSum = 0; for (let i = 0; i < 0xAC; i++) metaSum += rom[p + i];
+      valid = valid && flags > 0 && flags <= 3 && u32(rom, p + 0xAC) === metaSum;
+      valid = valid && (flags & 1 ? u32(rom, p + 36) === u32(rom, p + 0x90) : u32(rom, p + 0x90) === 0xFFFFFFFF);
+      valid = valid && (flags & 2 ? label === u32(rom, p + 36 + (flags & 1 ? 12 : 0)) && stub >= 0x90000 && stub < 0x110000 && !(stub & 4095) : label === 0xFFFFFFFF && stub === 0);
+    }
+    if (!valid)
+      throw new Error('damaged language-patch reservation; refusing to overwrite it');
+    pages.push(p);
+  }
+  return pages;
+}
+function freeStubOff(rom, codeEnd = CODE_END) {
+  if (STUB_OFF + 0x2000 <= codeEnd && isFF(rom, STUB_OFF, 0x2000)) return STUB_OFF;
+  let p = codeEnd;
   while (p > 0x90000 && isFF(rom, p - 0x1000, 0x1000)) p -= 0x1000;
   return p;
 }
@@ -579,23 +605,76 @@ function itemCatalog(d) {
   return out;
 }
 /*
- * Characters for the TAMA menu (1.6.8): kid, young and adult of the character table with their
+ * Characters for the TAMA menu (1.6.8): baby, kid, young and adult of the character table with their
  * English names. fixed 2, stage, field = index + 1 in the menu's field list (P.names), 0 = none.
  */
 const FIELD_DEFAULT = new Set(['LAND', 'WATER', 'SKY', 'FOREST', 'TROPICAL', 'ICE', 'GLACIER']);
 /** Text numbers of the field names (1.6.8): the three fields at 14..16, the further ones of six fields at 64..66 */
 const FIELD_TEXT = [14, 15, 16, 64, 65, 66];
 const TYPE_NAMES = { 1: 'LAND', 2: 'WATER', 3: 'SKY', 4: 'FOREST', 5: 'TROPICAL', 6: 'GLACIER' };
-function charCatalog(d, P) {
+const TPRV_MAGIC = 0x56525054, TPRV_RECORD = 72;
+function byteSum(b) { let s = 0; for (const v of b) s += v; return (s & 65535) || 1; }
+/* References only: selected compressed cells/palettes stay in the ROM archive.
+ * The renderer needs neither game RAM nor calls into firmware code. */
+function characterPreviewData(d, C, ctx) {
+  const entry = ctx.root.ents[1];
+  // ARC2 may include up to three alignment bytes in clen. This is ordinary
+  // uncompressed storage, including ROMs rebuilt by the Studio.
+  if (entry.flags || (entry.clen !== entry.ulen && entry.clen !== ((entry.ulen + 3) & ~3))) return new Map();
+  const pack = 0x111000 + ctx.root.ents[1].offset;
+  const chars = C.charTable(ctx.files[0]).filter(c => c.id > 1000 && c.id < 9000);
+  if (chars.length + 1 !== ctx.groups.length) return new Map();
+  const poses = new Map(), groups = new Set(ctx.groups), layers = C.paraLayers(ctx.files[0]);
+  if (!layers) return new Map();
+  for (const f of layers.frames) {
+    const b = f.find(l => groups.has(l.img)); if (!b) continue;
+    const e = f.find(l => l.img === b.img + 1), m = f.find(l => l.img === b.img + 2); if (!e || !m) continue;
+    const prev = poses.get(b.img), neutral = e.sub === 0 && m.sub === 0;
+    if (prev && (prev.neutral || !neutral)) continue;
+    poses.set(b.img, { neutral, bs: b.sub, es: e.sub, ms: m.sub, ex: e.x - b.x, ey: e.y - b.y, mx: m.x - b.x, my: m.y - b.y });
+  }
+  let variants = null;
+  for (let i = 0; i < ctx.entries.length; i++) {
+    const e = ctx.entries[i], h = C.spriteHeader(e);
+    if (h.numPal !== 16 || h.bpp !== 2 || h.sw !== 64 || h.sh !== 64 || h.numSprites !== 1 || h.palOffset + 512 > e.length) continue;
+    let valid = true;
+    for (let p = 0; p < 16; p++) if (u16(e, h.palOffset + p * 32) !== 0x07E0 || u16(e, h.palOffset + p * 32 + 2) !== 12) valid = false;
+    if (!valid) continue;
+    if (variants) { variants = null; break; } // refuse ambiguous resource layouts
+    variants = { addr: pack + u32(ctx.files[1], i * 4) + h.palOffset, sum: byteSum(e.subarray(h.palOffset, h.palOffset + 512)) };
+  }
+  const part = (i, sub) => {
+    const e = ctx.entries[i], h = C.spriteHeader(e);
+    if (h.bpp !== 2 || h.iw !== 1 || h.ih !== 1 || sub >= h.numSprites || h.sw > 64 || h.sh > 64) return null;
+    const base = pack + u32(ctx.files[1], i * 4), raw = h.sw * h.sh / 2;
+    let off = h.pixOffset + sub * raw, len = raw, flags = h.flags;
+    if (flags & 0x60) {
+      const v = u32(e, h.pixOffset + sub * 8);
+      off = h.pixOffset + (v & 0x7FFFFFFF); len = v >>> 31 ? raw : u32(e, h.pixOffset + sub * 8 + 4);
+      if (v >>> 31) flags &= ~0x60;
+    }
+    if (!len || len > 12288 || off + len > e.length || h.palOffset + 32 > e.length) return null;
+    return { addr: base + off, len, raw, pal: base + h.palOffset, w: h.sw, h: h.sh,
+      flags: (flags & 0xE4) | h.bpp, tr: h.transp, sum: byteSum(e.subarray(off, off + len)), palSum: byteSum(e.subarray(h.palOffset, h.palOffset + 32)) };
+  };
+  const out = new Map();
+  chars.forEach((c, i) => {
+    const g = ctx.groups[i + 1], p = poses.get(g); if (!p) return;
+    const parts = [part(g, p.bs), part(g + 1, p.es), part(g + 2, p.ms)];
+    if (parts.every(Boolean) && [p.ex, p.ey, p.mx, p.my].every(n => Math.abs(n) <= 64)) out.set(c.id, { parts, pose: p, variants });
+  });
+  return out;
+}
+function charCatalog(d, P, withPreview = false) {
   const C = typeof ParamixCore !== 'undefined' ? ParamixCore : (typeof require !== 'undefined' ? require('./core.js') : null);
   if (!C) return [];
   let ctx; try { ctx = C.openRom(d); } catch (e) { return []; }
-  const tt = textTabelle(d), out = [];
+  const tt = textTabelle(d), out = [], previews = withPreview ? characterPreviewData(d, C, ctx) : new Map();
   for (const c of C.charTable(ctx.files[0])) {
-    if (c.id < 2000 || c.id > 4999 || c.stage < 3 || c.stage > 5 || !TYPE_NAMES[c.field]) continue;
+    if (c.id < 1001 || c.id > 4999 || c.stage < 2 || c.stage > 5 || (c.stage !== 2 && !TYPE_NAMES[c.field])) continue;
     const nm = (tt >= 0 ? zeichenkette(d, tt, c.name) : '') || ('NO. ' + c.id);
     const fi = P.names.indexOf(TYPE_NAMES[c.field]);
-    out.push({ id: c.id, fixed: 2, pic: 0, sum: (c.stage & 255) | ((fi + 1) << 8), at: null, name: nm.replace(/\s+/g, ' ') });
+    out.push({ id: c.id, fixed: 2, pic: 0, sum: (c.stage & 255) | ((fi + 1) << 8), at: null, name: nm.replace(/\s+/g, ' '), preview: previews.get(c.id) });
   }
   return out;
 }
@@ -613,7 +692,8 @@ function characters(d) {
 const EXT_MAGIC = 0x54584550;
 function catalogBlob(cat) {
   const x = 8 + 28 * cat.length;
-  const b = new Uint8Array(x + 4 + 12 * cat.length);
+  const previews = cat.filter(c => c.preview), end = x + 4 + 12 * cat.length;
+  const b = new Uint8Array(end + (previews.length ? 24 + TPRV_RECORD * previews.length : 0));
   w32(b, x, EXT_MAGIC);
   cat.forEach((c, i) => { const o = x + 4 + 12 * i; if (c.at) { w32(b, o, c.at.addr); w16(b, o + 4, c.at.len); w16(b, o + 6, c.at.sum); w32(b, o + 8, c.at.head); } });
   w32(b, 0, CAT_MAGIC); w32(b, 4, cat.length);
@@ -622,6 +702,22 @@ function catalogBlob(cat) {
     w16(b, o, c.id); b[o + 2] = c.fixed === 2 ? 2 : c.fixed ? 1 : 0; b[o + 3] = nm.length; w16(b, o + 4, c.pic); w16(b, o + 6, c.sum || 0);
     for (let k = 0; k < nm.length; k++) b[o + 8 + k] = nm.charCodeAt(k);
   });
+  if (previews.length) {
+    w32(b, end, TPRV_MAGIC); w32(b, end + 4, 1); w32(b, end + 8, TPRV_RECORD); w32(b, end + 12, previews.length);
+    const variants = previews[0].preview.variants;
+    w32(b, end + 16, variants ? variants.addr : 0); w32(b, end + 20, variants ? variants.sum : 0);
+    previews.forEach((c, i) => {
+      const o = end + 24 + TPRV_RECORD * i, p = c.preview;
+      w16(b, o, c.id);
+      p.parts.forEach((v, j) => {
+        const q = o + 4 + 20 * j;
+        w32(b, q, v.addr); w16(b, q + 4, v.len); w16(b, q + 6, v.raw); w32(b, q + 8, v.pal);
+        b[q + 12] = v.w; b[q + 13] = v.h; b[q + 14] = v.flags; b[q + 15] = v.tr;
+        w16(b, q + 16, v.sum); w16(b, q + 18, v.palSum);
+      });
+      [p.pose.ex, p.pose.ey, p.pose.mx, p.pose.my].forEach((v, j) => w16(b, o + 64 + j * 2, v & 65535));
+    });
+  }
   return b;
 }
 
@@ -635,7 +731,10 @@ function assetEnd(rom) { return 0x111000 + 16 + u32(rom, 0x111000 + 8); }
 
 /** Remove the menu (program, catalog, slots, stub). Call feldSlots() first if the saves should be kept. */
 function feldStrip(rom, emb, E) {
-  const out = new Uint8Array(rom);
+  const S = root.ParamixSettings || (typeof require !== 'undefined' ? require('./settings.js') : null);
+  const H = root.ParamixHomeMenu || (typeof require !== 'undefined' ? require('./home_menu.js') : null);
+  const withoutHome = H ? H.stripEntry(rom) : rom;
+  const out = new Uint8Array(S ? S.stripEntry(withoutHome) : withoutHome);
   const f = feldFind(out, emb.stub);
   if (!f) return out;
   const tab = E.sceneTable(out);
@@ -646,7 +745,13 @@ function feldStrip(rom, emb, E) {
   if (f.catOff > f.off && u32(rom, f.catOff) === CAT_MAGIC) {
     let ce = f.catOff + 8 + (f.version >= 3 ? 28 : 24) * f.catN;
     if (u32(rom, ce) === EXT_MAGIC) ce += 4 + 12 * f.catN;
-    end = Math.max(end, page(ce));
+    if (u32(rom, ce) === TPRV_MAGIC && u32(rom, ce + 4) === 1 && u32(rom, ce + 8) === TPRV_RECORD && u32(rom, ce + 12) <= 256) ce += 24 + TPRV_RECORD * u32(rom, ce + 12);
+    // A large catalog may live behind the asset archive, separately from code.
+    if (f.catOff >= page(assetEnd(rom)) && ce <= rom.length) {
+      out.fill(0xFF, f.catOff, page(ce));
+      if (f.stubOff === STUB_OFF && f.off < FELD_END) end = FELD_END;
+    }
+    else end = Math.max(end, page(ce));
   }
   if (f.slotOff > f.off && f.slotOff < end) end = f.slotOff;
   end = Math.min(end, f.stubOff === STUB_OFF && f.off < FELD_END ? FELD_END : (isSix(out) ? CODE_END : 0x110000));
@@ -678,6 +783,12 @@ function feldStrip(rom, emb, E) {
 function feldApply(rom, opts, saved, emb, E) {
   if (rom.length !== 0x1000000) throw new Error('the Paradise image must be 16 MB');
   const out = new Uint8Array(rom);
+  const S = root.ParamixSettings || (typeof require !== 'undefined' ? require('./settings.js') : null);
+  const H = root.ParamixHomeMenu || (typeof require !== 'undefined' ? require('./home_menu.js') : null);
+  if (S) S.inspect(out); // validate existing Language helpers even when the shortcut is disabled
+  const shortcutPage = H && opts.paramixShortcut !== false && !opts.launch && !opts.clean ? H.planPage(out) : null;
+  if (shortcutPage !== null) out.set(S.prepareLabel(out).rom);
+  const languagePages = languagePatchPages(out), codeEnd = Math.min(CODE_END, ...languagePages, shortcutPage === null ? CODE_END : shortcutPage);
   if (feldFind(out, emb.stub)) throw new Error('the menu is already built in');
   const ed = edition(out);
   if (!ed) throw new Error('edition not recognised');
@@ -691,42 +802,52 @@ function feldApply(rom, opts, saved, emb, E) {
   if (!tab.PSID_HOME) throw new Error('home screen not found');
   const prev = E.installedOrigs(out, tab);
   const kind = appKind(out);
-  const stubOff = prev || kind ? STUB_OFF : freeStubOff(out);
+  const stubOff = prev || kind ? STUB_OFF : freeStubOff(out, codeEnd);
   if (!prev && !isFF(out, stubOff, 0x1000)) throw new Error('no room for the launcher');
   const catList = bag ? itemCatalog(out) : [];
-  if (tama) { const pack = catList.pack; catList.push(...charCatalog(out, P)); catList.sort((a, b) => a.id - b.id); catList.pack = pack; }
+  if (tama) { const pack = catList.pack; catList.push(...charCatalog(out, P, true)); catList.sort((a, b) => a.id - b.id); catList.pack = pack; }
   const cat = bag || tama ? catalogBlob(catList) : new Uint8Array(0);
   const fsz = page(emb.feld.length), csz = page(cat.length);
   const doom = kind === 1;
+  const doomEnd = Math.min(DOOM_SAVE, ...languagePages);
   let prog = doom ? doomCodeEnd(out) : stubOff + 0x1000;
   // DOOM with T18Emu as a further program (start device, 1.6.8): its flash part at 0x0F0000 lies in DOOM's free end
   const tsz = launch ? launchSize(out, E.sceneTable(out)) : 0;   // start device: trampoline pages behind the menu
-  if (doom) while (prog + fsz + csz + tsz <= DOOM_SAVE && !isFF(out, prog, fsz + csz + tsz)) prog += 0x1000;
-  const tOff = page(prog + fsz + csz);
-  const catOff = cat.length ? prog + fsz : 0;
+  if (doom) while (prog + fsz + csz + tsz <= doomEnd && !isFF(out, prog, fsz + csz + tsz)) prog += 0x1000;
+  let codeCat = csz, catOff = cat.length ? prog + fsz : 0, catEnd = 0;
+  if (!doom && stubOff === STUB_OFF && prog + fsz + csz + tsz > FELD_END && cat.length) {
+    // Keep the emulator save region at C0000 intact. Put references in unused
+    // flash behind assets, reserving them before allocating any save slots.
+    catOff = Math.max(SLOT_BASE, page(assetEnd(out))); catEnd = catOff + csz;
+    const t18low = kind === 2 && E.t18Low && u32(out, 0xA0140) === 0x38584D50 ? E.t18Low(out) : 0;
+    const guestLow = kind === 2 ? (u32(out, 0xA0140) === PMXC ? Math.min(u32(out, 0xA0148), GUEST_OFF) : t18low || GUEST_OFF) : P.idPage - 0x1000;
+    if (catEnd > Math.min(P.idPage - 0x1000, guestLow, opts.appsLow || 0x1000000) || !isFF(out, catOff, csz)) throw new Error('no room for the menu catalog');
+    codeCat = 0;
+  }
+  const tOff = page(prog + fsz + codeCat);
 
   const nslots = fields ? P.ids.length : 0;
   let slotOff = 0, slotSize = 0, slotOff2 = 0, slotN1 = 0;
   if (doom) {
-    if (prog + fsz + csz + tsz > DOOM_SAVE) throw new Error('no room for the menu next to DOOM');
+    if (prog + fsz + csz + tsz > doomEnd) throw new Error('no room for the menu next to DOOM and the language patch');
     if (fields) {
       slotOff = prog + fsz + csz;
-      slotSize = Math.floor((DOOM_SAVE - slotOff) / nslots / 0x1000) * 0x1000;
+      slotSize = Math.floor((doomEnd - slotOff) / nslots / 0x1000) * 0x1000;
       if (slotSize < 0x8000) throw new Error('no room for the saves next to DOOM');
     }
   } else {
-    if (prog + fsz + csz + tsz > (stubOff === STUB_OFF ? FELD_END : CODE_END)) throw new Error('menu program too big');
-    if (!isFF(out, prog, fsz + csz + tsz)) throw new Error('the area for the menu is in use');
+    if (prog + fsz + codeCat + tsz > Math.min(stubOff === STUB_OFF ? FELD_END : CODE_END, codeEnd)) throw new Error('menu program too big for the reserved language-patch layout');
+    if (!isFF(out, prog, fsz + codeCat + tsz)) throw new Error('the area for the menu is in use');
     if (fields && P.six) {
       // six fields: slots behind the menu (up to the helper page) and behind the character data
-      const a1 = page(prog + fsz + csz), r1 = CODE_END - a1, a2 = page(assetEnd(out)), r2 = P.idPage - 0x1000 - a2;
+      const a1 = page(prog + fsz + codeCat), r1 = codeEnd - a1, a2 = Math.max(page(assetEnd(out)), catEnd), r2 = P.idPage - 0x1000 - a2;
       for (let s = SLOT_SIZE; s >= 0x10000; s -= 0x1000) {
         const n1 = Math.max(0, Math.floor(r1 / s)), n2 = Math.max(0, Math.floor(r2 / s));
         if (n1 + n2 >= nslots) { slotSize = s; slotN1 = Math.min(n1, nslots); slotOff = slotN1 ? a1 : a2; slotOff2 = slotN1 && slotN1 < nslots ? a2 : 0; if (!slotN1) slotN1 = 0; break; }
       }
       if (!slotSize) throw new Error('no room for the saves');
     } else if (fields) {
-      slotOff = Math.max(SLOT_BASE, page(assetEnd(out)));
+      slotOff = Math.max(SLOT_BASE, page(assetEnd(out)), catEnd);
       // the emulator's firmware starts at 0x940000, a big one (P's, 4U+) already at 0x840000 (1.3.2)
       // T18Emu (1.5.1) puts its firmware from the top down: the saves get the room below its lowest block
       const T18 = 0x38584D50, t18low = u32(out, 0xA0140) === T18 && E && E.t18Low ? E.t18Low(out) : 0;
@@ -747,7 +868,7 @@ function feldApply(rom, opts, saved, emb, E) {
   w32(f, ci + 8, slotOff); w32(f, ci + 12, slotSize); w32(f, ci + 16, nslots);
   w32(f, ci + 20, P.idPage + 0x1000); w32(f, ci + 24, P.six ? 0xF00000 : 0x1000000);   // six fields: rain pictures from 0xF00000
   w32(f, ci + 28, P.idPage);   // ID page (1.2.2 to 1.2.11 lost this line: Tropical/Glacier wrote the ID to 0xD49000)
-  w32(f, ci + 32, stubOff); w32(f, ci + 36, (fields ? F_FIELDS : 0) | (bag ? F_BAG : 0) | (tama ? F_TAMA : 0) | (saves ? F_SAVES : 0) | (launch ? F_LAUNCH : 0) | (gplay ? F_GPLAY : 0));
+  w32(f, ci + 32, stubOff); w32(f, ci + 36, (fields ? F_FIELDS : 0) | (bag ? F_BAG : 0) | (tama ? F_TAMA : 0) | (saves ? F_SAVES : 0) | (launch ? F_LAUNCH : 0) | (gplay ? F_GPLAY : 0) | (opts.paramixShortcut === false ? F_NO_SHORTCUT : 0));
   w32(f, ci + 40, P.c); w16(f, ci + 44, P.h[0]); w16(f, ci + 46, P.h[1]);
   // 1.6.8: a field renamed in the Studio (text table) shows its new name in the menu too
   const shownName = (i) => { const x = (opts.fieldNames || [])[i]; return (x && !FIELD_DEFAULT.has(x) ? x.slice(0, 11) : P.names[i]) || ''; };
@@ -820,7 +941,7 @@ function feldApply(rom, opts, saved, emb, E) {
   out.set(st, stubOff);
   HOOK_OFF.forEach((h, k) => w32(out, tab.PSID_HOME + 12 + 4 * k, (xip(stubOff) + h) | 1));
   if (launch) launchRedirect(out, tab, stubOff, tOff);
-  return out;
+  return shortcutPage === null ? out : H.apply(out, stubOff, shortcutPage);
 }
 
 /*
@@ -921,6 +1042,6 @@ function embedded() {
 }
 
 function emuType(rom) { const m = u32(rom, APP_OFF + 0x140); return m === 0x37584D50 ? 't7' : m === 0x38584D50 ? 't18' : m === 0x31584D50 ? 'v1' : m === PMXC && appKind(rom) === 2 ? 'tama' : ''; }
-root.ParamixFeld = { F_GPLAY, GPLAY, CLEAN_ROM, F_CLEAN, CLOCK_SEC, cleanReserved, cleanInfo, cleanBase, cleanApply, isClean, saveSlots, fieldOfSettings, lzPack, lzUnpack, slotPages, slotBuild, poolUsed, slotParse, FIELD_TEXT, characters, F_TAMA, F_SAVES, F_LAUNCH, isLaunch, launchRestore, emuType, familyOf, isSix, slotAddr, slotReadAsync, slotPlace, poolAddr, textTabelle, zeichenkette, edition, feldId, canFields, fieldNames, fieldNow, feldFind, feldSlots, feldStrip, feldApply, feldApps, appKind, itemCatalog, embedded, NAMES, F_FIELDS, F_BAG };
+root.ParamixFeld = { F_NO_SHORTCUT, languagePatchPages, F_GPLAY, GPLAY, CLEAN_ROM, F_CLEAN, CLOCK_SEC, cleanReserved, cleanInfo, cleanBase, cleanApply, isClean, saveSlots, fieldOfSettings, lzPack, lzUnpack, slotPages, slotBuild, poolUsed, slotParse, FIELD_TEXT, characters, F_TAMA, F_SAVES, F_LAUNCH, isLaunch, launchRestore, emuType, familyOf, isSix, slotAddr, slotReadAsync, slotPlace, poolAddr, textTabelle, zeichenkette, edition, feldId, canFields, fieldNames, fieldNow, feldFind, feldSlots, feldStrip, feldApply, feldApps, appKind, itemCatalog, embedded, NAMES, F_FIELDS, F_BAG };
 if (typeof module !== 'undefined') module.exports = root.ParamixFeld;
 })(typeof window !== 'undefined' ? window : globalThis);

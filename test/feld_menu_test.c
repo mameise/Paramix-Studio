@@ -96,8 +96,55 @@ static void interrupted_transfer(void){
   assert(sl_request('D',g_cmp,128)); close(fd[0]); sl_fd=-1;
   int status; assert(waitpid(pid,&status,0)==pid && WIFEXITED(status) && !WEXITSTATUS(status));
 }
+static void flash_fixture(void){
+  save_fixture(); g_cfg.version=9; g_cfg.stub_off=0xB6000;
+  sl_w32(host_flash+g_cfg.stub_off+0x0C,0x4604B672u);
+  memset(host_flash+FT_BASE,0xA5,0x10000); sl_w32(host_flash+FT_BASE,0x1801F000u); sl_w32(host_flash+FT_BASE+4,9);
+  sl_w32(host_flash+FT_TABLE,0x494E4F53u); sl_w32(host_flash+FT_TABLE+4,0x56454458u);
+  sl_w32(host_flash+FT_TABLE+8,0x12); sl_w32(host_flash+FT_TABLE+0x10,0x60FF0000u); sl_w32(host_flash+FT_TABLE+0x14,FT_SIZE);
+  u32 crc=0xFFFFFFFFu; for(u32 i=0;i<FT_SIZE;i++) crc=sl_crc(crc,host_flash[FT_BASE+i]); sl_w32(host_flash+FT_TABLE+0x24,crc^0xFFFFFFFFu);
+  host_flash_tool_src=0;
+}
+static void root_pause(const char *seq){ keys(seq); int jump=setjmp(g_jb); if(!jump) main_menu(); assert(jump==2 && !g_seq[g_pos]); }
+static void flash_tool_tests(void){
+  flash_fixture(); assert(flash_tool_header() && flash_tool_stub() && flash_tool_valid());
+  u8 rescue[0x10000],live[PAGE]; memcpy(rescue,host_flash+FT_BASE,sizeof rescue); memcpy(live,host_flash+SET_A,PAGE);
+  u32 leaves=host_leave_count;
+  keys("c"); flash_tool_menu(); assert(!host_flash_tool_src && host_leave_count==leaves && !g_seq[g_pos]);
+  keys("b"); int jump=setjmp(g_jb); if(!jump) flash_tool_menu();
+  assert(jump==1 && host_flash_tool_src==0x10FDF000u && host_leave_count==leaves && !g_seq[g_pos]);
+  assert(!memcmp(rescue,host_flash+FT_BASE,sizeof rescue) && !memcmp(live,host_flash+SET_A,PAGE));
+  flash_fixture(); host_flash[FT_BASE+0x100]^=1; assert(!flash_tool_valid()); keys("c"); flash_tool_menu(); assert(!host_flash_tool_src && !g_seq[g_pos]);
+  flash_fixture(); sl_w32(host_flash+FT_TABLE+0x14,0x10000); assert(!flash_tool_header()); keys("c"); flash_tool_menu(); assert(!host_flash_tool_src && !g_seq[g_pos]);
+  flash_fixture(); sl_w32(host_flash+FT_BASE+4,0xE001); assert(!flash_tool_header());
+  flash_fixture(); sl_w32(host_flash+FT_TABLE+8,0x13); assert(!flash_tool_header());
+  flash_fixture(); sl_w32(host_flash+g_cfg.stub_off+0x0C,0); keys("c"); flash_tool_menu(); assert(!host_flash_tool_src && !g_seq[g_pos]);
+  flash_fixture(); memset(host_flash+FT_TABLE,0xFF,PAGE); keys("c"); flash_tool_menu(); assert(!host_flash_tool_src && !g_seq[g_pos]);
+  /* Without apps/launcher flags/dl_src, root still reaches FLASH TOOL. */
+  flash_fixture(); g_cfg.dl_src=0; keys("pbcc"); jump=setjmp(g_jb); if(!jump) main_menu();
+  assert(jump==1 && host_leave_count==leaves+1u && !host_flash_tool_src && !g_seq[g_pos]);
+  /* Four ordinary categories retain the original large two-line page; FLASH
+   * lives on page two. Up/down wrap across pages without changing item order. */
+  flash_fixture(); root_pause(""); assert(g_fb[1u*128u+3u]==fcol((u32)g_cur));
+  root_pause("p"); assert(g_fb[12u*128u+3u]==ORANGE && g_fb[41u*128u+3u]==BG);
+  root_pause("pn"); assert(g_fb[1u*128u+3u]==fcol((u32)g_cur));
+  root_pause("nnnn"); assert(g_fb[12u*128u+3u]==ORANGE);
+  flash_fixture(); g_cfg.flags=F_BAG; root_pause(""); assert(g_fb[12u*128u+3u]==PINK);
+  root_pause("nn"); assert(g_fb[12u*128u+3u]==ORANGE && g_fb[41u*128u+3u]==BG);
+  /* All six categories: preserve PROGRAM default on page two,
+   * wrap to the first and back, then launch from the actual root action. */
+  flash_fixture(); g_napp=1; g_appsrc[0]=0; strcpy(g_appnm[0],"TEST APP");
+  root_pause(""); assert(g_fb[12u*128u+3u]==ORANGE && g_fb[41u*128u+3u]==BG); /* PROGRAM is first on page two */
+  root_pause("n"); assert(g_fb[41u*128u+3u]==ORANGE && g_fb[49u*128u+126u]==BG); /* FLASH is second on page two, full label fits */
+  root_pause("nn"); assert(g_fb[1u*128u+3u]==fcol((u32)g_cur));
+  root_pause("nnp"); assert(g_fb[41u*128u+3u]==ORANGE);
+  keys("nnpbb"); jump=setjmp(g_jb); if(!jump) main_menu();
+  assert(jump==1 && host_flash_tool_src==0x10FDF000u && !g_seq[g_pos]);
+  assert(!memcmp(rescue,host_flash+FT_BASE,sizeof rescue));
+}
 int main(int argc,char **argv){
   assert(argc==2); g_dir=argv[1]; host_flash=malloc(0x1000000); assert(host_flash);
+  flash_tool_tests();
   /* Confirmation/background pixels must never survive a transfer transition. */
   sl_ui_begin(1);
   for(u32 i=0;i<128u*128u;i++) g_fb[i]=RED;
@@ -130,8 +177,8 @@ int main(int argc,char **argv){
   /* Real input() returns zero until an edge arrives. Idle polling must not
    * repaint/re-enter wait_release(), which otherwise consumes physical keys. */
   fixture(); int frame=g_frame;
-  points("...n...b...c...c"); /* Second entry edits digits; C exits. */
-  assert(g_frame-frame==4);
+  points("...n...n...b...c...c"); /* Third entry edits digits; C exits. */
+  assert(g_frame-frame==5);
   frame=g_frame; points("...c"); assert(g_frame-frame==1);
   frame=g_frame; points("...b...c...c"); assert(g_frame-frame==3);
 
@@ -144,9 +191,16 @@ int main(int argc,char **argv){
   assert(jump==1 && host_leave_count==leaves+1u && !g_seq[g_pos]);
   /* Two edits in the same Points session without restarting the device. */
   fixture(); leaves=host_leave_count;
-  points("bbb" "nb" "p" "bbbbb" "b" "b" "c");
+  points("bbb" "nnb" "p" "bbbbb" "b" "b" "c");
   assert(host_leave_count==leaves && !set_load() && money_get()==89999u);
   assert(set_ok(host_flash+SET_A) && !memcmp(host_flash+SET_A,host_flash+SET_B,PAGE));
+  /* SET ZERO is second, requires confirmation, saves both mirrors, stays here. */
+  fixture(); money_put(12345); stamp(g_set); memcpy(host_flash+SET_A,g_set,PAGE); memcpy(host_flash+SET_B,g_set,PAGE);
+  points("nbcc"); assert(!set_load() && money_get()==12345u);
+  leaves=host_leave_count; points("nbbbc");
+  assert(host_leave_count==leaves && !set_load() && !money_get());
+  assert(set_ok(host_flash+SET_A) && !memcmp(host_flash+SET_A,host_flash+SET_B,PAGE));
+  points("nbbc"); assert(!set_load() && !money_get()); /* already zero: no redundant save prompt */
   save_fixture(); leaves=host_leave_count;
   keys("nbb"); level_edit(); assert(host_leave_count==leaves && lv_get()==1 && !g_seq[g_pos]);
   keys("bb"); care_full(); assert(host_leave_count==leaves && !g_seq[g_pos]);

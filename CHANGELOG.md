@@ -2,6 +2,31 @@
 
 Versions are listed newest first.
 
+## 1.7.5-menu19 (2026-11-18)
+
+- Leave the optional PARAMIX game-menu shortcut unchecked by default. Loading a ROM preserves an existing installed shortcut; older menus without one no longer opt in automatically.
+
+## 1.7.5-menu18 (2026-11-18)
+
+- Restore large two-line categories in the Paramix home menu with up to four entries per page and a page indicator.
+- Keep FLASH TOOL on the second page, alongside PROGRAMS when present; wheel/A navigation wraps between pages.
+
+## 1.7.5-menu17 (2026-11-18)
+
+- Add FLASH TOOL to the ordinary Paramix home menu, with explicit confirmation and validation of the installed rescue program before starting it in RAM.
+- Scroll the home menu when six entries are present so the recovery entry stays accessible alongside programs.
+
+## 1.7.5-menu16 (2026-11-18)
+
+- Fix opening the main game menu after adding PARAMIX: increase its GUI object pool from 12 to 14 slots, allowing the six-item list's 13 widgets.
+- Upgrade the previous shortcut automatically when rebuilding the menu; restore the original pool size when removing it.
+
+## 1.7.5-menu15 (2026-11-18)
+
+- Add optional PARAMIX shortcut after TRAVEL at the end of the game menu containing CONNECTION.
+- Migrate the previous PARAMIX Settings entry to the main list while preserving the Language entry.
+- Preserve the main shortcut when applying the compatible language patcher, without adding a duplicate in Settings.
+
 ## 1.7.5 (2026-11-12)
 
 Fixes:

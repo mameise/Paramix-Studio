@@ -4,6 +4,8 @@ const fs = require('fs');
 const v = fs.readFileSync(__dirname + '/VERSION', 'utf8').trim();
 let html = fs.readFileSync(__dirname + '/src/index.html', 'utf8');
 const core = fs.readFileSync(__dirname + '/src/core.js', 'utf8');
+const settings = fs.readFileSync(__dirname + '/src/settings.js', 'utf8');
+const homeMenu = fs.readFileSync(__dirname + '/src/home_menu.js', 'utf8');
 const app = fs.readFileSync(__dirname + '/src/app.js', 'utf8');
 // Emulator: embed the prebuilt program and stub template as Base64 (if present)
 let emu = fs.readFileSync(__dirname + '/src/emu.js', 'utf8');
@@ -95,7 +97,7 @@ let flash = fs.readFileSync(__dirname + '/src/flash.js', 'utf8');
 // every script must parse (a stray quote in a text broke the whole page once)
 {
   const vm = require('vm');
-  for (const [n, src] of [['core.js', core], ['app.js', app], ['emu.js', emu], ['doom.js', doom], ['feld.js', feld], ['six.js', six], ['flash.js', flash], ['saves.js', fs.readFileSync(__dirname + '/src/saves.js', 'utf8')]]) {
+  for (const [n, src] of [['core.js', core], ['settings.js', settings], ['home_menu.js', homeMenu], ['app.js', app], ['emu.js', emu], ['doom.js', doom], ['feld.js', feld], ['six.js', six], ['flash.js', flash], ['saves.js', fs.readFileSync(__dirname + '/src/saves.js', 'utf8')]]) {
     try { new vm.Script(src, { filename: n }); } catch (e) { throw new Error(n + ': ' + e.message); }
   }
 }
@@ -111,7 +113,7 @@ if (flash.includes('</script')) throw new Error('script end tag inside source');
 if (feld.includes('</script')) throw new Error('script end tag inside source');
 if (doom.includes('</script')) throw new Error('script end tag inside source');
 if (core.includes('</script') || app.includes('</script') || emu.includes('</script')) throw new Error('script end tag inside source');
-html = html.replace('__CORE__', () => core).replace('__EMU__', () => emu).replace('__DOOM__', () => doom).replace('__FELD__', () => feld).replace('__SIX__', () => six).replace('__FLASH__', () => flash).replace('__SAVES__', () => saves).replace('__VISIT__', () => visit).replace('__WOLF__', () => wolf).replace('__APP__', () => app).split('__VERSION__').join('v' + v);
+html = html.replace('__CORE__', () => core).replace('__SETTINGS__', () => settings).replace('__HOME_MENU__', () => homeMenu).replace('__EMU__', () => emu).replace('__DOOM__', () => doom).replace('__FELD__', () => feld).replace('__SIX__', () => six).replace('__FLASH__', () => flash).replace('__SAVES__', () => saves).replace('__VISIT__', () => visit).replace('__WOLF__', () => wolf).replace('__APP__', () => app).split('__VERSION__').join('v' + v);
 fs.mkdirSync(__dirname + '/dist', { recursive: true });
 fs.writeFileSync(__dirname + '/dist/ParamixStudio.html', html);
 fs.writeFileSync(__dirname + '/dist/index.html', html);

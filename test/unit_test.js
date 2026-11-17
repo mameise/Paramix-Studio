@@ -104,6 +104,15 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
   const home = E.sceneTable(a).PSID_HOME;
   ok(((a[home + 12] | a[home + 13] << 8 | a[home + 14] << 16 | a[home + 15] << 24) >>> 0) === (xp(0xB0040) | 1), 'home screen hooked');
   ok(Buffer.compare(Buffer.from(F.feldStrip(a, fe, E)), Buffer.from(r)) === 0, 'field switch removed again');
+  // Large catalogs must not spill into the emulator's save region at C0000.
+  const large = new Uint8Array(0xF000).fill(0xFF); large.set(fe.feld);
+  const le = { ...fe, feld: large }, lr = r.slice(); lr[0xC0000] = 0x42;
+  const la = F.feldApply(lr, { fields: true, bag: true }, [], le, E), lf = F.feldFind(la, le.stub);
+  ok(lf.catOff === 0x830000 && lf.slotOff >= 0x831000 && la[0xC0000] === 0x42, 'large catalog reserved separately from code, emulator and saves');
+  ok(Buffer.from(F.feldStrip(la, le, E)).equals(Buffer.from(lr)), 'external catalog and full program removed without touching other data');
+  const occupied = lr.slice(); occupied[0x830000] = 0x42;
+  let collision = false; try { F.feldApply(occupied, { fields: true, bag: true }, [], le, E); } catch (e) { collision = /catalog/.test(e.message); }
+  ok(collision && occupied[0x830000] === 0x42, 'external catalog refuses occupied flash');
   const g = new Uint8Array(r); g[0xD49000] = 5; let err = ''; try { F.feldApply(g, { fields: true, bag: true }, [], fe, E); } catch (e) { err = e.message; }
   ok(F.feldId(g) === 0 && err, 'other editions refused');
 }).then(async () => {

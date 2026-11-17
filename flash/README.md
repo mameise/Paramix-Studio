@@ -8,6 +8,7 @@ device off and on returns to the normal firmware.
 - `flashapp.bin`: the program (runs from PRAM 0, 64 KB window).
 - `src/fw.c`: source. Talks the PAU1 protocol on UART1 at 460800 baud and shows
   its own screen with a progress bar.
+- Device status labels are English: READY, READING, WRITING, and DONE.
 
 ## PAU1
 
@@ -32,7 +33,8 @@ The host side is `src/flash.js` in the Studio.
 ## Build
 
 ```
-sh src/build.sh     # clang, ld.lld, llvm-objcopy -> flashapp.bin (byte-identical)
+python3 src/gen_status.py  # regenerate status bitmaps after changing their labels
+sh src/build.sh            # clang, ld.lld, llvm-objcopy -> flashapp.bin
 ```
 
 License: GNU GPL version 3 or later.

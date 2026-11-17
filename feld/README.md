@@ -10,6 +10,16 @@ screen). Texts on the device are English, the font and graphics are our own.
 
 ## What it does
 
+- **Flash Tool:** the normal Paramix root menu always offers `FLASH TOOL`, also
+  when no apps or launcher are installed. It checks the installed rescue image
+  at `0xFF0000`, including its boot header, entry vectors and CRC32, asks for
+  confirmation, then starts that copy through the existing uncached source
+  launcher. Missing/damaged copies show an error instead of jumping to blank
+  flash. This action does not erase or modify either boot header or the save;
+  writing remains a separate action in Studio. The root menu uses up to four large two-line entries per page, with a page
+  counter. FLASH TOOL stays on page two, alongside PROGRAMS when present. Wheel
+  and A navigation wrap across pages. Launcher-mode `DOWNLOAD` is unchanged.
+
 - **Field switch:** the save of the active field is packed (LZSS per 4 KB page)
   into its own slot, the save of the chosen field is restored (or the factory
   settings pages 0xEFE000/0xEFF000 are written for a fresh field), then the
@@ -41,7 +51,127 @@ screen). Texts on the device are English, the font and graphics are our own.
   are excluded. Run `node test/feld_bulk_test.js` from the repository root for
   synthetic-save host tests, including UI navigation and mirrored save CRCs.
 
-## Menu extensions (1.7.5-menu7)
+## Menu extensions (1.7.5-menu13)
+
+Body/eye names use their catalog's field color both in the TAMA directory and
+in the picker (Baby/unknown fields use a neutral fallback). FOOD numbers are
+green, JOY numbers pink, and level/age/ID values are highlighted separately
+from their labels. TAMAPOINTS is ordered SET MAX, SET ZERO, EDIT AMOUNT; zero
+requires confirmation and uses the same mirrored-save and keep-editing flow.
+
+TAMA's two-line directory retains the original category colors: CARE orange,
+PLANET LEVEL gold, and character editors pink. The selected row keeps its
+background highlight and white current value.
+
+The optional PARAMIX shortcut is appended after TRAVEL at the end of the game
+list containing CONNECTION. Its original five entries retain their indices,
+availability checks and back behavior. A dedicated, validated 4 KiB helper
+holds the six-row table, cloned descriptor and sentinel dispatcher. The specific
+Space scene GUI pool is increased from 12 to 14 slots: six entries require
+13 widgets (one container plus two per row). The prior descriptor-only patch
+exceeded this separate fixed pool and triggered a fatal error when opening the
+list. The versioned helper migrates that older patch on rebuild and restores
+the original pool count on removal. A+C and
+normal reboot-to-home exit behavior are unchanged. Studio's Menu checkbox
+controls this shortcut. Rebuilding migrates an older Settings PARAMIX row out
+of Settings while retaining the Language row, if installed. The compatible
+language patcher reserves the home helper and does not re-add PARAMIX in
+Settings. No language patch is required for the shortcut.
+
+CARE is the first/default TAMA item. Each directory entry shows its current
+name/value on a second line instead of character IDs. Body/eyes editors show
+the selected name with its actual ID underneath. Palette variants have
+descriptive English names, with the actual color ID shown in the editor
+(DEFAULT is save ID 31). The character counter adds CURRENT when it matches
+the saved setting; color editing marks CURRENT COLOR. Only labels are
+highlighted: the preview image is never altered to mark selection.
+
+Eye layers retain their own palettes. Applying body tint to their slots 2..7
+previously turned some dark eyes white (Ratchi/Okojotchi); body and mouth layers
+still use the selected body palette. Four ROMs pass 620 pixel-exact cases,
+including white-body/dark-eye tests and local exported-ghost palette checks.
+
+This build accepts the ordinary 1..3-byte ARC2 alignment padding found in ROMs
+rebuilt by Studio. Previously that padding suppressed TPRV generation, causing
+UPDATE MENU DATA even after rebuilding the menu. Preview errors now distinguish
+a missing index, unsupported character data and failed asset reads.
+
+The versioned ZHLANG01 page marker used by the compatible Chinese patcher is
+recognized and checked before allocation. Menu code and low save pools stop
+before that reserved erase page; stripping/rebuilding retains its complete
+contents. Bad reservation metadata fails without overwriting the page. The
+optional `node test/feld_language_compat_test.js <rom>` tests both installation
+orders using the locally built patcher, retains live/stored saves, checks all
+PEXT/TPRV references and repeats patch/rebuild without duplicate language labels.
+
+Body/stage and eyes now show a live static preview while the wheel changes
+the selection. Color selection previews DEFAULT and all 16 ROM palette variants.
+TAMA > PREVIEW displays the current combination without editing the save.
+The picker shows the selected character's name and position; A switches stage,
+B reviews, and C returns. Saving still requires the existing confirmation.
+
+The Studio appends a versioned TPRV index after the existing PEXT catalog data.
+Each character record references one neutral-pose body, eye and mouth cell,
+their original palettes, compressed lengths, checksums and centre offsets.
+No game sprites or color tables are copied into the menu program/catalog.
+The renderer reads the existing ROM archive, supports raw/byte-RLE/word-RLE
+cells with XOR, validates ranges/checksums, and clips to a 64x64 preview.
+The selected body supplies placement and the selected face supplies eyes/mouth.
+Nonzero palette slots 2..7 use the ROM's shared 16-variant palette; DEFAULT
+retains each sprite's own palette. Missing/unsupported/corrupt preview data
+shows NO PREVIEW / UPDATE MENU DATA and leaves the editor usable.
+
+Rebuild the installed menu with this Studio version to create the preview
+index. Updating only the executable cannot add references to an old catalog.
+If the catalog exceeds the original code region, it is allocated separately
+behind the asset archive, before the save slots. Installation checks for free
+space and reserves the catalog before allocating saves; removal erases it
+separately and preserves the emulator save region at 0xC0000.
+
+TAMA now separates BODY / STAGE, EYES, BODY COLOR, AGE (DAYS) and CARE.
+Body changes preserve the selected eyes and color; eyes can be selected
+independently from the character catalog. A cycles catalog stages, including
+Baby on newly installed catalogs. Lists and numeric controls wrap. Colors are
+0..15 plus DEFAULT (save encoding 31, ghost encoding 255). Age is 0..999 days;
+A cycles wheel increments 1/10/100. B reviews a value before saving, C cancels.
+Existing installations need their catalog rebuilt by Studio to include Baby.
+
+CARE retains FULL CARE and adds editable food (0..6), happiness (0..20), and
+individually selectable CLEAN TAMA, REFILL FOOD, REFILL HAPPINESS and HEAL.
+APPLY SELECTED shows the selected actions before confirmation. Full care now
+includes cleaning; refilling/healing also clears the corresponding pending
+events and timers. Editing a pet requires an existing hatched Tama. Planet
+level remains accessible without a pet.
+
+The supported settings layouts use pet offsets 0x104 (gen1), 0x108 (Jade) and
+0x114 (gen3). Relative to that offset: body +4, eyes +6, age u16 +0xC,
+sickness +0x10, dirt bit 4 at +0x14, stage bits 2..4 at +0x18, color bits
+0..4 at +0x19, food +0x1C, joy +0x1D. Settings buffers used by downloaded
+apps omit the initial four CRC bytes; these offsets refer to complete pages.
+Stage changes clear the associated stage timers and events, retaining the
+other bits of the stage/color bytes. Both settings copies receive valid CRCs.
+
+Appearance changes preflight the saved character files, matching the original
+body, eyes, color and secondary eye ID. Exactly one matching file is required;
+missing/ambiguous files leave everything unchanged. The body/eyes/color header
+and secondary eyes at +0x10A are updated together, followed by settings.
+As with the previous character changer, this is not an atomic multi-sector
+transaction. Keep power on while saving. This uses the current ROM's resources;
+it does not rebuild embedded ghost graphics for export to a different ROM.
+Previews are static; game animations and close-up views are not included.
+
+Run `node test/feld_tama_test.js` for synthetic-save layout, appearance,
+care, wrapping, cancellation and input tests with ASan/UBSan. These new Tama
+features and preview flash reads still require physical-device validation; the previously confirmed
+device-to-device save transfer remains confirmed.
+
+`node test/feld_preview_test.js` covers synthetic raw/RLE/XOR layers,
+palette variants, clipping, read-only behavior and invalid data with ASan/UBSan.
+The optional `node test/feld_preview_rom_test.js <rom> [...]` compares every
+selectable character plus mixed faces and all colors against core.js decoding,
+and checks byte-identical install/strip/reinstall. Local Land, Jade Forest,
+Glacier and Tropical tests passed for 614 combinations. User ROMs and rendered game images
+are not included in the repository.
 
 The menu supports batch inventory edits, independent save copies, slot cleanup,
 and direct save-copy transfer between compatible Paradise devices. After saving,
