@@ -2,6 +2,10 @@
 
 Versions are listed newest first.
 
+## 1.7.5-plus.23 (2026-11-18)
+
+- Show the installed version directly in the ABOUT row subtitle as `Ver. <version>`.
+
 ## 1.7.5-plus.22 (2026-11-18)
 
 - Add ABOUT at the end of the circular Paramix home menu. Show the installed Studio version inside About, with B/C returning to the menu.
