@@ -2,6 +2,14 @@
 
 Versions are listed newest first.
 
+## 1.7.5-plus.28 (2026-11-18)
+
+- Have Paradise rebuild the active Tama's appearance from the saved Body, Eyes and Color when returning to the game.
+- Stage slot backups directly in unreferenced pages, sharing exact matches as they arrive. A full pool leaves the live save and existing slot headers intact. Consolidate legacy duplicates in Studio during ROM rebuilds.
+- Journal slot switches using one spare pool page, and restore the pre-switch backup when Paramix reopens after an interruption. Verify the new live settings before committing.
+- Stop Keep Saves before flashing if any stored slot cannot be preserved in a new layout.
+- Validate the entire destination save before switching. Allow UART reception to share identical pages and report allocation failure to the sender.
+
 ## 1.7.5-plus.27 (2026-11-18)
 
 - Fix appearance saves falsely requiring an own-Tama file: ROM Body/Eyes/Color are settings fields. Remove ghost-package matching and writes, preserving all visitor, gene and export data.

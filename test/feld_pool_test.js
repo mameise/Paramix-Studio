@@ -5,7 +5,13 @@ try{
   const bin=path.join(tmp,'pool-test');
   execFileSync(process.env.CC||'cc',['-w','-fsanitize=address,undefined','-g',path.join(__dirname,'feld_pool_test.c'),'-o',bin],{stdio:'inherit'});
   const args=[tmp];
-  if(process.argv[2]){const rom=path.resolve(process.argv[2]),f=F.feldFind(fs.readFileSync(rom),fs.readFileSync(path.join(__dirname,'../feld/stub_feld_tpl.bin')));assert(f);args.push(rom,String(f.off+0x140));}
+  if(process.argv[2]){
+    const E=require('../src/emu.js'),rom=fs.readFileSync(process.argv[2]);
+    const emb={feld:fs.readFileSync(path.join(__dirname,'../feld/feld.bin')),stub:fs.readFileSync(path.join(__dirname,'../feld/stub_feld_tpl.bin'))};
+    const rebuilt=F.feldApply(F.feldStrip(rom,emb,E),{fields:true,bag:true,tama:true,saves:true,paramixShortcut:false},F.feldSlots(rom,emb.stub),emb,E);
+    const file=path.join(tmp,'rebuilt.bin'),f=F.feldFind(rebuilt,emb.stub);assert(f);
+    fs.writeFileSync(file,rebuilt);args.push(file,String(f.off+0x140));
+  }
   execFileSync(bin,args,{stdio:'inherit',timeout:120000});
 }finally{fs.rmSync(tmp,{recursive:true,force:true});}
 // Rebuilding/relocating must retain sharing and commit nothing when full.
@@ -58,6 +64,17 @@ if(process.argv[2]) (async()=>{
   const plan=FL.keepPlan(F,E,emb,{}),dev=rom=>({info:{edition:F.edition(rom).id},read:async(a,n)=>rom.slice(a,a+n)});
   let changed=changes(original,next),kept=await plan(dev(original),next,changed);savesEqual(kept.image);
   assert(!kept.notes.some(n=>n.code==='noteNoFit'));
+  // Keep Saves must fail before writing when even one store cannot migrate.
+  const tooSmall=next.slice();
+  put32(tooSmall,ci+12,0x2000); put32(tooSmall,ci+612,0); put32(tooSmall,ci+616,0);
+  await assert.rejects(plan(dev(original),tooSmall,changes(original,tooSmall)),{code:'slotMigration'});
+  const corrupted=original.slice(),capacitySlot=saved[0].index,oldHeader=F.slotAddr(old,capacitySlot);
+  const data=F.slotParse(old,capacitySlot,corrupted.subarray(oldHeader,oldHeader+4096)).list[0];
+  corrupted[data]^=0x40;
+  // Same-geometry writes protect the existing pool in place. Force relocation
+  // here so that Keep Saves must read and validate the damaged slot.
+  await assert.rejects(plan(dev(corrupted),noextra,changes(corrupted,noextra)),{code:'slotMigration'});
+  await assert.rejects(plan(dev(original),stripped,changes(original,stripped)),{code:'slotMenuRequired'});
   // Same geometry protects the entire newly reserved tail, even when empty in the new image.
   changed=new Set([nf.poolExtraOff]);kept=await plan(dev(dirty),next,changed);assert.equal(kept.image[nf.poolExtraOff],0x32);
   // A stored page in the extension is read before migrating to a layout without it.

@@ -84,9 +84,9 @@ const MSG = {
   appSilent: 'the flash app was sent but does not answer. Try again',
   unknownEd: 'unknown edition in the new ROM, untick "keep saves"',
   otherEd: 'the device is {d}, the new ROM is {r}. Untick "keep saves" to switch the edition',
-  noteNoFit: 'field {f} does not fit into the new slot and is not kept',
+  slotMigration: 'Keep Saves could not preserve slot {f}. The write was cancelled before any flash changes.',
+  slotMenuRequired: 'Keep Saves cannot preserve stored slots without a save menu. The write was cancelled before any flash changes.',
   noteMoved: 'field {f} moved to the new slot',
-  noteDropped: 'the new ROM has no field menu, stored fields on the device are dropped',
   noteEdKept: 'the device is {d}, the new ROM is {r}: same firmware, the device keeps its save and its field ({d})',
   noteSaveMoved: 'save of {n} taken along',
   noteEmu: 'TamaEmu firmware chosen again, the emulator starts fresh. For an update just open the ROM and save it',
@@ -824,10 +824,15 @@ function keepPlan(F, E, menu, opts = {}) {
         // other layout: copy every stored field into the new slots (shared pool, 1.2.12)
         const slots = [];
         for (let i = 0; i < fd.nslots; i++) {
-          const s = await F.slotReadAsync((a, n) => dev.read(a, n), fd, i);
+          let s;
+          try {
+            s = await F.slotReadAsync((a, n) => dev.read(a, n), fd, i);
+            if (s) F.slotPages(s);
+          } catch (_) { throw fe('slotMigration', { f: i + 1 }); }
           if (!s) continue;
           const idx = fd.version >= 3 ? s.field - 1 : i;
-          if (idx < 0 || idx >= fi.nslots) { notes.push(note('noteNoFit', { f: s.field })); continue; }
+          if (idx < 0 || idx >= fi.nslots || slots.some(([j]) => j === idx))
+            throw fe('slotMigration', { f: i + 1 });
           slots.push([idx, s]);
         }
         // the device's saves replace whatever the new image carries in the slots
@@ -835,10 +840,15 @@ function keepPlan(F, E, menu, opts = {}) {
         const used = new Set();
         for (const [idx, s] of slots) {
           try { F.slotPlace(image, fi, idx, s, used); notes.push(note('noteMoved', { f: s.field })); }
-          catch (e) { notes.push(note('noteNoFit', { f: s.field })); }
+          catch (_) { throw fe('slotMigration', { f: s.field }); }
         }
         for (const [from,to] of slotRanges(fi)) for (let a=from;a<to;a+=SECTOR) if (crc32(image,a,SECTOR)!==crc32(img,a,SECTOR)) changed.add(a);
-      } else notes.push(note('noteDropped'));
+      } else {
+        for (let i = 0; i < fd.nslots; i++) {
+          const head = await dev.read(at(fd, i), SECTOR);
+          if (u32(head, 0) === 0x544C5346) throw fe('slotMenuRequired');
+        }
+      }
     }
     const guestR = [];   // 1.6.8: TamaEmu firmware areas; sectors the Studio changed there (download items) come from the image
     const mine = opts.mine || null;

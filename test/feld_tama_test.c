@@ -1,8 +1,14 @@
-/* Synthetic saves only; no downloaded app binary or game assets. */
+/* Synthetic saves and optional regression against a local Tropical ROM. */
 #include "feld_test_support.h"
 static void pet_fixture(u32 t){
   fixture(); g_cfg.flags=F_TAMA; g_cfg.version=6; g_cfg.tama_off=t; g_cfg.level_off=0x7C;
-  g_cfg.user_start=0xE66000; g_cfg.user_end=SET_A;
+  g_cfg.user_start=0xD00000; g_cfg.user_end=SET_A;
+  const u32 table=t==0x114u?0xACBB8u:t==0x108u?0x9954Cu:0x94214u;
+  const u32 record=t==0x114u?0xDCE000u:0xDEE000u;
+  const u32 hook=t==0x114u?0x48A50u:t==0x108u?0x43E8Cu:0x41E84u;
+  for(u32 i=0;i<3;i++) sl_w32(host_flash+table+4u*i,0x60000000u+record+i*0x4000u);
+  sl_w32(host_flash+hook+0x18u,0x4F7FF1B2u);
+  sl_w32(host_flash+hook+0x1Cu,0xD00Bu);
   t_put(4,4001); t_put(6,4002); t_put(0xC,25);
   g_set[t+0x18]=(5u<<2)|0xA0u; g_set[t+0x19]=0xBF; /* default, upper bits kept */
   g_set[t+0x1C]=2; g_set[t+0x1D]=3; g_set[t+0x10]=7;
@@ -139,15 +145,19 @@ static void ui(void){
 static void real_appearance(const char *file,u32 cfg){
   FILE *f=fopen(file,"rb"); assert(f && fread(host_flash,1,0x1000000,f)==0x1000000); fclose(f);
   memset((void*)&g_cfg,0,sizeof g_cfg); memcpy((void*)&g_cfg,host_flash+cfg,608);
-  assert(!set_load() && t_alive());
+  assert(!set_load() && t_alive() && g_cfg.tama_off==0x114u && t_stage()==5);
+  u32 record=t_active_record();
+  assert(record==0xDCE000u);
   u8 *before=malloc(0x1000000); assert(before); memcpy(before,host_flash,0x1000000);
-  u32 body=t_id()==4066?4050:4066, eyes=4119;
-  assert(t_visual(body,eyes,14,5)); assert(!memcmp(before,host_flash,0x1000000));
-  keys("b"); set_write("APPEARANCE SAVED"); saved();
-  assert(t_id()==body && t_word(6)==eyes && t_color()==14);
-  assert(!memcmp(before,host_flash,SET_A));
+  u32 body=t_id(), eyes=t_word(6), color=t_color();
+  keys("bbbbb"); appearance_edit(); saved();
+  assert(!g_seq[g_pos] && t_id()==body && t_word(6)==eyes && t_color()==color);
+  assert(!memcmp(before+SET_A,host_flash+SET_A,PAGE)); /* re-save an edit from v27 */
+  assert(rd32(record+0x10Cu)==T_REBUILD_PENDING);
+  assert(!memcmp(before,host_flash,record+0x10Cu));
+  assert(!memcmp(before+record+0x110u,host_flash+record+0x110u,SET_A-record-0x110u));
   assert(!memcmp(before+SET_B+PAGE,host_flash+SET_B+PAGE,0x1000000-SET_B-PAGE));
-  free(before); puts("PASS: user-ROM appearance saved to settings only; every ghost/app/slot byte preserved");
+  free(before); puts("PASS: re-saving the appearance queues a rebuild only for the active Tama");
 }
 int main(int argc,char **argv){
   assert(argc==2 || argc==4); g_dir=argv[1]; host_flash=malloc(0x1000000); assert(host_flash);

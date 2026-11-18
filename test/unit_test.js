@@ -243,19 +243,21 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
     put32(r, 0x111008, 0x1000); put32(r, 0xD49000, 1);
     const menu = { feld: new Uint8Array(fs4.readFileSync(__dirname + '/../feld/feld.bin')), stub: new Uint8Array(fs4.readFileSync(__dirname + '/../feld/stub_feld_tpl.bin')) };
     const rom = F.feldApply(r, { fields: true, bag: false }, [], menu, E), fi = F.feldFind(rom, menu.stub);
-    const m2 = new Uint8Array(rom), slot = fi.slotOff + fi.slotSize;          // device: Water stored in slot 2
-    put32(m2, slot, 0x544C5346); put32(m2, slot + 4, 2); put32(m2, slot + 8, 3); put32(m2, slot + 12, 0x2000); m2.fill(0x77, slot + 0x1000, slot + 0x3000);
+    const m2 = new Uint8Array(rom); // device: Water stored in slot 2
+    const page = new Uint8Array(4096).fill(0x77);
+    const saved = F.slotBuild(new Map([[0xD4A000,page],[0xD4B000,page]]), 1, 0xD4A000, 0xF00000);
+    F.slotPlace(m2,fi,1,saved,new Set());
     const io2 = fakeDevice(m2), d2 = (await FL.connect(io2, new Uint8Array(16), {})).dev;
     const k2 = FL.keepPlan(F, E, menu, {});
     let q = await d2.write(rom, { onlyChanged: true, keep: k2 }, null);
-    ok(q.written === 0 && m2[slot + 0x2000] === 0x77, 'flash: stored field kept (same layout)');
+    ok(q.written === 0 && F.feldSlots(m2,menu.stub).length === 1, 'flash: stored field kept (same layout)');
     // new ROM with the slots somewhere else
     const moved = new Uint8Array(rom); let ci = -1;
     for (let i = fi.off; i < fi.off + 0x8000; i += 4) if (moved[i] === 0x46 && moved[i + 1] === 0x45 && moved[i + 2] === 0x4C && moved[i + 3] === 0x44) { ci = i; break; }
     put32(moved, ci + 8, 0x900000);
     q = await d2.write(moved, { onlyChanged: true, keep: k2 }, null);
     const movedSlot = await F.slotReadAsync(async (a,n) => m2.slice(a,a+n), F.feldFind(m2, menu.stub), 1);
-    ok(movedSlot && movedSlot.stream.length === 0x2000 && movedSlot.stream.every(v => v === 0x77) && movedSlot.field === 2 && q.notes.some((n) => n.code === 'noteMoved'), 'flash: stored field moved to the new layout');
+    ok(movedSlot && movedSlot.stream.length === saved.stream.length && movedSlot.stream.every((v,i) => v === saved.stream[i]) && movedSlot.field === 2 && q.notes.some((n) => n.code === 'noteMoved'), 'flash: stored field moved to the new layout');
   }
 }).then(() => {
   // 12) TamaEmu download content: route, add, list, remove (synthetic record)

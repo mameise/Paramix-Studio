@@ -3550,13 +3550,13 @@ function slotWrite(save, chk, i, warn) {
     const heads = [];
     for (let j = 0; j < f.nslots; j++) heads.push(new Uint8Array(await d.read(F.slotAddr(f, j), 0x1000)));
     const s = F.slotBuild(chk.pages, i, a, b), img = new Uint8Array(0x1000000).fill(0xFF);
-    const used = F.poolUsed(f, heads, i);
+    // Keep the old destination referenced until the replacement header commits.
+    const used = F.poolUsed(f, heads);
     // Sharing must compare actual device bytes, not the empty staging image.
     for (const x of used) img.set(new Uint8Array(await d.read(F.poolAddr(f, x), 0x1000)), F.poolAddr(f, x));
     const written = F.slotPlace(img, f, i, s, used);
-    const first = new Map([[written[0], new Uint8Array(0x1000).fill(0xFF)]]);
-    for (const p of written.slice(1)) first.set(p, img.slice(p, p + 0x1000));
-    let w = await d.writeSectors(first, devProg, () => dv.cancel, FL.embedded());
+    const data = new Map(written.slice(1).map(p => [p, img.slice(p, p + 0x1000)]));
+    let w = data.size ? await d.writeSectors(data, devProg, () => dv.cancel, FL.embedded()) : 0;
     w += await d.writeSectors(new Map([[written[0], img.slice(written[0], written[0] + 0x1000)]]), devProg, () => dv.cancel, FL.embedded());
     devRender(t('slotDone', { n: slotLabel(ss, i) }));
   });

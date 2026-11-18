@@ -416,26 +416,6 @@ static u32 pool_store(u32 fi,const u8 *data){
   x=pool_take(fi); if(x!=0xFFFFu) flash_prog4k(pool_addr(x),data);
   return x;
 }
-/* Existing menus stored duplicate physical pages. Redirect pooled headers to
- * the lowest identical referenced page, preserving every other header byte.
- * Data is never moved or overwritten; a page becomes free only after all of
- * its references have been removed. Legacy contiguous slots remain untouched. */
-static int pool_compact(void){
-  if(pool_n()>sizeof(g_used)*8u) return 0;
-  pool_mark(g_cfg.nslots);
-  for(u32 j=0;j<g_cfg.nslots;j++){
-    u32 b=slot_base(j); if(!slot_valid(j) || !slot_pool(b)) continue;
-    flash_read(b,g_out,PAGE); u32 changed=0, nd=rd32(b+24);
-    for(u32 k=0;k<nd;k++){
-      u32 pos=offsetof(SlotHdr,dpg)+2u*k, x=(u32)g_out[pos]|((u32)g_out[pos+1u]<<8);
-      for(u32 y=0;y<x;y++) if((g_used[y>>3]&(1u<<(y&7u))) && flash_same(pool_addr(y),(const u8*)fl(pool_addr(x)),PAGE)){
-        g_out[pos]=(u8)y; g_out[pos+1u]=(u8)(y>>8); changed=1; break;
-      }
-    }
-    if(changed){ flash_prog4k(b,g_out); if(!flash_same(b,g_out,PAGE) || !slot_valid(j)) return 0; }
-  }
-  return 1;
-}
 static u32 pool_available(void){
   u32 n=pool_n(), free=0; if(n>sizeof(g_used)*8u) return 0;
   for(u32 x=0;x<n;x++) if(!(g_used[x>>3]&(1u<<(x&7u)))) free++;
@@ -464,11 +444,10 @@ static void factory_page(u32 i, u8 *p){
   stamp(p);
 }
 
-/* Reserve enough pool space before invalidating an old header. extra is used
- * by copy-and-switch to reserve both the copy and the current live backup. */
-static int stash_capacity(u32 fi,u32 extra){
-  if(!pool_compact()) return 0;
-  pool_mark(fi); u32 free=pool_available(), np=0, on=0, need=extra, pages=0;
+/* Conservative preflight for copy-and-switch, which needs room for the copy
+ * and the live backup. Ordinary switching stages the backup directly. */
+static int stash_capacity(u32 extra){
+  pool_mark(g_cfg.nslots); u32 free=pool_available(), np=0, on=0, need=extra, pages=0;
   if(need>free) return 0;
   for(u32 a=g_cfg.user_start;a<g_cfg.user_end;a+=PAGE) if(!page_ff(a)){
     if(++np>NPAGE_MAX) return 0;
@@ -481,13 +460,13 @@ static int stash_capacity(u32 fi,u32 extra){
   if(on){ if(++pages>DPG_MAX) return 0; need+=pool_need_chunk(on); }
   return need<=free;
 }
-static int stash_reserved(u32 fi){
+static int stash(u32 fi){
   u32 b=slot_base(fi);
   u32 tot=0; for(u32 a=g_cfg.user_start;a<g_cfg.user_end;a+=PAGE) if(!page_ff(a)) tot++;
   if(tot>NPAGE_MAX) return 10;
-  erase_page(b);                            /* invalidate the header first */
   for(u32 i=0;i<sizeof(g_hdr)/4;i++) ((u32*)&g_hdr)[i]=0xFFFFFFFFu;
-  pool_mark(fi);
+  /* Keep every committed header and its pages intact until the backup verifies. */
+  pool_mark(g_cfg.nslots);
   u32 np=0, by=0, sum=0, on=0, nd=0, done=0;
   for(u32 a=g_cfg.user_start;a<g_cfg.user_end;a+=PAGE){
     if(page_ff(a)) continue;
@@ -514,16 +493,12 @@ static int stash_reserved(u32 fi){
     progress("CHECKING", tot+i+1u, tot*2u);
   }
   g_hdr.magic=SLOT_MAGIC; g_hdr.field=fi+1u; g_hdr.npages=np; g_hdr.bytes=by; g_hdr.sum=sum;
-  g_hdr.res[0]=POOL_MAGIC; g_hdr.res[1]=nd; g_hdr.res[2]=PEND_MAGIC;
+  g_hdr.res[0]=POOL_MAGIC; g_hdr.res[1]=nd; g_hdr.res[2]=0;
   { const u8 *h=(const u8*)&g_hdr; for(u32 k=0;k<PAGE;k++) g_out[k]= k<sizeof(g_hdr) ? h[k] : 0xFF; }
   flash_prog4k(b, g_out);
-  if(!slot_valid(fi)) return 14;
+  if(!flash_same(b,g_out,PAGE) || !slot_valid(fi)) return 14;
   return 0;
 }
-
-#ifdef HOST
-static int stash(u32 fi){ return stash_capacity(fi,0)?stash_reserved(fi):11; }
-#endif
 
 /* A received save uses the sender's seconds-counter origin. Rebase only its
  * clock base when loading/copying, never the receiver's hardware counter or
@@ -542,20 +517,35 @@ static int slot_time(u32 fi,u32 addr,u8 *p){
   for(u32 k=0;k<4;k++){ p[12+k]=(u8)(d>>(k*8u)); p[16+k]=(u8)(s>>(k*8u)); }
   stamp(p); return 0;
 }
-static int restore(u32 fi, int fresh){
-  u32 b=slot_base(fi), np=0, off=0, ix=0;
-  if(!fresh){
-    np=rd32(b+8);
-    u32 sum=0, by=rd32(b+12);
-    for(u32 p=0;p<by;p+=PAGE){ u32 c=by-p<PAGE?by-p:PAGE; slot_get(fi,p,c,g_page); for(u32 k=0;k<c;k++) sum+=g_page[k]; }
-    if(sum!=rd32(b+16)) return 20;
+/* Validate every entry before touching the live region. The additive checksum
+ * does not cover the page table, and a malformed length must never reach g_cmp. */
+static int restore_check(u32 fi){
+  if(!slot_valid(fi)) return 20;
+  u32 b=slot_base(fi), np=rd32(b+8), by=rd32(b+12), sum=0, off=0, prev=0, sets=0;
+  for(u32 i=0;i<np;i++){
+    u32 a=rd16(b+32u+4u*i)<<12, n=rd16(b+34u+4u*i);
+    if(a<g_cfg.user_start || a>=g_cfg.user_end || (i && a<=prev) ||
+       !n || n>sizeof g_cmp || n>by-off) return 21;
+    prev=a;
+    slot_get(fi,off,n,g_cmp);
+    for(u32 k=0;k<n;k++) sum+=g_cmp[k];
+    if(lz_unpack(g_cmp,n,g_page) || slot_time(fi,a,g_page)) return 21;
+    if(a==SET_A || a==SET_B){
+      if(!set_ok(g_page)) return 21;
+      sets|=a==SET_A?1u:2u;
+    }
+    off+=n;
   }
+  return off==by && sets==3u && sum==rd32(b+16)?0:20;
+}
+static int restore_loaded(u32 fi,int fresh){
+  u32 b=slot_base(fi), np=fresh?0:rd32(b+8);
   u32 tot=(g_cfg.user_end-g_cfg.user_start)/PAGE, done=0;
   /* Two passes: first everything except the settings block, then the block itself.
    * It holds the field; as long as it is old, the switch counts as not done and after
    * an interruption the menu offers to bring back the old save. */
   for(u32 pass=0;pass<2u;pass++){
-    u32 o2=off, ix2=0;
+    u32 o2=0, ix2=0;
     for(u32 a=g_cfg.user_start;a<g_cfg.user_end;a+=PAGE){
       int set = (a==SET_A || a==SET_B), want=0;
       if(fresh){
@@ -572,8 +562,11 @@ static int restore(u32 fi, int fresh){
     }
     if(!fresh && ix2!=np) return 24;
   }
-  (void)ix;
   return 0;
+}
+static int restore(u32 fi,int fresh){
+  int error=fresh?0:restore_check(fi);
+  return error?error:restore_loaded(fi,fresh);
 }
 
 /* ---------------------------------------------------------------- Screens */
@@ -798,6 +791,38 @@ static void big_entry(int y, int sel, const char *name, const char *st, u16 c, u
 static int g_cur;                     /* index of the active field, -1 = not a field in the list */
 static int g_act;                     /* slot of the live save: field mode = g_cur, save mode = its save number */
 static int saves_mode(void){ return (g_cfg.flags & F_SAVES) && g_cfg.version>=6u && g_cfg.nslots>=2u; }
+/* The switch journal occupies one otherwise unreferenced pool page. It never
+ * replaces a slot header. A valid record means the old live backup must be
+ * restored before the menu allows further writes or returns to the game. */
+#define SWITCH_JOURNAL 0x4A575350u /* PSWJ */
+static int switch_record(u32 a,u32 *src){
+  if(rd32(a)!=SWITCH_JOURNAL || rd32(a+4u)!=~SWITCH_JOURNAL ||
+     rd32(a+8u)!=a || rd32(a+12u)!=~a) return 0;
+  u32 s=rd32(a+16u);
+  if(s>=g_cfg.nslots || rd32(a+20u)!=~s) return 0;
+  *src=s; return 1;
+}
+static u32 switch_journal_find(u32 *src){
+  pool_mark(g_cfg.nslots);
+  u32 n=pool_n();
+  if(n>sizeof(g_used)*8u) return 0;
+  for(u32 k=0;k<n;k++) if(!(g_used[k>>3]&(1u<<(k&7u)))){
+    u32 a=pool_addr(k);
+    if(switch_record(a,src)) return a;
+  }
+  return 0;
+}
+static u32 switch_journal_begin(u32 src){
+  pool_mark(g_cfg.nslots);
+  u32 k=pool_take(src); if(k==0xFFFFu) return 0;
+  u32 a=pool_addr(k);
+  for(u32 i=0;i<PAGE;i++) g_out[i]=0xFF;
+  u32 *w=(u32*)g_out;
+  w[0]=SWITCH_JOURNAL; w[1]=~SWITCH_JOURNAL; w[2]=a; w[3]=~a; w[4]=src; w[5]=~src;
+  flash_prog4k(a,g_out);
+  u32 confirmed;
+  return switch_record(a,&confirmed) && confirmed==src?a:0;
+}
 /* save mode: the number of the live save goes into its settings block */
 static void act_mark(u32 j){
   flash_read(SET_A, g_page, PAGE);
@@ -805,18 +830,52 @@ static void act_mark(u32 j){
   g_page[SAVE_OFF]=(u8)(j+1u); stamp(g_page);
   flash_prog4k(SET_A, g_page); flash_prog4k(SET_B, g_page);
 }
+static int switch_settings(u32 slot){
+  if(saves_mode()) act_mark(slot);
+  flash_read(SET_A,g_page,PAGE);
+  if(!set_ok(g_page) || (saves_mode() && g_page[SAVE_OFF]!=slot+1u)) return 0;
+  if(!flash_same(SET_B,g_page,PAGE)) flash_prog4k(SET_B,g_page);
+  return flash_same(SET_B,g_page,PAGE);
+}
+static int switch_journal_end(u32 journal){
+  u32 ignored;
+  erase_page(journal);
+  /* Once the record is invalid, the already verified live save is committed. */
+  return !switch_record(journal,&ignored);
+}
+static int switch_recover(u32 journal,u32 src){
+  if(restore(src,0)) return 0;
+  int fld=field_now();
+  if(fld<0) return 0;
+  if(fid((u32)fld)){ write_id(fid((u32)fld)); if(cur_id()!=fid((u32)fld)) return 0; }
+  if(!switch_settings(src) || !switch_journal_end(journal)) return 0;
+  erase_page(slot_base(src));
+  g_act=(int)src; g_cur=fld;
+  return 1;
+}
+static void switch_recovery_loop(u32 journal,u32 src){
+  while(!switch_recover(journal,src))
+    message("RECOVERY INCOMPLETE","BACKUP IS KEPT","B / C TO RETRY");
+  message("SWITCH INTERRUPTED","ORIGINAL SAVE BACK","B / C TO CONTINUE");
+}
 /* Live save to slot g_act, then slot tgt (has) or a fresh start on field fld into the live area. */
 static void field_switch2(u32 tgt, int has, u32 fld){
   rect(0,0,128,128,BG); ctext(8,"PLEASE WAIT",WHITE,1); ctext(20,"DO NOT SWITCH OFF",GREY,1); show();
-  if(!stash_capacity((u32)g_act,0)){ message("NOT ENOUGH ROOM","CURRENT SAVE KEPT",""); return; }
-  int e=stash_reserved((u32)g_act);
-  if(e){ erase_page(slot_base((u32)g_act)); error_screen(e); }
-  e=restore(has ? tgt : fld,!has);
+  if(has && restore_check(tgt)){ message("SAVE UNREADABLE","CURRENT SAVE KEPT",""); return; }
+  u32 src=(u32)g_act;
+  int e=stash(src);
+  if(e==11){ message("NOT ENOUGH ROOM","CURRENT SAVE KEPT",""); return; }
   if(e) error_screen(e);
-  if(fid(fld)){ write_id(fid(fld)); if(cur_id()!=fid(fld)) error_screen(30); }
-  if(field_now()!=(int)fld) error_screen(31);
-  if(saves_mode()) act_mark(tgt);
-  { u32 b=slot_base((u32)g_act); flash_read(b, g_out, PAGE); g_out[28]=g_out[29]=g_out[30]=g_out[31]=0; flash_prog4k(b, g_out); }   /* switch done */
+  u32 journal=switch_journal_begin(src);
+  if(!journal){ message("NO RECOVERY SPACE","CURRENT SAVE KEPT",""); return; }
+  e=restore_loaded(has ? tgt : fld,!has);
+  if(!e && fid(fld)){ write_id(fid(fld)); if(cur_id()!=fid(fld)) e=30; }
+  if(!e && field_now()!=(int)fld) e=31;
+  if(!e && !switch_settings(tgt)) e=32;
+  if(!e && !switch_journal_end(journal)) e=33;
+  if(e){ switch_recovery_loop(journal,src); return; }
+  /* The new live save is durable. Any still-present target header is only a
+   * second copy, so losing power while clearing it cannot remove the save. */
   if(has) erase_page(slot_base(tgt));
   g_act=(int)tgt; g_cur=(int)fld;
   flash_read(SET_A,g_set,PAGE);
@@ -1011,12 +1070,15 @@ static int set_check_msg(void){
   if(e){ message("SAVE FORMAT","UNKNOWN",""); return 1; }
   return 0;
 }
-static void set_write(const char *what){
+static void set_commit(void){
   rect(0,0,128,128,BG); ctext(40,"SAVING",WHITE,1); ctext(54,"DO NOT SWITCH OFF",GREY,1); show();
   stamp(g_set);
   flash_prog4k(SET_A, g_set);
   flash_prog4k(SET_B, g_set);
   if(!flash_same(SET_A,g_set,PAGE) || !flash_same(SET_B,g_set,PAGE)) error_screen(40);
+}
+static void set_write(const char *what){
+  set_commit();
   done_screen(what, GOLD);
 }
 /* Start device settings (1.6.8): sound level of the Paradise (settings byte 8, bits 3..4: 0 off .. 3 loud,
@@ -1713,6 +1775,8 @@ static const char *t_color_name(u32 v){
 }
 /* Body -> same-stage eyes -> color -> review. Persist once after confirmation. */
 static void appearance_edit(void){
+  u32 record=t_active_record();
+  if(!record){ message("UPDATE MENU DATA","TO EDIT APPEARANCE",""); return; }
   u32 body=t_id(), eyes=t_word(6), color=t_color(), step=0;
   for(;;){
     if(step<2u){
@@ -1742,11 +1806,14 @@ static void appearance_edit(void){
     if(step==2u){ step=3; continue; }
     int found=cat_find(body);
     u32 stage=found<0?0u:fl(g_cfg.cat_off+8u+28u*(u32)found+6u)[0];
-    if(body==t_id() && eyes==t_word(6) && color==t_color() && stage==t_stage()) return;
     if(found<0 || !t_visual(body,eyes,color,stage)){
       message("APPEARANCE INVALID","CHECK ROM CATALOG","NOTHING CHANGED"); return;
     }
-    set_write("APPEARANCE SAVED"); return;
+    set_commit();
+    if(!t_queue_rebuild(record)){
+      message("APPEARANCE INCOMPLETE","SAVE AGAIN",""); return;
+    }
+    done_screen("APPEARANCE SAVED",GOLD); return;
   }
 }
 static void level_edit(void){
@@ -2160,6 +2227,10 @@ static void run(void){
 #endif
   app_detect();
   apps_detect();
+  if((g_cfg.flags&F_FIELDS) && g_cfg.nslots && g_cfg.slot_size>=2u*PAGE){
+    u32 src=0, journal=switch_journal_find(&src);
+    if(journal) switch_recovery_loop(journal,src);
+  }
 #ifdef FELD_AUTO
 #ifdef HOST
   { const char *e; if((e=getenv("AUTO_MB"))) h_mb=(u32)strtoul(e,0,16); if((e=getenv("AUTO_GPIO"))) h_gpio=(u32)strtoul(e,0,16); if((e=getenv("AUTO_CNT"))) h_cnt=(u32)strtoul(e,0,10);

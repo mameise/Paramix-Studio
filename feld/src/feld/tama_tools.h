@@ -42,11 +42,36 @@ static void t_stage_set(u32 stage){
   static const u8 events[4]={1,19,20,28};
   for(u32 i=0;i<4u;i++) t_event_clear(events[i]);
 }
-/* Appearance lives in the settings page. The similar +C/+E/+10A records in
- * user flash are communication ghosts (including export staging), not a
- * required own-Tama file. Never scan or mutate them when editing ROM IDs.
- * The original Character Editor's settings setter likewise writes body/eyes,
- * stage and color directly; its ghost buffers serve preview/export only. */
+/* Vanilla firmware uses record zero of its ghost table as a rendered
+ * appearance override for the active Tama. Verify the table before using
+ * that slot. Other slots and the communication staging records belong to
+ * separate features. The table offsets are relative to the flash image. */
+#define T_REBUILD_PENDING 0xFF000000u
+static u32 t_active_record(void){
+  u32 table, record, hook;
+  switch(g_cfg.tama_off){
+    case 0x104u: table=0x94214u; record=0xDEE000u; hook=0x41E84u; break;
+    case 0x108u: table=0x9954Cu; record=0xDEE000u; hook=0x43E8Cu; break;
+    case 0x114u: table=0xACBB8u; record=0xDCE000u; hook=0x48A50u; break;
+    default: return 0;
+  }
+  if(record<g_cfg.user_start || record+0x4000u>g_cfg.user_end ||
+     rd32(table)!=0x60000000u+record ||
+     rd32(table+4u)!=0x60004000u+record ||
+     rd32(table+8u)!=0x60008000u+record ||
+     rd32(hook+0x18u)!=0x4F7FF1B2u || rd16(hook+0x1Cu)!=0xD00Bu) return 0;
+  return record;
+}
+static int t_queue_rebuild(u32 record){
+  if(rd32(record+0x10Cu)==T_REBUILD_PENDING) return 1;
+  /* An out-of-range length makes the game rebuild the active record. The
+   * installed patch recognizes this marker and keeps the selected settings. */
+  flash_read(record,g_page,PAGE);
+  g_page[0x10C]=g_page[0x10D]=g_page[0x10E]=0;
+  g_page[0x10F]=(u8)(T_REBUILD_PENDING>>24);
+  flash_prog4k(record,g_page);
+  return flash_same(record,g_page,PAGE);
+}
 static int t_visual(u32 body,u32 eyes,u32 color,u32 stage){
   if(!t_layout() || !t_alive() || color>16u || stage<2u || stage>5u ||
      body<1001u || body>4999u || eyes<1001u || eyes>4999u) return 0;

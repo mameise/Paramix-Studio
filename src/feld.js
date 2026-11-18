@@ -330,8 +330,12 @@ function slotRead(rom, f, i) {
   return p;
 }
 async function slotReadAsync(read, f, i) {
-  const p = slotParse(f, i, new Uint8Array(await read(slotAddr(f, i), 0x1000)));
-  if (!p) return null;
+  const head = new Uint8Array(await read(slotAddr(f, i), 0x1000));
+  const p = slotParse(f, i, head);
+  if (!p) {
+    if (head.length !== 0x1000 || u32(head, 0) === SLOT_MAGIC) throw new Error('stored save header damaged');
+    return null;
+  }
   p.stream = new Uint8Array(p.bytes);
   if (p.pool) for (let k = 0; k < p.list.length; k++) slotFill(p, await read(p.list[k], 0x1000), k);
   else p.stream.set((await read(p.b + 0x1000, (p.bytes + 0xFFF) & ~0xFFF)).subarray(0, p.bytes));
@@ -445,10 +449,11 @@ function slotPages(s) {
   if (np > 500 || sum !== u32(s.head, 16)) throw new Error('stored save damaged');
   for (let k = 0; k < np; k++) {
     const pg = u16(s.head, 32 + 4 * k), n = u16(s.head, 34 + 4 * k);
-    if (pos + n > s.bytes) throw new Error('stored save damaged');
+    if (!n || pos + n > s.bytes || (k && pg <= u16(s.head, 28 + 4 * k))) throw new Error('stored save damaged');
     const addr = pg * 0x1000, p = lzUnpack(s.stream.subarray(pos, pos + n), n);
     pages.set(addr, addr === 0xEFE000 || addr === 0xEFF000 ? slotClock(p, s.head) : p); pos += n;
   }
+  if (pos !== s.bytes) throw new Error('stored save damaged');
   return pages;
 }
 /** A save (Map address -> 4 KB, only pages from..to that are not empty) packed like the menu does, for slotPlace. */
@@ -471,7 +476,11 @@ function poolUsed(f, heads, skip) {
   const used = new Set();
   heads.forEach((h, j) => {
     if (j === skip || !h) return;
-    const p = slotParse(f, j, h); if (!p) return;
+    const p = slotParse(f, j, h);
+    if (!p) {
+      if (h.length !== 0x1000 || u32(h, 0) === SLOT_MAGIC) throw new Error('stored save header damaged');
+      return;
+    }
     if (p.pool) for (let k = 0; k < u32(h, 24); k++) used.add(h[DPG_OFF + 2 * k] | (h[DPG_OFF + 2 * k + 1] << 8));
     else for (let k = 0; k < Math.ceil(p.bytes / 0x1000); k++) used.add(j * poolPages(f) + k);
   });
@@ -762,6 +771,30 @@ function doomCodeEnd(rom) {
 }
 function assetEnd(rom) { return 0x111000 + 16 + u32(rom, 0x111000 + 8); }
 
+// During the vanilla active-Tama rebuild, retain the settings' eyes, age and
+// color only for Paramix's pending marker (0xFF000000 in record zero's length).
+// The original native generator and its subsequent flag clearing stay in place.
+const APPEARANCE_REBUILD = [
+  [0x41E84, '41f69c30c1f60000b0f805000009c007e8b1ffe740f6a031c1f60001b1f80401a1f806010120a1f80e0191f8190140f01f0081f81901', '9c31', 'de02', 'f861'],
+  [0x43E8C, '41f69c30c1f60000b0f805000009c007e8b1ffe740f6a031c1f60001b1f80801a1f80a010120a1f8120191f81d0140f01f0081f81d01', '9c31', 'de02', 'f461'],
+  [0x48A50, '41f6e430c1f60000b0f805000009c007e8b1ffe740f6e831c1f60001b1f81401a1f816010120a1f81e0191f8290140f01f0081f82901', 'e431', 'dc02', 'e861'],
+].map(([off, stock, flag, record, delta]) => {
+  const bytes = (hex) => Uint8Array.from(hex.match(/../g), (b) => parseInt(b, 16));
+  // Test the original rebuild flag, then the pending marker. On an ordinary
+  // rebuild, copy body to eyes, set age to 1, and set the default color.
+  const patched = bytes('41f6' + flag + 'c1f600014879c0061fd54ef20c12c6f2' + record +
+    '1268b2f17f4f0bd0a1f6' + delta + '0888488001204881487d40f01f00487500bf00bf');
+  return { off, stock: bytes(stock), patched };
+});
+function appearanceRebuild(rom, install) {
+  for (const { off, stock, patched } of APPEARANCE_REBUILD) {
+    const before = install ? stock : patched;
+    if (!before.every((byte, i) => rom[off + i] === byte)) continue;
+    rom.set(install ? patched : stock, off);
+    return;
+  }
+}
+
 /** Remove the menu (program, catalog, slots, stub). Call feldSlots() first if the saves should be kept. */
 function feldStrip(rom, emb, E) {
   const S = root.ParamixSettings || (typeof require !== 'undefined' ? require('./settings.js') : null);
@@ -770,6 +803,7 @@ function feldStrip(rom, emb, E) {
   const out = new Uint8Array(S ? S.stripEntry(withoutHome) : withoutHome);
   const f = feldFind(out, emb.stub);
   if (!f) return out;
+  appearanceRebuild(out, false);
   const tab = E.sceneTable(out);
   launchRestore(out, f.stubOff);   // start device: scene handlers back, trampolines gone (before the menu area is erased)
   const prev = f.stubOff === STUB_OFF ? E.installedOrigs(out, tab) : [0, 1, 2, 3].map((k) => u32(out, f.stubOff + 0x94 + 4 * k));
@@ -1015,6 +1049,7 @@ function feldApply(rom, opts, saved, emb, E) {
   out.set(st, stubOff);
   HOOK_OFF.forEach((h, k) => w32(out, tab.PSID_HOME + 12 + 4 * k, (xip(stubOff) + h) | 1));
   if (launch) launchRedirect(out, tab, stubOff, tOff);
+  if (tama) appearanceRebuild(out, true);
   return shortcutPage === null ? out : H.apply(out, stubOff, shortcutPage);
 }
 

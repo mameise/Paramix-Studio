@@ -153,13 +153,12 @@ apps omit the initial four CRC bytes; these offsets refer to complete pages.
 Stage changes clear the associated stage timers and events, retaining the
 other bits of the stage/color bytes. Both settings copies receive valid CRCs.
 
-Appearance changes update only Body/Eyes/Color/Stage in settings, then save both
-CRC-protected copies. Records with similar fields in user flash are communication
-ghost packages, not required own-Tama files: +0x10A is a Lab real character ID,
-not a secondary eye ID. Their presence, colors and duplicates do not gate saving,
-and editing ordinary ROM IDs never modifies those records. This follows the
-original Character Editor's settings setter; its ghost buffers serve previews
-and export. Keep power on while the two settings pages are written.
+Appearance changes save both CRC-protected settings pages, then mark the
+active Tama's appearance record for rebuilding on return to the game.
+Studio adds a small firmware patch so that the native rebuild uses the edited
+body, eyes and color and retains the saved age. Other records in the
+communication ghost table and its staging buffers are left alone. Rebuild
+the installed menu in Studio to install the firmware patch.
 Previews are static; game animations and close-up views are not included.
 
 Run `node test/feld_tama_test.js` for synthetic-save layout, appearance,
@@ -321,10 +320,15 @@ B held or "-", seen mark (S 0 ?).
 ### Shared save capacity (configuration version 11)
 
 Slots share complete byte-identical 4 KiB packed pages. A modified chunk always
-uses an unreferenced page; referenced chunks are never overwritten. Legacy POOL
-headers may be redirected to identical pages without moving their data, preserving
-clock metadata and decoded saves. This uses the existing single-page header write
-mechanism; compaction is not an atomic transaction across power loss.
+uses an unreferenced page; referenced chunks are never overwritten. Studio
+consolidates old duplicate pages when rebuilding or relocating saved slots,
+preserving clock metadata and decoded saves. The device stages and verifies the
+active backup before committing its header. A full pool leaves existing saves
+intact. The device validates the destination before overwriting live save pages.
+Switching reserves one additional pool page for a recovery journal. If the switch
+is interrupted, reopen Paramix to restore the original save before playing.
+The new live save is verified before that journal is cleared. Keep Saves stops
+the write if any stored save cannot be migrated to the new layout.
 
 Ordinary six-field ROMs without emulator/additional programs may reserve an extra
 pool after validated SIXB rain/game data, below 0xFF0000. Configuration offsets
@@ -336,4 +340,4 @@ remain readable. Use the updated Studio for expanded pools. Six slots still shar
 a finite capacity: unrelated large saves can exhaust it.
 
 Run `node test/feld_pool_test.js [optional-user-ROM]` for sharing, copy-on-write,
-compaction, six-slot switching, expansion, migration and capacity rejection tests.
+six-slot switching, expansion, migration and capacity rejection tests.

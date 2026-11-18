@@ -58,7 +58,6 @@ static int slot_clear(u32 tgt){
 static int slot_copy(u32 src,u32 tgt,u32 fld){
   if(tgt>=g_cfg.nslots || src==tgt || (int)tgt==g_act || slot_valid(tgt) || fld>=nfields()) return 1;
   u32 np; if(source_check(src,&np)) return 2;
-  if(!pool_compact()) return 4;
   pool_mark(tgt);
   u32 bytes=0, prev=0, sets=0, on=0, need=0;
   /* Exact preflight, including recompressed field/slot settings. */
@@ -73,7 +72,7 @@ static int slot_copy(u32 src,u32 tgt,u32 fld){
   u32 nd=(bytes+PAGE-1u)/PAGE;
   if(sets!=3u) return 2;
   if(on) need+=pool_need_chunk(on);
-  if(nd>DPG_MAX || need>pool_free(tgt) || !stash_capacity((u32)g_act,need)) return 3;
+  if(nd>DPG_MAX || need>pool_free(tgt) || !stash_capacity(need)) return 3;
   pool_mark(tgt);
   for(u32 k=0;k<sizeof g_hdr/4u;k++) ((u32*)&g_hdr)[k]=0xFFFFFFFFu;
   on=0; u32 used=0, sum=0;

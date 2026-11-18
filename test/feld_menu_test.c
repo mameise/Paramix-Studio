@@ -39,9 +39,10 @@ static void framing(void){
   sl_fd=fd[0]; assert(sl_read(100) && sl_rx_type=='A' && sl_rx_seq==0);
   close(fd[0]); close(fd[1]); sl_fd=-1;
 }
-static void transfer(int compatible,int stored){
+static void transfer(int compatible,int stored,int shared){
   save_fixture();
   if(stored){ assert(!slot_copy(0,2,1)); }
+  if(shared){ g_cfg.slot_size=2*PAGE; assert(!stash(2)); assert(pool_free(1)<rd32(slot_base(2)+24)); }
   u8 original[PAGE]; memcpy(original,host_flash+SET_A,PAGE);
   int fd[2]; assert(!socketpair(AF_UNIX,SOCK_STREAM,0,fd));
   fflush(stdout);
@@ -59,9 +60,15 @@ static void transfer(int compatible,int stored){
       u32 phases=(1u<<SL_ROM)|(1u<<SL_WAIT)|(1u<<SL_PEER)|(1u<<SL_HEADER)|(1u<<SL_DATA)|(1u<<SL_VERIFY)|(1u<<SL_COMMIT)|(1u<<SL_FINISH);
       assert((sl_ui_seen&phases)==phases && sl_ui_full_paints>=8u);
       assert(slot_valid(1) && !slot_set(1,g_page) && set_ok(g_page));
+      if(shared) for(u32 k=0;k<rd32(slot_base(1)+24);k++){
+        u32 o=offsetof(SlotHdr,dpg)+2*k; assert(rd16(slot_base(1)+o)==rd16(slot_base(2)+o));
+      }
       assert(field_of(g_page)==(stored?1:0));
-      assert(!slot_clear(2) && !slot_copy(1,2,2));
-      assert(!slot_set(2,g_page) && sl_r32(g_page+16)==sl_r32(original+16)-900u);
+      assert(!slot_clear(2));
+      if(!shared){
+        assert(!slot_copy(1,2,2));
+        assert(!slot_set(2,g_page) && sl_r32(g_page+16)==sl_r32(original+16)-900u);
+      }
       assert(!restore(1,0));
       assert(sl_r32(host_flash+SET_A+16)==sl_r32(original+16)-900u);
       assert(set_ok(host_flash+SET_A) && !memcmp(host_flash+SET_A,host_flash+SET_B,PAGE));
@@ -289,7 +296,7 @@ int main(int argc,char **argv){
   run_saves("nbnbnbc"); assert(!slot_valid(1) && field_now()==0);
   /* Active slot clear is refused. */
   run_saves("bnbcc"); assert(field_now()==0);
-  framing(); transfer(1,0); transfer(1,1); transfer(0,0); interrupted_transfer();
+  framing(); transfer(1,0,0); transfer(1,1,0); transfer(1,0,1); transfer(0,0,0); interrupted_transfer();
   puts("PASS: filtering, circular controls, max points, slot copy/clear, UI, CRC/replay and two-peer save transfer");
   free(host_flash); return 0;
 }

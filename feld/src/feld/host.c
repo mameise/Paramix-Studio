@@ -24,7 +24,20 @@ void hw_push(const u16* fb, u32 stride, u32 x0, u32 y0, u32 x1, u32 y1){
 void hw_back_to_paradise(void){ host_leave_count++; printf("BACK TO PARADISE\n"); longjmp(g_jb,1); }
 void host_exit(const char *why){ printf("ENDE %s\n",why); longjmp(g_jb,1); }
 void hw_tone(u32 hz){(void)hz;} void hw_backlight(int on){(void)on;} void hw_bl_pwm_off(void){}
-void flash_prog4k(u32 addr, const void *src){ memcpy(host_flash+(addr&0xFFFFFF),src,0x1000); }
+#ifdef HOST_FLASH_FAULTS
+static u32 host_flash_writes, host_flash_cut, host_flash_cut_bytes;
+#endif
+void flash_prog4k(u32 addr, const void *src){
+  u8 *dst=host_flash+(addr&0xFFFFFF);
+#ifdef HOST_FLASH_FAULTS
+  if(++host_flash_writes==host_flash_cut){
+    memset(dst,0xFF,0x1000);
+    memcpy(dst,src,host_flash_cut_bytes);
+    longjmp(g_jb,3);
+  }
+#endif
+  memcpy(dst,src,0x1000);
+}
 void flash_erase4k(u32 addr){ memset(host_flash+(addr&0xFFFFFF),0xFF,0x1000); }
 void flash_read(u32 addr, void *dst, u32 len){ memcpy(dst,host_flash+(addr&0xFFFFFF),len); }
 int flash_same(u32 addr, const void *src, u32 len){ return !memcmp(host_flash+(addr&0xFFFFFF),src,len); }
