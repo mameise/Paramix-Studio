@@ -2,6 +2,14 @@
 
 Versions are listed newest first.
 
+## 1.7.5-plus.39 (2026-11-19)
+
+- Relock individual Tama Files and reset individual completed missions after confirmation.
+
+## 1.7.5-plus.38 (2026-11-19)
+
+- Complete one mission or all missions from Progress without adding a TamaPoints reward.
+
 ## 1.7.5-plus.37 (2026-11-19)
 
 - Use the main-menu accent for large About and Flash Tool titles. Keep small top headings grey.

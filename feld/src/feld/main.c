@@ -2200,7 +2200,7 @@ static void main_menu(void){
                 big_entry(y,i==sel,"POINTS",st,GOLD,GREY); break;
         case 4: { int k=cat_find(t_id()); if(ok && k>=0 && fl(g_cfg.cat_off+8u+28u*(u32)k+2u)[0]==2u) chr_name((u32)k,st); else if(ok) utoa_(t_id(),st); else { st[0]='-'; st[1]=0; }
                   big_entry(y,i==sel,"TAMA",st,RGB(120,220,120),GREY); } break;
-        case 7: big_entry(y,i==sel,"PROGRESS","LEVEL / TAMA FILE",PROGRESS_COLOR,GREY); break;
+        case 7: big_entry(y,i==sel,"PROGRESS","LEVEL / FILES / TASK",PROGRESS_COLOR,GREY); break;
         case 5: big_entry(y,i==sel,"FLASH TOOL","PC FLASH",ORANGE,GREY); break;
         case 6: big_entry(y,i==sel,"ABOUT",PARAMIX_VERSION,ABOUT_COLOR,GREY); break;
         default: big_entry(y,i==sel,g_napp>1u ? "PROGRAMS" : g_appnm[0],g_napp>1u ? "CHOOSE" : "START",ORANGE,GREY); break;

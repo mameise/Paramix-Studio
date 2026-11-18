@@ -195,6 +195,17 @@ static void progress_unlocks(void){
   }
   stamp(before);
   assert(!memcmp(before,host_flash+SET_A,PAGE));
+  sl_w32(g_set+0xA4u,3u); sl_w32(g_set+BOOK_EXTRA_OFF+12u,3u);
+  stamp(g_set); memcpy(host_flash+SET_A,g_set,PAGE); memcpy(host_flash+SET_B,g_set,PAGE);
+  memcpy(before,g_set,PAGE);
+  keys("nbbbbccc"); progress_menu();
+  assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
+  keys("nbbbbbbcc"); progress_menu(); saved();
+  before[0x94u]&=0xFEu; before[0xA4u]&=0xFEu;
+  stamp(before); assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
+  keys("nbbnnnbbbbcc"); progress_menu(); saved();
+  before[BOOK_EXTRA_OFF]&=0xFEu; before[BOOK_EXTRA_OFF+12u]&=0xFEu;
+  stamp(before); assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
   g_cfg.tama_off=0x104u; assert(progress_flag(2,0,4068)==0x88u*8u+68u);
   g_cfg.tama_off=0x108u; assert(progress_flag(2,21,4090)==0x90u*8u+21u);
 }
@@ -221,11 +232,52 @@ static void progress_colors(void){
   rect(0,2,128,9,BG); ctext(2,"PROGRESS",GREY,1);
   assert(!memcmp(title,g_fb+2u*128u,sizeof title));
 }
+static void mission_unlocks(u32 tama,u32 shift){
+  pet_fixture(tama);
+  g_cfg.money_off=0xB4u+shift;
+  money_put(12345);
+  g_set[0xB8u+shift]=0x58; g_set[0xB9u+shift]=0x02; /* already 600 meals */
+  g_set[0xDEu+shift]=0x80; /* preserve unrelated bitmap bits */
+  for(u32 at=0xECu;at<=0xF4u;at+=4u) sl_w32(g_set+at+shift,0x80000002u);
+  stamp(g_set); memcpy(host_flash+SET_A,g_set,PAGE); memcpy(host_flash+SET_B,g_set,PAGE);
+  u8 before[PAGE]; memcpy(before,g_set,PAGE);
+  keys("pbbbccc"); progress_menu();
+  assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
+  keys("pbbbbbcc"); progress_menu(); saved();
+  for(u32 at=0xECu;at<=0xF4u;at+=4u) sl_w32(before+at+shift,0x80000003u);
+  stamp(before);
+  assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
+  keys("pbpbbbcc"); progress_menu(); saved();
+  assert(!g_seq[g_pos] && !mission_apply(0,MISSION_COUNT,0) && money_get()==12345);
+  assert(g_set[0xBAu+shift]==0 && g_set[0xBBu+shift]==0); /* already completed snack counter untouched */
+  assert(g_set[0xBCu+shift]==100 && g_set[0xC3u+shift]==3);
+  assert(sl_r32(g_set+0xD4u+shift)==99999u); /* Earn Points lifetime counter only */
+  assert(g_set[0xDCu+shift]==255 && g_set[0xDEu+shift]==0x83);
+  assert(g_set[0xDFu+shift]==255 && g_set[0xE0u+shift]==15);
+  for(u32 at=0xECu;at<=0xF4u;at+=4u) assert(sl_r32(g_set+at+shift)==0x803FFFFFu);
+  for(u32 at=4u;at<PAGE;at++)
+    if(at<0xB8u+shift || at>=0xF8u+shift) assert(g_set[at]==before[at]);
+  memcpy(before,g_set,PAGE);
+  keys("pbpbbcc"); progress_menu();
+  assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
+  keys("pbbbccc"); progress_menu();
+  assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
+  keys("pbbbbbcc"); progress_menu(); saved();
+  before[0xB8u+shift]=0xF3; before[0xB9u+shift]=1; /* 499 of 500 */
+  for(u32 at=0xECu;at<=0xF4u;at+=4u) before[at+shift]&=0xFEu;
+  stamp(before);
+  assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
+  assert(mission_apply(0,MISSION_COUNT,0)==1u && money_get()==12345u);
+  mission_reset(13); assert(sl_r32(g_set+0xD4u+shift)==99998u && money_get()==12345u);
+  mission_reset(16); assert(g_set[0xDCu+shift]==255 && g_set[0xDDu+shift]==255 && g_set[0xDEu+shift]==0x80);
+  assert(mission_apply(0,MISSION_COUNT,0)==3u);
+}
 int main(int argc,char **argv){
   assert(argc==2 || argc==4); g_dir=argv[1]; host_flash=malloc(0x1000000); assert(host_flash);
   fields(0x104); fields(0x108); fields(0x114);
   body_stages(0x104); body_stages(0x108); body_stages(0x114);
   appearance_cancel(0x104); appearance_cancel(0x108); appearance_cancel(0x114); appearance_hints(); ui(); progress_level(); progress_colors(); progress_unlocks();
+  mission_unlocks(0x104u,0); mission_unlocks(0x108u,0); mission_unlocks(0x114u,12u);
   if(argc==4) real_appearance(argv[2],(u32)strtoul(argv[3],0,0));
   free(host_flash);
   puts("Tama editing: layouts, visuals, care, cancel and UI passed"); return 0;

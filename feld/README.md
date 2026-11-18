@@ -165,6 +165,12 @@ matching the layers used by the game's appearance override.
 Progress sits after Tama in the main menu, with Planet Level on its first row.
 Open its Tama File submenu to unlock one character, one field, or all supported
 fields after confirming the number of missing entries.
+In One Tama File, select an open entry to relock it and clear its viewed flag.
+The Missions submenu completes one mission or all 22 in the active save, with
+confirmation. It updates the mission counters and flags without awarding
+TamaPoints or changing the wallet balance.
+Selecting a completed mission lets you return it to TODO. Its progress is
+lowered below the completion target only when needed.
 The unlocks are stored in the active save's two CRC-protected settings pages.
 On Tropical and Glacier ROMs with verified six-field assets, the game's Tama
 File uses its existing field selector to browse both sets of regions. The

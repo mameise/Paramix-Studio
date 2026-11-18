@@ -31,6 +31,7 @@ static int progress_bit(u32 bit,int unlock){
   if(unlock) *p|=mask;
   return 1;
 }
+static void progress_clear_bit(u32 bit){ g_set[bit>>3]&=(u8)~(1u<<(bit&7u)); }
 static u32 progress_apply(u32 first,u32 end,int unlock){
   u32 missing=0;
   for(u32 field=first;field<end;field++){
@@ -44,7 +45,8 @@ static u32 progress_apply(u32 first,u32 end,int unlock){
   return missing;
 }
 static int progress_root_row(u32 i,char *name,char *right,u16 *col){
-  const char *p=i==0u?"PLANET LEVEL":"TAMA FILE"; while((*name++=*p++)){}
+  static const char *const names[]={"PLANET LEVEL","TAMA FILE","MISSIONS"};
+  const char *p=names[i]; while((*name++=*p++)){}
   if(i==0u) utoa_(lv_get(),right);
   else right[0]=0;
   *col=i==0u?GOLD:WHITE; return 1;
@@ -87,6 +89,12 @@ static int progress_confirm(const char *name,u32 count){
   ctext(100,"B SAVE  C CANCEL",GREY,1); show();
   return yes_no();
 }
+static int progress_reset_confirm(const char *title,const char *name,const char *detail){
+  rect(0,0,128,128,BG);
+  menu_title(15,title); ctext(39,name,WHITE,1); ctext(63,detail,ORANGE,1);
+  ctext(100,"B SAVE  C CANCEL",GREY,1); show();
+  return yes_no();
+}
 static void progress_files_menu(void){
   if(!t_layout()){ message("TAMA SAVE FORMAT","NOT SUPPORTED",""); return; }
   u32 nf=progress_fields(), nr=0;
@@ -122,8 +130,112 @@ static void progress_files_menu(void){
     u32 i=(u32)index, id=rd16(g_cfg.cat_off+8u+28u*g_chr[i]);
     char name[24]; chr_name(g_chr[i],name);
     u32 bit=progress_flag(region,i,id);
-    if(progress_confirm(name,(u32)progress_bit(bit,0))){
-      progress_bit(bit,1); set_write("TAMA FILE SAVED");
+    if(progress_bit(bit,0)){
+      if(progress_confirm(name,1)){ progress_bit(bit,1); set_write("TAMA FILE SAVED"); }
+    } else if(progress_reset_confirm("LOCK TAMA FILE?",name,"HIDE THIS ENTRY")){
+      u32 viewed=bit+8u*(region>=3u?12u:16u);
+      progress_clear_bit(bit); progress_clear_bit(viewed);
+      set_write("TAMA FILE LOCKED");
+    }
+  }
+}
+
+/* Native mission records occupy the same settings range on Land/Water/Sky
+ * and Jade Forest. Tropical/Glacier insert 12 bytes before this range. */
+static const struct { const char *name; u16 target; u8 offset; } missions[]={
+  {"FEED MEALS",500,0xB8}, {"FEED SNACKS",500,0xBA}, {"CLEAN TAMAS",100,0xBC},
+  {"PLAY WINS",100,0xBE}, {"CLEAN POOP",100,0xC0}, {"COLLECT POOP",1000,0xC2},
+  {"FAST COLLECTIONS",10,0xC4}, {"VISIT PLANETS",7,0xC6}, {"PUT TO SLEEP",50,0xC8},
+  {"WAKE TAMAS",50,0xCA}, {"CONNECTIONS",100,0xCC}, {"SEND GIFTS",50,0xCE},
+  {"MINIGAME WINS",100,0xD0}, {"EARN POINTS",0,0xD4}, {"BREEDING",50,0xD8},
+  {"EGG HUNT WINS",50,0xDA}, {"EGG FOOD TYPES",18,0xDC}, {"CHEF MEALS",12,0xDF},
+  {"LAND ADULTS",16,0xE1}, {"WATER ADULTS",16,0xE3}, {"SKY ADULTS",16,0xE5},
+  {"TAMA COLORS",16,0xE7},
+};
+#define MISSION_COUNT (sizeof(missions)/sizeof(missions[0]))
+#define MISSION_EARNED 13u
+static u32 mission_shift(void){ return g_cfg.tama_off==0x114u?12u:0u; }
+static u32 mission_flag(u32 index){ return (0xF4u+mission_shift())*8u+index; }
+static u32 mission_apply(u32 first,u32 end,int unlock){
+  u32 count=0, shift=mission_shift();
+  for(u32 i=first;i<end;i++){
+    u32 bit=mission_flag(i);
+    if(!progress_bit(bit,0)) continue;
+    count++;
+    if(!unlock) continue;
+    u32 off=missions[i].offset+shift, target=missions[i].target;
+    if(i==MISSION_EARNED){
+      /* A lifetime earnings counter used only by Earn Points, separate from the wallet. */
+      u32 earned=0; for(u32 j=0;j<4u;j++) earned|=(u32)g_set[off+j]<<(8u*j);
+      if(earned<99999u) for(u32 j=0;j<4u;j++) g_set[off+j]=(u8)(99999u>>(8u*j));
+    } else if(i>=16u){
+      for(u32 j=0;j<target;j++) progress_bit(off*8u+j,1);
+    } else if((g_set[off]|((u32)g_set[off+1u]<<8))<target){
+      g_set[off]=(u8)target; g_set[off+1u]=(u8)(target>>8);
+    }
+    /* Set all three native flags so the game sees a completed mission without a pending reward. */
+    for(u32 word=0;word<3u;word++) progress_bit(bit-32u*word,1);
+  }
+  return count;
+}
+static int mission_action_row(u32 i,char *name,char *right,u16 *col){
+  const char *s=i==0u?"ONE MISSION":"ALL MISSIONS"; while((*name++=*s++)){}
+  right[0]=0; *col=i==0u?WHITE:ORANGE; return 1;
+}
+static int mission_row(u32 i,char *name,char *right,u16 *col){
+  const char *s=missions[i].name; while((*name++=*s++)){}
+  int pending=progress_bit(mission_flag(i),0);
+  s=pending?"TODO":"DONE"; while((*right++=*s++)){}
+  *col=pending?WHITE:GREY; return 1;
+}
+static void mission_confirm(u32 first,u32 end,const char *name){
+  u32 count=mission_apply(first,end,0);
+  if(!count){ message("ALREADY COMPLETE","NO NEW MISSIONS",""); return; }
+  char n[5];
+  rect(0,0,128,128,BG); menu_title(10,"COMPLETE MISSIONS"); ctext(28,name,WHITE,1);
+  utoa_(count,n); ctext(48,n,WHITE,2);
+  ctext(75,"TO COMPLETE",GREY,1);
+  ctext(113,"B SAVE  C CANCEL",GREY,1); show();
+  if(yes_no()){ mission_apply(first,end,1); set_write("MISSIONS SAVED"); }
+}
+static void mission_reset(u32 index){
+  u32 bit=mission_flag(index), off=missions[index].offset+mission_shift();
+  u32 target=missions[index].target;
+  if(index>=16u){
+    /* Count all bits in this record, but keep spare bits beyond the unlock mask. */
+    u32 count=0, bits=(target+7u)&~7u;
+    for(u32 i=0;i<bits;i++) count+=!progress_bit(off*8u+i,0);
+    for(u32 i=target;i && count>=target;){
+      u32 seen=off*8u+--i;
+      if(!progress_bit(seen,0)){ progress_clear_bit(seen); count--; }
+    }
+  } else {
+    u32 size=index==MISSION_EARNED?4u:2u, count=0;
+    if(index==MISSION_EARNED) target=99999u;
+    for(u32 i=0;i<size;i++) count|=(u32)g_set[off+i]<<(8u*i);
+    if(count>=target) for(u32 i=0;i<size;i++) g_set[off+i]=(u8)((target-1u)>>(8u*i));
+  }
+  for(u32 word=0;word<3u;word++) progress_clear_bit(bit-32u*word);
+}
+static void missions_menu(void){
+  if(!t_layout() || g_cfg.money_off!=0xB4u+mission_shift()){
+    message("MISSION SAVE FORMAT","NOT SUPPORTED",""); return;
+  }
+  u32 sel=0, mission=0;
+  for(;;){
+    int action=progress_choose("MISSIONS",2u,sel,mission_action_row);
+    if(action<0) return;
+    sel=(u32)action;
+    if(sel==1u) mission_confirm(0,MISSION_COUNT,"ALL MISSIONS");
+    else {
+      int picked=progress_choose("CHOOSE MISSION",MISSION_COUNT,mission,mission_row);
+      if(picked<0) continue;
+      mission=(u32)picked;
+      const char *name=missions[mission].name;
+      if(progress_bit(mission_flag(mission),0)) mission_confirm(mission,mission+1u,name);
+      else if(progress_reset_confirm("RESET MISSION?",name,"RETURN TO TODO")){
+        mission_reset(mission); set_write("MISSION RESET");
+      }
     }
   }
 }
@@ -131,10 +243,11 @@ static void progress_menu(void){
   if(set_check_msg()) return;
   u32 sel=0;
   for(;;){
-    int action=progress_choose("PROGRESS",2u,sel,progress_root_row);
+    int action=progress_choose("PROGRESS",3u,sel,progress_root_row);
     if(action<0) return;
     sel=(u32)action;
     if(sel==0u) level_edit();
-    else progress_files_menu();
+    else if(sel==1u) progress_files_menu();
+    else missions_menu();
   }
 }
