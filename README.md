@@ -53,9 +53,9 @@ This fork uses `<upstream base>-plus.<revision>`, for example `1.7.5-plus.20`.
 The base is the upstream version these changes build on; the revision increases
 for fork updates and continues across base upgrades (for example `1.7.6-plus.21`).
 The earlier `menu19` naming corresponds to revision 19. `VERSION` is the single
-source for the browser/release version and the Paramix menu title. After changing
+source for the browser/release version and the Paramix About screen. After changing
 it, rebuild both menu binaries with `sh feld/src/feld/build.sh` before `node build.js`.
-The menu title identifies the version installed on the physical device.
+The About screen identifies the version installed on the physical device.
 
 ## Disclaimer
 

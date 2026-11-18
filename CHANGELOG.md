@@ -2,6 +2,11 @@
 
 Versions are listed newest first.
 
+## 1.7.5-plus.22 (2026-11-18)
+
+- Add ABOUT at the end of the circular Paramix home menu. Show the installed Studio version inside About, with B/C returning to the menu.
+- Restore the plain PARAMIX title without a version suffix.
+
 ## 1.7.5-plus.21 (2026-11-18)
 
 - Move the Studio version to the Paramix menu title and remove the misplaced Flash-Tool version display.

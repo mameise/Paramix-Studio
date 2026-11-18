@@ -18,8 +18,8 @@ screen). Texts on the device are English, the font and graphics are our own.
   flash. This action does not erase or modify either boot header or the save;
   writing remains a separate action in Studio. The root menu shows four large
   two-line entries through a circular scrolling viewport. Wheel/A navigation
-  continues across both ends without page changes. Its title displays the
-  installed Studio version, generated from VERSION. Launcher-mode `DOWNLOAD`
+  continues across both ends without page changes. ABOUT shows the installed Studio version, generated
+  from VERSION; the home title stays PARAMIX. Launcher-mode `DOWNLOAD`
   is unchanged.
 
 - **Field switch:** the save of the active field is packed (LZSS per 4 KB page)

@@ -9,8 +9,8 @@ def main():
     version = (ROOT / 'VERSION').read_text().strip()
     if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?', version):
         raise ValueError('Unsupported VERSION format')
-    if len('PMX ' + version) * 6 - 1 > 126:
-        raise ValueError('Menu version title exceeds display width')
+    if len(version) * 6 - 1 > 126:
+        raise ValueError('About version exceeds display width')
     (HERE / 'version.h').write_text(
         '/* Generated from VERSION by gen_version.py. */\n'
         '#ifndef PARAMIX_VERSION_H\n#define PARAMIX_VERSION_H\n'

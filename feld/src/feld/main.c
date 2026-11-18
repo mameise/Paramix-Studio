@@ -2001,24 +2001,34 @@ static void flash_tool_menu(void){
 #endif
 }
 
+static void about_menu(void){
+  rect(0,0,128,128,BG);
+  ctext(10,"ABOUT",WHITE,2);
+  ctext(40,"PARAMIX STUDIO",WHITE,1);
+  ctext(60,"VERSION",GREY,1);
+  ctext(74,PARAMIX_VERSION,GOLD,1);
+  ctext(112,"B/C BACK",GREY,1);
+  show(); wait_release();
+  for(;;){ int k=input(); if(k==K_OK || k==K_BACK) return; }
+}
+
 /* ---------------------------------------------------------------- Main menu */
 static void main_menu(void){
   int fields = (g_cfg.flags & F_FIELDS) && g_cur>=0 && g_cfg.nfields>=2u;
-  u32 kinds[6], n=0;                   /* 0 field, 1 items, 2 points, 3 program, 4 Tama, 5 flash */
+  u32 kinds[7], n=0;                   /* 0 field, 1 items, 2 points, 3 program, 4 Tama, 5 flash, 6 About */
   if(fields) kinds[n++]=0;
   if(g_cfg.flags & F_BAG){ kinds[n++]=1; kinds[n++]=2; }
   if(tama_ok()) kinds[n++]=4;
   if(g_napp) kinds[n++]=3;
   u32 sel = g_napp ? n-1u : 0u;       /* keep the installed program selected */
   if(!(g_cfg.flags & F_LAUNCH)) kinds[n++]=5;
+  kinds[n++]=6;
   u32 shown=n<4u?n:4u, top=sel>=shown?sel-shown+1u:0u;
   for(;;){
     int ok=set_load()==0;
     rect(0,0,128,128,BG);
     int y0=10, dy=27;
-    const char *title="PARAMIX " PARAMIX_VERSION;
-    if(text_w(title,1)>126) title="PMX " PARAMIX_VERSION;
-    ctext(1,title,GREY,1);
+    ctext(1,"PARAMIX",GREY,1);
     g_small = 0;                     /* separate name and status lines */
     for(u32 row=0;row<shown;row++){
       u32 i=(top+row)%n; int y=y0+(int)row*dy; char st[24];
@@ -2032,6 +2042,7 @@ static void main_menu(void){
         case 4: { int k=cat_find(t_id()); if(ok && k>=0 && fl(g_cfg.cat_off+8u+28u*(u32)k+2u)[0]==2u) chr_name((u32)k,st); else if(ok) utoa_(t_id(),st); else { st[0]='-'; st[1]=0; }
                   big_entry(y,i==sel,"TAMA",st,RGB(120,220,120),GREY); } break;
         case 5: big_entry(y,i==sel,"FLASH TOOL","PC FLASH",ORANGE,GREY); break;
+        case 6: big_entry(y,i==sel,"ABOUT","VERSION",GREY,GREY); break;
         default: big_entry(y,i==sel,g_napp>1u ? "PROGRAMS" : g_appnm[0],g_napp>1u ? "CHOOSE" : "START",ORANGE,GREY); break;
       }
     }
@@ -2048,7 +2059,7 @@ static void main_menu(void){
       }
       if(k==K_BACK) leave();
       if(k==K_OK){
-        switch(kinds[sel]){ case 0: if(saves_mode()) saves_menu(0,0); else field_menu(0,0); break; case 1: items_menu(); break; case 2: points_menu(); break; case 4: tama_menu(); break; case 5: flash_tool_menu(); break; default: if(g_napp>1u) apps_menu(0); else start_app_i(0); }
+        switch(kinds[sel]){ case 0: if(saves_mode()) saves_menu(0,0); else field_menu(0,0); break; case 1: items_menu(); break; case 2: points_menu(); break; case 4: tama_menu(); break; case 5: flash_tool_menu(); break; case 6: about_menu(); break; default: if(g_napp>1u) apps_menu(0); else start_app_i(0); }
         break;
       }
     }

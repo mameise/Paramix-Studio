@@ -121,28 +121,40 @@ static void flash_tool_tests(void){
   flash_fixture(); sl_w32(host_flash+g_cfg.stub_off+0x0C,0); keys("c"); flash_tool_menu(); assert(!host_flash_tool_src && !g_seq[g_pos]);
   flash_fixture(); memset(host_flash+FT_TABLE,0xFF,PAGE); keys("c"); flash_tool_menu(); assert(!host_flash_tool_src && !g_seq[g_pos]);
   /* Without apps/launcher flags/dl_src, root still reaches FLASH TOOL. */
-  flash_fixture(); g_cfg.dl_src=0; keys("pbcc"); jump=setjmp(g_jb); if(!jump) main_menu();
+  flash_fixture(); g_cfg.dl_src=0; keys("ppbcc"); jump=setjmp(g_jb); if(!jump) main_menu();
   assert(jump==1 && host_leave_count==leaves+1u && !host_flash_tool_src && !g_seq[g_pos]);
   /* Circular viewport: crossing either end keeps adjacent wrapped entries
    * visible and scrolls only one row, rather than switching whole pages. */
   flash_fixture(); root_pause(""); assert(g_fb[12u*128u+3u]==fcol((u32)g_cur));
-  u32 title_pixels=0; for(u32 y=1;y<8;y++) for(u32 x=49;x<127;x++) if(g_fb[y*128u+x]==GREY) title_pixels++;
-  assert(title_pixels>10u); /* version is actually rendered after PARAMIX */
-  root_pause("p"); assert(g_fb[12u*128u+3u]==ORANGE && g_fb[39u*128u+3u]==BG);
-  root_pause("pn"); assert(g_fb[39u*128u+3u]==fcol((u32)g_cur)); /* SAVES below wrapped FLASH */
+  u16 title[7u*128u]; memcpy(title,g_fb+128u,sizeof title);
+  rect(0,1,128,8,BG); ctext(1,"PARAMIX",GREY,1);
+  assert(!memcmp(title,g_fb+128u,sizeof title)); /* no version in the title */
+  root_pause("p"); assert(g_fb[12u*128u+3u]==GREY && g_fb[39u*128u+3u]==BG);
+  root_pause("pn"); assert(g_fb[39u*128u+3u]==fcol((u32)g_cur)); /* SAVES below wrapped ABOUT */
   root_pause("nnnn"); assert(g_fb[93u*128u+3u]==ORANGE); /* one-row shift to FLASH */
-  root_pause("nnnnn"); assert(g_fb[93u*128u+3u]==fcol((u32)g_cur)); /* wrap while retaining viewport */
+  root_pause("nnnnn"); assert(g_fb[93u*128u+3u]==GREY);
+  root_pause("nnnnnn"); assert(g_fb[93u*128u+3u]==fcol((u32)g_cur)); /* wrap while retaining viewport */
   flash_fixture(); g_cfg.flags=F_BAG; root_pause(""); assert(g_fb[12u*128u+3u]==PINK);
-  root_pause("nn"); assert(g_fb[66u*128u+3u]==ORANGE); /* three items fit without scrolling */
-  /* All six categories: preserve PROGRAM default, scroll through FLASH and
+  root_pause("nn"); assert(g_fb[66u*128u+3u]==ORANGE); /* four items fit without scrolling */
+  /* All seven categories: preserve PROGRAM default, scroll through FLASH and
    * back around to SAVES, then launch from the actual root action. */
   flash_fixture(); g_napp=1; g_appsrc[0]=0; strcpy(g_appnm[0],"TEST APP");
   root_pause(""); assert(g_fb[93u*128u+3u]==ORANGE);
   root_pause("n"); assert(g_fb[93u*128u+3u]==ORANGE && g_fb[103u*128u+126u]==BG);
-  root_pause("nn"); assert(g_fb[93u*128u+3u]==fcol((u32)g_cur));
+  root_pause("nn"); assert(g_fb[93u*128u+3u]==GREY);
+  root_pause("nnn"); assert(g_fb[93u*128u+3u]==fcol((u32)g_cur));
   root_pause("nnp"); assert(g_fb[66u*128u+3u]==ORANGE);
   keys("nnpbb"); jump=setjmp(g_jb); if(!jump) main_menu();
   assert(jump==1 && host_flash_tool_src==0x10FDF000u && !g_seq[g_pos]);
+  assert(!memcmp(rescue,host_flash+FT_BASE,sizeof rescue));
+  /* About opens from the root, shows the version, and B/C return without exit. */
+  flash_fixture(); leaves=host_leave_count;
+  keys("c"); about_menu(); assert(host_leave_count==leaves && !g_seq[g_pos]);
+  u32 version_pixels=0; for(u32 y=74;y<81;y++) for(u32 x=0;x<128;x++) if(g_fb[y*128u+x]==GOLD) version_pixels++;
+  assert(version_pixels>20u);
+  keys("b"); about_menu(); assert(host_leave_count==leaves && !g_seq[g_pos]);
+  root_pause("pbc"); assert(g_fb[12u*128u+3u]==GREY);
+  root_pause("pbb"); assert(g_fb[12u*128u+3u]==GREY);
   assert(!memcmp(rescue,host_flash+FT_BASE,sizeof rescue));
 }
 int main(int argc,char **argv){
