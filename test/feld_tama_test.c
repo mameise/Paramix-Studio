@@ -70,31 +70,58 @@ static void body_stages(u32 t){
     host_flash[g_cfg.cat_off+8+6]=(u8)bs;
     host_flash[g_cfg.cat_off+8+28*2+6]=(u8)es;
     u32 expected=bs==es?4002:1001;
-    assert(chr_body_eyes(1001)==expected);
-    assert(t_visual(1001,chr_body_eyes(1001),t_color(),bs));
+    assert(chr_body_eyes(1001,t_word(6))==expected);
+    assert(t_visual(1001,chr_body_eyes(1001,t_word(6)),t_color(),bs));
     assert(t_word(4)==1001 && t_word(6)==expected && t_stage()==bs);
     assert(rd16(g_cfg.user_start+14)==expected && rd16(g_cfg.user_start+0x10A)==expected);
     assert(host_flash[g_cfg.user_start+16]==255); /* color preserved */
   }
-  pet_fixture(t); t_put(6,9999); assert(chr_body_eyes(1001)==1001); /* unknown eyes */
+  pet_fixture(t); t_put(6,9999); assert(chr_body_eyes(1001,t_word(6))==1001); /* unknown eyes */
   pet_fixture(t); host_flash[g_cfg.cat_off+8+28*2+2]=1;
-  assert(chr_body_eyes(4001)==4001); /* an item cannot validate eyes */
+  assert(chr_body_eyes(4001,t_word(6))==4001); /* an item cannot validate eyes */
+}
+static void appearance_cancel(u32 t){
+  const char *seq[]={"ac","abcc","abbccc","abbbcccc"};
+  for(u32 i=0;i<4;i++){
+    pet_fixture(t); u8 settings[PAGE], own[PAGE];
+    memcpy(settings,g_set,PAGE); memcpy(own,host_flash+g_cfg.user_start,PAGE);
+    keys(seq[i]); appearance_edit(); assert(!g_seq[g_pos]);
+    assert(!memcmp(settings,g_set,PAGE) && !memcmp(settings,host_flash+SET_A,PAGE));
+    assert(!memcmp(settings,host_flash+SET_B,PAGE) && !memcmp(own,host_flash+g_cfg.user_start,PAGE));
+  }
+}
+static void appearance_hints(void){
+  pet_fixture(0x104); u32 body=t_id(), eyes=t_word(6); u8 before[PAGE]; memcpy(before,g_set,PAGE);
+  keys("b"); assert(appearance_character(1,&body,&eyes,t_color()));
+  u32 green=0; for(u32 y=111;y<118;y++) for(u32 x=0;x<128;x++) green+=g_fb[y*128+x]==RGB(120,240,140);
+  assert(!green && eyes==4002); /* custom, same-stage eyes are not the original pair */
+  keys("nb"); assert(appearance_character(1,&body,&eyes,t_color()));
+  green=0; for(u32 y=111;y<118;y++) for(u32 x=0;x<128;x++) green+=g_fb[y*128+x]==RGB(120,240,140);
+  assert(green && eyes==body && !memcmp(before,g_set,PAGE));
 }
 static void ui(void){
   pet_fixture(0x104); u8 before[PAGE]; memcpy(before,host_flash+SET_A,PAGE);
   keys("...n...c"); tama_number(0); assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
   keys("aanbbbc"); /* age: step 100 -> 125, save, stay; no extra C consumed */
   tama_number(0); assert(g_seq[g_pos]=='c'); saved(); assert(t_word(0xC)==125);
-  keys("pbb b"); tama_number(3); saved(); assert(t_color()==15 && t_word(4)==4001 && t_word(6)==4002);
-  keys("nbbb"); chr_pick_mode(1); saved(); assert(t_word(4)==4001 && t_word(6)==4001);
-  keys("nbbb"); chr_pick(); saved(); assert(t_word(4)==4002 && t_word(6)==4001); /* same-stage custom eyes kept */
-  memcpy(before,host_flash+SET_A,PAGE);
-  keys("abcc"); chr_pick(); assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
-  keys("abbb"); chr_pick(); saved(); assert(t_word(4)==1001 && t_word(6)==1001 && t_stage()==2);
+  keys("nbnbpbbb"); appearance_edit(); saved();
+  assert(t_word(4)==4002 && t_word(6)==4001 && t_color()==15 && t_stage()==5);
+  /* Back through each step, then cancel Body: no partial save or own-Tama writes. */
+  u8 own[PAGE]; memcpy(own,host_flash+g_cfg.user_start,PAGE); memcpy(before,host_flash+SET_A,PAGE);
+  keys("abbbcccc"); appearance_edit();
+  assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE) && !memcmp(own,host_flash+g_cfg.user_start,PAGE));
+  keys("abbbbb"); appearance_edit(); saved();
+  assert(t_word(4)==1001 && t_word(6)==1001 && t_stage()==2 && t_color()==15);
+  /* Same-stage eye list cannot leave Baby via A; color wraps both ways. */
+  keys("babnbbb"); appearance_edit(); saved();
+  assert(t_word(4)==1001 && t_word(6)==1001 && t_color()==16);
+  keys("bbnbbb"); appearance_edit(); saved(); assert(t_color()==0); /* max wraps to min */
+  keys("bbpbbb"); appearance_edit(); saved(); assert(t_color()==16); /* min wraps to max */
   /* Long character names stay in the 24-byte name buffer, never right[8]. */
   char name[24]; tama_value(2,name); assert(!strcmp(name,"LONG TAMA NAME!!"));
   assert(!strcmp(tama_rows[0],"CARE"));
-  tama_value(4,name); assert(!strcmp(name,"GRAY"));
+  tama_value(3,name); assert(!strcmp(name,"125"));
+  assert(!strcmp(tama_rows[2],"APPEARANCE") && !strcmp(tama_rows[4],"PREVIEW"));
   keys("...c"); tama_menu(); assert(!g_seq[g_pos]);
   keys("...p...b...c...c"); tama_menu(); assert(!g_seq[g_pos]); /* current preview, back, back */
   keys("...c"); care_menu(); assert(!g_seq[g_pos]);
@@ -107,11 +134,12 @@ static void ui(void){
   g_set[0x120]=0; keys("pbbb"); tama_number(1); saved(); assert(g_set[0x120]==6);
   g_set[0x121]=20; keys("nbbb"); tama_number(2); saved(); assert(!g_set[0x121]);
   memcpy(before,host_flash+SET_A,PAGE);
-  keys("nbcc"); chr_pick_mode(1); assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
+  keys("bbpccc"); appearance_edit(); assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
 }
 int main(int argc,char **argv){
   assert(argc==2); g_dir=argv[1]; host_flash=malloc(0x1000000); assert(host_flash);
   fields(0x104); fields(0x108); fields(0x114);
-  body_stages(0x104); body_stages(0x108); body_stages(0x114); ui(); free(host_flash);
+  body_stages(0x104); body_stages(0x108); body_stages(0x114);
+  appearance_cancel(0x104); appearance_cancel(0x108); appearance_cancel(0x114); appearance_hints(); ui(); free(host_flash);
   puts("Tama editing: layouts, visuals, care, cancel and UI passed"); return 0;
 }

@@ -1609,8 +1609,7 @@ static u16 chr_color(u32 id,u16 fallback){
 }
 /* A character ID supplies its default eyes. Keep custom eyes only when the
  * ROM catalog confirms that they belong to the selected body's stage. */
-static u32 chr_body_eyes(u32 body){
-  u32 eyes=t_word(6);
+static u32 chr_body_eyes(u32 body,u32 eyes){
   int b=cat_find(body), e=cat_find(eyes);
   if(b>=0 && e>=0){
     u32 bo=g_cfg.cat_off+8u+28u*(u32)b, eo=g_cfg.cat_off+8u+28u*(u32)e;
@@ -1618,56 +1617,84 @@ static u32 chr_body_eyes(u32 body){
   }
   return body;
 }
-static void chr_pick_mode(int eyes){
-  static const u8 st_list[4]={2,3,4,5};
-  u32 cur=eyes?t_word(6):t_id(), si=t_stage()>=2u && t_stage()<=5u?t_stage()-2u:3u;
-  int found=cat_find(cur);
-  if(found>=0){ u32 st=fl(g_cfg.cat_off+8u+28u*(u32)found+6u)[0]; if(st>=2u && st<=5u) si=st-2u; }
+/* Select into a draft only. C returns to the previous step without writing. */
+static int appearance_character(int eye_step,u32 *body,u32 *eyes,u32 color){
+  u32 cur=eye_step?*eyes:*body, body_stage=t_stage(), si;
+  int found=cat_find(*body);
+  if(found>=0) body_stage=fl(g_cfg.cat_off+8u+28u*(u32)found+6u)[0];
+  si=body_stage>=2u && body_stage<=5u?body_stage-2u:3u;
+  chr_build(si+2u);
   u32 sel=0;
-  chr_build(st_list[si]);
   for(u32 i=0;i<g_chrn;i++) if(rd16(g_cfg.cat_off+8u+28u*g_chr[i])==cur) sel=i;
   for(;;){
-    if(!g_chrn){ message("NO CHARACTERS","IN THIS ROM",""); return; }
-    char title[24]; const char *a=eyes?"EYES: ":"BODY: "; int j=0;
-    while(*a) title[j++]=*a++; a=stage_name(st_list[si]); while(*a) title[j++]=*a++; title[j]=0;
+    if(!g_chrn){ message("NO CHARACTERS","IN THIS ROM",""); return 0; }
     u32 candidate=rd16(g_cfg.cat_off+8u+28u*g_chr[sel]);
-    rect(0,0,128,128,BG); ctext(2,title,WHITE,1);
-    char name[24],pos[24]; chr_name(g_chr[sel],name); ctext(16,name,chr_color(candidate,WHITE),1);
-    text(38,25,"ID:",GREY,1); utoa_(candidate,pos); text(62,25,pos,GOLD,1);
-    tama_preview(eyes?t_id():candidate,eyes?candidate:chr_body_eyes(candidate),t_color());
-    utoa_(sel+1u,pos); int p=0; while(pos[p]) p++; pos[p++]='/'; utoa_(g_chrn,pos+p);
-    int current=candidate==(eyes?t_word(6):t_id());
-    if(current){ while(pos[p]) p++; const char *s=" CURRENT"; while(*s) pos[p++]=*s++; pos[p]=0; }
-    ctext(102,pos,current?GOLD:GREY,1);
-    ctext(118,"A STAGE  B OK  C BACK",GREY,1); show(); wait_release();
+    u32 preview_body=eye_step?*body:candidate, preview_eyes=eye_step?candidate:chr_body_eyes(candidate,*eyes);
+    rect(0,0,128,128,BG); ctext(2,eye_step?"2/3 EYES":"1/3 BODY / STAGE",WHITE,1);
+    char name[24],pos[24]; chr_name(g_chr[sel],name); ctext(14,name,chr_color(candidate,WHITE),1);
+    text(3,24,stage_name(si+2u),GREY,1); utoa_(candidate,pos); text(77,24,pos,GOLD,1);
+    tama_preview(preview_body,preview_eyes,color);
+    utoa_(sel+1u,pos); int n=0; while(pos[n]) n++; pos[n++]='/'; utoa_(g_chrn,pos+n);
+    if(candidate==(eye_step?t_word(6):t_id())){ while(pos[n]) n++; const char *a=" CURRENT"; while(*a) pos[n++]=*a++; pos[n]=0; }
+    ctext(102,pos,GOLD,1);
+    if(preview_body==preview_eyes) ctext(111,"BODY / EYES MATCH",RGB(120,240,140),1);
+    ctext(120,eye_step?"A NEXT  B OK  C BACK":"A STAGE B OK C BACK",GREY,1); show(); wait_release();
     int k=menu_key();
-    if(k==1){ sel=wrap_step(sel,g_step,0,g_chrn-1u); continue; }
+    if(k==1 || (eye_step && k==K_A)){ sel=wrap_step(sel,k==K_A?1:g_step,0,g_chrn-1u); continue; }
     if(k==K_A){
-      for(u32 i=0;i<4u;i++){ si=(si+1u)%4u; chr_build(st_list[si]); if(g_chrn) break; }
+      for(u32 i=0;i<4u;i++){ si=(si+1u)%4u; chr_build(si+2u); if(g_chrn) break; }
       sel=0; continue;
     }
-    if(k==K_BACK) return;
+    if(k==K_BACK) return 0;
     if(k==K_OK){
-      u32 o=g_cfg.cat_off+8u+28u*g_chr[sel], id=rd16(o);
-      u32 next_eyes=eyes?id:chr_body_eyes(id);
-      char name[24]; chr_name(g_chr[sel],name);
-      rect(0,0,128,128,BG); ctext(24,eyes?"CHANGE EYES TO":"CHANGE BODY TO",WHITE,1);
-      ctext(44,name,GOLD,1);
-      ctext(72,eyes?"BODY IS KEPT":next_eyes==t_word(6)?"EYES ARE KEPT":"USE DEFAULT EYES",!eyes && next_eyes!=t_word(6)?GOLD:GREY,1);
-      ctext(96,"B YES   C CANCEL",WHITE,1); show();
-      if(!yes_no()) continue;
-      if(!t_visual(eyes?t_id():id,next_eyes,t_color(),eyes?t_stage():fl(o+6u)[0])){
-        message("TAMA FILE MISSING","OR AMBIGUOUS","NOTHING CHANGED"); return;
-      }
-      set_write(eyes?"EYES SAVED":"BODY SAVED"); return;
+      if(eye_step) *eyes=candidate;
+      else { *body=candidate; *eyes=preview_eyes; }
+      return 1;
     }
   }
 }
-static void chr_pick(void){ chr_pick_mode(0); }
 /* Descriptive labels for the ROM's palette variants; save IDs stay unchanged. */
 static const char *t_color_name(u32 v){
   static const char *const names[17]={"RED","PINK","MAGENTA","PURPLE","BLUE","CYAN","GREEN","YELLOW","ORANGE","ROSE","LAVENDER","SKY BLUE","LIME","CREAM","WHITE","GRAY","DEFAULT"};
   return v<17u?names[v]:"UNKNOWN";
+}
+/* Body -> same-stage eyes -> color -> review. Persist once after confirmation. */
+static void appearance_edit(void){
+  u32 body=t_id(), eyes=t_word(6), color=t_color(), step=0;
+  for(;;){
+    if(step<2u){
+      if(appearance_character(step==1u,&body,&eyes,color)) step++;
+      else if(step) step--; else return;
+      continue;
+    }
+    rect(0,0,128,128,BG);
+    if(step==2u){
+      ctext(2,"3/3 BODY COLOR",GOLD,1); ctext(15,t_color_name(color),WHITE,1);
+      char num[8]; text(27,25,"COLOR ID:",GREY,1); utoa_(color==16u?31u:color,num); text(87,25,num,GOLD,1);
+    } else {
+      ctext(2,"REVIEW APPEARANCE",GOLD,1);
+      char name[24]; int k=cat_find(body); if(k>=0) chr_name((u32)k,name); else name[0]=0;
+      text(0,13,"BODY",GREY,1); textn(30,13,name,16,chr_color(body,WHITE),1);
+      k=cat_find(eyes); if(k>=0) chr_name((u32)k,name); else name[0]=0;
+      text(0,23,"EYES",GREY,1); textn(30,23,name,16,chr_color(eyes,WHITE),1);
+    }
+    tama_preview(body,eyes,color);
+    ctext(102,step==3u?t_color_name(color):color==t_color()?"CURRENT COLOR":"WHEEL / A: COLOR",color==t_color()?GOLD:GREY,1);
+    if(body==eyes) ctext(111,"BODY / EYES MATCH",RGB(120,240,140),1);
+    ctext(120,step==3u?"B SAVE   C BACK":"B REVIEW  C BACK",WHITE,1); show(); wait_release();
+    int k=menu_key();
+    if(k==K_BACK){ step--; continue; }
+    if(step==2u && (k==1 || k==K_A)){ color=wrap_step(color,k==K_A?1:g_step,0,16); continue; }
+    if(k!=K_OK) continue;
+    if(step==2u){ step=3; continue; }
+    int found=cat_find(body);
+    u32 stage=found<0?0u:fl(g_cfg.cat_off+8u+28u*(u32)found+6u)[0];
+    if(body==t_id() && eyes==t_word(6) && color==t_color() && stage==t_stage()) return;
+    if(found<0 || !t_visual(body,eyes,color,stage)){
+      message("TAMA FILE MISSING","OR AMBIGUOUS","NOTHING CHANGED"); return;
+    }
+    set_write("APPEARANCE SAVED"); return;
+  }
 }
 static void level_edit(void){
   u32 v=lv_get(), old=v;
@@ -1693,19 +1720,14 @@ static void level_edit(void){
 }
 /* A cycles age step (1/10/100); B reviews, C cancels without writing. */
 static void tama_number(u32 kind){
-  u32 t=g_cfg.tama_off, old=kind==0?t_word(0xCu):kind==1?g_set[t+0x1Cu]:kind==2?g_set[t+0x1Du]:t_color();
-  u32 max=kind==0?999u:kind==1?6u:kind==2?20u:16u, v=old>max?max:old, step=1;
-  const char *title=kind==0?"AGE (DAYS)":kind==1?"FOOD":kind==2?"HAPPINESS":"BODY COLOR";
+  u32 t=g_cfg.tama_off, old=kind==0?t_word(0xCu):kind==1?g_set[t+0x1Cu]:g_set[t+0x1Du];
+  u32 max=kind==0?999u:kind==1?6u:20u, v=old>max?max:old, step=1;
+  const char *title=kind==0?"AGE (DAYS)":kind==1?"FOOD":"HAPPINESS";
   for(;;){
-    rect(0,0,128,128,BG); ctext(kind==3?2:10,title,GOLD,1);
-    char str[16]; utoa_(v,str);
-    if(kind==3){
-      ctext(16,t_color_name(v),WHITE,1); text(30,25,"COLOR ID:",GREY,1); utoa_(v==16u?31u:v,str); text(90,25,str,GOLD,1);
-      tama_preview(t_id(),t_word(6),v);
-      ctext(103,v==old?"CURRENT COLOR":"WHEEL / A: COLOR",v==old?GOLD:GREY,1);
-    } else ctext(39,str,WHITE,3);
+    rect(0,0,128,128,BG); ctext(10,title,GOLD,1);
+    char str[16]; utoa_(v,str); ctext(39,str,WHITE,3);
     if(kind==0){ text(22,78,"STEP",GREY,1); utoa_(step,str); text(67,78,str,GOLD,1); ctext(93,"A: CHANGE STEP",GREY,1); }
-    else if(kind!=3) ctext(83,"WHEEL / A: CHANGE",GREY,1);
+    else ctext(83,"WHEEL / A: CHANGE",GREY,1);
     ctext(112,"B REVIEW  C BACK",GREY,1); show(); wait_release();
     int k=menu_key();
     if(k==K_BACK) return;
@@ -1717,12 +1739,11 @@ static void tama_number(u32 kind){
     }
     if(k!=K_OK || v==old){ if(k==K_OK) return; continue; }
     rect(0,0,128,128,BG); ctext(24,title,WHITE,1); utoa_(v,str);
-    ctext(48,kind==3 && v==16u?"DEFAULT":str,GOLD,2); ctext(94,"B SAVE  C CANCEL",WHITE,1); show();
+    ctext(48,str,GOLD,2); ctext(94,"B SAVE  C CANCEL",WHITE,1); show();
     if(!yes_no()) continue;
     if(kind==0) t_put(0xCu,v);
     else if(kind==1){ if(v==6u) t_care(1); else g_set[t+0x1Cu]=(u8)v; }
-    else if(kind==2){ if(v==20u) t_care(2); else g_set[t+0x1Du]=(u8)v; }
-    else if(!t_visual(t_id(),t_word(6),v,t_stage())){ message("TAMA FILE MISSING","OR AMBIGUOUS","NOTHING CHANGED"); return; }
+    else { if(v==20u) t_care(2); else g_set[t+0x1Du]=(u8)v; }
     set_write("TAMA SAVED"); return;
   }
 }
@@ -1762,7 +1783,7 @@ static void care_menu(void){
   }
 }
 static void big_entry(int y, int sel, const char *name, const char *st, u16 c, u16 stc);
-static const char *const tama_rows[7]={"CARE","PLANET LEVEL","BODY / STAGE","EYES","BODY COLOR","AGE (DAYS)","PREVIEW"};
+static const char *const tama_rows[5]={"CARE","PLANET LEVEL","APPEARANCE","AGE (DAYS)","PREVIEW"};
 static void tama_value(u32 i,char *out){
   const char *s=""; out[0]=0;
   if(i==0){
@@ -1771,10 +1792,9 @@ static void tama_value(u32 i,char *out){
     if(g_set[g_cfg.tama_off+0x10u]){ s=" SICK"; while(*s) *p++=*s++; } *p=0; return;
   }
   if(i==1){ utoa_(lv_get(),out); return; }
-  if(i==2 || i==3){ int k=cat_find(t_word(i==2?4:6)); if(k>=0){ chr_name((u32)k,out); return; } s="UNKNOWN"; }
-  if(i==4) s=t_color_name(t_color());
-  if(i==5){ utoa_(t_word(0xCu),out); return; }
-  if(i==6) s="VIEW CURRENT TAMA";
+  if(i==2){ int k=cat_find(t_id()); if(k>=0){ chr_name((u32)k,out); return; } s="UNKNOWN"; }
+  if(i==3){ utoa_(t_word(0xCu),out); return; }
+  if(i==4) s="VIEW CURRENT TAMA";
   while(*s) *out++=*s++; *out=0;
 }
 static void tama_menu(void){
@@ -1783,9 +1803,9 @@ static void tama_menu(void){
   u32 sel=0;
   for(;;){
     rect(0,0,128,128,BG); ctext(2,"TAMA",WHITE,1);
-    for(u32 i=0;i<7u;i++){
-      int y=12+(int)i*14; char value[24]; tama_value(i,value);
-      if(i==sel) rect(0,y,128,y+14,RGB(60,60,110));
+    for(u32 i=0;i<5u;i++){
+      int y=12+(int)i*20; char value[24]; tama_value(i,value);
+      if(i==sel) rect(0,y,128,y+20,RGB(60,60,110));
       text(3,y,tama_rows[i],i==0?ORANGE:i==1?GOLD:PINK,1);
       if(i==0){
         int x=9; const char *s=value; u16 digits=RGB(120,240,140);
@@ -1794,19 +1814,19 @@ static void tama_menu(void){
           char ch[2]={*s,0}; text(x,y+7,ch,*s>='0' && *s<='9'?digits:i==sel?WHITE:GREY,1); x+=6; s++;
         }
       } else {
-        u16 color=i==2 || i==3?chr_color(t_word(i==2?4:6),WHITE):i==1?GOLD:i==5?RGB(120,240,140):i==sel?WHITE:GREY;
+        u16 color=i==2?chr_color(t_id(),WHITE):i==1?GOLD:i==3?RGB(120,240,140):i==sel?WHITE:GREY;
         textn(9,y+7,value,19,color,1);
       }
     }
     ctext(118,"B OK   C BACK",GREY,1); show(); wait_release();
     int k=menu_key();
-    if(k==1 || k==K_A){ sel=wrap_step(sel,k==K_A?1:g_step,0,6); continue; }
+    if(k==1 || k==K_A){ sel=wrap_step(sel,k==K_A?1:g_step,0,4); continue; }
     if(k==K_BACK) return;
     if(k!=K_OK) continue;
     if(sel==1){ level_edit(); continue; }
     if(!t_alive()){ message("NO CURRENT TAMA","HATCH AN EGG FIRST",""); continue; }
-    if(sel==0) care_menu(); else if(sel==2) chr_pick(); else if(sel==3) chr_pick_mode(1);
-    else if(sel==4) tama_number(3); else if(sel==5) tama_number(0);
+    if(sel==0) care_menu(); else if(sel==2) appearance_edit();
+    else if(sel==3) tama_number(0);
     else {
       rect(0,0,128,128,BG); ctext(8,"CURRENT TAMA",GOLD,1); tama_preview(t_id(),t_word(6),t_color());
       ctext(116,"B / C BACK",GREY,1); show(); wait_release();

@@ -625,7 +625,10 @@ The menu itself, while the screen is dark, sleeps deeply until a key or the whee
   and the pictures come from your own ROM. Amount 0 ("REMOVE") takes an item out
   again; items the game holds with amount 0 (eaten up) are not shown (switch `BAG_DEL`).
 - Tamapoints: set digit by digit.
-- Change Tama: level, care (fed, happy, healthy) and the character.
+- Change Tama: care, planet level, appearance, age and preview. APPEARANCE combines
+  Body/Stage → same-stage Eyes → Color → Review. The body starts with compatible
+  existing eyes or its own default; each step previews the draft. C goes back one
+  step (from Body it discards the draft); only the final B Save writes it.
 - TamaEmu or DOOM, when built in, is the last entry of the same menu.
 
 ### Device (read and write over UART)

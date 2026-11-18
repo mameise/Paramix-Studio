@@ -2,6 +2,10 @@
 
 Versions are listed newest first.
 
+## 1.7.5-plus.26 (2026-11-18)
+
+- Merge Body/Stage, Eyes and Body Color into APPEARANCE: select body, compatible same-stage eyes, then color, review the preview and save once. C returns one step; leaving the first step discards the draft. Keep the existing names, IDs, current-value markers and circular selection. Show a green BODY / EYES MATCH hint for original body/eye pairs throughout selection and review.
+
 ## 1.7.5-plus.25 (2026-11-18)
 
 - When changing Tama body across stages, use the selected body’s default eyes if the existing eyes belong to another stage or cannot be validated. Keep compatible custom eyes, preview the resulting pair, and disclose the fallback before confirmation.
