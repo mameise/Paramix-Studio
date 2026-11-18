@@ -1607,6 +1607,17 @@ static u16 chr_color(u32 id,u16 fallback){
   u32 o=g_cfg.cat_off+8u+28u*(u32)k, field=fl(o+7u)[0];
   return fl(o+2u)[0]==2u && field && field-1u<nfields()?fcol(field-1u):fallback;
 }
+/* A character ID supplies its default eyes. Keep custom eyes only when the
+ * ROM catalog confirms that they belong to the selected body's stage. */
+static u32 chr_body_eyes(u32 body){
+  u32 eyes=t_word(6);
+  int b=cat_find(body), e=cat_find(eyes);
+  if(b>=0 && e>=0){
+    u32 bo=g_cfg.cat_off+8u+28u*(u32)b, eo=g_cfg.cat_off+8u+28u*(u32)e;
+    if(fl(bo+2u)[0]==2u && fl(eo+2u)[0]==2u && fl(bo+6u)[0]==fl(eo+6u)[0]) return eyes;
+  }
+  return body;
+}
 static void chr_pick_mode(int eyes){
   static const u8 st_list[4]={2,3,4,5};
   u32 cur=eyes?t_word(6):t_id(), si=t_stage()>=2u && t_stage()<=5u?t_stage()-2u:3u;
@@ -1623,7 +1634,7 @@ static void chr_pick_mode(int eyes){
     rect(0,0,128,128,BG); ctext(2,title,WHITE,1);
     char name[24],pos[24]; chr_name(g_chr[sel],name); ctext(16,name,chr_color(candidate,WHITE),1);
     text(38,25,"ID:",GREY,1); utoa_(candidate,pos); text(62,25,pos,GOLD,1);
-    tama_preview(eyes?t_id():candidate,eyes?candidate:t_word(6),t_color());
+    tama_preview(eyes?t_id():candidate,eyes?candidate:chr_body_eyes(candidate),t_color());
     utoa_(sel+1u,pos); int p=0; while(pos[p]) p++; pos[p++]='/'; utoa_(g_chrn,pos+p);
     int current=candidate==(eyes?t_word(6):t_id());
     if(current){ while(pos[p]) p++; const char *s=" CURRENT"; while(*s) pos[p++]=*s++; pos[p]=0; }
@@ -1638,12 +1649,14 @@ static void chr_pick_mode(int eyes){
     if(k==K_BACK) return;
     if(k==K_OK){
       u32 o=g_cfg.cat_off+8u+28u*g_chr[sel], id=rd16(o);
+      u32 next_eyes=eyes?id:chr_body_eyes(id);
       char name[24]; chr_name(g_chr[sel],name);
       rect(0,0,128,128,BG); ctext(24,eyes?"CHANGE EYES TO":"CHANGE BODY TO",WHITE,1);
-      ctext(44,name,GOLD,1); ctext(72,eyes?"BODY IS KEPT":"EYES ARE KEPT",GREY,1);
+      ctext(44,name,GOLD,1);
+      ctext(72,eyes?"BODY IS KEPT":next_eyes==t_word(6)?"EYES ARE KEPT":"USE DEFAULT EYES",!eyes && next_eyes!=t_word(6)?GOLD:GREY,1);
       ctext(96,"B YES   C CANCEL",WHITE,1); show();
       if(!yes_no()) continue;
-      if(!t_visual(eyes?t_id():id,eyes?id:t_word(6),t_color(),eyes?t_stage():fl(o+6u)[0])){
+      if(!t_visual(eyes?t_id():id,next_eyes,t_color(),eyes?t_stage():fl(o+6u)[0])){
         message("TAMA FILE MISSING","OR AMBIGUOUS","NOTHING CHANGED"); return;
       }
       set_write(eyes?"EYES SAVED":"BODY SAVED"); return;

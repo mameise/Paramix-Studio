@@ -2,6 +2,10 @@
 
 Versions are listed newest first.
 
+## 1.7.5-plus.25 (2026-11-18)
+
+- When changing Tama body across stages, use the selected body’s default eyes if the existing eyes belong to another stage or cannot be validated. Keep compatible custom eyes, preview the resulting pair, and disclose the fallback before confirmation.
+
 ## 1.7.5-plus.24 (2026-11-18)
 
 - Add a guarded Flash Tool reset: hold C for about three seconds, then release after RELEASE C appears. Use a watchdog reset to enter Boot ROM rather than restarting the RAM flash app.

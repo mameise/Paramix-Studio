@@ -64,6 +64,22 @@ static void fields(u32 t){
   t_care(2); assert(g_set[t+0x1D]==20 && g_set[t-8]==0xF9 && g_set[t-3]==0xF9);
   t_care(4); assert(!g_set[t+0x10]); for(u32 i=0;i<4;i++) assert(!g_set[heal+i]);
 }
+static void body_stages(u32 t){
+  for(u32 bs=2;bs<=5;bs++) for(u32 es=2;es<=5;es++){
+    pet_fixture(t);
+    host_flash[g_cfg.cat_off+8+6]=(u8)bs;
+    host_flash[g_cfg.cat_off+8+28*2+6]=(u8)es;
+    u32 expected=bs==es?4002:1001;
+    assert(chr_body_eyes(1001)==expected);
+    assert(t_visual(1001,chr_body_eyes(1001),t_color(),bs));
+    assert(t_word(4)==1001 && t_word(6)==expected && t_stage()==bs);
+    assert(rd16(g_cfg.user_start+14)==expected && rd16(g_cfg.user_start+0x10A)==expected);
+    assert(host_flash[g_cfg.user_start+16]==255); /* color preserved */
+  }
+  pet_fixture(t); t_put(6,9999); assert(chr_body_eyes(1001)==1001); /* unknown eyes */
+  pet_fixture(t); host_flash[g_cfg.cat_off+8+28*2+2]=1;
+  assert(chr_body_eyes(4001)==4001); /* an item cannot validate eyes */
+}
 static void ui(void){
   pet_fixture(0x104); u8 before[PAGE]; memcpy(before,host_flash+SET_A,PAGE);
   keys("...n...c"); tama_number(0); assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
@@ -71,7 +87,10 @@ static void ui(void){
   tama_number(0); assert(g_seq[g_pos]=='c'); saved(); assert(t_word(0xC)==125);
   keys("pbb b"); tama_number(3); saved(); assert(t_color()==15 && t_word(4)==4001 && t_word(6)==4002);
   keys("nbbb"); chr_pick_mode(1); saved(); assert(t_word(4)==4001 && t_word(6)==4001);
-  keys("abbb"); chr_pick(); saved(); assert(t_word(4)==1001 && t_word(6)==4001 && t_stage()==2);
+  keys("nbbb"); chr_pick(); saved(); assert(t_word(4)==4002 && t_word(6)==4001); /* same-stage custom eyes kept */
+  memcpy(before,host_flash+SET_A,PAGE);
+  keys("abcc"); chr_pick(); assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
+  keys("abbb"); chr_pick(); saved(); assert(t_word(4)==1001 && t_word(6)==1001 && t_stage()==2);
   /* Long character names stay in the 24-byte name buffer, never right[8]. */
   char name[24]; tama_value(2,name); assert(!strcmp(name,"LONG TAMA NAME!!"));
   assert(!strcmp(tama_rows[0],"CARE"));
@@ -92,6 +111,7 @@ static void ui(void){
 }
 int main(int argc,char **argv){
   assert(argc==2); g_dir=argv[1]; host_flash=malloc(0x1000000); assert(host_flash);
-  fields(0x104); fields(0x108); fields(0x114); ui(); free(host_flash);
+  fields(0x104); fields(0x108); fields(0x114);
+  body_stages(0x104); body_stages(0x108); body_stages(0x114); ui(); free(host_flash);
   puts("Tama editing: layouts, visuals, care, cancel and UI passed"); return 0;
 }
