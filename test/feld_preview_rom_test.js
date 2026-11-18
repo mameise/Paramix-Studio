@@ -63,7 +63,7 @@ try {
       };
       part(g, pose.bs, 32, 34);
       part(e + 1, ep.eye.sub, 32 + pose.eye.dx, 50 + pose.eye.dy, false);
-      part(e + 2, ep.mouth.sub, 32 + pose.mouth.dx, 50 + pose.mouth.dy);
+      part(g + 2, pose.mouth.sub, 32 + pose.mouth.dx, 50 + pose.mouth.dy);
       assert(actual.equals(expected), `pixel mismatch: ${path.basename(file)} body=${body} eyes=${eyes} color=${color}`);
       if (color === 14 && darkEyes.has(eyes)) {
         const eye = C.spriteDecode(ctx.entries[e + 1]), index = darkEyes.get(eyes), pixels = eye.cells[ep.eye.sub];

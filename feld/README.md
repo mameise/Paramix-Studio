@@ -159,7 +159,8 @@ Studio adds a small firmware patch so that the native rebuild uses the edited
 body, eyes and color and retains the saved age. Other records in the
 communication ghost table and its staging buffers are left alone. Rebuild
 the installed menu in Studio to install the firmware patch.
-Previews are static; game animations and close-up views are not included.
+The static preview uses the selected eye sprite and the body's mouth,
+matching the layers used by the game's appearance override.
 
 Run `node test/feld_tama_test.js` for synthetic-save layout, appearance,
 care, wrapping, cancellation and input tests with ASan/UBSan. These new Tama

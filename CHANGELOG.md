@@ -2,6 +2,10 @@
 
 Versions are listed newest first.
 
+## 1.7.5-plus.29 (2026-11-18)
+
+- Show the selected eyes and the body's own mouth in the appearance preview, matching the layers used by the game for mixed traits.
+
 ## 1.7.5-plus.28 (2026-11-18)
 
 - Have Paradise rebuild the active Tama's appearance from the saved Body, Eyes and Color when returning to the game.

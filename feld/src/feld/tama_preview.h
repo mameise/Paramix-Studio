@@ -69,14 +69,14 @@ static int tama_preview(u32 body,u32 eyes,u32 color){
     if(!tp_load(rd32(h+16),512,rd32(h+20))) goto unavailable;
     for(u32 i=0;i<6u;i++) tint[i]=(u16)pr16(color*32u+4u+i*2u); colors=tint;
   }
-  /* The body's neutral pose supplies placement; the selected face supplies
-   * eyes and mouth. Layer coordinates in the data pack are centre-relative. */
+  /* The native appearance override replaces only the eyes. The body's
+   * neutral pose supplies layer placement and its own mouth. */
   int ex=tp_signed(b+64),ey=tp_signed(b+66),mx=tp_signed(b+68),my=tp_signed(b+70);
   if(ex<-64 || ex>64 || ey<-64 || ey>64 || mx<-64 || mx>64 || my<-64 || my>64) goto unavailable;
   /* Eyes retain their own palette. Some faces store outline/iris colors in
    * slots 2..7 too; those are not body-tint slots (white made them disappear).
    * Mouth sprites do contain body-tone patches, so they still inherit tint. */
-  if(!tp_part(b+4,32,34,colors) || !tp_part(e+24,32+ex,50+ey,0) || !tp_part(e+44,32+mx,50+my,colors)) goto unavailable;
+  if(!tp_part(b+4,32,34,colors) || !tp_part(e+24,32+ex,50+ey,0) || !tp_part(b+44,32+mx,50+my,colors)) goto unavailable;
   return 1;
 unavailable:
   rect(8,34,120,98,BG);

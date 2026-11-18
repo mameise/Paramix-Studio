@@ -34,6 +34,12 @@ static void synthetic(void){
   assert(g_fb[34*128+33]==0 && g_fb[33*128+32]==0x1234 && g_fb[98*128+95]==0x1234);
   assert(tama_preview(4001,4001,0));
   assert(g_fb[34*128+32]==0x07E0 && g_fb[35*128+33]==0xF81F && g_fb[36*128+34]==0xFFE0 && !g_fb[34*128+33]);
+  /* Mixed traits use the selected eyes and the body's mouth, as in-game. */
+  u32 other=r+72u; sl_w32(host_flash+x+12,2); put16(host_flash+other,4002);
+  raw[0]=2; descriptor(other+24,0x117001,pal,32,0x20,raw);
+  raw[0]=3; descriptor(other+44,0x118001,pal,32,0x40,raw);
+  assert(tama_preview(4001,4002,16));
+  assert(g_fb[34*128+32]==0xF800 && g_fb[35*128+33]==0x001F);
   /* No flash mutation while previewing, including bad references/checksums. */
   u8 *snapshot=malloc(0x1000000); assert(snapshot); memcpy(snapshot,host_flash,0x1000000);
   assert(!tama_preview(1234,4001,16) && !tama_preview(4001,4001,17));
