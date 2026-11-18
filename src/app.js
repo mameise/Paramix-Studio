@@ -2801,10 +2801,18 @@ function devProg(ph, done, total) {
 }
 async function devTask(fn) {
   dv.run = true; dv.cancel = false; devRender('');
-  let msg;
-  try { await fn(); msg = $('devStat').textContent; }
-  catch (e) { msg = dv.cancel ? t('devCancelled') : t('devErr', { e: flMsg(e) }); }
-  dv.run = false; devRender(msg);
+  const initialDevice = dv.d;
+  let msg, complete = false;
+  try {
+    if (initialDevice) await initialDevice.resetTask(fn); else await fn();
+    msg = $('devStat').textContent;
+    complete = true;
+  } catch (e) { msg = dv.cancel ? t('devCancelled') : t('devErr', { e: flMsg(e) }); }
+  finally {
+    // Connect creates its device inside fn; arm only after hello and rescue checks finish.
+    if (complete && dv.d && dv.d !== initialDevice) { try { await dv.d.resetIdle(true); } catch (_) {} }
+    dv.run = false; devRender(msg);
+  }
 }
 $('btnDevice').onclick = () => { $('device').hidden = !$('device').hidden; devRender(); };
 $('btnHelp').onclick = () => { $('helpBox').hidden = !$('helpBox').hidden; };
@@ -2865,8 +2873,10 @@ $('btnConn').onclick = async () => {
   if (VS.io) await visClose();
   let port;
   try { port = await navigator.serial.requestPort(); } catch (e) { return; }
+  // A reconnect must not wait for a lock acknowledgement from the old transport.
+  const previousIO = dv.io; dv.io = null; dv.d = null;
   devTask(async () => {
-    if (dv.io) { await dv.io.close(); dv.io = null; dv.d = null; }
+    if (previousIO) await previousIO.close();
     dv.io = await FL.serialOpen(port);
     /* 1.7.3 PL_HINT: a Prolific adapter (USB vendor 0x067B) that gets no readable answer: say what usually helps */
     let r;
@@ -2937,6 +2947,9 @@ async function saveCarry(d, c1) {
   return out;
 }
 $('btnWrite').onclick = async () => {
+  const device = dv.d;
+  if (!device) return;
+  try { await device.resetTask(async () => {
   let c = await busy(composeRom); if (!c) return;
   const keep = $('devKeep').checked;
   if (!packOk(c.rom)) return;
@@ -2979,7 +2992,7 @@ $('btnWrite').onclick = async () => {
   }
   // test4: items or Tamapoints of T18Emu: its save on the device is replaced by the one in the ROM, "keep saves" or not
   if (keep && (state.t18Dirty || (state.extras || []).some((x) => x.kind === 't18' && x.items)) && !confirm(t('t18KeepAsk'))) return;
-  devTask(async () => {
+  await devTask(async () => {
     const fe = F.embedded();
     const plan = keep ? FL.keepPlan(F, E, fe && { stub: fe.stub }, { emuChanged: !!state.emu && !emuSame, t7Save: !!state.t7save, t7SaveX: state.t7saveX ? state.t7saveX.i : -1, t18Imp: !!(state.extras || []).some((x) => x.saveImp), mine: studioSecs(state.ctx.rom, c.rom), fresh: c.fresh || [] }) : null;
     let img = c.rom;
@@ -2994,6 +3007,7 @@ $('btnWrite').onclick = async () => {
     if (r.notes.length) m += '\n' + r.notes.map(flMsg).join('\n');
     devRender(m);
   });
+  }); } catch (e) { devRender(t('devErr', { e: flMsg(e) })); }
 };
 /* test15: the T18Emu settings blocks in an image (main program and start device), for moving its block at 0xFF0000 */
 function t18Bases(img, fe) {

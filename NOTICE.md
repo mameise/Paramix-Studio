@@ -155,6 +155,8 @@ not part of Paramix Studio. Arduboy is a trademark of Arduboy Inc.
 
 - File formats of the Paradise flash (archive, sprites, scenes):
   https://github.com/GMMan/tama-para-research by GMMan.
+- Watchdog versus PRAM reset behavior and WDT0 register research:
+  https://github.com/GMMan/snc7330-hidden-rom by GMMan.
 - The rest (settings block, ID pages, field slots, app loading and the PAU1
   flash protocol in `flash/`) was worked out for this project.
 

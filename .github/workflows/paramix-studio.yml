@@ -67,6 +67,9 @@ jobs:
         working-directory: ${{ env.PROJECT }}
         run: |
           node test/menu_version_test.js
+          python3 test/flash_assets_test.py
+          node test/flash_reset_test.js
+          node test/flash_reset_host_test.js
           node test/unit_test.js
           node test/feld_bulk_test.js
           node test/feld_menu_test.js

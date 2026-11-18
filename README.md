@@ -645,6 +645,11 @@ middle = GND, right = TX of the dongle. 3.3 V, not 5 V.
 2. Click "Device", then "Connect" and pick the port. The Studio loads its own
    flash app into the device's RAM (nothing is written for this; switching the
    device off and on returns to normal).
+   Updated Flash Tool firmware shows HOLD C TO RESET when safe: hold C for about
+   three seconds, then release when RELEASE C appears. RESET LOCKED blocks this
+   during operations, incomplete writes, or an invalid primary boot header. The
+   reset restarts through Boot ROM without writing flash. An older installed
+   rescue app must first be updated to provide this feature.
 3. "Read ROM" reads all 16 MB (about 6 minutes), downloads the file as a backup
    and opens it in the Studio.
 4. "Write new ROM to the device" writes the ROM you put together.

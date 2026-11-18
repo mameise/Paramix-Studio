@@ -65,6 +65,32 @@ static u8* const frm  = (u8*)FRAME;
 static u8* const outf = (u8*)OUTF;
 static u8* const cob  = (u8*)COBSO;
 
+#include "reset_policy.h"
+static ResetPolicy* const g_reset=(ResetPolicy*)0x1801A808u;
+static void reset_poll_hw(void);
+static void reset_ui_update(void);
+/* Require a present, bounded primary boot target. This is structural validation,
+ * not a plaintext CRC comparison of an encrypted boot image. */
+static u32 reset_boot_valid(void){
+  const volatile u32 *h=(const volatile u32*)0x60000000u;
+  u32 src=h[4],len=h[5];
+  return h[0]==0x494E4F53u && h[1]==0x56454458u && src>=0x60001000u &&
+    src<0x61000000u && !(src&3u) && len && len<=0x10000u &&
+    !(len&3u) && len<=0x61000000u-src && !(F_DCTL&1u);
+}
+/* SNC73410 SYSRESETREQ restarts PRAM. A watchdog reset instead starts Boot ROM,
+ * like the external reset path (GMMan/snc7330-hidden-rom reset research).
+ * Called only after C is released and all reset guards pass; no flash writes. */
+static void reset_system(void){
+  __asm__ volatile("cpsid i");
+  REG(0x40008000u)=0x5AFA0000u;
+  REG(0x40008008u)=0x5AFA00FFu; /* retain the proven WDT0 timeout */
+  REG(0x4000800Cu)=0x5AFA55AAu;
+  REG(0x40008000u)=0x5AFA0001u;
+  dsb(); for(;;){} /* stop feeding WDT0 */
+}
+
+
 /* ============================ Hardware init ============================ */
 /* Faithful to the firmware (SystemInit, clock routine 0x8c38+0x8a58). XIP is
  * NOT needed: we run from PRAM and read the flash via DMA. */
@@ -117,11 +143,13 @@ static void uart_init(void){
 
 /* ============================ UART input/output ============================ */
 static void putb(u8 c){ while(!(U_LSR & 0x20u)){} U_DATA=c; }
-static int  getb(void){
+static int  getb(u32 packet_idle){
   u32 g=0;
   while(!(U_LSR & 0x01u)){
+    if(packet_idle) reset_poll_hw();
     if((++g & 0x3FFFFu)==0){ REG(0x4000800Cu)=0x5AFA55AAu; REG(0x4000900Cu)=0x5AFA55AAu; } /* feed the watchdog */
   }
+  rp_activity(g_reset);
   return (int)(U_DATA & 0xFF);
 }
 
@@ -254,6 +282,7 @@ static u32 cobs_encode(const u8* s, u32 n, u8* o){
  * ANZEIGE=0 builds the app without display (dump only), like mameise-flashtool.pdlo.
  */
 #include "assets.h"
+#include "reset_hint.h"
 #include "disp_power.h"
 #define PANEL 0x4000E000u
 static u16* const fb = (u16*)0x18008000u;   /* 128x128 framebuffer in SRAM */
@@ -388,12 +417,23 @@ static void push_fb(void){
   }
   LCD_DC(0);
 }
-static void draw(const u16* status, u32 num, u32 den){
+static void paint_reset_hint(u32 mode){
+  u16 color=mode==0u?0x7BEFu:mode==1u?0x7EF1u:0xF5ABu;
+  for(u32 y=0;y<7u;y++) for(u32 x=0;x<128u;x++)
+    fb[(111u+y)*SCR_W+x]=(reset_hint_bits[mode][y*16u+(x>>3)]&(0x80u>>(x&7u)))?color:0x0883u;
+  g_reset->ui=mode;
+}
+static void paint_status(const u8 *status){
+  u16 fg=status[0]|(u16)status[1]<<8;
+  for(u32 i=0;i<2048u;i++) fb[STATUS_Y*SCR_W+i]=(status[2u+(i>>3)]&(0x80u>>(i&7u)))?fg:0x0883u;
+}
+static void draw(const u8* status, u32 num, u32 den){
 #if ANZEIGE
   for(u32 i=0;i<SCR_W*SCR_H;i++) fb[i]=static_bg[i];
-  for(int r=0;r<16;r++) for(int c=0;c<SCR_W;c++) fb[(STATUS_Y+r)*SCR_W+c]=status[r*SCR_W+c];
+  paint_status(status);
   u32 fillx = BAR_X0 + ((BAR_X1-BAR_X0)*num)/(den?den:1);
   for(u32 y=BAR_Y0;y<BAR_Y1;y++) for(u32 x=BAR_X0;x<fillx;x++) fb[y*SCR_W+x]=ACC565;
+  paint_reset_hint(rp_hint(g_reset));
   push_fb();
 #else
   (void)status; (void)num; (void)den;
@@ -418,14 +458,31 @@ static void push_rows(u32 y0, u32 y1){
   LCD_DC(0);
 }
 /* Redraw the status line and bar and push only that strip. */
-static void draw_live(const u16* status, u32 num, u32 den){
+static void draw_live(const u8* status, u32 num, u32 den){
   for(u32 y=STATUS_Y;y<BAR_Y1;y++) for(u32 x=0;x<SCR_W;x++) fb[y*SCR_W+x]=static_bg[y*SCR_W+x];
-  for(int r=0;r<16;r++) for(int c=0;c<SCR_W;c++) fb[(STATUS_Y+r)*SCR_W+c]=status[r*SCR_W+c];
+  paint_status(status);
   u32 fillx = BAR_X0 + ((BAR_X1-BAR_X0)*num)/(den?den:1);
   for(u32 y=BAR_Y0;y<BAR_Y1;y++) for(u32 x=BAR_X0;x<fillx;x++) fb[y*SCR_W+x]=ACC565;
   push_rows(STATUS_Y, BAR_Y1);
 }
 #endif
+
+static void reset_ui_update(void){
+#if ANZEIGE
+  u32 mode=rp_hint(g_reset); if(mode==g_reset->ui) return;
+  paint_reset_hint(mode);
+#if HALTBILD
+  push_rows(111,118);
+#else
+  push_fb();
+#endif
+#endif
+}
+static void reset_poll_hw(void){
+  if(!g_reset->allowed) return;
+  if(rp_poll(g_reset,(REG(GPIO0)&0x400u)==0,REG(0x45000304u)) && reset_boot_valid()) reset_system();
+  reset_ui_update();
+}
 
 /* ============================ PAU1 ============================ */
 static u32 rd32(const u8* p){ return p[0]|(p[1]<<8)|(p[2]<<16)|((u32)p[3]<<24); }
@@ -459,6 +516,13 @@ static void handle(const u8* f, u32 flen){
   u8 type=f[6];
   u32 seq=rd32(f+12), off=rd32(f+16);
   const u8* pl=f+24;
+  rp_packet(g_reset,type);
+  reset_ui_update();
+  if(type==16){ /* RESET_CONTROL: explicit whole-job boundary from the host */
+    u32 ok=off==0u && plen==4u && rd32(pl)<=1u && rp_idle(g_reset,rd32(pl),reset_boot_valid());
+    reset_ui_update(); reply_head(16,seq,off,ok?0:1,0); send_frame(28); return;
+  }
+
 
   if(type==2){ /* ECHO */
     u8* p=reply_head(2,seq,off,0,plen);
@@ -477,6 +541,7 @@ static void handle(const u8* f, u32 flen){
     wr32(p+24, 0x00C22018u); /* jedecId MX25L12833F */
     wr32(p+32, FLASH_SIZE);  /* capacity */
     wr32(p+36, 0);           /* flashError */
+    wr32(p+40, 1);           /* capability bit0: RESET_CONTROL */
     send_frame(28+44); return;
   }
   if(type==5){ /* READ len@payload at off */
@@ -621,7 +686,7 @@ static void handle(const u8* f, u32 flen){
 static void pau1_loop(void){
   u32 w=0;
   for(;;){
-    int b=getb();
+    int b=getb(w==0u);
     if(b==0){ if(w>0){ u32 dl=cobs_decode(rxac,w,frm); handle(frm,dl); } w=0; }
     else { if(w<8000u) rxac[w++]=(u8)b; else w=0; }   /* RXACC 8 KB */
   }
@@ -724,6 +789,7 @@ void Reset_Handler(void){
   flashctl_init();
   pin_mux();
   uart_init();
+  rp_init(g_reset,reset_boot_valid());
 #if ANZEIGE
   display_power();
   display_init();

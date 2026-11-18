@@ -37,7 +37,7 @@ const FLASH_SIZE = 0x1000000, SECTOR = 0x1000, BLOCK64 = 0x10000;
 const BAUD = 460800;
 const FIRST_USER = 0x111000;   // write order starts here
 // PAU1 commands
-const CLOCK_READ = 14, CLOCK_SET = 15;
+const CLOCK_READ = 14, CLOCK_SET = 15, RESET_CONTROL = 16;
 const HELLO = 1, READ = 5, CRC = 6, WRITE_TEST = 8, WRITE_BEGIN = 9, WRITE_DATA = 10, WRITE_COMMIT = 11, WRITE_FINISH = 12, WRITE_STATE = 13;
 // App loading: constants of the device's download protocol (needed to load our
 // own flash app, the same values as in the Paradise Flash Tool).
@@ -420,7 +420,7 @@ class Paradise {
   async hello(ms = 6000) {
     const r = await this.link.request(HELLO, 0, undefined, ms);
     const p = r.payload; if (p.length !== 44) throw fe('hello');
-    this.info = { edition: p[8], wave: p[9], maxBlock: p[10] | (p[11] << 8), jedec: u32(p, 24), capacity: u32(p, 32), flashError: u32(p, 36) };
+    this.info = { edition: p[8], wave: p[9], maxBlock: p[10] | (p[11] << 8), jedec: u32(p, 24), capacity: u32(p, 32), flashError: u32(p, 36), resetControl: !!(u32(p, 40) & 1) };
     // The flash app always reports 1 (Land). The real edition is the ID page in the flash
     // (0xD49000, Tropical/Glacier 0xD29000), read like the Studio reads a ROM (1.3.0).
     try {
@@ -438,6 +438,37 @@ class Paradise {
     return this.info;
   }
   ready() { if (!this.info || this.info.capacity !== FLASH_SIZE || this.info.flashError) throw fe('notReady'); }
+  /** The device also keeps its own incomplete-write latch; IDLE can be refused. */
+  async resetIdle(idle) {
+    if (!this.info || !this.info.resetControl) return false;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const r = await this.link.request(RESET_CONTROL, 0, u32le(idle ? 1 : 0), 3000);
+        return r.status === 0;
+      } catch (e) { if (!(e instanceof TimeoutError) || attempt >= 2) throw e; }
+    }
+  }
+  /** Hold the reset lock across a complete operation, including nested checks. */
+  async resetTask(fn) {
+    if (!this.resetDepth) this.resetFailed = false;
+    this.resetDepth = (this.resetDepth || 0) + 1;
+    let complete = false;
+    try {
+      if (this.resetDepth === 1 && this.info && this.info.resetControl && !await this.resetIdle(false))
+        throw new Error('The device could not lock reset');
+      const result = await fn();
+      complete = true;
+      return result;
+    } finally {
+      if (!complete) this.resetFailed = true;
+      this.resetDepth--;
+      if (!this.resetDepth && !this.resetFailed) {
+        // Failed operations stay locked. A lost IDLE reply never masks the completed result.
+        try { await this.resetIdle(true); } catch (_) {}
+      }
+    }
+  }
+
   async read(off, len) {
     const out = new Uint8Array(len), blk = this.block;
     for (let o = 0; o < len; o += blk) {
@@ -490,7 +521,7 @@ class Paradise {
     throw fe('lost');
   }
   /** Write single 4 KB sectors (Map address -> data), checked one by one. */
-  async writeSectors(map, progress, cancel, guard) {
+  async writeSectors(map, progress, cancel, guard, finishCheck) {
     this.ready();
     let jobs = [...map.keys()].sort((a, b) => a - b).map((s) => [s, map.get(s)]), extra = 0;
     // test15: with the rescue start on the device, its own table is off while the pages are written, back last
@@ -513,6 +544,8 @@ class Paradise {
       await this.putSector(s, d);
       n++; if (progress) progress('write', n, jobs.length);
     }
+    // Final read-back checks must pass before the device clears its incomplete-write latch.
+    if (finishCheck) await finishCheck();
     await this.link.request(WRITE_FINISH, 0, undefined, 15000);
     return n - extra;
   }
@@ -570,8 +603,9 @@ class Paradise {
   }
   async rescueInstall(block, progress, cancel) {
     const m = new Map(); for (let s = 0; s < BLOCK64; s += SECTOR) m.set(RESCUE_OFF + s, block.subarray(s, s + SECTOR));
-    await this.writeSectors(m, progress, cancel);
-    if (await this.crc(RESCUE_OFF, BLOCK64) !== crc32(block)) throw fe('rescueFail');
+    await this.writeSectors(m, progress, cancel, null, async () => {
+      if (await this.crc(RESCUE_OFF, BLOCK64) !== crc32(block)) throw fe('rescueFail');
+    });
   }
   /**
    * Test on the device (1.6.13 test13): rescue start in place, then the device's own table (sector 0) cleared.
@@ -590,8 +624,9 @@ class Paradise {
   async rescueRestore(hdr, progress, cancel) {
     this.ready();
     if (String.fromCharCode(...hdr.subarray(0, 8)) !== 'SONIXDEV') throw fe('notParadise');
-    await this.writeSectors(new Map([[0, hdr.subarray(0, SECTOR)]]), progress, cancel);
-    if (await this.crc(0, SECTOR) !== crc32(hdr, 0, SECTOR)) throw fe('checkFail', { a: hex(0) });
+    await this.writeSectors(new Map([[0, hdr.subarray(0, SECTOR)]]), progress, cancel, null, async () => {
+      if (await this.crc(0, SECTOR) !== crc32(hdr, 0, SECTOR)) throw fe('checkFail', { a: hex(0) });
+    });
   }
   /** Whole flash (16 MB). */
   async dump(progress, cancel) {

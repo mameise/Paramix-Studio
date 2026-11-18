@@ -2,6 +2,12 @@
 
 Versions are listed newest first.
 
+## 1.7.5-plus.24 (2026-11-18)
+
+- Add a guarded Flash Tool reset: hold C for about three seconds, then release after RELEASE C appears. Use a watchdog reset to enter Boot ROM rather than restarting the RAM flash app.
+- Lock reset during host operations and unfinished or failed writes; re-enable only at a successful whole-job boundary with a structurally valid boot target.
+- Compress Flash Tool status artwork without changing its pixels, leaving room for reset hints.
+
 ## 1.7.5-plus.23 (2026-11-18)
 
 - Show the installed version directly in the ABOUT row subtitle as `Ver. <version>`.
