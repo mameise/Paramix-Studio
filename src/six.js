@@ -1044,6 +1044,115 @@ function sixFix(rom) {
 const SIX_B64 = '__SIX_B64__';
 function embedded() { return SIX_B64.startsWith('__') ? null : b64(SIX_B64); }
 
-root.ParamixSix = { VERSION: SIX_VERSION, DNA: SIX_DNA, HUNT: SIX_HUNT, sixHunt, sixDna, sixDnaCan, sixApply, sixStrip, sixFix, sixCan, sixSource, sixInfo, sixNeedsSource, kindOf, embedded, FLAG_OFF, SIX_OFF, packGroup, reduceOne, mapCells };
+/* The native three-row Tama File selector can browse two banks without changing
+ * the number of scene objects. Only install where the three extra fields and
+ * their character data can be verified. Flash offsets are for Tropical/Glacier.
+ */
+const BOOK_B64 = '__BOOK_B64__', BOOK_AT = 0x300, BOOK_MAGIC = 0x36304b42;
+const BOOK_VERSION = 2;
+const BOOK_SITES = [
+  [0x166d4, '80b586b0', 'jump', 0],
+  [0x16630, '80b586b0', 'jump', 1],
+  [0x1680c, '80b586b0', 'jump', 2],
+  [0x16778, '80b586b0', 'jump', 3],
+  [0x292d8, '84b0adf80c00', 'jump', 4],
+  [0x6fee4, 'a4f776fd', 'call', 5],
+  [0x6e18a, '01f23621', 'call', 6],
+  [0x90bcc, '45f25652c5f2555280fb023202ebd27202eb4202801a', 'call', 7],
+  [0x90c08, '42f6b850c1f20900', 'r0', 8],
+  [0x90ca6, '42f6b850c1f20900', 'r0', 8],
+  [0x6e33c, '0068806a', 'call', 9],
+  [0x6e340, 'd0f82801', 'to', 0x6e396],
+  [0x90bf4, 'a4f794f9', 'call', 10],
+  [0x90c92, 'a4f745f9', 'call', 10],
+  [0x6d3ba, '43f2aa41c1f20901', 'r1', 11],
+  [0x6d4e2, 'd0f8cc04', 'call', 12],
+  [0x6d4e6, '0f9040b1', 'to', 0x6d56a],
+  [0x90c72, '0220', 'hex', '0520'], // wrap backward to field 5
+  [0x6e1d4, '2020', 'hex', '82e0'], // bank-aware refresh replaces the native scan
+  [0x70160, '06d0', 'hex', '06e0'], // all six areas can now show their special character
+  [0x16b88, '40f2ec40', 'hex', '40f2f040'], // allocate a pointer for the page arrow
+];
+const bookBytes = (s) => Uint8Array.from(s.match(/../g), (x) => parseInt(x, 16));
+
+function bookReplacement(page, at, site) {
+  const [off, orig, type, key] = site;
+  if (type === 'hex') return bookBytes(key);
+  if (type === 'to') return branch(XIP(off), XIP(key), false);
+  const target = XIP(at) + u32(page, 8 + 4 * key);
+  if (type === 'r0' || type === 'r1') return movPairBytes(type === 'r0' ? 0 : 1, target);
+  const bytes = new Uint8Array(orig.length / 2);
+  bytes.set(branch(XIP(off), target, type === 'call'));
+  for (let i = 4; i < bytes.length; i += 2) w16(bytes, i, 0xbf00);
+  return bytes;
+}
+
+function bookCharacters(rom) {
+  const info = sixInfo(rom);
+  if (!info || info.kind !== 'gen3' || info.version !== SIX_VERSION || kindOf(rom) !== 'gen3' ||
+      info.flagOff !== FLAG_OFF || u32(rom, B_OFF) !== B_MAGIC || u32(rom, B_OFF + 4) !== 9) return null;
+  const pack = C.ASSET_BASE + u32(rom, C.ASSET_BASE + 36), data = B_OFF + 8 + 9 * 260;
+  const sprites = new Set();
+  for (let k = 0; k < 9; k++) {
+    const off = B_OFF + 8 + k * 260, id = u32(rom, off);
+    if (id < info.sprites || id > 4096 || sprites.has(id) || pack + id * 4 + 4 > rom.length) return null;
+    sprites.add(id);
+    const h = pack + u32(rom, pack + 4 * id), pix = h + u16(rom, h + 20);
+    if (h < pack || pix < h || pix + 64 * 8 > B_OFF) return null;
+    for (let t = 0; t < 64; t++) {
+      const rel = u32(rom, off + 4 + 4 * t);
+      const size = u32(rom, pix + t * 8 + 4);
+      if (rel !== 0xffffffff && (!size || size > B_END - data - rel)) return null;
+    }
+  }
+  const chars = C.charTable(C.arc2Files(rom, C.ASSET_BASE)[0]);
+  const added = [];
+  for (let field = 1; field <= 6; field++) {
+    const ids = chars.filter((c) => c.field === field && c.stage >= 3 && c.stage <= 5).map((c) => c.id).sort((a, b) => a - b);
+    if (ids.length !== 22 || new Set(ids).size !== 22) return null;
+    if (field <= 3) added.push(...ids);
+    else {
+      const ordinal = field === 4 ? 2 : field - 5, record = 0xaed4c + ordinal * 8;
+      const list = u32(rom, record) - XIP(0);
+      if (list < 0x11000 || list + 44 > 0x111000 || u32(rom, record + 4) !== ids.length ||
+          ids.some((id, i) => u16(rom, list + 2 * i) !== id)) return null;
+    }
+  }
+  return new Set(added).size === 66 ? added : null;
+}
+
+function sixBookApply(rom, stubOff) {
+  const at = stubOff + BOOK_AT;
+  if (BOOK_SITES.some(([off, orig]) => hex(rom, off, orig.length / 2) !== orig)) return false;
+  let ids;
+  try { ids = bookCharacters(rom); } catch (_) { return false; }
+  if (!ids) return false;
+  const page = BOOK_B64.startsWith('__')
+    ? (typeof require === 'undefined' ? null : require('node:fs').readFileSync(__dirname + '/../six/book.bin'))
+    : b64(BOOK_B64);
+  if (!page) return false;
+  const idsAt = u32(page, 60);
+  if (u32(page, 0) !== BOOK_MAGIC || u32(page, 4) !== BOOK_VERSION || idsAt + 132 > page.length ||
+      at + page.length > stubOff + 0x1000 || !rom.subarray(at, at + page.length).every((b) => b === 255)) return false;
+  ids.forEach((id, i) => w16(page, idsAt + 2 * i, id));
+  rom.set(page, at);
+  BOOK_SITES.forEach((site) => rom.set(bookReplacement(page, at, site), site[0]));
+  return true;
+}
+
+function sixBookStrip(rom, stubOff) {
+  const at = stubOff + BOOK_AT;
+  if (u32(rom, at) !== BOOK_MAGIC) return;
+  const page = rom.subarray(at, stubOff + 0x1000);
+  const version = u32(page, 4);
+  const sites = version === 1 ? BOOK_SITES.slice(0, -1) : BOOK_SITES;
+  if ((version !== 1 && version !== BOOK_VERSION) || sites.some((site) => {
+    const b = bookReplacement(page, at, site);
+    return hex(rom, site[0], b.length) !== hex(b, 0, b.length);
+  })) throw new Error('the native Tama File patch has changed');
+  sites.forEach(([off, orig]) => rom.set(bookBytes(orig), off));
+}
+
+root.ParamixSix = { VERSION: SIX_VERSION, DNA: SIX_DNA, HUNT: SIX_HUNT, sixHunt, sixDna, sixDnaCan, sixApply, sixStrip, sixFix, sixCan, sixSource, sixInfo, sixNeedsSource, sixBookApply, sixBookStrip, kindOf, embedded, FLAG_OFF, SIX_OFF, packGroup, reduceOne, mapCells };
 if (typeof module !== 'undefined') module.exports = root.ParamixSix;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -7,3 +7,7 @@ ld.lld -Ttext=0x100FE000 -e _start six.o -o six.elf
 llvm-objcopy -O binary -j .text six.elf ../six.bin
 llvm-objdump -d six.elf | head -80
 ls -l ../six.bin
+# Native Tama File helper, linked at zero so it can use any launcher page.
+clang --target=thumbv7m-none-eabi -mcpu=cortex-m3 -c book.s -o book.o
+ld.lld -Ttext=0 -e _start book.o -o book.elf
+llvm-objcopy -O binary -j .text book.elf ../book.bin

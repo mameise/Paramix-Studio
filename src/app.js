@@ -2766,11 +2766,19 @@ async function composeRom() {
 }
 $('btnSave').onclick = () => busy(async () => {
   const c = await composeRom(); if (!c) return;
-  if (c.same) { toast(t('nothing')); return; }
-  if (!packOk(c.rom)) return;
-  download(c.rom, c.name);
+  // Device writes install the rescue Flash Tool separately. A standalone ROM
+  // export needs the same tool for the on-device menu (including emulator use).
+  const menu = F.embedded(), flash = FL.embedded();
+  const withTool = menu && flash && F.feldFind(c.rom, menu.stub) ? FL.withRescue(c.rom, flash) : c.rom;
+  if (c.same && withTool === c.rom) { toast(t('nothing')); return; }
+  if (c.same && !withTool) { toast(t('fl_noRescue'), true); return; }
+  const rom = withTool || c.rom;
+  if (!packOk(rom)) return;
+  const name = c.same ? c.name.replace(/(?:\.bin)?$/i, '_flash-tool.bin') : c.name;
+  download(rom, name);
   state.saved = state.changed.size;
-  toast(c.res ? t('saved', { name: c.name, n: state.changed.size, kb: c.res.free / 1024 | 0 }) : t('savedEmu', { name: c.name }));
+  const msg = c.res ? t('saved', { name, n: state.changed.size, kb: c.res.free / 1024 | 0 }) : t('savedEmu', { name });
+  toast(withTool ? msg : msg + '\n' + t('fl_noRescue'), !withTool);
 });
 
 // ------------------------------------------------------------- device (UART)

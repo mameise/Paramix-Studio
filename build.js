@@ -86,9 +86,8 @@ let feld = fs.readFileSync(__dirname + '/src/feld.js', 'utf8');
 // Six fields: helper page (source in six/src)
 let six = fs.readFileSync(__dirname + '/src/six.js', 'utf8');
 {
-  const f = __dirname + '/six/six.bin';
-  if (!fs.existsSync(f)) throw new Error('six/six.bin fehlt');
-  six = six.replace('__SIX_B64__', fs.readFileSync(f).toString('base64'));
+  const binary = (name) => fs.readFileSync(__dirname + '/six/' + name + '.bin').toString('base64');
+  six = six.replace('__SIX_B64__', binary('six')).replace('__BOOK_B64__', binary('book'));
 }
 if (six.includes('</script')) throw new Error('script end tag inside source');
 // Flash app for the device tab (our own code, source in flash/src)

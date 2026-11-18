@@ -162,6 +162,16 @@ the installed menu in Studio to install the firmware patch.
 The static preview uses the selected eye sprite and the body's mouth,
 matching the layers used by the game's appearance override.
 
+Progress sits after Tama in the main menu, with Planet Level on its first row.
+Open its Tama File submenu to unlock one character, one field, or all supported
+fields after confirming the number of missing entries.
+The unlocks are stored in the active save's two CRC-protected settings pages.
+On Tropical and Glacier ROMs with verified six-field assets, the game's Tama
+File uses its existing field selector to browse both sets of regions. The
+first page shows a down arrow and the second shows an up arrow. The
+original regions use the original save flags. Land, Water and Sky use two
+three-word arrays for discovery and viewing in the same settings page.
+
 Run `node test/feld_tama_test.js` for synthetic-save layout, appearance,
 care, wrapping, cancellation and input tests with ASan/UBSan. These new Tama
 features and preview flash reads still require physical-device validation; the previously confirmed

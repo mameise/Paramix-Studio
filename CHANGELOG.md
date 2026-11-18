@@ -2,6 +2,40 @@
 
 Versions are listed newest first.
 
+## 1.7.5-plus.37 (2026-11-19)
+
+- Use the main-menu accent for large About and Flash Tool titles. Keep small top headings grey.
+
+## 1.7.5-plus.36 (2026-11-19)
+
+- Include the current Flash Tool when downloading a ROM with Paramix Menu. Allow re-export when Flash Tool is the only pending update.
+
+## 1.7.5-plus.35 (2026-11-19)
+
+- Match the on-device Flash Tool to the Paramix Menu font, title and palette.
+- Show the bare version under a light blue About entry. Use white for ordinary submenu entries.
+
+## 1.7.5-plus.34 (2026-11-19)
+
+- Use white for the Tama File entry and single-character unlock. Keep accent colors for Planet Level and bulk unlocks.
+
+## 1.7.5-plus.33 (2026-11-19)
+
+- Match submenu and editor headings to the grey Paramix home title and color Progress rows by action.
+
+## 1.7.5-plus.32 (2026-11-19)
+
+- Give Progress a lilac accent, move Planet Level to its first row, and group the three unlock actions under Tama File.
+
+## 1.7.5-plus.31 (2026-11-19)
+
+- Show the game's up and down arrow sprites on the two pages of the six-field Tama File selector.
+
+## 1.7.5-plus.30 (2026-11-19)
+
+- Add Progress after Tama. Review and unlock one Tama File, one field, or all supported fields in the active save.
+- Extend the native Tama File on validated six-field Tropical and Glacier ROMs. The existing field selector also browses Land, Water and Sky, including unlock and viewed state per save.
+
 ## 1.7.5-plus.29 (2026-11-18)
 
 - Show the selected eyes and the body's own mouth in the appearance preview, matching the layers used by the game for mixed traits.

@@ -26,8 +26,8 @@ A structural SONIXDEV boot-header check and an idle flash controller are also
 required; this is not a CRC validation of encrypted boot code. Older clients
 remain usable but cannot re-arm reset after traffic.
 
-Status artwork is packed into one-bit masks with its original foreground colors;
-`test/flash_assets_test.py` checks that the original pixels remain unchanged.
+Flash Tool uses the Paramix Menu font and palette. Its title, status and reset
+labels use one-bit masks checked by `test/flash_assets_test.py`.
 The watchdog reset sequence still requires physical-device validation.
 
 ## PAU1

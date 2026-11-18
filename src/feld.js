@@ -27,6 +27,7 @@ const PH_APP = 0x1234ABCD, PH_FELD = 0x6789EF01, PH_AUTO = 0x66666661, PH_ORIG =
 const HOOK_OFF = [0x40, 0x46, 0x4C, 0x52];
 const F_FIELDS = 1, F_BAG = 2, F_TAMA = 4, F_SAVES = 8, F_LAUNCH = 16;
 const F_NO_SHORTCUT = 128; // persisted opt-out; the A+C menu remains enabled
+const F_BOOK6 = 256; // native Tama File has the three additional regions
 /* GPLAY (1.7.2 test14): play time in DOOM, Wolfenstein, Game Boy and Master System earns Tamapoints (the programs read
  * this flag from the menu's settings block, see emu/src/emu/gplay.h). Only in a ROM with the Paradise. */
 const F_GPLAY = 64, GPLAY = true;
@@ -799,10 +800,12 @@ function appearanceRebuild(rom, install) {
 function feldStrip(rom, emb, E) {
   const S = root.ParamixSettings || (typeof require !== 'undefined' ? require('./settings.js') : null);
   const H = root.ParamixHomeMenu || (typeof require !== 'undefined' ? require('./home_menu.js') : null);
+  const Six = root.ParamixSix || (typeof require !== 'undefined' ? require('./six.js') : null);
   const withoutHome = H ? H.stripEntry(rom) : rom;
   const out = new Uint8Array(S ? S.stripEntry(withoutHome) : withoutHome);
   const f = feldFind(out, emb.stub);
   if (!f) return out;
+  if (Six) Six.sixBookStrip(out, f.stubOff);
   appearanceRebuild(out, false);
   const tab = E.sceneTable(out);
   launchRestore(out, f.stubOff);   // start device: scene handlers back, trampolines gone (before the menu area is erased)
@@ -889,6 +892,7 @@ function feldApply(rom, opts, saved, emb, E) {
   const out = new Uint8Array(rom);
   const S = root.ParamixSettings || (typeof require !== 'undefined' ? require('./settings.js') : null);
   const H = root.ParamixHomeMenu || (typeof require !== 'undefined' ? require('./home_menu.js') : null);
+  const Six = root.ParamixSix || (typeof require !== 'undefined' ? require('./six.js') : null);
   if (S) S.inspect(out); // validate existing Language helpers even when the shortcut is disabled
   const shortcutPage = H && opts.paramixShortcut !== false && !opts.launch && !opts.clean ? H.planPage(out) : null;
   if (shortcutPage !== null) out.set(S.prepareLabel(out).rom);
@@ -1049,6 +1053,7 @@ function feldApply(rom, opts, saved, emb, E) {
   out.set(st, stubOff);
   HOOK_OFF.forEach((h, k) => w32(out, tab.PSID_HOME + 12 + 4 * k, (xip(stubOff) + h) | 1));
   if (launch) launchRedirect(out, tab, stubOff, tOff);
+  else if (Six && Six.sixBookApply(out, stubOff)) w32(out, prog + ci + 36, u32(out, prog + ci + 36) | F_BOOK6);
   if (tama) appearanceRebuild(out, true);
   return shortcutPage === null ? out : H.apply(out, stubOff, shortcutPage);
 }

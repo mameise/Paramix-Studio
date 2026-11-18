@@ -10,6 +10,7 @@ function ok(c, m) { console.log((c ? 'ok   ' : 'WRONG ') + m); if (!c) bad++; }
 const trop = rd(process.argv[2]), land = rd(process.argv[3]);
 const blob = rd(__dirname + '/../six/six.bin');
 const emb = { feld: rd(__dirname + '/../feld/feld.bin'), stub: rd(__dirname + '/../feld/stub_feld_tpl.bin') };
+const u16 = (b, o) => b[o] | b[o + 1] << 8;
 
 ok(S.sixCan(trop), 'base ROM can get six fields');
 ok(S.sixSource(land), 'second ROM gives Land, Water, Sky');
@@ -57,6 +58,36 @@ ok(true, 'pictures decode');
 const m = F.feldApply(six, { fields: true, bag: true }, F.feldSlots(trop, emb.stub), emb, E);
 const f = F.feldFind(m, emb.stub);
 ok(F.fieldNames(m).join() === 'Tropical,Glacier,Forest,Land,Water,Sky', 'menu: ' + F.fieldNames(m).join(', '));
+ok((f.flags & 0x100) !== 0 && u32(m, f.stubOff + 0x300) === 0x36304b42 &&
+   u32(m, 0x166d4) !== u32(six, 0x166d4), 'native Tama File adds six-region navigation and lookups');
+ok(u32(m, f.stubOff + 0x304) === 2 && u32(m, 0x16b88) === 0x40f0f240,
+   'six-region selector allocates a scene-owned page arrow');
+{
+  const bare = F.feldApply(base, { fields: true, bag: true }, [], emb, E), stock = F.feldFind(bare, emb.stub);
+  ok((stock.flags & 0x100) === 0 && u32(bare, 0x166d4) === u32(base, 0x166d4), 'native Tama File remains stock without six-field data');
+  ok(u32(bare, 0x16b88) === u32(base, 0x16b88), 'three-region selector has no extra page arrow');
+  const invalid = new Uint8Array(six);
+  invalid[0xf00004] = 8;
+  ok(!S.sixBookApply(invalid, f.stubOff) && u32(invalid, 0x166d4) === u32(six, 0x166d4), 'invalid extra field assets cannot enable Tama File hooks');
+  const incomplete = new Uint8Array(six), data = C.arc2Parse(incomplete, C.ASSET_BASE).ents[0];
+  const sky = C.charTable(ctx.files[0]).find((c) => c.field === 3 && c.stage === 3);
+  const rows = [];
+  for (let i = C.ASSET_BASE + data.offset, end = i + data.ulen; i + 30 <= end; i += 2) {
+    if (u16(incomplete, i) === sky.id && u16(incomplete, i + 4) === sky.name - 1 &&
+        u16(incomplete, i + 6) === sky.stage && u16(incomplete, i + 14) === sky.field) rows.push(i);
+  }
+  ok(rows.length === 1, 'located Sky character in ROM data');
+  if (rows.length === 1) {
+    incomplete[rows[0] + 14] = 0;
+    new DataView(incomplete.buffer).setUint32(C.ASSET_BASE + 4,
+      C.arc2Checksum(incomplete, C.ASSET_BASE, u32(incomplete, C.ASSET_BASE + 8)), true);
+    ok(!!S.sixInfo(incomplete) && !S.sixBookApply(incomplete, f.stubOff) &&
+       u32(incomplete, 0x166d4) === u32(six, 0x166d4), 'SIX metadata alone cannot enable an incomplete extra field archive');
+  }
+  const stripped = F.feldStrip(m, emb, E);
+  ok(Buffer.compare(Buffer.from(stripped.subarray(0x11000, f.stubOff)), Buffer.from(six.subarray(0x11000, f.stubOff))) === 0,
+    'removing the menu restores native Tama File firmware bytes');
+}
 { const cfg = m.subarray(0, 0x111000); let fam = 0; for (let o = 0; o + 4 <= cfg.length; o += 4) if (cfg[o] === 0x05 && cfg[o + 1] === 0x0F && cfg[o + 3] === 0 && (cfg[o + 2] === 1 || cfg[o + 2] === 2)) fam++;
   ok(fam === 4, 'menu: fresh Land, Water, Sky and Forest get their game family (' + fam + ')'); }
 ok(f.nslots === 6 && f.version >= 4, 'six slots, ' + (f.slotSize >> 10) + ' KB each');
@@ -78,6 +109,7 @@ if (process.argv[4]) {
   ok(Buffer.compare(Buffer.from(j4.subarray(0x111000, 0xD49000)), Buffer.from(jade.subarray(0x111000, 0xD49000))) === 0, 'Jade: archive untouched');
   const jm = F.feldApply(j4, { fields: true, bag: true }, [], emb, E);
   ok(F.fieldNames(jm).join() === 'Land,Water,Forest,Sky', 'Jade menu: ' + F.fieldNames(jm).join(', '));
+  ok((F.feldFind(jm, emb.stub).flags & 0x100) === 0, 'Tropical/Glacier Tama File patch skips Jade Forest');
   ok(S.sixInfo(j4).fieldMenu, 'Jade: field menu flag');
   { const jt = (o) => { const h1 = j4[o] | j4[o + 1] << 8, h2 = j4[o + 2] | j4[o + 3] << 8; return h1 >> 11 === 0x1E && (h2 >> 14) >= 2; };
     ok(jt(0x11000 + 0x2262C) && jt(0x11000 + 0x3C470) && jt(0x11000 + 0x3C498) && jt(0x11000 + 0x3C2E0) && j4[0x11000 + 0x3C29E + 2] === 0x4F, 'Jade: game field menu hooked'); }

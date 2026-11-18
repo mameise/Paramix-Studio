@@ -72,7 +72,7 @@ static void sl_ui_draw(int full){
   if(!sl_ui_phase) return;
   u32 now=sl_now(); sl_ui_paint=now;
   if(full){
-    rect(0,0,128,128,BG); ctext(4,sl_ui_receiving?"RECEIVE SAVE":"SEND SAVE",GOLD,1);
+    rect(0,0,128,128,BG); menu_title(4,sl_ui_receiving?"RECEIVE SAVE":"SEND SAVE");
     ctext(20,sl_ui_phase<=SL_PREPARE?"PLEASE WAIT":sl_ui_phase==SL_WAIT?"CONNECT BOTH TAMAS":sl_ui_phase==SL_FINISH?"FINISHING LINK":"CONNECTED",GREY,1);
     ctext(118,sl_ui_phase>=SL_COMMIT?"DO NOT DISCONNECT":"C CANCEL",GREY,1);
 #ifdef HOST
@@ -339,7 +339,7 @@ offer:;
 }
 /* Return true only when reception created a new local slot. */
 static int save_link_menu(u32 slot,int receive){
-  rect(0,0,128,128,BG); ctext(14,receive?"RECEIVE SAVE":"SEND SAVE",WHITE,1);
+  rect(0,0,128,128,BG); menu_title(14,receive?"RECEIVE SAVE":"SEND SAVE");
   ctext(42,"CONNECT BOTH TAMAS",GREY,1); ctext(56,"AT THE TOP",GREY,1);
   ctext(82,"B START",WHITE,1); ctext(102,"C CANCEL",GREY,1); show();
   if(!yes_no()) return 0;

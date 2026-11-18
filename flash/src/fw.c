@@ -285,6 +285,20 @@ static u32 cobs_encode(const u8* s, u32 n, u8* o){
 #include "reset_hint.h"
 #include "disp_power.h"
 #define PANEL 0x4000E000u
+#define SCR_W 128u
+#define SCR_H 128u
+#define STATUS_Y 50u
+#define BAR_X0 16u
+#define BAR_X1 112u
+#define BAR_Y0 80u
+#define BAR_Y1 88u
+#define RGB(r,g,b) ((u16)((((r)>>3)<<11)|(((g)>>2)<<5)|((b)>>3)))
+#define UI_BG RGB(16,16,40)
+#define UI_GREY RGB(140,140,160)
+#define UI_WHITE RGB(255,255,255)
+#define UI_GOLD RGB(255,200,60)
+#define UI_ORANGE RGB(255,170,40)
+#define UI_GREEN RGB(120,220,120)
 static u16* const fb = (u16*)0x18008000u;   /* 128x128 framebuffer in SRAM */
 static u32* const g_wrcnt=(u32*)0x1801A804u; /* sectors counted while writing (display) */
 
@@ -417,22 +431,32 @@ static void push_fb(void){
   }
   LCD_DC(0);
 }
+static void paint_mask(u32 y,const u8 *mask,u32 rows,u16 color){
+  for(u32 i=0;i<rows*SCR_W;i++)
+    fb[y*SCR_W+i]=(mask[i>>3]&(0x80u>>(i&7u)))?color:UI_BG;
+}
 static void paint_reset_hint(u32 mode){
-  u16 color=mode==0u?0x7BEFu:mode==1u?0x7EF1u:0xF5ABu;
-  for(u32 y=0;y<7u;y++) for(u32 x=0;x<128u;x++)
-    fb[(111u+y)*SCR_W+x]=(reset_hint_bits[mode][y*16u+(x>>3)]&(0x80u>>(x&7u)))?color:0x0883u;
+  paint_mask(111,reset_hint_bits[mode],7,mode==2u?UI_ORANGE:UI_GREY);
   g_reset->ui=mode;
 }
-static void paint_status(const u8 *status){
-  u16 fg=status[0]|(u16)status[1]<<8;
-  for(u32 i=0;i<2048u;i++) fb[STATUS_Y*SCR_W+i]=(status[2u+(i>>3)]&(0x80u>>(i&7u)))?fg:0x0883u;
+static void paint_progress(const u8 *status,u32 num,u32 den){
+  u16 color=status==st_done?UI_GREEN:status==st_writing?UI_ORANGE:UI_WHITE;
+  paint_mask(STATUS_Y,status,14,color);
+  u32 fillx=BAR_X0+((BAR_X1-BAR_X0)*num)/(den?den:1);
+  if(fillx>BAR_X1) fillx=BAR_X1;
+  for(u32 y=BAR_Y0-1;y<=BAR_Y1;y++){
+    for(u32 x=BAR_X0-1;x<=BAR_X1;x++){
+      int border=y==BAR_Y0-1 || y==BAR_Y1 || x==BAR_X0-1 || x==BAR_X1;
+      fb[y*SCR_W+x]=border?UI_GREY:x<fillx?UI_GOLD:UI_BG;
+    }
+  }
 }
 static void draw(const u8* status, u32 num, u32 den){
 #if ANZEIGE
-  for(u32 i=0;i<SCR_W*SCR_H;i++) fb[i]=static_bg[i];
-  paint_status(status);
-  u32 fillx = BAR_X0 + ((BAR_X1-BAR_X0)*num)/(den?den:1);
-  for(u32 y=BAR_Y0;y<BAR_Y1;y++) for(u32 x=BAR_X0;x<fillx;x++) fb[y*SCR_W+x]=ACC565;
+  for(u32 i=0;i<SCR_W*SCR_H;i++) fb[i]=UI_BG;
+  paint_mask(1,title_paramix,7,UI_GREY);
+  paint_mask(19,title_flash_tool,14,UI_ORANGE);
+  paint_progress(status,num,den);
   paint_reset_hint(rp_hint(g_reset));
   push_fb();
 #else
@@ -459,11 +483,8 @@ static void push_rows(u32 y0, u32 y1){
 }
 /* Redraw the status line and bar and push only that strip. */
 static void draw_live(const u8* status, u32 num, u32 den){
-  for(u32 y=STATUS_Y;y<BAR_Y1;y++) for(u32 x=0;x<SCR_W;x++) fb[y*SCR_W+x]=static_bg[y*SCR_W+x];
-  paint_status(status);
-  u32 fillx = BAR_X0 + ((BAR_X1-BAR_X0)*num)/(den?den:1);
-  for(u32 y=BAR_Y0;y<BAR_Y1;y++) for(u32 x=BAR_X0;x<fillx;x++) fb[y*SCR_W+x]=ACC565;
-  push_rows(STATUS_Y, BAR_Y1);
+  paint_progress(status,num,den);
+  push_rows(STATUS_Y,BAR_Y1+1);
 }
 #endif
 

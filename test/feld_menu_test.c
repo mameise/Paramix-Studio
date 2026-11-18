@@ -113,11 +113,17 @@ static void flash_fixture(void){
   host_flash_tool_src=0;
 }
 static void root_pause(const char *seq){ keys(seq); int jump=setjmp(g_jb); if(!jump) main_menu(); assert(jump==2 && !g_seq[g_pos]); }
+static void assert_large_title(u32 y,const char *name,u16 color){
+  u16 title[14u*128u]; memcpy(title,g_fb+y*128u,sizeof title);
+  rect(0,(int)y,128,(int)y+14,BG); ctext((int)y,name,color,2);
+  assert(!memcmp(title,g_fb+y*128u,sizeof title));
+}
 static void flash_tool_tests(void){
   flash_fixture(); assert(flash_tool_header() && flash_tool_stub() && flash_tool_valid());
   u8 rescue[0x10000],live[PAGE]; memcpy(rescue,host_flash+FT_BASE,sizeof rescue); memcpy(live,host_flash+SET_A,PAGE);
   u32 leaves=host_leave_count;
   keys("c"); flash_tool_menu(); assert(!host_flash_tool_src && host_leave_count==leaves && !g_seq[g_pos]);
+  assert_large_title(12,"FLASH TOOL",ORANGE);
   keys("b"); int jump=setjmp(g_jb); if(!jump) flash_tool_menu();
   assert(jump==1 && host_flash_tool_src==0x10FDF000u && host_leave_count==leaves && !g_seq[g_pos]);
   assert(!memcmp(rescue,host_flash+FT_BASE,sizeof rescue) && !memcmp(live,host_flash+SET_A,PAGE));
@@ -136,19 +142,24 @@ static void flash_tool_tests(void){
   u16 title[7u*128u]; memcpy(title,g_fb+128u,sizeof title);
   rect(0,1,128,8,BG); ctext(1,"PARAMIX",GREY,1);
   assert(!memcmp(title,g_fb+128u,sizeof title)); /* no version in the title */
-  root_pause("p"); assert(g_fb[12u*128u+3u]==GREY && g_fb[39u*128u+3u]==BG);
+  root_pause("p"); assert(g_fb[12u*128u+3u]==ABOUT_COLOR && g_fb[39u*128u+3u]==BG);
+  u16 subtitle[7u*128u]; memcpy(subtitle,g_fb+29u*128u,sizeof subtitle);
+  rect(0,29,128,36,BG); text(9,29,PARAMIX_VERSION,GREY,1);
+  for(u32 y=0;y<7u;y++) assert(!memcmp(subtitle+y*128u+8u,g_fb+(29u+y)*128u+8u,112u*sizeof(u16)));
   root_pause("pn"); assert(g_fb[39u*128u+3u]==fcol((u32)g_cur)); /* SAVES below wrapped ABOUT */
-  root_pause("nnnn"); assert(g_fb[93u*128u+3u]==ORANGE); /* one-row shift to FLASH */
-  root_pause("nnnnn"); assert(g_fb[93u*128u+3u]==GREY);
-  root_pause("nnnnnn"); assert(g_fb[93u*128u+3u]==fcol((u32)g_cur)); /* wrap while retaining viewport */
+  root_pause("nnn"); assert(g_fb[93u*128u+3u]==RGB(120,220,120)); /* TAMA */
+  root_pause("nnnn"); assert(g_fb[93u*128u+3u]==RGB(192,160,255)); /* lilac PROGRESS follows TAMA */
+  root_pause("nnnnn"); assert(g_fb[93u*128u+3u]==ORANGE); /* one-row shift to FLASH */
+  root_pause("nnnnnn"); assert(g_fb[93u*128u+3u]==ABOUT_COLOR);
+  root_pause("nnnnnnn"); assert(g_fb[93u*128u+3u]==fcol((u32)g_cur)); /* wrap while retaining viewport */
   flash_fixture(); g_cfg.flags=F_BAG; root_pause(""); assert(g_fb[12u*128u+3u]==PINK);
   root_pause("nn"); assert(g_fb[66u*128u+3u]==ORANGE); /* four items fit without scrolling */
-  /* All seven categories: preserve PROGRAM default, scroll through FLASH and
+  /* All eight categories: preserve PROGRAM default, scroll through FLASH and
    * back around to SAVES, then launch from the actual root action. */
   flash_fixture(); g_napp=1; g_appsrc[0]=0; strcpy(g_appnm[0],"TEST APP");
   root_pause(""); assert(g_fb[93u*128u+3u]==ORANGE);
   root_pause("n"); assert(g_fb[93u*128u+3u]==ORANGE && g_fb[103u*128u+126u]==BG);
-  root_pause("nn"); assert(g_fb[93u*128u+3u]==GREY);
+  root_pause("nn"); assert(g_fb[93u*128u+3u]==ABOUT_COLOR);
   root_pause("nnn"); assert(g_fb[93u*128u+3u]==fcol((u32)g_cur));
   root_pause("nnp"); assert(g_fb[66u*128u+3u]==ORANGE);
   keys("nnpbb"); jump=setjmp(g_jb); if(!jump) main_menu();
@@ -157,11 +168,12 @@ static void flash_tool_tests(void){
   /* About opens from the root, shows the version, and B/C return without exit. */
   flash_fixture(); leaves=host_leave_count;
   keys("c"); about_menu(); assert(host_leave_count==leaves && !g_seq[g_pos]);
+  assert_large_title(10,"ABOUT",ABOUT_COLOR);
   u32 version_pixels=0; for(u32 y=74;y<81;y++) for(u32 x=0;x<128;x++) if(g_fb[y*128u+x]==GOLD) version_pixels++;
   assert(version_pixels>20u);
   keys("b"); about_menu(); assert(host_leave_count==leaves && !g_seq[g_pos]);
-  root_pause("pbc"); assert(g_fb[12u*128u+3u]==GREY);
-  root_pause("pbb"); assert(g_fb[12u*128u+3u]==GREY);
+  root_pause("pbc"); assert(g_fb[12u*128u+3u]==ABOUT_COLOR);
+  root_pause("pbb"); assert(g_fb[12u*128u+3u]==ABOUT_COLOR);
   assert(!memcmp(rescue,host_flash+FT_BASE,sizeof rescue));
 }
 int main(int argc,char **argv){

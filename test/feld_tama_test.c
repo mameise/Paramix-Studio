@@ -124,10 +124,10 @@ static void ui(void){
   keys("bbnbbb"); appearance_edit(); saved(); assert(t_color()==0); /* max wraps to min */
   keys("bbpbbb"); appearance_edit(); saved(); assert(t_color()==16); /* min wraps to max */
   /* Long character names stay in the 24-byte name buffer, never right[8]. */
-  char name[24]; tama_value(2,name); assert(!strcmp(name,"LONG TAMA NAME!!"));
+  char name[24]; tama_value(1,name); assert(!strcmp(name,"LONG TAMA NAME!!"));
   assert(!strcmp(tama_rows[0],"CARE"));
-  tama_value(3,name); assert(!strcmp(name,"125"));
-  assert(!strcmp(tama_rows[2],"APPEARANCE") && !strcmp(tama_rows[4],"PREVIEW"));
+  tama_value(2,name); assert(!strcmp(name,"125"));
+  assert(!strcmp(tama_rows[1],"APPEARANCE") && !strcmp(tama_rows[3],"PREVIEW"));
   keys("...c"); tama_menu(); assert(!g_seq[g_pos]);
   keys("...p...b...c...c"); tama_menu(); assert(!g_seq[g_pos]); /* current preview, back, back */
   keys("...c"); care_menu(); assert(!g_seq[g_pos]);
@@ -144,8 +144,14 @@ static void ui(void){
 }
 static void real_appearance(const char *file,u32 cfg){
   FILE *f=fopen(file,"rb"); assert(f && fread(host_flash,1,0x1000000,f)==0x1000000); fclose(f);
-  memset((void*)&g_cfg,0,sizeof g_cfg); memcpy((void*)&g_cfg,host_flash+cfg,608);
+  memcpy((void*)&g_cfg,host_flash+cfg,sizeof g_cfg);
   assert(!set_load() && t_alive() && g_cfg.tama_off==0x114u && t_stage()==5);
+  for(u32 field=0;field<3u;field++){
+    u32 row=0xAED4Cu+8u*field, table=rd32(row)-0x10000000u+XIP_DEC;
+    progress_chars(field);
+    assert(g_chrn==BOOK_FILE_COUNT && g_chrn==rd32(row+4u));
+    for(u32 i=0;i<g_chrn;i++) assert(rd16(g_cfg.cat_off+8u+28u*g_chr[i])==rd16(table+2u*i));
+  }
   u32 record=t_active_record();
   assert(record==0xDCE000u);
   u8 *before=malloc(0x1000000); assert(before); memcpy(before,host_flash,0x1000000);
@@ -159,11 +165,67 @@ static void real_appearance(const char *file,u32 cfg){
   assert(!memcmp(before+SET_B+PAGE,host_flash+SET_B+PAGE,0x1000000-SET_B-PAGE));
   free(before); puts("PASS: re-saving the appearance queues a rebuild only for the active Tama");
 }
+static void progress_unlocks(void){
+  pet_fixture(0x114u); g_cfg.nfields=6;
+  g_cfg.cat_n=6u*BOOK_FILE_COUNT;
+  for(u32 i=0;i<g_cfg.cat_n;i++){
+    u32 a=g_cfg.cat_off+8u+28u*i, id=4001u+i;
+    host_flash[a]=(u8)id; host_flash[a+1]=(u8)(id>>8);
+    host_flash[a+2]=2; host_flash[a+3]=4; host_flash[a+6]=5;
+    host_flash[a+7]=(u8)(1u+i/BOOK_FILE_COUNT);
+    memcpy(host_flash+a+8,"TAMA",4);
+  }
+  u8 before[PAGE]; memcpy(before,g_set,PAGE);
+  assert(progress_fields()==3u && progress_apply(0,3,0)==66u);
+  keys("nbbbbccc"); progress_menu();
+  assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
+  keys("nbbbbbbcc"); progress_menu(); saved();
+  assert(!g_seq[g_pos] && sl_r32(g_set+0x94u)==1u && progress_apply(0,3,0)==65u);
+  keys("nbnbnbbbcc"); progress_menu(); saved();
+  assert(!g_seq[g_pos] && sl_r32(g_set+0x98u)==0x3FFFFFu);
+  keys("nbpbbbcc"); progress_menu(); saved();
+  assert(!g_seq[g_pos] && progress_apply(0,3,0)==0 && !sl_r32(g_set+BOOK_EXTRA_OFF));
+  g_cfg.flags|=F_BOOK6;
+  assert(progress_fields()==6u && progress_apply(0,6,0)==66u);
+  keys("nbpbbbcc"); progress_menu(); saved();
+  assert(!g_seq[g_pos] && progress_apply(0,6,0)==0);
+  for(u32 i=0;i<3;i++){
+    sl_w32(before+0x94u+4u*i,0x3FFFFFu);
+    sl_w32(before+BOOK_EXTRA_OFF+4u*i,0x3FFFFFu);
+  }
+  stamp(before);
+  assert(!memcmp(before,host_flash+SET_A,PAGE));
+  g_cfg.tama_off=0x104u; assert(progress_flag(2,0,4068)==0x88u*8u+68u);
+  g_cfg.tama_off=0x108u; assert(progress_flag(2,21,4090)==0x90u*8u+21u);
+}
+static void progress_level(void){
+  pet_fixture(0x114u);
+  g_cfg.cat_n=0; /* Level is available even without the Tama File catalog. */
+  u8 before[PAGE]; memcpy(before,g_set,PAGE);
+  keys("bncc"); progress_menu();
+  assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
+  keys("bnbbc"); progress_menu(); saved();
+  assert(!g_seq[g_pos] && lv_get()==1u);
+  before[g_cfg.level_off]=1u; stamp(before);
+  assert(!memcmp(before,host_flash+SET_A,PAGE));
+}
+static void progress_colors(void){
+  char name[24], right[8]; u16 color;
+  progress_root_row(0,name,right,&color); assert(color==GOLD);
+  progress_root_row(1,name,right,&color); assert(color==WHITE);
+  progress_action_row(0,name,right,&color); assert(color==WHITE);
+  progress_action_row(1,name,right,&color); assert(color==RGB(104,224,211));
+  progress_action_row(2,name,right,&color); assert(color==ORANGE);
+  list_draw("PROGRESS",2,0,0,progress_root_row,"B SELECT  C BACK");
+  u16 title[7u*128u]; memcpy(title,g_fb+2u*128u,sizeof title);
+  rect(0,2,128,9,BG); ctext(2,"PROGRESS",GREY,1);
+  assert(!memcmp(title,g_fb+2u*128u,sizeof title));
+}
 int main(int argc,char **argv){
   assert(argc==2 || argc==4); g_dir=argv[1]; host_flash=malloc(0x1000000); assert(host_flash);
   fields(0x104); fields(0x108); fields(0x114);
   body_stages(0x104); body_stages(0x108); body_stages(0x114);
-  appearance_cancel(0x104); appearance_cancel(0x108); appearance_cancel(0x114); appearance_hints(); ui();
+  appearance_cancel(0x104); appearance_cancel(0x108); appearance_cancel(0x114); appearance_hints(); ui(); progress_level(); progress_colors(); progress_unlocks();
   if(argc==4) real_appearance(argv[2],(u32)strtoul(argv[3],0,0));
   free(host_flash);
   puts("Tama editing: layouts, visuals, care, cancel and UI passed"); return 0;
