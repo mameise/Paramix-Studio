@@ -95,9 +95,9 @@ typedef struct {
   u32 main_src, vflags;
   /* from version 10 (1.7.2 FELD_CLEAN): a ROM without the Paradise (flag F_CLEAN): the menu's own clock sector
    * ("PMXK": time base, seconds counter at that time, display time, check), 0 = none */
-#ifdef FELD_CLEAN
-  u32 clock_sec;
-#endif
+  u32 clock_sec;                    /* zero for ordinary Paradise menus */
+  /* Version 11: extra immutable shared-pool pages reserved after SIXB assets. */
+  u32 pool_extra_off, pool_extra_pages;
 } Cfg;
 
 #ifdef HOST
@@ -108,15 +108,9 @@ typedef struct {
 #ifndef HOST
 __attribute__((section(".pmxcfg"), used))
 #endif
-#ifdef FELD_CLEAN
-#define CFG_SIZE_OK (sizeof(Cfg)==612 && offsetof(Cfg,clock_sec)==608)
-#define CFG_VER 10
-#define CFG_TAIL , 0
-#else
-#define CFG_SIZE_OK (sizeof(Cfg)==608)
-#define CFG_VER 9
-#define CFG_TAIL
-#endif
+#define CFG_SIZE_OK (sizeof(Cfg)==620 && offsetof(Cfg,clock_sec)==608 && offsetof(Cfg,pool_extra_off)==612 && offsetof(Cfg,pool_extra_pages)==616)
+#define CFG_VER 11
+#define CFG_TAIL , 0, 0, 0
 volatile CFG_QUAL Cfg g_cfg = { FELD_MAGIC, CFG_VER, 0x830000u, 0x58000u, 3, 0xD4A000u, 0x1000000u, 0xD49000u, 0xB0000u,
   F_FIELDS|F_BAG, 0x70169E2Cu, 1, 4, 3, {1,2,3,0}, {"LAND","WATER","SKY",""},
   {0x5647u, 0x2BDFu, 0x7E9Fu, 0xFD45u},
@@ -359,8 +353,15 @@ static u32 slot_base(u32 i){
   if(g_cfg.slot_off2 && g_cfg.slot_n1 && i>=g_cfg.slot_n1) return g_cfg.slot_off2 + (i-g_cfg.slot_n1)*g_cfg.slot_size;
   return g_cfg.slot_off + i*g_cfg.slot_size; }
 static u32 spp(void){ return g_cfg.slot_size/PAGE - 1u; }            /* pool pages per slot */
-static u32 pool_n(void){ return g_cfg.nslots*spp(); }
-static u32 pool_addr(u32 k){ return slot_base(k/spp()) + (k%spp()+1u)*PAGE; }
+static u32 pool_extra(void){
+  u32 a=g_cfg.pool_extra_off,n=g_cfg.pool_extra_pages;
+  return g_cfg.version>=11u && a>=0xF00000u && !(a&(PAGE-1u)) && a<0xFF0000u && n<=(0xFF0000u-a)/PAGE?n:0u;
+}
+static u32 pool_n(void){ return g_cfg.nslots*spp()+pool_extra(); }
+static u32 pool_addr(u32 k){
+  u32 base=g_cfg.nslots*spp();
+  return k>=base?g_cfg.pool_extra_off+(k-base)*PAGE:slot_base(k/spp())+(k%spp()+1u)*PAGE;
+}
 static int slot_pool(u32 b){ return rd32(b+20)==POOL_MAGIC; }
 static int slot_valid(u32 i){
   u32 b=slot_base(i);
@@ -403,6 +404,49 @@ static u32 pool_take(u32 fi){
   }
   return 0xFFFFu;
 }
+/* Share only byte-identical complete packed pages. Referenced pages are
+ * immutable: a changed page always receives an unreferenced allocation. */
+static u32 pool_find(const u8 *data){
+  u32 n=pool_n(); if(n>sizeof(g_used)*8u) return 0xFFFFu;
+  for(u32 x=0;x<n;x++) if((g_used[x>>3]&(1u<<(x&7u))) && flash_same(pool_addr(x),data,PAGE)) return x;
+  return 0xFFFFu;
+}
+static u32 pool_store(u32 fi,const u8 *data){
+  u32 x=pool_find(data); if(x!=0xFFFFu) return x;
+  x=pool_take(fi); if(x!=0xFFFFu) flash_prog4k(pool_addr(x),data);
+  return x;
+}
+/* Existing menus stored duplicate physical pages. Redirect pooled headers to
+ * the lowest identical referenced page, preserving every other header byte.
+ * Data is never moved or overwritten; a page becomes free only after all of
+ * its references have been removed. Legacy contiguous slots remain untouched. */
+static int pool_compact(void){
+  if(pool_n()>sizeof(g_used)*8u) return 0;
+  pool_mark(g_cfg.nslots);
+  for(u32 j=0;j<g_cfg.nslots;j++){
+    u32 b=slot_base(j); if(!slot_valid(j) || !slot_pool(b)) continue;
+    flash_read(b,g_out,PAGE); u32 changed=0, nd=rd32(b+24);
+    for(u32 k=0;k<nd;k++){
+      u32 pos=offsetof(SlotHdr,dpg)+2u*k, x=(u32)g_out[pos]|((u32)g_out[pos+1u]<<8);
+      for(u32 y=0;y<x;y++) if((g_used[y>>3]&(1u<<(y&7u))) && flash_same(pool_addr(y),(const u8*)fl(pool_addr(x)),PAGE)){
+        g_out[pos]=(u8)y; g_out[pos+1u]=(u8)(y>>8); changed=1; break;
+      }
+    }
+    if(changed){ flash_prog4k(b,g_out); if(!flash_same(b,g_out,PAGE) || !slot_valid(j)) return 0; }
+  }
+  return 1;
+}
+static u32 pool_available(void){
+  u32 n=pool_n(), free=0; if(n>sizeof(g_used)*8u) return 0;
+  for(u32 x=0;x<n;x++) if(!(g_used[x>>3]&(1u<<(x&7u)))) free++;
+  return free;
+}
+/* Count new chunks against the currently referenced pages. Repetition among
+ * as-yet-unwritten chunks is conservatively counted separately. */
+static u32 pool_need_chunk(u32 on){
+  for(u32 k=on;k<PAGE;k++) g_out[k]=0xFF;
+  return pool_find(g_out)==0xFFFFu;
+}
 static void write_id(u32 id){
   u32 *w=(u32*)g_out;
   for(u32 i=0;i<PAGE/4;i++) w[i]=0xFFFFFFFFu;
@@ -423,37 +467,42 @@ static void factory_page(u32 i, u8 *p){
 /* Reserve enough pool space before invalidating an old header. extra is used
  * by copy-and-switch to reserve both the copy and the current live backup. */
 static int stash_capacity(u32 fi,u32 extra){
-  u32 bytes=0,np=0;
+  if(!pool_compact()) return 0;
+  pool_mark(fi); u32 free=pool_available(), np=0, on=0, need=extra, pages=0;
+  if(need>free) return 0;
   for(u32 a=g_cfg.user_start;a<g_cfg.user_end;a+=PAGE) if(!page_ff(a)){
     if(++np>NPAGE_MAX) return 0;
-    flash_read(a,g_page,PAGE); bytes+=lz_pack(g_page,g_cmp);
+    flash_read(a,g_page,PAGE); u32 n=lz_pack(g_page,g_cmp);
+    for(u32 k=0;k<n;k++){
+      g_out[on++]=g_cmp[k];
+      if(on==PAGE){ if(++pages>DPG_MAX) return 0; need+=pool_need_chunk(on); on=0; if(need>free) return 0; }
+    }
   }
-  pool_mark(fi); u32 free=0,n=pool_n(); if(n>sizeof(g_used)*8u) return 0;
-  for(u32 i=0;i<n;i++) if(!(g_used[i>>3]&(1u<<(i&7u)))) free++;
-  return (bytes+PAGE-1u)/PAGE+extra<=free;
+  if(on){ if(++pages>DPG_MAX) return 0; need+=pool_need_chunk(on); }
+  return need<=free;
 }
-static int stash(u32 fi){
-  u32 b=slot_base(fi), cap=g_cfg.slot_size-PAGE;
+static int stash_reserved(u32 fi){
+  u32 b=slot_base(fi);
   u32 tot=0; for(u32 a=g_cfg.user_start;a<g_cfg.user_end;a+=PAGE) if(!page_ff(a)) tot++;
   if(tot>NPAGE_MAX) return 10;
   erase_page(b);                            /* invalidate the header first */
   for(u32 i=0;i<sizeof(g_hdr)/4;i++) ((u32*)&g_hdr)[i]=0xFFFFFFFFu;
   pool_mark(fi);
   u32 np=0, by=0, sum=0, on=0, nd=0, done=0;
-  (void)cap;
   for(u32 a=g_cfg.user_start;a<g_cfg.user_end;a+=PAGE){
     if(page_ff(a)) continue;
     flash_read(a, g_page, PAGE);
     u32 n=lz_pack(g_page, g_cmp);
     g_hdr.e[np].page=(u16)(a>>12); g_hdr.e[np].clen=(u16)n; np++;
     for(u32 k=0;k<n;k++){ g_out[on++]=g_cmp[k]; sum+=g_cmp[k];
-      if(on==PAGE){ u32 x=pool_take(fi); if(x==0xFFFFu || nd>=DPG_MAX) return 11;
-        flash_prog4k(pool_addr(x),g_out); g_hdr.dpg[nd++]=(u16)x; on=0; } }
+      if(on==PAGE){ if(nd>=DPG_MAX) return 11; u32 x=pool_store(fi,g_out); if(x==0xFFFFu) return 11;
+        g_hdr.dpg[nd++]=(u16)x; on=0; } }
     by+=n;
     progress("SAVING", ++done, tot*2u);
   }
-  if(on){ u32 x=pool_take(fi); if(x==0xFFFFu || nd>=DPG_MAX) return 11;
-    for(u32 k=on;k<PAGE;k++) g_out[k]=0xFF; flash_prog4k(pool_addr(x),g_out); g_hdr.dpg[nd++]=(u16)x; }
+  if(on){ if(nd>=DPG_MAX) return 11;
+    for(u32 k=on;k<PAGE;k++) g_out[k]=0xFF;
+    u32 x=pool_store(fi,g_out); if(x==0xFFFFu) return 11; g_hdr.dpg[nd++]=(u16)x; }
   /* check against the pages just written (the header is not there yet) */
   u32 off=0;
   for(u32 i=0;i<np;i++){
@@ -471,6 +520,10 @@ static int stash(u32 fi){
   if(!slot_valid(fi)) return 14;
   return 0;
 }
+
+#ifdef HOST
+static int stash(u32 fi){ return stash_capacity(fi,0)?stash_reserved(fi):11; }
+#endif
 
 /* A received save uses the sender's seconds-counter origin. Rebase only its
  * clock base when loading/copying, never the receiver's hardware counter or
@@ -754,9 +807,9 @@ static void act_mark(u32 j){
 }
 /* Live save to slot g_act, then slot tgt (has) or a fresh start on field fld into the live area. */
 static void field_switch2(u32 tgt, int has, u32 fld){
-  if(!stash_capacity((u32)g_act,0)){ message("NOT ENOUGH ROOM","CURRENT SAVE KEPT",""); return; }
   rect(0,0,128,128,BG); ctext(8,"PLEASE WAIT",WHITE,1); ctext(20,"DO NOT SWITCH OFF",GREY,1); show();
-  int e=stash((u32)g_act);
+  if(!stash_capacity((u32)g_act,0)){ message("NOT ENOUGH ROOM","CURRENT SAVE KEPT",""); return; }
+  int e=stash_reserved((u32)g_act);
   if(e){ erase_page(slot_base((u32)g_act)); error_screen(e); }
   e=restore(has ? tgt : fld,!has);
   if(e) error_screen(e);
@@ -1691,7 +1744,7 @@ static void appearance_edit(void){
     u32 stage=found<0?0u:fl(g_cfg.cat_off+8u+28u*(u32)found+6u)[0];
     if(body==t_id() && eyes==t_word(6) && color==t_color() && stage==t_stage()) return;
     if(found<0 || !t_visual(body,eyes,color,stage)){
-      message("TAMA FILE MISSING","OR AMBIGUOUS","NOTHING CHANGED"); return;
+      message("APPEARANCE INVALID","CHECK ROM CATALOG","NOTHING CHANGED"); return;
     }
     set_write("APPEARANCE SAVED"); return;
   }

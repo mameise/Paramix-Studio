@@ -251,6 +251,9 @@ function feldAt(rom, stubOff, ph) {
   const f = { off, stubOff, version, slotOff: u32(rom, c + 8), slotSize: u32(rom, c + 12), nslots: u32(rom, c + 16), flags: F_FIELDS, catOff: 0, catN: 0 };
   if (version >= 2) { f.flags = u32(rom, c + 36); f.catOff = u32(rom, c + 272); f.catN = u32(rom, c + 276); }
   f.slotOff2 = version >= 4 ? u32(rom, c + 364) : 0; f.slotN1 = version >= 4 ? u32(rom, c + 368) : 0;
+  f.poolExtraOff = version >= 11 ? u32(rom, c + 612) : 0;
+  f.poolExtraPages = version >= 11 ? u32(rom, c + 616) : 0;
+  if ((f.poolExtraOff || f.poolExtraPages) && (!poolExtraValid(f) || c + 620 > rom.length)) return null;
   return f;
 }
 /** Flash address of slot i (from menu version 4 the slots can lie in two regions). */
@@ -291,13 +294,26 @@ function feldApps(rom, tpl) {
 const POOL_MAGIC = 0x4C4F4F50, DPG_OFF = 2032, DPG_MAX = 1024;
 const SLOT_TIME_MAGIC = 0x43544D50, SLOT_TIME_OFF = 4080;
 function poolPages(f) { return f.slotSize / 0x1000 - 1; }
-function poolAddr(f, k) { const n = poolPages(f); return slotAddr(f, Math.floor(k / n)) + (k % n + 1) * 0x1000; }
+function poolExtraValid(f) {
+  const a=f.poolExtraOff||0, n=f.poolExtraPages||0;
+  return Number.isInteger(a) && Number.isInteger(n) && a>=0xF00000 && a<0xFF0000 && a%0x1000===0 && n>0 && n<=Math.floor((0xFF0000-a)/0x1000);
+}
+function poolCount(f) { return f.nslots * poolPages(f) + (poolExtraValid(f) ? f.poolExtraPages : 0); }
+function poolAddr(f, k) {
+  const n = poolPages(f), base=f.nslots*n;
+  return k>=base && poolExtraValid(f) ? f.poolExtraOff+(k-base)*0x1000 : slotAddr(f, Math.floor(k/n))+(k%n+1)*0x1000;
+}
+function slotRanges(f) {
+  const ranges=Array.from({length:f.nslots},(_,i)=>[slotAddr(f,i),slotAddr(f,i)+f.slotSize]);
+  if(poolExtraValid(f)) ranges.push([f.poolExtraOff,f.poolExtraOff+f.poolExtraPages*0x1000]);
+  return ranges;
+}
 /** Read slot i with read(addr, len) (sync, or async with slotReadAsync). { head, field, bytes, stream } or null. */
 function slotParse(f, i, head) {
   if (u32(head, 0) !== SLOT_MAGIC) return null;
   const field = u32(head, 4), bytes = u32(head, 12);
   if (field < 1 || field > 6 || u32(head, 8) > 500) return null;
-  const pool = u32(head, 20) === POOL_MAGIC, nd = pool ? u32(head, 24) : 0, np = f.nslots * poolPages(f), list = [];
+  const pool = u32(head, 20) === POOL_MAGIC, nd = pool ? u32(head, 24) : 0, np = poolCount(f), list = [];
   if (pool) {
     if (nd > DPG_MAX || bytes > nd * 0x1000) return null;
     for (let k = 0; k < nd; k++) { const x = head[DPG_OFF + 2 * k] | (head[DPG_OFF + 2 * k + 1] << 8); if (x >= np) return null; list.push(poolAddr(f, x)); }
@@ -326,9 +342,27 @@ async function slotReadAsync(read, f, i) {
  * by fields already placed. Returns the written addresses; throws if the pool is full.
  */
 function slotPlace(out, f, i, s, used) {
-  const n = f.nslots * poolPages(f), nd = Math.ceil(s.bytes / 0x1000), pages = [], own = i * poolPages(f);
-  for (let r = 0; r < n && pages.length < nd; r++) { const x = (own + r) % n; if (!used.has(x)) { used.add(x); pages.push(x); } }
-  if (pages.length < nd || nd > DPG_MAX) throw new Error('the stored saves do not fit into the room for the fields');
+  const n = poolCount(f), nd = Math.ceil(s.bytes / 0x1000), pages = [], own = i * poolPages(f);
+  if (nd > DPG_MAX) throw new Error('the stored saves do not fit into the room for the fields');
+  // Plan before writing. Only identical complete pages may share an allocation;
+  // used pages are immutable, including pages referenced by another save.
+  const pending = new Map(), added = new Set();
+  for (let k = 0; k < nd; k++) {
+    const pg = new Uint8Array(0x1000).fill(0xFF);
+    pg.set(s.stream.subarray(k * 0x1000, Math.min(s.bytes, (k + 1) * 0x1000)));
+    let found = -1;
+    for (const x of [...used, ...added]) {
+      const data = pending.get(x) || out.subarray(poolAddr(f, x), poolAddr(f, x) + 0x1000);
+      let same = true; for (let q = 0; q < 0x1000; q++) if (data[q] !== pg[q]) { same = false; break; }
+      if (same) { found = x; break; }
+    }
+    if (found < 0) {
+      for (let r = 0; r < n; r++) { const x = (own + r) % n; if (!used.has(x) && !added.has(x)) { found = x; break; } }
+      if (found < 0) throw new Error('the stored saves do not fit into the room for the fields');
+      added.add(found); pending.set(found, pg);
+    }
+    pages.push(found);
+  }
   const h = new Uint8Array(0x1000).fill(0xFF);
   h.set(s.head.subarray(0, DPG_OFF));
   // Imported UART saves carry clock origins outside the pool-page table.
@@ -336,9 +370,8 @@ function slotPlace(out, f, i, s, used) {
   w32(h, 4, i + 1); w32(h, 20, POOL_MAGIC); w32(h, 24, nd); w32(h, 28, 0);
   pages.forEach((x, k) => { h[DPG_OFF + 2 * k] = x & 255; h[DPG_OFF + 2 * k + 1] = x >> 8; });
   const b = slotAddr(f, i), written = [b];
+  for (const [x, pg] of pending) { const a = poolAddr(f, x); out.set(pg, a); used.add(x); written.push(a); }
   out.set(h, b);
-  pages.forEach((x, k) => { const a = poolAddr(f, x), pg = new Uint8Array(0x1000).fill(0xFF);
-    pg.set(s.stream.subarray(k * 0x1000, Math.min(s.bytes, (k + 1) * 0x1000))); out.set(pg, a); written.push(a); });
   return written;
 }
 
@@ -765,6 +798,7 @@ function feldStrip(rom, emb, E) {
       out.fill(0xFF, from, f.slotOff + f.nslots * f.slotSize);
     }
   }
+  if(poolExtraValid(f)) out.fill(0xFF,f.poolExtraOff,f.poolExtraOff+f.poolExtraPages*0x1000);
   // the flash app of the start device (version 7)
   if (f.version >= 7) { const d = u32(out, f.off + 0x140 + 500); if (d >= 0x10000000 && d < 0x11000000) { const o = d - 0x10000000 + XIP_DEC; if (o >= 0x111000 && o + 0x10000 <= out.length) out.fill(0xFF, o, o + 0x10000); } }
   if (prev) {
@@ -775,6 +809,42 @@ function feldStrip(rom, emb, E) {
   return out;
 }
 
+/* A six-field ROM owns the rain/game payload at F00000. Reserve only the
+ * trailing erased pages after every referenced cell, restoration table and
+ * non-erased byte, never an interior hole or the FF0000 rescue region. */
+function sixPoolTail(rom) {
+  const a=0xF00000,z=0xFF0000;
+  if(u32(rom,a)!==0x42584953) return null;
+  const n=u32(rom,a+4), data=a+8+n*260;
+  if(!n || n>256 || data>z) return null;
+  const pack=0x111000+u32(rom,0x111000+36);
+  if(pack<0x111000 || pack+4>rom.length) return null;
+  let end=data;
+  for(let k=0;k<n;k++){
+    const o=a+8+k*260,id=u32(rom,o);
+    if(pack+id*4+4>rom.length) return null;
+    const h=pack+u32(rom,pack+id*4),pix=h+u16(rom,h+20);
+    if(h<pack || pix<pack || pix+64*8>rom.length) return null;
+    for(let t=0;t<64;t++){
+      const r=u32(rom,o+4+t*4);if(r===0xFFFFFFFF)continue;
+      const len=u32(rom,pix+t*8+4),at=data+r;
+      if(!len || at<data || at>=z || len>z-at) return null;
+      end=Math.max(end,at+len);
+    }
+  }
+  const S=root.ParamixSix||(typeof require!=='undefined'?require('./six.js'):null),info=S&&S.sixInfo(rom);
+  if(!info || info.kind!=='gen3') return null;
+  if(info.games){
+    const rest=info.gamesRest;
+    if(rest<a || rest+4>z) return null;
+    const count=u32(rom,rest);
+    if(count>1024 || rest+4+count*16>z) return null;
+    end=Math.max(end,rest+4+count*16);
+  }
+  for(let p=z;p>end;p--)if(rom[p-1]!==255){end=Math.max(end,p);break;}
+  end=page(end);
+  return end<z?{poolExtraOff:end,poolExtraPages:(z-end)/0x1000}:null;
+}
 /**
  * Install the menu into an image without a menu (after emulator/DOOM).
  * opts: { fields, bag }, saved: feldSlots() of the source ROM,
@@ -859,7 +929,10 @@ function feldApply(rom, opts, saved, emb, E) {
       if (slotSize < 0x10000) throw new Error('no room for the saves');
     }
   }
-  const fs = { slotOff, slotSize, slotOff2, slotN1 };
+  const fs = { slotOff, slotSize, slotOff2, slotN1, poolExtraOff:0, poolExtraPages:0 };
+  if(fields && P.six && v6 && u32(emb.feld,findWord(emb.feld,FELD_MAGIC)+4)>=11 && !kind && !launch && !opts.appsLow && !(opts.apps&&opts.apps.length)){
+    const tail=sixPoolTail(out);if(tail)Object.assign(fs,tail);
+  }
   if (fields) for (let i = 0; i < nslots; i++) if (!isFF(out, slotAddr(fs, i), slotSize)) throw new Error('the area for the saves is in use');
   // Program with settings
   const f = new Uint8Array(emb.feld);
@@ -913,6 +986,7 @@ function feldApply(rom, opts, saved, emb, E) {
       for (let k = 0; k < 12; k++) f[o + 4 + k] = a && k < a.name.length ? a.name.charCodeAt(k) : 0;
     }
   } else if (opts.apps && opts.apps.length) throw new Error('menu program too old for more programs');
+  if(u32(f,ci+4)>=11){w32(f,ci+612,fs.poolExtraOff);w32(f,ci+616,fs.poolExtraPages);}
   // TAMA menu (1.6.8, version 6): where the pet and the planet level lie in the settings block
   if (u32(f, ci + 4) >= 6) { w32(f, ci + 492, tama ? P.tama : 0); w32(f, ci + 496, tama ? P.level : 0); }
   // DOWNLOAD in the start device (1.6.8, version 7): the flash app placed by appsPlace
@@ -1042,6 +1116,6 @@ function embedded() {
 }
 
 function emuType(rom) { const m = u32(rom, APP_OFF + 0x140); return m === 0x37584D50 ? 't7' : m === 0x38584D50 ? 't18' : m === 0x31584D50 ? 'v1' : m === PMXC && appKind(rom) === 2 ? 'tama' : ''; }
-root.ParamixFeld = { F_NO_SHORTCUT, languagePatchPages, F_GPLAY, GPLAY, CLEAN_ROM, F_CLEAN, CLOCK_SEC, cleanReserved, cleanInfo, cleanBase, cleanApply, isClean, saveSlots, fieldOfSettings, lzPack, lzUnpack, slotPages, slotBuild, poolUsed, slotParse, FIELD_TEXT, characters, F_TAMA, F_SAVES, F_LAUNCH, isLaunch, launchRestore, emuType, familyOf, isSix, slotAddr, slotReadAsync, slotPlace, poolAddr, textTabelle, zeichenkette, edition, feldId, canFields, fieldNames, fieldNow, feldFind, feldSlots, feldStrip, feldApply, feldApps, appKind, itemCatalog, embedded, NAMES, F_FIELDS, F_BAG };
+root.ParamixFeld = { poolCount, slotRanges, sixPoolTail, F_NO_SHORTCUT, languagePatchPages, F_GPLAY, GPLAY, CLEAN_ROM, F_CLEAN, CLOCK_SEC, cleanReserved, cleanInfo, cleanBase, cleanApply, isClean, saveSlots, fieldOfSettings, lzPack, lzUnpack, slotPages, slotBuild, poolUsed, slotParse, FIELD_TEXT, characters, F_TAMA, F_SAVES, F_LAUNCH, isLaunch, launchRestore, emuType, familyOf, isSix, slotAddr, slotReadAsync, slotPlace, poolAddr, textTabelle, zeichenkette, edition, feldId, canFields, fieldNames, fieldNow, feldFind, feldSlots, feldStrip, feldApply, feldApps, appKind, itemCatalog, embedded, NAMES, F_FIELDS, F_BAG };
 if (typeof module !== 'undefined') module.exports = root.ParamixFeld;
 })(typeof window !== 'undefined' ? window : globalThis);

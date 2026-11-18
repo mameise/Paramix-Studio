@@ -32,20 +32,20 @@ static void fields(u32 t){
   u8 before[PAGE],want[PAGE]; memcpy(before,g_set,PAGE); memcpy(want,host_flash+g_cfg.user_start,PAGE);
   assert(t_visual(4001,4001,3,5));
   assert(t_word(4)==4001 && t_word(6)==4001 && t_color()==3 && g_set[t+0x19]==0xA3);
-  want[14]=0xA1; want[0x10A]=0xA1; want[16]=3;
   assert(!memcmp(want,host_flash+g_cfg.user_start,PAGE));
   before[t+6]=0xA1; before[t+0x19]=0xA3; assert(!memcmp(before,g_set,PAGE));
   assert(t_visual(4002,4001,16,5)); assert(t_word(4)==4002 && t_word(6)==4001 && t_color()==16);
-  want[12]=0xA2; want[16]=255; assert(!memcmp(want,host_flash+g_cfg.user_start,PAGE));
-  /* Missing and ambiguous files must not cause partial settings/flash writes. */
-  memcpy(before,g_set,PAGE); host_flash[g_cfg.user_start+12]^=1;
-  memcpy(want,host_flash+g_cfg.user_start,PAGE); assert(!t_visual(4001,4001,2,5));
-  assert(!memcmp(before,g_set,PAGE) && !memcmp(want,host_flash+g_cfg.user_start,PAGE));
-  host_flash[g_cfg.user_start+12]^=1;
+  assert(!memcmp(want,host_flash+g_cfg.user_start,PAGE));
+  /* Absent, different and duplicate ghosts are unrelated to the active pet. */
+  memset(host_flash+g_cfg.user_start,0xFF,PAGE); assert(t_visual(4001,4002,2,5));
+  memset(host_flash+g_cfg.user_start,0x5A,PAGE);
   memcpy(host_flash+g_cfg.user_start+PAGE,host_flash+g_cfg.user_start,PAGE);
-  memcpy(want,host_flash+g_cfg.user_start,PAGE); assert(!t_visual(4001,4001,2,5));
-  assert(!memcmp(before,g_set,PAGE) && !memcmp(want,host_flash+g_cfg.user_start,PAGE));
+  assert(t_visual(4002,4001,14,5));
+  for(u32 i=0;i<PAGE*2;i++) assert(host_flash[g_cfg.user_start+i]==0x5A);
+  memcpy(before,g_set,PAGE);
   assert(!t_visual(4001,4001,17,5) && !t_visual(4001,4001,0,1));
+  assert(!t_visual(0,4001,0,5) && !t_visual(4001,65535,0,5));
+  assert(!memcmp(before,g_set,PAGE));
   pet_fixture(t); memset(g_set+t+0x20,0xFF,0x10); memset(g_set+t+0x48,0xFF,4);
   g_set[t+0x14]=255; g_set[t+0x15]=g_set[t+0x16]=g_set[t+0x17]=255;
   g_set[t-0xB]=g_set[t-0xC]=255; t_stage_set(2);
@@ -73,7 +73,7 @@ static void body_stages(u32 t){
     assert(chr_body_eyes(1001,t_word(6))==expected);
     assert(t_visual(1001,chr_body_eyes(1001,t_word(6)),t_color(),bs));
     assert(t_word(4)==1001 && t_word(6)==expected && t_stage()==bs);
-    assert(rd16(g_cfg.user_start+14)==expected && rd16(g_cfg.user_start+0x10A)==expected);
+    assert(rd16(g_cfg.user_start+14)==4002 && rd16(g_cfg.user_start+0x10A)==4002); /* ghosts untouched */
     assert(host_flash[g_cfg.user_start+16]==255); /* color preserved */
   }
   pet_fixture(t); t_put(6,9999); assert(chr_body_eyes(1001,t_word(6))==1001); /* unknown eyes */
@@ -136,10 +136,25 @@ static void ui(void){
   memcpy(before,host_flash+SET_A,PAGE);
   keys("bbpccc"); appearance_edit(); assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
 }
+static void real_appearance(const char *file,u32 cfg){
+  FILE *f=fopen(file,"rb"); assert(f && fread(host_flash,1,0x1000000,f)==0x1000000); fclose(f);
+  memset((void*)&g_cfg,0,sizeof g_cfg); memcpy((void*)&g_cfg,host_flash+cfg,608);
+  assert(!set_load() && t_alive());
+  u8 *before=malloc(0x1000000); assert(before); memcpy(before,host_flash,0x1000000);
+  u32 body=t_id()==4066?4050:4066, eyes=4119;
+  assert(t_visual(body,eyes,14,5)); assert(!memcmp(before,host_flash,0x1000000));
+  keys("b"); set_write("APPEARANCE SAVED"); saved();
+  assert(t_id()==body && t_word(6)==eyes && t_color()==14);
+  assert(!memcmp(before,host_flash,SET_A));
+  assert(!memcmp(before+SET_B+PAGE,host_flash+SET_B+PAGE,0x1000000-SET_B-PAGE));
+  free(before); puts("PASS: user-ROM appearance saved to settings only; every ghost/app/slot byte preserved");
+}
 int main(int argc,char **argv){
-  assert(argc==2); g_dir=argv[1]; host_flash=malloc(0x1000000); assert(host_flash);
+  assert(argc==2 || argc==4); g_dir=argv[1]; host_flash=malloc(0x1000000); assert(host_flash);
   fields(0x104); fields(0x108); fields(0x114);
   body_stages(0x104); body_stages(0x108); body_stages(0x114);
-  appearance_cancel(0x104); appearance_cancel(0x108); appearance_cancel(0x114); appearance_hints(); ui(); free(host_flash);
+  appearance_cancel(0x104); appearance_cancel(0x108); appearance_cancel(0x114); appearance_hints(); ui();
+  if(argc==4) real_appearance(argv[2],(u32)strtoul(argv[3],0,0));
+  free(host_flash);
   puts("Tama editing: layouts, visuals, care, cancel and UI passed"); return 0;
 }

@@ -105,12 +105,13 @@ function inspect(b) {
 function reservations(b) {
   const ranges=[[0x10F000,0x110000]],add=(a,n)=>{if(a%PAGE || !n || a+n>b.length)throw new Error('invalid Paramix allocation');ranges.push([a,(a+n+4095)&~4095]);};
   if([0x43584D50,0x37584D50,0x38584D50,0x31584D50].includes(U(b,0xA0140)))ranges.push([0xA0000,0x110000]);
-  for(let off=0x90000;off<0x110000;off+=PAGE){const c=off+0x140;if(U(b,c)!==0x444C4546)continue;const version=U(b,c+4);if(version<4 || version>10)throw new Error('unsupported Paramix allocation version');
+  for(let off=0x90000;off<0x110000;off+=PAGE){const c=off+0x140;if(U(b,c)!==0x444C4546)continue;const version=U(b,c+4);if(version<4 || version>11)throw new Error('unsupported Paramix allocation version');
     const stub=U(b,c+32),count=U(b,c+276),catAt=U(b,c+272);if(stub<0x90000 || stub>=0x110000 || count>2048)throw new Error('invalid Paramix allocation');
     add(stub,PAGE);add(off,0x10000);
     if(catAt){if(U(b,catAt)!==0x54414350 || U(b,catAt+4)!==count)throw new Error('invalid Paramix catalog');let end=catAt+8+count*28;if(U(b,end)===0x54584550)end+=4+12*count;if(U(b,end)===0x56525054){let n=U(b,end+12),size=U(b,end+8);if(n>256 || size>128)throw new Error('invalid preview catalog');end+=24+n*size;}add(catAt,end-catAt);}
     const slots=U(b,c+16),size=U(b,c+12),first=U(b,c+8),second=U(b,c+364),split=U(b,c+368);if(slots>6 || (slots && (size<8192 || size%PAGE || split>slots || (second && !split))))throw new Error('invalid Paramix slots');
     for(let i=0;i<slots;i++)add(second && i>=split?second+(i-split)*size:first+i*size,size);
+    if(version>=11){const a=U(b,c+612),n=U(b,c+616);if(a || n){if(a<0xF00000 || a%PAGE || a>=0xFF0000 || !n || n>(0xFF0000-a)/PAGE)throw new Error('invalid Paramix extra pool');add(a,n*PAGE);}}
     const id=U(b,c+28);if(id<PAGE || id>b.length-PAGE)throw new Error('invalid Paramix ID page');ranges.push([id-PAGE,b.length]);
     const apps=version>=5?U(b,c+392):0;if(apps>(version>=8?12:6))throw new Error('invalid Paramix apps');
     const app=(v)=>{if(v>=0x10000000 && v<0x11000000)add(v-0x10000000+0x11000,0x10000);};
@@ -139,7 +140,7 @@ function writePatch(b,info) {b.set(payload(info),info.page);for(const [a,v]of ho
 function installedStub(rom,stub) {
   const target=U(rom,stub+0x28),entry=target>=0x10000000 && target<0x11000000?target-0x10000000+0x11000:-1,cfg=entry+0x140;
   return !(stub%PAGE) && stub>=0x90000 && stub<0x110000 && same(rom,stub+0x20,Uint8Array.of(0x72,0xB6,1,0x4C)) && !(entry%PAGE) && entry>=0x90000 && entry<0x110000 &&
-    U(rom,cfg)===0x444C4546 && U(rom,cfg+4)>=4 && U(rom,cfg+4)<=10 && U(rom,cfg+32)===stub;
+    U(rom,cfg)===0x444C4546 && U(rom,cfg+4)>=4 && U(rom,cfg+4)<=11 && U(rom,cfg+32)===stub;
 }
 function removeLastLabel(rom,label) {
   const C=root.ParamixCore || require('./core.js'),ctx=C.openRom(rom),strings=C.arc2Files(ctx.files[2],0).map(parseStrings);

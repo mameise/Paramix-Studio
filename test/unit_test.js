@@ -254,7 +254,8 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
     for (let i = fi.off; i < fi.off + 0x8000; i += 4) if (moved[i] === 0x46 && moved[i + 1] === 0x45 && moved[i + 2] === 0x4C && moved[i + 3] === 0x44) { ci = i; break; }
     put32(moved, ci + 8, 0x900000);
     q = await d2.write(moved, { onlyChanged: true, keep: k2 }, null);
-    ok(m2[0x900000 + fi.slotSize + 0x2000] === 0x77 && m2[0x900000 + fi.slotSize + 4] === 2 && q.notes.some((n) => n.code === 'noteMoved'), 'flash: stored field moved to the new layout');
+    const movedSlot = await F.slotReadAsync(async (a,n) => m2.slice(a,a+n), F.feldFind(m2, menu.stub), 1);
+    ok(movedSlot && movedSlot.stream.length === 0x2000 && movedSlot.stream.every(v => v === 0x77) && movedSlot.field === 2 && q.notes.some((n) => n.code === 'noteMoved'), 'flash: stored field moved to the new layout');
   }
 }).then(() => {
   // 12) TamaEmu download content: route, add, list, remove (synthetic record)

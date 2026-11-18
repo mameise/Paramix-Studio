@@ -816,8 +816,9 @@ function keepPlan(F, E, menu, opts = {}) {
     const fi = menu && F.feldFind(img, menu.stub), fd = menu && F.feldFind(view, menu.stub);
     if (fd && (fd.flags & 1)) {
       const at = (f, i) => (F.slotAddr ? F.slotAddr(f, i) : f.slotOff + i * f.slotSize);
-      if (fi && (fi.flags & 1) && fi.slotOff === fd.slotOff && fi.slotSize === fd.slotSize && fi.nslots === fd.nslots && (fi.slotOff2 || 0) === (fd.slotOff2 || 0) && (fi.slotN1 || 0) === (fd.slotN1 || 0)) {
-        for (let i = 0; i < fd.nslots; i++) ranges.push([at(fd, i), at(fd, i) + fd.slotSize]);
+      const slotRanges = f => F.slotRanges ? F.slotRanges(f) : Array.from({length:f.nslots},(_,i)=>[at(f,i),at(f,i)+f.slotSize]);
+      if (fi && (fi.flags & 1) && fi.slotOff === fd.slotOff && fi.slotSize === fd.slotSize && fi.nslots === fd.nslots && (fi.slotOff2 || 0) === (fd.slotOff2 || 0) && (fi.slotN1 || 0) === (fd.slotN1 || 0) && (fi.poolExtraOff || 0) === (fd.poolExtraOff || 0) && (fi.poolExtraPages || 0) === (fd.poolExtraPages || 0)) {
+        ranges.push(...slotRanges(fd));
       }
       else if (fi && (fi.flags & 1) && F.slotReadAsync) {
         // other layout: copy every stored field into the new slots (shared pool, 1.2.12)
@@ -830,13 +831,13 @@ function keepPlan(F, E, menu, opts = {}) {
           slots.push([idx, s]);
         }
         // the device's saves replace whatever the new image carries in the slots
-        for (let i = 0; i < fi.nslots; i++) image.fill(0xFF, at(fi, i), at(fi, i) + fi.slotSize);
+        for (const [a,b] of slotRanges(fi)) image.fill(0xFF,a,b);
         const used = new Set();
         for (const [idx, s] of slots) {
           try { F.slotPlace(image, fi, idx, s, used); notes.push(note('noteMoved', { f: s.field })); }
           catch (e) { notes.push(note('noteNoFit', { f: s.field })); }
         }
-        for (let i = 0; i < fi.nslots; i++) for (let a = at(fi, i); a < at(fi, i) + fi.slotSize; a += SECTOR) if (crc32(image, a, SECTOR) !== crc32(img, a, SECTOR)) changed.add(a);
+        for (const [from,to] of slotRanges(fi)) for (let a=from;a<to;a+=SECTOR) if (crc32(image,a,SECTOR)!==crc32(img,a,SECTOR)) changed.add(a);
       } else notes.push(note('noteDropped'));
     }
     const guestR = [];   // 1.6.8: TamaEmu firmware areas; sectors the Studio changed there (download items) come from the image

@@ -629,6 +629,9 @@ The menu itself, while the screen is dark, sleeps deeply until a key or the whee
   Body/Stage → same-stage Eyes → Color → Review. The body starts with compatible
   existing eyes or its own default; each step previews the draft. C goes back one
   step (from Body it discards the draft); only the final B Save writes it.
+  Appearance changes update the settings copies without touching communication
+  ghosts. Saves share identical packed pages safely; eligible six-field layouts
+  also reserve additional space after SIXB assets, below the rescue area.
 - TamaEmu or DOOM, when built in, is the last entry of the same menu.
 
 ### Device (read and write over UART)

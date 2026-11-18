@@ -3545,12 +3545,15 @@ function slotWrite(save, chk, i, warn) {
   if (!confirm(t('slotSure', { n: slotLabel(ss, i) }) + (warn ? '\n\n' + warn : ''))) return;
   devTask(async () => {
     const d = dv.d, f = ss.f, [a, b] = SV.region(ed);
-    const mine = rom.subarray(f.off + 0x140, f.off + 0x140 + 0x180), dev = (await d.read(f.off, 0x1000)).subarray(0x140, 0x140 + 0x180);
-    for (const o of [0, 8, 12, 16, 364, 368]) if (mine[o] !== dev[o] || mine[o + 1] !== dev[o + 1] || mine[o + 2] !== dev[o + 2] || mine[o + 3] !== dev[o + 3]) throw new Error(t('slotDevOther'));
+    const mine = rom.subarray(f.off + 0x140, f.off + 0x140 + 620), dev = (await d.read(f.off, 0x1000)).subarray(0x140, 0x140 + 620);
+    for (const o of [0, 4, 8, 12, 16, 364, 368, ...(f.version >= 11 ? [612, 616] : [])]) if (mine[o] !== dev[o] || mine[o + 1] !== dev[o + 1] || mine[o + 2] !== dev[o + 2] || mine[o + 3] !== dev[o + 3]) throw new Error(t('slotDevOther'));
     const heads = [];
     for (let j = 0; j < f.nslots; j++) heads.push(new Uint8Array(await d.read(F.slotAddr(f, j), 0x1000)));
     const s = F.slotBuild(chk.pages, i, a, b), img = new Uint8Array(0x1000000).fill(0xFF);
-    const written = F.slotPlace(img, f, i, s, F.poolUsed(f, heads, i));
+    const used = F.poolUsed(f, heads, i);
+    // Sharing must compare actual device bytes, not the empty staging image.
+    for (const x of used) img.set(new Uint8Array(await d.read(F.poolAddr(f, x), 0x1000)), F.poolAddr(f, x));
+    const written = F.slotPlace(img, f, i, s, used);
     const first = new Map([[written[0], new Uint8Array(0x1000).fill(0xFF)]]);
     for (const p of written.slice(1)) first.set(p, img.slice(p, p + 0x1000));
     let w = await d.writeSectors(first, devProg, () => dv.cancel, FL.embedded());

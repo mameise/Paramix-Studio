@@ -2,6 +2,13 @@
 
 Versions are listed newest first.
 
+## 1.7.5-plus.27 (2026-11-18)
+
+- Fix appearance saves falsely requiring an own-Tama file: ROM Body/Eyes/Color are settings fields. Remove ghost-package matching and writes, preserving all visitor, gene and export data.
+- Share byte-identical packed save pages with copy-on-write allocation; compact legacy duplicate references and count newly required pages before switching or copying. Clear only a slot header, retaining pages used by other saves.
+- Expand eligible six-field ROM save pools into a validated erased SIXB tail, preserving referenced rain/game data and the rescue region. The supplied layout grows from 432 to 660 KiB; total capacity still depends on unique save data.
+- Carry the expanded pool through rebuilds, Keep Saves and layout migration. Validate device pool geometry and read referenced pages before direct save-import deduplication.
+
 ## 1.7.5-plus.26 (2026-11-18)
 
 - Merge Body/Stage, Eyes and Body Color into APPEARANCE: select body, compatible same-stage eyes, then color, review the preview and save once. C returns one step; leaving the first step discards the draft. Keep the existing names, IDs, current-value markers and circular selection. Show a green BODY / EYES MATCH hint for original body/eye pairs throughout selection and review.

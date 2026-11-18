@@ -29,7 +29,7 @@ function originalTable(p){return words(p.scenes.flatMap((scene,i)=>[34+i,scene,0
 function sources(b,p,pool=12){return same(b,p.pool,Uint8Array.of(pool,0x20,0x19,0x46,0x1A,0x46)) && same(b,p.pool+6,branch(p.pool+6,p.poolTarget)) && same(b,p.table,originalTable(p)) && same(b,p.descriptor,words([alias(p.table),5])) && same(b,p.accessor,pointer(0,p.descriptor));}
 function originalEdits(p){return [[p.init,branch(p.init,p.initTarget)],[p.select,branch(p.select,p.scene)],[p.pool,Uint8Array.of(12,0x20)]];}
 function edits(info){const p=PROFILES[info.profileIndex];return [[p.init,branch(p.init,info.page+0x50)],[p.select,branch(p.select,info.page+0x60)],...(info.version>=2?[[p.pool,Uint8Array.of(14,0x20)]]:[])];}
-function installedStub(b,stub){const target=U(b,stub+0x28),entry=target>=0x10000000 && target<0x11000000?target-0x10000000+0x11000:-1,c=entry+0x140;return !(stub%PAGE) && stub>=0x90000 && stub<0x110000 && same(b,stub+0x20,Uint8Array.of(0x72,0xB6,1,0x4C)) && !(entry%PAGE) && entry>=0x90000 && entry<0x110000 && U(b,c)===0x444C4546 && U(b,c+4)>=4 && U(b,c+4)<=10 && U(b,c+32)===stub;}
+function installedStub(b,stub){const target=U(b,stub+0x28),entry=target>=0x10000000 && target<0x11000000?target-0x10000000+0x11000:-1,c=entry+0x140;return !(stub%PAGE) && stub>=0x90000 && stub<0x110000 && same(b,stub+0x20,Uint8Array.of(0x72,0xB6,1,0x4C)) && !(entry%PAGE) && entry>=0x90000 && entry<0x110000 && U(b,c)===0x444C4546 && U(b,c+4)>=4 && U(b,c+4)<=11 && U(b,c+32)===stub;}
 function payload(info){
   const p=PROFILES[info.profileIndex],b=new Uint8Array(PAGE).fill(255);
   b.set(originalTable(p));b.set(words([info.paramixLabel,SENTINEL,0]),60);

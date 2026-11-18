@@ -40,3 +40,12 @@ for(let i=0;i<3;i++){
 }
 assert.equal(H.inspect(new Uint8Array(0x1000000).fill(255)),null);
 console.log('PASS: PARAMIX appended Space menu, all profiles, descriptor/count, original indices, dispatch, strip, corruption and language reservation');
+
+// cfg11 preserves the direct entry and reserves its extra pool even while erased.
+{
+ const b=fixture(0),c=0xB8000+0x140;
+ w32(b,c+4,11);w32(b,c+608,0);w32(b,c+612,0xFB7000);w32(b,c+616,57);
+ assert(S.reservations(b).some(([a,z])=>a===0xFB7000 && z===0xFF0000));
+ assert(H.inspect(H.apply(b,0xB6000)));
+ w32(b,c+612,0xFF0000);assert.throws(()=>S.reservations(b),/extra pool/);
+}

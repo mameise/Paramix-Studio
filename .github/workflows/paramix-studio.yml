@@ -73,6 +73,7 @@ jobs:
           node test/unit_test.js
           node test/feld_bulk_test.js
           node test/feld_menu_test.js
+          node test/feld_pool_test.js
           node test/feld_tama_test.js
           node test/feld_preview_test.js
           node test/feld_preview_catalog_test.js

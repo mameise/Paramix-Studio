@@ -153,13 +153,13 @@ apps omit the initial four CRC bytes; these offsets refer to complete pages.
 Stage changes clear the associated stage timers and events, retaining the
 other bits of the stage/color bytes. Both settings copies receive valid CRCs.
 
-Appearance changes preflight the saved character files, matching the original
-body, eyes, color and secondary eye ID. Exactly one matching file is required;
-missing/ambiguous files leave everything unchanged. The body/eyes/color header
-and secondary eyes at +0x10A are updated together, followed by settings.
-As with the previous character changer, this is not an atomic multi-sector
-transaction. Keep power on while saving. This uses the current ROM's resources;
-it does not rebuild embedded ghost graphics for export to a different ROM.
+Appearance changes update only Body/Eyes/Color/Stage in settings, then save both
+CRC-protected copies. Records with similar fields in user flash are communication
+ghost packages, not required own-Tama files: +0x10A is a Lab real character ID,
+not a secondary eye ID. Their presence, colors and duplicates do not gate saving,
+and editing ordinary ROM IDs never modifies those records. This follows the
+original Character Editor's settings setter; its ghost buffers serve previews
+and export. Keep power on while the two settings pages are written.
 Previews are static; game animations and close-up views are not included.
 
 Run `node test/feld_tama_test.js` for synthetic-save layout, appearance,
@@ -198,7 +198,7 @@ runs outside frame parsing.
   B opens slot options. Empty slots default to NO COPY - NEW GAME, or can
   copy an existing slot (the active one uses the current live progress).
   Choose the target field afterwards. Source slots are unchanged. Copies use
-  independent shared-pool pages and publish their header last; capacity is
+  immutable shared-pool pages and publish their header last; capacity is
   checked for both the copy and the subsequent backup of the live save.
 - Existing slots offer LOAD / RESUME, CLEAR THIS SLOT and SEND TO TAMA.
   Clear defaults to CANCEL. Active slots cannot be cleared. Clearing erases
@@ -317,3 +317,23 @@ again. The menu now writes "PMXS" into 0x20000FF8 when it shows itself for a "PM
 with every "PMXL"): a "PMXL" with "PMXS" (test12: with any word other than 0 there, e.g. the Paradise stub's counter) is an old one and the main program starts. B counts as held only over five
 looks a few ms apart. AUTODBG (test builds): bottom middle of the home screen: mailbox (L M R 0 ?), GPIO0 bits 8..11,
 B held or "-", seen mark (S 0 ?).
+
+### Shared save capacity (configuration version 11)
+
+Slots share complete byte-identical 4 KiB packed pages. A modified chunk always
+uses an unreferenced page; referenced chunks are never overwritten. Legacy POOL
+headers may be redirected to identical pages without moving their data, preserving
+clock metadata and decoded saves. This uses the existing single-page header write
+mechanism; compaction is not an atomic transaction across power loss.
+
+Ordinary six-field ROMs without emulator/additional programs may reserve an extra
+pool after validated SIXB rain/game data, below 0xFF0000. Configuration offsets
+612/616 store its address/page count; offset608 is the clean-menu clock or zero.
+Allocation checks referenced cell ends, game restoration tables and all nonempty
+tail bytes. Program configurations conservatively omit this extension. Studio
+preserves or relocates the entire pool during Keep Saves and rebuilds; old menus
+remain readable. Use the updated Studio for expanded pools. Six slots still share
+a finite capacity: unrelated large saves can exhaust it.
+
+Run `node test/feld_pool_test.js [optional-user-ROM]` for sharing, copy-on-write,
+compaction, six-slot switching, expansion, migration and capacity rejection tests.

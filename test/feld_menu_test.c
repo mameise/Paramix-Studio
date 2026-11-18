@@ -264,6 +264,7 @@ int main(int argc,char **argv){
 
   /* Rejected copy (capacity, corrupt source) makes no live/source changes. */
   save_fixture(); g_cfg.slot_size=2*PAGE; assert(!stash(1));
+  host_flash[g_cfg.user_start]^=0x5A; /* distinct live backup cannot share the stored chunk */
   memcpy(source_header,host_flash+slot_base(1),PAGE); assert(slot_copy(1,2,2)==3);
   assert(!slot_valid(2) && !memcmp(source_header,host_flash+slot_base(1),PAGE));
   host_flash[pool_addr(rd16(slot_base(1)+offsetof(SlotHdr,dpg)))]^=1;

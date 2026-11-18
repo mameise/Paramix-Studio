@@ -42,30 +42,14 @@ static void t_stage_set(u32 stage){
   static const u8 events[4]={1,19,20,28};
   for(u32 i=0;i<4u;i++) t_event_clear(events[i]);
 }
-/* The own-Tama file has body/eyes at +C/+E, color at +10, and an
- * additional eye ID at +10A. Refuse ambiguous matches (e.g. visiting ghosts)
- * rather than changing several characters with the same appearance. Preflight
- * the whole search before the first write. Other pages remain byte-for-byte. */
+/* Appearance lives in the settings page. The similar +C/+E/+10A records in
+ * user flash are communication ghosts (including export staging), not a
+ * required own-Tama file. Never scan or mutate them when editing ROM IDs.
+ * The original Character Editor's settings setter likewise writes body/eyes,
+ * stage and color directly; its ghost buffers serve preview/export only. */
 static int t_visual(u32 body,u32 eyes,u32 color,u32 stage){
-  if(!t_layout() || !t_alive() || color>16u || stage<2u || stage>5u) return 0;
-  u32 oldbody=t_word(4), oldeyes=t_word(6), at=0, n=0;
-  if(body!=oldbody || eyes!=oldeyes || color!=t_color()){
-    for(u32 a=g_cfg.user_start;a+PAGE<=g_cfg.user_end && a<SET_A;a+=PAGE){
-      u32 g=rd32(a+8u);
-      if(g>255u || rd16(a+12u)!=oldbody || rd16(a+14u)!=oldeyes || rd16(a+0x10Au)!=oldeyes) continue;
-      u32 c=fl(a+0x10u)[0];
-      if(c!=(t_color()==16u?255u:t_color())) continue;
-      at=a; n++;
-    }
-    if(n!=1u) return 0;
-    flash_read(at,g_page,PAGE);
-    g_page[12]=(u8)body; g_page[13]=(u8)(body>>8);
-    g_page[14]=(u8)eyes; g_page[15]=(u8)(eyes>>8);
-    g_page[0x10]=(u8)(color==16u?255u:color);
-    g_page[0x10A]=(u8)eyes; g_page[0x10B]=(u8)(eyes>>8);
-    flash_prog4k(at,g_page);
-    if(!flash_same(at,g_page,PAGE)) error_screen(40);
-  }
+  if(!t_layout() || !t_alive() || color>16u || stage<2u || stage>5u ||
+     body<1001u || body>4999u || eyes<1001u || eyes>4999u) return 0;
   t_put(4,body); t_put(6,eyes); t_stage_set(stage);
   u32 o=g_cfg.tama_off+0x19u;
   g_set[o]=(u8)((g_set[o]&~31u)|(color==16u?31u:color));
