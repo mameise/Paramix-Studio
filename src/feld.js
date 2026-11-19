@@ -676,16 +676,10 @@ function characterPreviewData(d, C, ctx) {
     if (prev && (prev.neutral || !neutral)) continue;
     poses.set(b.img, { neutral, bs: b.sub, es: e.sub, ms: m.sub, ex: e.x - b.x, ey: e.y - b.y, mx: m.x - b.x, my: m.y - b.y });
   }
-  let variants = null;
-  for (let i = 0; i < ctx.entries.length; i++) {
-    const e = ctx.entries[i], h = C.spriteHeader(e);
-    if (h.numPal !== 16 || h.bpp !== 2 || h.sw !== 64 || h.sh !== 64 || h.numSprites !== 1 || h.palOffset + 512 > e.length) continue;
-    let valid = true;
-    for (let p = 0; p < 16; p++) if (u16(e, h.palOffset + p * 32) !== 0x07E0 || u16(e, h.palOffset + p * 32 + 2) !== 12) valid = false;
-    if (!valid) continue;
-    if (variants) { variants = null; break; } // refuse ambiguous resource layouts
-    variants = { addr: pack + u32(ctx.files[1], i * 4) + h.palOffset, sum: byteSum(e.subarray(h.palOffset, h.palOffset + 512)) };
-  }
+  const palette = C.characterPaletteVariants(ctx.entries);
+  const variants = palette ? {
+    addr: pack + u32(ctx.files[1], palette.index * 4) + palette.offset, sum: byteSum(palette.bytes),
+  } : null;
   const part = (i, sub) => {
     const e = ctx.entries[i], h = C.spriteHeader(e);
     if (h.bpp !== 2 || h.iw !== 1 || h.ih !== 1 || sub >= h.numSprites || h.sw > 64 || h.sh > 64) return null;

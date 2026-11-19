@@ -108,20 +108,38 @@ function spriteHeader(e) {
     transp: u16(e, 16), palOffset: u16(e, 18), pixOffset: u16(e, 20),
   };
 }
+function characterPaletteVariants(entries) {
+  let match = null;
+  for (const [index, entry] of entries.entries()) {
+    const h = spriteHeader(entry);
+    if (h.numPal !== 16 || h.bpp !== 2 || h.sw !== 64 || h.sh !== 64 || h.numSprites !== 1 ||
+        h.palOffset + 512 > entry.length) continue;
+    const bytes = entry.subarray(h.palOffset, h.palOffset + 512);
+    const valid = Array.from({ length: 16 }, (_, i) => i * 32)
+      .every(offset => u16(bytes, offset) === 0x07e0 && u16(bytes, offset + 2) === 12);
+    if (!valid) continue;
+    if (match) return null;
+    match = { index, offset: h.palOffset, bytes };
+  }
+  return match;
+}
 const F_TRANSP = 0x04, F_RLE_BYTE = 0x20, F_RLE_WORD = 0x40, F_XOR = 0x80;
 const BITS = { 0: 1, 1: 2, 2: 4, 3: 8 };
 
-function rleDecode(d, word) {
+function rleDecode(d, word, maxLength = Infinity) {
   const out = []; let i = 0;
   if (!word) {
     while (i < d.length) {
       const c = d[i++]; if (c === 0) break;
+      if (out.length + (c & 0x7f) > maxLength) throw new Error('sprite RLE exceeds pixel data size');
       if (c & 0x80) { const n = c & 0x7f; for (let k = 0; k < n; k++) out.push(d[i + k]); i += n; }
       else { const v = d[i++]; for (let k = 0; k < c; k++) out.push(v); }
     }
   } else {
     while (i + 4 <= d.length) {
       const c = u32(d, i); i += 4; if (c === 0) break;
+      const count = c & 0x80000000 ? c & 0x0fffffff : c;
+      if (out.length + count * 4 > maxLength) throw new Error('sprite RLE exceeds pixel data size');
       if (c & 0x80000000) { const n = (c & 0x0fffffff) * 4; for (let k = 0; k < n; k++) out.push(d[i + k]); i += n; }
       else { for (let r = 0; r < c; r++) for (let k = 0; k < 4; k++) out.push(d[i + k]); i += 4; }
     }
@@ -143,7 +161,7 @@ function rleEncode(data) {
 
 /** Decode one sprite entry. Returns header, palettes, raw index cells and
  *  composed subimages as RGBA (palette set `palSet`). */
-function spriteDecode(e, palSet = 0) {
+function spriteDecode(e, palSet = 0, bounded = false) {
   const h = spriteHeader(e);
   const n = h.numSprites, w = h.sw, hh = h.sh, npx = w * hh;
   const iw = Math.max(1, h.iw), ih = Math.max(1, h.ih);
@@ -170,7 +188,7 @@ function spriteDecode(e, palSet = 0) {
         const unc = off & 0x80000000; off &= 0x7fffffff;
         let d = e.slice(bp + off, bp + off + ln);
         if (enc) d = d.map(x => x ^ 0x53);
-        if (!unc) d = rleDecode(d, h.flags & F_RLE_WORD);
+        if (!unc) d = rleDecode(d, h.flags & F_RLE_WORD, bounded ? Math.ceil(npx * bits / 32) * 4 : Infinity);
         raws.push(d);
       }
     } else {
@@ -962,7 +980,7 @@ function paraLayers(dp) {
     const layers = [];
     for (let i = lo; i + 2 <= le;) {
       const m = u(i); if (m & 0xF800) return null;
-      const L = { m, x: 0, y: 0, sub: 0, type: 0, img: -1, ox: -1, oy: -1 };
+      const L = { m, offset: i, x: 0, y: 0, sub: 0, type: 0, img: -1, ox: -1, oy: -1 };
       for (let b = 0; b <= 10; b++) {
         if (!(m & (1 << b))) continue; i += 2;
         if (b === 0) { L.x = s16v(u(i)); L.ox = i; } else if (b === 1) { L.y = s16v(u(i)); L.oy = i; }
@@ -1183,7 +1201,10 @@ function charTable(dp) {
     const a = u32(4 + 4 * t) * 2, b = u32(8 + 4 * t) * 2;
     if (b > a && b <= dp.length && (b - a) % 30 === 0 && b - a >= 60 && u16(a) === 0xFFFF && u16(a + 30) === 1000) {
       const out = [];
-      for (let o = a; o < b; o += 30) out.push({ id: u16(o), name: u16(o + 4) + 1, stage: u16(o + 6), line: u16(o + 8), field: u16(o + 14) });
+      for (let o = a; o < b; o += 30) out.push({
+        id: u16(o), name: u16(o + 4) + 1, stage: u16(o + 6), line: u16(o + 8),
+        rank: u16(o + 10), field: u16(o + 14), flags: u16(o + 16),
+      });
       return out;
     }
   }
@@ -1277,10 +1298,10 @@ function textApply(rom, edits) {
   return out;
 }
 
-root.ParamixCore = { paraLayers, faceFirst, facePoses, layersMove, EYE_V2, smaDetect, smaLoad, eyeFirst, eyeRelGet, shiftEyes, textClean, textGet, textApply, textTablesOf, TXT_ENC,
+root.ParamixCore = { paraLayers, faceFirst, facePoses, layersMove, EYE_V2, smaDetect, smaLoad, eyeFirst, eyeRelGet, shiftEyes, textClean, textGet, textApply, textTablesOf, txtWords, TXT_ENC,
   fieldSets, charTable, FIELD_NAMES,
   ASSET_BASE, EDITIONS, GROUP_PARTS, GROUP_SHEET_W, GROUP_SHEET_H,
-  arc2Parse, arc2Files, arc2Build, arc2Checksum, packSplit, packJoin, spriteHeader, spriteDecode, spriteEncode, spriteBlank, spriteTiny, spriteAlign, partOptions, launcherKeep, launcherChanges, isLauncher,
+  arc2Parse, arc2Files, arc2Build, arc2Checksum, packSplit, packJoin, spriteHeader, characterPaletteVariants, spriteDecode, spriteEncode, spriteBlank, spriteTiny, spriteAlign, partOptions, launcherKeep, launcherChanges, isLauncher,
   rleEncode, rleDecode, quantize, findGroups, findEgg, openRom, buildRom, verifyRom,
   sheetLayout, sheetFromSubs, subsFromSheet, groupSheet, groupFromSheet, emptyImage, sameImage, crop,
   dimLoad, dimCharParts, dimEggSubs, dimCharPartsWithEyes, dimGuessEye, eyeRectAt, eyeVariants, setEyeOffset, hideEyes, dimEyePreset, DIM_EYE_PRESETS, place, numberImage, zipBuild, zipRead, crc32,

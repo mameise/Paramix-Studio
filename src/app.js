@@ -57,6 +57,32 @@ const T = {
     devNoSerial: 'Dieser Browser kann nicht mit dem Dongle reden. Bitte Chrome oder Edge am Computer verwenden.', devNone: 'Nicht verbunden.',
     devOn: 'Verbunden: {ed}, {mb} MB{l}', devLoaded: ', Flash-App geladen', devReady: 'Bereit.', devNeedRom: 'Zum Schreiben zuerst ein ROM öffnen (oder auslesen).',
     visTitle: 'Besuch simulieren (Paradise)', visStart: 'Starten', visStop: 'Beenden',
+    visModel: 'Modell', visCapture: 'Empfangene UART-Daten herunterladen',
+    visCharacter: 'Besucher', visMirror: 'Empfangenen Charakter zurücksenden', visImport: 'Dateien auswählen',
+    visImported: 'Importiert',
+    visRomCharacters: 'Charaktere aus der ROM', visRomVisitorError: 'Charakter konnte nicht vorbereitet werden ({reason}).',
+    visVisitorColor: 'Körperfarbe', visKeepColor: 'Aktuelle Farbe', visKeepEyes: 'Aktuelle Augen',
+    visPaletteNames: 'Rot|Rosa|Magenta|Violett|Blau|Cyan|Grün|Gelb|Orange|Rosé|Lavendel|Himmelblau|Limette|Creme|Weiß|Grau',
+    visVisitorExport: 'Besucher exportieren (.bin)', visAppearanceNeedsRom: 'Für Farben und Augen eine Paradise-ROM laden.',
+    visPeerTitle: 'Empfangener Playdate-Charakter',
+    visPeerExport: 'Empfangenen Charakter exportieren (.bin)', visNoImage: 'Kein Vorschaubild verfügbar.',
+    visUnknownModel: 'Unbekanntes Modell', visUnnamed: 'Unbenannter Charakter',
+    visRomInfo: '{model} (ROM-Typ {rom} / {hex})', visSourceDevice: 'Quellgerät',
+    visCharacterInfo: 'Charakter-ID {chara} · Stufe {stage}',
+    visCharacterPreview: 'Charakter', visPlanetPreview: 'Planetenbild', visParameters: 'Charakter- und Paketdaten',
+    visTamaZoom: 'Tama-Ansicht', visFieldZoom: 'Feldansicht',
+    visAnimationView: 'Ansicht', visAnimationLayer: 'Ebene', visAllLayers: 'Kompletter Charakter',
+    visPlayFrames: 'Abspielen', visPauseFrames: 'Pausieren', visFrameCount: 'Bild {index} / {total}',
+    visBody: 'Körper', visEyes: 'Augen', visMouth: 'Mund',
+    visField: 'Herkunftsfeld', visEyeId: 'Augen-ID', visOriginalId: 'Ursprüngliche Charakter-ID', visRank: 'Speziesrang',
+    visColor: 'Farbindex', visOriginalPalette: 'Originalpalette', visCharacterFlags: 'Charakter-Flags',
+    visGhostType: 'Pakettyp', visGhostFlags: 'Paket-Flags', visGhostLength: 'Paketgröße (Bytes)', visGhostChecksum: 'Prüfsumme',
+    visBodyPalette: 'Körperpalette (RGB565)', visMouthPalette: 'Mundpalette (RGB565)',
+    visPlanetSize: 'Planetenbildgröße (Bytes)', visPlanetChecksum: 'Planetenbild-Prüfsumme',
+    visNameSlot: 'Charaktername · {language}', visPlanetNameSlot: 'Planetenname · {language}',
+    visDeviceUid: 'Geräte-UID', visCharacterUid: 'Charakter-UID', visFriendship: 'Freundschaft',
+    visPreviousResult: 'Vorheriges Ergebnis', visHunger: 'Hunger', visHappiness: 'Zufriedenheit', visLove: 'Verliebt (0/1)',
+    visGhostFormat: 'Ungültiges .ghost.png oder Playdate-Paket',
     visHint: 'Das Studio spielt ein zweites Paradise. Dongle an die Kontakte, das Paradise läuft normal.\n1. Edition wählen, Starten, Dongle wählen.\n2. Am Paradise: Planet-Menü, VERBINDUNG, PLAYDATE, dann B.\nOben "Verbinden" ist nur fürs ROM, für den Besuch nicht drücken.',
     visWait: 'Bereit als {ed}. Am Paradise PLAYDATE wählen und B drücken.', visRun: 'Verbunden, Daten werden getauscht…', visPlay: 'Die beiden spielen…',
     visDone: 'Besuch fertig ({ed}). Für den nächsten wieder B am Paradise.', visErr: 'Abgebrochen: {e}. Am Paradise nochmals B.', visBadKey: 'Das Paradise versteht die Daten nicht.',
@@ -177,6 +203,32 @@ const T = {
     devNoSerial: 'This browser cannot talk to the dongle. Please use Chrome or Edge on a computer.', devNone: 'Not connected.',
     fl_noRescueRoom: 'No room for the write protection (rescue start, top 64 KB of the flash). Nothing was written. Remove a program from the start device and write again.', plHint: 'Prolific adapter (PL2303): newer Windows drivers block older and copied PL2303 chips, then no data gets through. Fix: pick the older Prolific driver 3.3.2.x in the Device Manager, or use an adapter with CH340 or CP2102.', resOn: 'Write protection on: if a write is cut off, the device starts in the flash screen.', resModeGo: 'The last write was cut off. The device is in the flash screen and waits. Press "Continue writing".', resModeRom: 'The last write was cut off. The device is in the flash screen and waits. Open the ROM again (or your backup) and write it to the device.', resResume: 'Continue writing', resHalf: 'The last write did not finish. Press "Continue writing" so everything fits together again.', resResumed: 'Done: {w} sectors written. Switch the Paradise off and on.', resTest: 'Test rescue start', resBack: 'Write header back', resSure: 'Test: the rescue start goes to 0xFF0000, then the device header (sector 0) is cleared. Then switch the Paradise off and on. If the flash screen appears, connect here and "Write header back". If it does not, the device will not start without your own flash tool. Go on?', resCleared: 'Header cleared. Switch the Paradise off and on. Flash screen there? Then connect and "Write header back".', resBackDone: 'Header written back. Switch the Paradise off and on: it starts normally again.', resNoHdr: 'No header kept.', devOn: 'Connected: {ed}, {mb} MB{l}', devLoaded: ', flash app loaded', devReady: 'Ready.', devNeedRom: 'To write, open a ROM first (or read one).',
     visTitle: 'Simulate a visit (Paradise)', visStart: 'Start', visStop: 'Stop',
+    visModel: 'Model', visCapture: 'Download incoming UART',
+    visCharacter: 'Visitor', visMirror: 'Return received character', visImport: 'Choose Files',
+    visImported: 'Imported',
+    visRomCharacters: 'ROM characters', visRomVisitorError: 'Could not prepare visitor ({reason}).',
+    visVisitorColor: 'Body color', visKeepColor: 'Keep color', visKeepEyes: 'Keep eyes',
+    visPaletteNames: 'Red|Pink|Magenta|Purple|Blue|Cyan|Green|Yellow|Orange|Rose|Lavender|Sky blue|Lime|Cream|White|Gray',
+    visVisitorExport: 'Export Visitor (.bin)', visAppearanceNeedsRom: 'Load a Paradise ROM to choose colors and eyes.',
+    visPeerTitle: 'Received Playdate character',
+    visPeerExport: 'Export received character (.bin)', visNoImage: 'No preview image available.',
+    visUnknownModel: 'Unknown model', visUnnamed: 'Unnamed character',
+    visRomInfo: '{model} (ROM type {rom} / {hex})', visSourceDevice: 'Source device',
+    visCharacterInfo: 'Character ID {chara} · Stage {stage}',
+    visCharacterPreview: 'Character', visPlanetPreview: 'Planet screenshot', visParameters: 'Character and packet details',
+    visTamaZoom: 'Tama view', visFieldZoom: 'Field view',
+    visAnimationView: 'View', visAnimationLayer: 'Layer', visAllLayers: 'Full character',
+    visPlayFrames: 'Play', visPauseFrames: 'Pause', visFrameCount: 'Frame {index} / {total}',
+    visBody: 'Body', visEyes: 'Eyes', visMouth: 'Mouth',
+    visField: 'Native field', visEyeId: 'Eye character ID', visOriginalId: 'Original character ID', visRank: 'Species rank',
+    visColor: 'Color index', visOriginalPalette: 'Original palette', visCharacterFlags: 'Character flags',
+    visGhostType: 'Ghost package type', visGhostFlags: 'Ghost package flags', visGhostLength: 'Ghost package size (bytes)',
+    visGhostChecksum: 'Ghost checksum', visBodyPalette: 'Body palette (RGB565)', visMouthPalette: 'Mouth palette (RGB565)',
+    visPlanetSize: 'Planet screenshot size (bytes)', visPlanetChecksum: 'Planet screenshot checksum',
+    visNameSlot: 'Character name · {language}', visPlanetNameSlot: 'Planet name · {language}',
+    visDeviceUid: 'Device UID', visCharacterUid: 'Character UID', visFriendship: 'Friendship',
+    visPreviousResult: 'Previous result', visHunger: 'Hunger', visHappiness: 'Happiness', visLove: 'In love (0/1)',
+    visGhostFormat: 'Invalid .ghost.png or Playdate package',
     visHint: 'The Studio plays a second Paradise. Dongle on the contacts, the Paradise runs normally.\n1. Choose the edition, Start, choose the dongle.\n2. On the Paradise: planet menu, CONNECTION, PLAYDATE, then B.\n"Connect" above is only for the ROM, do not press it for a visit.',
     visWait: 'Ready as {ed}. On the Paradise choose PLAYDATE and press B.', visRun: 'Connected, exchanging data…', visPlay: 'The two are playing…',
     visDone: 'Visit done ({ed}). For the next one press B on the Paradise again.', visErr: 'Stopped: {e}. Press B on the Paradise again.', visBadKey: 'The Paradise does not understand the data.',
@@ -369,7 +421,16 @@ function applyLang() {
     document.querySelectorAll('#gridFigs .tile').forEach((b) => { const g = +b.dataset.idx; b.querySelector('.cap span').textContent = [state.charNames.get(g), groupRole(g)].filter(Boolean).join(' '); });
     if (state.open) openDrawer(state.open.kind, state.open.idx);
   }
-  try { if (!dv.run) devRender(); } catch (e) {}   // dv does not exist yet on the first call
+  try {
+    if (!dv.run) devRender();
+    visRender();
+    visPeerLabels();
+    visPlaybackLabel('visPeer');
+    visPlaybackLabel('visVisitor');
+    $('visRomVisitors').label = t('visRomCharacters');
+    visAppearanceLabels();
+    visRenderVisitor(false);
+  } catch (e) {}   // Device controls may not be initialized yet.
 }
 document.querySelectorAll('[data-lang]').forEach(b => b.onclick = () => { lang = b.dataset.lang; try { localStorage.setItem('paramix-lang', lang); } catch (e) {} applyLang(); });
 
@@ -482,6 +543,7 @@ async function loadRom(file) {
     const tt = F.textTabelle(buf), chars = C.charTable(ctx.files[0]).filter((c) => c.id > 1000 && c.id < 9000);
     if (tt >= 0 && chars.length + 1 === ctx.groups.length) chars.forEach((c, i) => { const n = F.zeichenkette(buf, tt, c.name); if (n) state.charNames.set(ctx.groups[i + 1], n); });
   } catch (e) { state.fields = []; }
+  visRefreshRomVisitors();
   cleanTabs();
   renderInfo(); if (!clean) { renderGrids(); renderNames(); renderDim(); } renderEmu(); renderDoom(); renderFeld(); renderSave(); if (!dv.run) devRender();
   toast(clean ? t('cleanLoaded', { ed: ctx.edition, n: state.extras.length }) : t('loaded', { ed: ctx.edition, s: ctx.entries.length, f: ctx.groups.length }));
@@ -2828,21 +2890,570 @@ $('helpClose').onclick = () => { $('helpBox').hidden = true; };
 $('btnDevStop').onclick = () => { dv.cancel = true; };
 /* 1.6.9: simulated playdate partner for the Paradise (src/visit.js). Same link key and serial transport as the
  * flash app loader (src/flash.js). */
-const VS = { io: null, v: null };
-const VIS_ED = [['land', 'Land'], ['water', 'Water'], ['sky', 'Sky'], ['jade', 'Jade Forest'], ['tropics', 'Tropics'], ['glacier', 'Glacier']];
+const VIS = window.ParamixVisit;
+const VS = {
+  io: null, v: null, peer: null, chunks: [], bytes: 0,
+  ghosts: [], baseVisitor: null, visitor: null, romContext: null, romVisitors: new Map(),
+  romPalette: null, eyeChoices: new Map(),
+};
+const VIS_CAPTURE_LIMIT = 4 * 1024 * 1024;
+const VIS_SCREENSHOT = 0x1b000;
+const VIS_ED = [
+  ['land', 'Land', '#A42D5D', '#FF9CC1'],
+  ['water', 'Water', '#145EB6', '#8DC2FF'],
+  ['sky', 'Sky', '#7541A8', '#D7B1FF'],
+  ['jade', 'Jade Forest', '#236D3F', '#90DFA7'],
+  ['tropics', 'Tropics', '#A64110', '#FFB881'],
+  ['glacier', 'Glacier', '#53657A', '#DFE8F4'],
+  ['neon', 'Neon Planet', '#526300', '#D7F25D'],
+  ['my-lab', 'My Lab', '#126E70', '#79D8D3'],
+];
+const VIS_LANGUAGES = [
+  ['ja', '日本語'], ['en', 'English'], ['fr', 'Français'], ['de', 'Deutsch'],
+  ['pt', 'Português'], ['es', 'Español'], ['it', 'Italiano'], ['zh-Hans', '简体中文'], ['ko', '한국어'],
+];
+// These ROM glyph indices precede the CJK table. They are not Unicode code points.
+const VIS_NAME_SYMBOLS = [];
+for (const [start, chars] of [
+  [2, '0123456789+-'],
+  [15, 'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをんぁぃぅぇぉっゃゅょがぎぐげござじずぜぞだぢづでどばびぶべぼぱぴぷぺぽ'],
+  [95, 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンァィゥェォッャュョガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポ'],
+  [175, 'ヴー〜…、。（）「」．・！？＆○×,:“”’#$*/;<=>@[¥]^_‘{|}♡☀★🍥𝅘𝅥𝅮╬⤴⤵→←¢%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz+😁😠😡😑😫😢😸🎱😦😖😒🎁👜🍙🍰✨🔄🌣'],
+  [299, '²💩'],
+  [305, ' 0123456789+-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!“#$%&’()*,./:;<=>?@[¥]^_‘{|}~ÀÁÂÃÄÆÇÉÈÊËÎÏÓÒÔÕÖŒÙÚÛÜŸÍÌÑ¿¡°'],
+  [432, 'カ💦💡☂🌩🍀🌠🌃🌙🌧⚾🎮👜📖⌚☕🚗🏘😷👓🌷🌸🛒🛸😀😓😖😵😬😳😮'],
+]) {
+  Array.from(chars).forEach((char, index) => { VIS_NAME_SYMBOLS[start + index] = char; });
+}
+VIS_NAME_SYMBOLS[298] = '✈️';
+let visCjkNames;
+function visCjkGlyphs() {
+  if (visCjkNames) return visCjkNames;
+  const decodePairs = (encoding, first, last, skip) => {
+    const decoder = new TextDecoder(encoding, { fatal: true }), chars = new Set();
+    const pair = new Uint8Array(2);
+    for (let lead = first; lead <= last; lead++) for (let trail = 0xa1; trail <= 0xfe; trail++) {
+      if (skip?.(lead, trail)) continue;
+      pair[0] = lead; pair[1] = trail;
+      try {
+        const char = decoder.decode(pair);
+        if (char.length === 1) chars.add(char);
+      } catch (_) {}
+    }
+    return Array.from(chars).sort().join('');
+  };
+  const sequence = (start, count) => Array.from({ length: count }, (_, i) => String.fromCharCode(start + i)).join('');
+  // KS X 1001 Hangul and GB2312 Han characters are both in Unicode order in the ROM.
+  visCjkNames = decodePairs('euc-kr', 0xb0, 0xc8) + '　　' +
+    sequence(0x3105, 37) + sequence(0x3220, 10) +
+    decodePairs('gbk', 0xb0, 0xf7, (lead, trail) => lead === 0xd7 && trail > 0xf9);
+  return visCjkNames;
+}
+function visNameGlyph(code) {
+  const glyph = code < 481 ? VIS_NAME_SYMBOLS[code] : visCjkGlyphs()[code - 481];
+  return glyph ?? '[' + visHex(code) + ']';
+}
+function visReadName(view, start) {
+  let name = '';
+  for (let i = 0; i < 13; i++) {
+    const code = view.getUint16(start + i * 2, true);
+    if (!code) break;
+    name += visNameGlyph(code);
+  }
+  return name.trim();
+}
+function visGhostName(view, start = 0x12) {
+  return visReadName(view, start + 26) || visReadName(view, start);
+}
+function visView(bytes) { return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength); }
+function visDecodeSprite(sprite, colorPalette) {
+  if (sprite.length < 22) return null;
+  const h = C.spriteHeader(sprite), cells = h.sw * h.sh * h.numSprites;
+  if (!cells || cells > 0x80000 || h.numSprites > 256 || !h.iw || !h.ih ||
+      h.sw * h.iw > 128 || h.sh * h.ih > 128 || h.numPal > 16) return null;
+  try {
+    if (colorPalette && h.bpp === 2 && h.palOffset + 32 <= sprite.length) {
+      sprite = sprite.slice();
+      sprite.set(colorPalette, h.palOffset);
+    }
+    return C.spriteDecode(sprite, 0, true).subs;
+  } catch (_) {
+    return null;
+  }
+}
+function visPlanetImage(bytes) {
+  const view = visView(bytes);
+  if (view.getUint32(VIS_SCREENSHOT + 8, true) !== 0x54485353) return null;
+  const size = view.getUint32(VIS_SCREENSHOT + 12, true);
+  if (size < 0x216 || size > 0x5000) return null;
+  return visDecodeSprite(bytes.subarray(VIS_SCREENSHOT + 0x200, VIS_SCREENSHOT + size))?.[0];
+}
+function visSpriteSheets(bytes) {
+  const view = visView(bytes);
+  // Each zoom level has its own body, eyes and mouth sprite block.
+  return Array.from({ length: 6 }, (_, part) => {
+    const field = 0x110 + part * 8;
+    const offset = view.getUint32(field, true), length = view.getUint32(field + 4, true);
+    if (offset < 0x1d34 || length < 22 || offset + length > VIS_SCREENSHOT) return null;
+    const palette = part % 3 === 0 ? 0x140 : part % 3 === 2 ? 0x160 : 0;
+    const entry = bytes.subarray(offset, offset + length);
+    const frames = visDecodeSprite(entry, palette ? bytes.subarray(palette, palette + 32) : null);
+    if (!frames?.length) return null;
+    return { frames, x: view.getInt8(offset + 10), y: view.getInt8(offset + 11) };
+  });
+}
+function visCharacterPoses(bytes, sheets) {
+  const view = visView(bytes), poses = [[], []];
+  for (let pose = 0; pose < 54; pose++) {
+    const layers = [];
+    const start = 0x600 + pose * 110, group = pose >= 30 ? 3 : 0;
+    for (let layer = 0; layer < 3; layer++) {
+      const at = start + layer * 22;
+      const part = view.getUint16(at, true);
+      if (part !== group + layer || !bytes.subarray(at, at + 22).some(Boolean)) continue;
+      const sheet = sheets[part];
+      const sprite = sheet?.frames[view.getUint16(at + 12, true)];
+      if (!sprite) continue;
+      // The first two signed coordinates come after the sprite ID.
+      layers.push({ part, sprite, x: view.getInt16(at + 2, true) + sheet.x, y: view.getInt16(at + 4, true) + sheet.y });
+    }
+    const body = layers.find(layer => layer.part === 0 || layer.part === 3);
+    if (!body) continue;
+    // The layers share a vertical center, with additional offsets from the sprite headers.
+    for (const layer of layers) {
+      layer.y += Math.trunc((body.sprite.h - layer.sprite.h) / 2);
+    }
+    const left = Math.min(...layers.map(l => l.x)), top = Math.min(...layers.map(l => l.y));
+    const width = Math.max(...layers.map(l => l.x + l.sprite.w)) - left;
+    const height = Math.max(...layers.map(l => l.y + l.sprite.h)) - top;
+    if (width > 256 || height > 256) continue;
+    const image = C.emptyImage(width, height);
+    for (const { sprite, x: dx, y: dy } of layers) {
+      for (let y = 0; y < sprite.h; y++) for (let x = 0; x < sprite.w; x++) {
+        const src = (y * sprite.w + x) * 4;
+        if (!sprite.data[src + 3]) continue;
+        image.data.set(sprite.data.subarray(src, src + 4), ((dy - top + y) * width + dx - left + x) * 4);
+      }
+    }
+    poses[group / 3].push({ ...image, x: left - body.x, y: top - body.y });
+  }
+  return poses;
+}
+function visDrawImage(canvas, image) {
+  canvas.width = image.w;
+  canvas.height = image.h;
+  canvas.getContext('2d').putImageData(new ImageData(image.data, image.w, image.h), 0, 0);
+}
+function visPicture(id, image) {
+  const figure = $(id);
+  figure.hidden = !image;
+  if (image) visDrawImage(figure.querySelector('canvas'), image);
+}
+const VIS_FRAME_MS = 320;
+const visAnimations = new Map();
+
+function visStopAnimation(prefix) {
+  const playback = visAnimations.get(prefix);
+  if (playback) clearInterval(playback.timer);
+  visAnimations.delete(prefix);
+}
+function visPlaybackLabel(prefix) {
+  const playback = visAnimations.get(prefix);
+  const button = $(prefix + 'Playback'), label = t(playback?.timer ? 'visPauseFrames' : 'visPlayFrames');
+  if (button.textContent !== label) button.textContent = label;
+  if (playback) {
+    $(prefix + 'Frame').textContent = t('visFrameCount', { index: playback.index + 1, total: playback.frames.length });
+  }
+}
+function visPaintFrame(prefix) {
+  const playback = visAnimations.get(prefix);
+  const { canvas, frames, index, left, top } = playback;
+  const frame = frames[index], context = canvas.getContext('2d');
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.putImageData(new ImageData(frame.data, frame.w, frame.h), (frame.x || 0) - left, (frame.y || 0) - top);
+  visPlaybackLabel(prefix);
+}
+function visToggleFrameTimer(prefix, play) {
+  const playback = visAnimations.get(prefix);
+  clearInterval(playback.timer);
+  playback.timer = play && playback.frames.length > 1 ? setInterval(() => {
+    if (document.hidden || $('device').hidden) return;
+    playback.index = (playback.index + 1) % playback.frames.length;
+    visPaintFrame(prefix);
+  }, VIS_FRAME_MS) : null;
+  visPlaybackLabel(prefix);
+}
+function visSetFrameSequence(prefix) {
+  const playback = visAnimations.get(prefix), zoom = $(prefix + 'Zoom'), layer = $(prefix + 'Layer');
+  const views = playback.views;
+  for (const option of zoom.options) option.disabled = !views[Number(option.value)].some(frames => frames?.length);
+  if (!views[Number(zoom.value)].some(frames => frames?.length)) zoom.value = zoom.options[0].disabled ? '1' : '0';
+  const available = views[Number(zoom.value)];
+  for (const [index, option] of Array.from(layer.options).entries()) option.disabled = !available[index]?.length;
+  if (!available[layer.selectedIndex]?.length) layer.selectedIndex = Array.from(layer.options).findIndex(option => !option.disabled);
+  playback.frames = available[layer.selectedIndex];
+  playback.index = 0;
+  const frames = playback.frames;
+  playback.left = Math.min(...frames.map(f => f.x || 0));
+  playback.top = Math.min(...frames.map(f => f.y || 0));
+  playback.canvas.width = Math.max(...frames.map(f => (f.x || 0) + f.w)) - playback.left;
+  playback.canvas.height = Math.max(...frames.map(f => (f.y || 0) + f.h)) - playback.top;
+  $(prefix + 'Playback').disabled = frames.length < 2;
+  visPaintFrame(prefix);
+  visToggleFrameTimer(prefix, !playback.paused);
+}
+function visSetAnimation(prefix, bytes, sheets) {
+  const previous = visAnimations.get(prefix);
+  visStopAnimation(prefix);
+  const figure = $(prefix + 'Character');
+  const poses = visCharacterPoses(bytes, sheets);
+  const views = poses.map((frames, zoom) => {
+    const layers = sheets.slice(3 * zoom, 3 * zoom + 3).map(sheet => sheet?.frames);
+    return [frames.length ? frames : layers[0], ...layers];
+  });
+  const hasFrames = views.some(view => view.some(frames => frames?.length));
+  figure.hidden = !hasFrames;
+  if (!hasFrames) return false;
+  const playback = {
+    views, canvas: figure.querySelector('canvas'), frames: [], index: 0, timer: null,
+    paused: previous?.paused ?? window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  };
+  visAnimations.set(prefix, playback);
+  $(prefix + 'Zoom').onchange = () => visSetFrameSequence(prefix);
+  $(prefix + 'Layer').onchange = () => visSetFrameSequence(prefix);
+  $(prefix + 'Playback').onclick = () => {
+    playback.paused = !playback.paused;
+    visToggleFrameTimer(prefix, !playback.paused);
+  };
+  visSetFrameSequence(prefix);
+  return true;
+}
+function visCharacterImages(prefix, bytes) {
+  const character = visSetAnimation(prefix, bytes, visSpriteSheets(bytes));
+  const planet = visPlanetImage(bytes);
+  visPicture(prefix + 'Planet', planet);
+  const planetName = planet ? visGhostName(visView(bytes), VIS_SCREENSHOT + 0x10) : '';
+  $(prefix + 'PlanetName').textContent = planetName ? ' · ' + planetName : '';
+  $(prefix + 'ImageStatus').hidden = !!(character || planet);
+}
+const visHex = (n, width = 4) => '0x' + n.toString(16).toUpperCase().padStart(width, '0');
+function visModel(code) {
+  return VIS_ED.find(([key]) => VIS.ED[key] === code);
+}
+function visNativeFieldModel(field) {
+  return C.FIELD_NAMES[field] || field === VIS.ED.neon ? visModel(field) : undefined;
+}
+function visModelColor([, , light, dark]) {
+  return 'light-dark(' + light + ', ' + dark + ')';
+}
+function visCharacterParameters(prefix, view, playdate) {
+  const word = (offset) => view.getUint16(offset, true);
+  const hexWord = (offset) => visHex(word(offset));
+  const palette = (offset) => Array.from({ length: 16 }, (_, i) => hexWord(offset + 2 * i)).join(' ');
+  const field = word(0x100), color = view.getUint8(0x10);
+  const fieldModel = visNativeFieldModel(field);
+  const rows = [
+    ['visField', field + ' · ' + (fieldModel?.[1] || t('visUnknownModel'))],
+    ['visEyeId', hexWord(0x0e)], ['visOriginalId', hexWord(0x10a)], ['visRank', word(0xfe)],
+    ['visColor', color === 0xff ? t('visOriginalPalette') : color],
+    ['visCharacterFlags', hexWord(0x102)],
+    ['visGhostType', view.getUint32(8, true) & 3], ['visGhostFlags', visHex(view.getUint32(8, true), 8)],
+    ['visGhostLength', view.getUint32(0x10c, true)],
+    ['visGhostChecksum', visHex(view.getUint32(0, true), 8)],
+    ['visBodyPalette', palette(0x140)], ['visMouthPalette', palette(0x160)],
+  ];
+  const addNames = (base, label) => {
+    VIS_LANGUAGES.forEach(([locale, language], slot) => {
+      const name = visReadName(view, base + slot * 26);
+      if (name) rows.push([t(label, { language }), name, locale]);
+    });
+  };
+  addNames(0x12, 'visNameSlot');
+  if (view.getUint32(VIS_SCREENSHOT + 8, true) === 0x54485353) {
+    rows.push(
+      ['visPlanetSize', view.getUint32(VIS_SCREENSHOT + 12, true)],
+      ['visPlanetChecksum', visHex(view.getUint32(VIS_SCREENSHOT, true), 8)],
+    );
+    addNames(VIS_SCREENSHOT + 0x10, 'visPlanetNameSlot');
+  }
+  if (playdate) {
+    const data = visView(playdate), base = VIS.GHOST_SIZE;
+    rows.push(
+      ['visDeviceUid', visHex(data.getUint32(base + 4, true), 8)],
+      ['visCharacterUid', visHex(data.getUint32(base + 8, true), 8)],
+      ['visFriendship', data.getUint16(base + 12, true)],
+      ['visPreviousResult', data.getUint16(base + 14, true)],
+      ['visHunger', data.getUint8(base + 16)], ['visHappiness', data.getUint8(base + 17)],
+      ['visLove', data.getUint16(base + 18, true) & 1],
+    );
+  }
+  const list = $(prefix + 'Parameters');
+  list.replaceChildren();
+  for (const [key, value, locale] of rows) {
+    const label = document.createElement('dt'), detail = document.createElement('dd');
+    label.textContent = t(key);
+    detail.textContent = value;
+    if (key === 'visField' && fieldModel) detail.style.color = visModelColor(fieldModel);
+    if (locale) detail.lang = locale;
+    list.append(label, detail);
+  }
+}
+function visCharacterLabels(prefix, bytes, name, playdate, romType = playdate && visView(playdate).getUint16(VIS.GHOST_SIZE + 2, true)) {
+  const view = visView(bytes);
+  const info = [];
+  if (romType !== undefined) {
+    const model = visModel(romType)?.[1] || t('visUnknownModel');
+    const device = t('visRomInfo', { model, rom: romType, hex: visHex(romType) });
+    info.push(prefix === 'visVisitor' ? t('visSourceDevice') + ' — ' + device : device);
+  }
+  info.push(t('visCharacterInfo', {
+    chara: visHex(view.getUint16(0x0c, true)), stage: view.getUint16(0xfc, true),
+  }));
+  $(prefix + 'Name').textContent = name || visGhostName(view) || t('visUnnamed');
+  $(prefix + 'Info').textContent = info.join(' · ');
+  visCharacterParameters(prefix, view, playdate);
+}
+function visPeerLabels() {
+  if (!VS.peer) return;
+  visCharacterLabels('visPeer', VS.peer, null, VS.peer);
+}
+function visRefreshRomVisitors() {
+  if (VS.io || VS.romContext === state.ctx) return;
+  VS.romContext = state.ctx;
+  VS.romVisitors.clear();
+  VS.romPalette = null;
+  const group = $('visRomVisitors');
+  group.label = t('visRomCharacters');
+  group.replaceChildren();
+  try {
+    const ctx = state.clean ? null : state.ctx;
+    VS.romPalette = ctx ? C.characterPaletteVariants(ctx.entries)?.bytes : null;
+    for (const visitor of VIS.collectRomVisitors(ctx, C)) {
+      const { id, field } = visitor.character;
+      const codes = visitor.names[1]?.length ? visitor.names[1] : visitor.names[0];
+      const name = codes?.map(visNameGlyph).join('').trim() || visHex(id);
+      const option = document.createElement('option');
+      option.value = 'rom:' + id;
+      const fieldName = visNativeFieldModel(field)?.[1];
+      option.textContent = [name, fieldName, visHex(id)].filter(Boolean).join(' · ');
+      group.appendChild(option);
+      VS.romVisitors.set(option.value, { visitor, name });
+    }
+  } catch (_) {
+    group.replaceChildren();
+    VS.romVisitors.clear();
+  }
+  group.hidden = !VS.romVisitors.size;
+  if ($('visGhost').value.startsWith('rom:')) $('visGhost').value = '';
+  visSelectVisitor();
+}
+function visAddChoice(select, value, label) {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = label;
+  select.appendChild(option);
+}
+function visAppearanceLabels() {
+  const colors = $('visColorChoice').options, originalEyes = $('visEyesChoice').options[0];
+  const names = t('visPaletteNames').split('|');
+  if (colors[0]) colors[0].textContent = t('visKeepColor');
+  for (let i = 1; i < colors.length; i++) colors[i].textContent = names[Number(colors[i].value)];
+  if (originalEyes) originalEyes.textContent = t('visKeepEyes');
+}
+function visConfigureAppearance() {
+  const base = VS.baseVisitor;
+  $('visVisitorAppearance').hidden = !base?.canEdit;
+  const colors = $('visColorChoice'), eyes = $('visEyesChoice');
+  colors.replaceChildren(); eyes.replaceChildren(); VS.eyeChoices.clear();
+  visAddChoice(colors, '', t('visKeepColor'));
+  visAddChoice(eyes, '', t('visKeepEyes'));
+  colors.value = ''; eyes.value = '';
+  $('visAppearanceNeedsRom').hidden = !base?.canEdit || !!VS.romPalette || !!VS.romVisitors.size;
+  if (!base?.canEdit) return;
+
+  const available = VIS.ghostAppearanceOptions(base.bytes, C);
+  if (VS.romPalette && available.tint) {
+    t('visPaletteNames').split('|').forEach((name, index) => visAddChoice(colors, String(index), name));
+  }
+  if (available.eyes) {
+    const originalId = visView(base.bytes).getUint16(0x0e, true);
+    for (const [value, { visitor, name }] of VS.romVisitors) {
+      const donor = VIS.romEyes(visitor, available.eyes, C);
+      if (!donor || (base.fromRom && donor.id === originalId)) continue;
+      const field = visNativeFieldModel(visitor.character.field)?.[1];
+      visAddChoice(eyes, value, [name, field, visHex(donor.id)].filter(Boolean).join(' · '));
+      VS.eyeChoices.set(value, donor);
+    }
+  }
+}
+function visSelectVisitor() {
+  const value = $('visGhost').value, rom = VS.romVisitors.get(value);
+  VS.baseVisitor = null;
+  let error;
+  try {
+    VS.baseVisitor = rom ? {
+      bytes: VIS.buildRomGhost(rom.visitor, C), name: rom.name, fromRom: true, canEdit: true,
+      romType: VS.romContext.editionId || undefined,
+    } : VS.ghosts[value];
+  } catch (e) {
+    error = e;
+  }
+  visConfigureAppearance();
+  visRenderVisitor();
+  if (error) $('visRomVisitorError').textContent = t('visRomVisitorError', { reason: error.message });
+}
+function visRenderVisitor(renderImages = true) {
+  if (renderImages) {
+    const base = VS.baseVisitor;
+    $('visRomVisitorError').textContent = '';
+    VS.visitor = null;
+    try {
+      if (base) {
+        const color = $('visColorChoice').value;
+        let bytes = VIS.editGhostAppearance(base.bytes, {
+          color: color === '' ? undefined : Number(color), palette: VS.romPalette,
+          eyes: VS.eyeChoices.get($('visEyesChoice').value),
+        });
+        if (base.fromRom) {
+          if (bytes === base.bytes) bytes = bytes.slice();
+          const poses = visCharacterPoses(bytes, visSpriteSheets(bytes));
+          const portrait = poses[0][0] || poses[1][0];
+          if (portrait) VIS.writeRomGhostPlanet(bytes, portrait, C);
+        }
+        VS.visitor = { ...base, bytes };
+      }
+    } catch (e) {
+      $('visRomVisitorError').textContent = t('visRomVisitorError', { reason: e.message });
+    }
+    visRender();
+  }
+  const ghost = VS.visitor || VS.baseVisitor;
+  $('visVisitor').hidden = !ghost;
+  if (!ghost) { visStopAnimation('visVisitor'); return; }
+  visCharacterLabels('visVisitor', ghost.bytes, ghost.name, ghost.playdate, ghost.romType);
+  if (renderImages) visCharacterImages('visVisitor', ghost.bytes);
+}
+function visReceivePeer(bytes) {
+  VS.peer = bytes;
+  visCharacterImages('visPeer', bytes);
+  $('btnVisPeerExport').disabled = false;
+  visPeerLabels();
+  $('visPeer').hidden = false;
+}
+async function visImportGhost(file) {
+  if (file.size > 8 * 1024 * 1024) throw new Error(t('visGhostFormat'));
+  const fileBytes = new Uint8Array(await file.arrayBuffer());
+  const view = visView(fileBytes);
+  let bytes = fileBytes, name;
+  const png = fileBytes.length >= 8 && view.getUint32(0) === 0x89504e47 && view.getUint32(4) === 0x0d0a1a0a;
+  if (png) {
+    bytes = null;
+    for (let offset = 8; offset + 12 <= fileBytes.length;) {
+      const end = offset + 8 + view.getUint32(offset);
+      if (end + 4 > fileBytes.length) throw new Error(t('visGhostFormat'));
+      const type = view.getUint32(offset + 4);
+      const chunk = fileBytes.subarray(offset + 8, end);
+      if (type === 0x7461426e) { // taBn
+        if (C.crc32(fileBytes.subarray(offset + 4, end)) !== view.getUint32(end)) throw new Error(t('visGhostFormat'));
+        bytes = chunk;
+      } else if (type === 0x74455874) { // tEXt
+        const text = new TextDecoder().decode(chunk);
+        if (text.startsWith('tama:meta\0')) {
+          try { name = JSON.parse(text.slice(10))?.item_name; } catch (_) {}
+        }
+      } else if (type === 0x49454e44) break; // IEND
+      offset = end + 4;
+    }
+  }
+  const playdate = bytes?.length === VIS.PACKET_SIZE ? bytes : undefined;
+  if (playdate) bytes = playdate.subarray(0, VIS.GHOST_SIZE);
+  if (bytes?.length !== VIS.GHOST_SIZE) throw new Error(t('visGhostFormat'));
+  const header = visView(bytes);
+  const size = header.getUint32(0x10c, true);
+  if ((header.getUint32(8, true) & 3) || ((header.getUint32(0, true) + header.getUint32(4, true)) >>> 0) ||
+      size < 0x1d34 || size > VIS_SCREENSHOT) throw new Error(t('visGhostFormat'));
+  return { name: typeof name === 'string' && name ? name : visGhostName(header) || file.name, bytes, playdate, canEdit: !png };
+}
+$('visGhost').onchange = visSelectVisitor;
+$('visColorChoice').onchange = () => visRenderVisitor();
+$('visEyesChoice').onchange = () => visRenderVisitor();
+$('btnVisGhostImport').onclick = () => $('visGhostImport').click();
+$('visGhostImport').onchange = async () => {
+  const imported = [], errors = [];
+  const files = Array.from($('visGhostImport').files);
+  $('visGhostImport').value = '';
+  for (const file of files) {
+    try {
+      const ghost = await visImportGhost(file);
+      const option = document.createElement('option');
+      option.textContent = ghost.name;
+      option.value = String(VS.ghosts.push(ghost) - 1);
+      $('visGhost').appendChild(option);
+      if (!VS.io) $('visGhost').value = option.value;
+      imported.push(file.name);
+    } catch (e) {
+      errors.push(file.name + ' (' + e.message + ')');
+    }
+  }
+  $('visGhostImportStatus').hidden = !imported.length;
+  $('visGhostImportedFiles').textContent = imported.join(', ');
+  $('visGhostError').textContent = errors.join(', ');
+  if (!VS.io) visSelectVisitor();
+};
+function visDownloadCharacter(bytes, name, prefix) {
+  const filename = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'character';
+  download(bytes, prefix + filename + '.bin');
+}
+$('btnVisPeerExport').onclick = () => {
+  if (VS.peer) visDownloadCharacter(VS.peer, visGhostName(visView(VS.peer)), 'playdate-');
+};
+$('btnVisVisitorExport').onclick = () => {
+  const ghost = VS.visitor;
+  if (!ghost?.canEdit) return;
+  const bytes = ghost.playdate ? ghost.playdate.slice() : ghost.bytes;
+  if (ghost.playdate) bytes.set(ghost.bytes);
+  visDownloadCharacter(bytes, ghost.name, 'visitor-');
+};
+$('btnVisCapture').onclick = () => {
+  if (!VS.bytes) return;
+  const date = new Date().toISOString().replace(/[:.]/g, '-');
+  download(new Blob(VS.chunks, { type: 'application/octet-stream' }), 'playdate-incoming-' + date + '.bin');
+};
 function visKey() { return window.ParamixVisit.parseKey(FL.linkKey); }
 function visStat(m) { $('visStat').textContent = m; }
 function visEdName() { const e = $('visEd').value; const x = VIS_ED.find((a) => a[0] === e); return x ? x[1] : e; }
 function visRender() {
   $('btnVis').textContent = t(VS.io ? 'visStop' : 'visStart');
-  $('btnVis').disabled = !navigator.serial;
+  $('btnVis').disabled = !navigator.serial || (!VS.io && !!$('visGhost').value && !VS.visitor);
+  $('btnVisCapture').disabled = !VS.bytes;
+  $('visGhost').disabled = !!VS.io;
+  $('btnVisGhostImport').disabled = !!VS.io;
+  $('visGhostImport').disabled = !!VS.io;
+  $('visColorChoice').disabled = !!VS.io || $('visColorChoice').options.length < 2;
+  $('visEyesChoice').disabled = !!VS.io || $('visEyesChoice').options.length < 2;
+  $('btnVisVisitorExport').disabled = !VS.visitor?.canEdit;
 }
 {
   const sel = $('visEd');
-  for (const [v, n] of VIS_ED) { const o = document.createElement('option'); o.value = v; o.textContent = n; sel.appendChild(o); }
+  for (const model of VIS_ED) {
+    const [value, name] = model;
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = name;
+    option.style.setProperty('--model-color', visModelColor(model));
+    sel.appendChild(option);
+  }
   try { const e = localStorage.getItem('pmxVisitEd'); if (e) sel.value = e; } catch (e) {}
   if (!sel.value) sel.value = 'water';
-  sel.onchange = () => { try { localStorage.setItem('pmxVisitEd', sel.value); } catch (e) {} if (VS.io && (!VS.v || VS.v.state.phase === 'wait' || VS.v.state.phase === 'done' || VS.v.state.phase === 'error')) visArm(); };
+  const updateModelColor = () => {
+    sel.style.setProperty('--model-color', sel.selectedOptions[0]?.style.getPropertyValue('--model-color') || '');
+  };
+  updateModelColor();
+  sel.onchange = () => {
+    updateModelColor();
+    try { localStorage.setItem('pmxVisitEd', sel.value); } catch (e) {}
+    if (VS.io && (!VS.v || VS.v.state.phase === 'wait' || VS.v.state.phase === 'done' || VS.v.state.phase === 'error')) visArm();
+  };
   visRender();
 }
 function visArm() {
@@ -2850,9 +3461,11 @@ function visArm() {
   const ed = visEdName();
   VS.v = window.ParamixVisit.createVisitor({
     edition: $('visEd').value, key: visKey(),
+    ghost: VS.visitor?.bytes,
     send: (b) => VS.io.write(b),
     log: (e, i) => {
-      if (e === 'start') visStat(t('visRun'));
+      if (e === 'packet' && i.kind === 'data') visReceivePeer(i.playdate);
+      else if (e === 'start') visStat(t('visRun'));
       else if (e === 'sent') visStat(t('visPlay'));
       else if (e === 'done') { visStat(t('visDone', { ed })); setTimeout(() => { if (VS.io) visArm(); visStat(t('visDone', { ed })); }, 500); }
       else if (e === 'error') { visStat(i.text === 'key' ? t('visBadKey') : t('visErr', { e: i.text })); if (i.text !== 'key') setTimeout(() => { if (VS.io) visArm(); }, 1000); }
@@ -2864,6 +3477,7 @@ async function visClose() {
   const io = VS.io; VS.io = null;
   if (VS.v) VS.v.stop(); VS.v = null;
   try { if (io) await io.close(); } catch (e) {}
+  visRefreshRomVisitors();
   visRender();
 }
 $('btnVis').onclick = async () => {
@@ -2873,7 +3487,18 @@ $('btnVis').onclick = async () => {
   let port;
   try { port = await navigator.serial.requestPort(); } catch (e) { return; }
   try { VS.io = await FL.serialOpen(port); } catch (e) { visStat(t('visErr', { e: e.message })); return; }
-  VS.io.onData = (d) => { if (VS.v) VS.v.feed(d); };
+  VS.chunks = [];
+  VS.bytes = 0;
+  VS.io.onData = (d) => {
+    const remaining = VIS_CAPTURE_LIMIT - VS.bytes;
+    if (remaining > 0 && d.length) {
+      const chunk = d.slice(0, remaining);
+      VS.chunks.push(chunk);
+      VS.bytes += chunk.length;
+      $('btnVisCapture').disabled = false;
+    }
+    if (VS.v) VS.v.feed(d);
+  };
   visRender(); visArm();
 };
 const PL_HINT = true;
