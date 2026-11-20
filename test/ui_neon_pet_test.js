@@ -15,7 +15,7 @@ const SV = require('../src/saves.js');
   await p.click('.tab[data-tab="save"]');
   await p.click('#btnPetRom'); await p.waitForTimeout(800);
   const st = await p.evaluate(() => document.getElementById('petStat').textContent);
-  ok(/Stufe/.test(st) && !(await p.isHidden('#petRow')), 'save opened: ' + st);
+  ok(/(?:Stufe|level)/i.test(st) && !(await p.isHidden('#petRow')), 'save opened: ' + st);
   const opt = await p.evaluate(() => { const o = [...document.querySelectorAll('#petChar option')].find((x) => x.value.startsWith('4018:')); return o ? o.value : ''; });
   ok(!!opt, 'Tama list has Meowtchi (4018)');
   await p.selectOption('#petChar', opt); await p.selectOption('#petLevel', '7'); await p.click('#btnPetSave'); await p.waitForTimeout(800);

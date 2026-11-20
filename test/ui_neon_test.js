@@ -32,7 +32,7 @@ const E = require('../src/emu.js'), F = require('../src/feld.js');
   ok(Buffer.from(img.subarray(0xD85000, 0xF00000)).equals(Buffer.from(raw.subarray(0xD85000, 0xF00000))), 'ID page and save unchanged');
   const ff = F.feldFind(img, fe.stub); ok(ff && (ff.flags & 128), 'menu with the settings ring');
   const fa = F.feldApps(img, fe.stub); console.log('menu:', fa.apps.map((a) => a.name + '@' + a.src.toString(16)).join(', '));
-  ok(fa.apps.some((a) => (a.src & 0xFFFFFF) >= 0xF00000), 'NEON_HI: programs also behind the save');
+  ok(fa.apps.every((a) => { const off = (a.src & 0xFFFFFF) + 0x11000; return off < 0xD85000 || off >= 0xF00000; }), 'programs stay outside the Neon save area');
   ok(fa.apps.some((a) => a.name === 'TAMA P2') && fa.apps.some((a) => a.name === 'TAMA-GO'), 'both in the menu');
   ok(C.openRom(img).editionId === 8, 'still Neon Planets');
   ok(!errors.length, 'no page errors ' + errors.join('; '));

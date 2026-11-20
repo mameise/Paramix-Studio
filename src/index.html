@@ -160,6 +160,10 @@ img, canvas { image-rendering: pixelated; }
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line); }
 .device { margin-bottom: 12px; }
 .device .tools { margin: 8px 0; }
+.device-tabs { padding: 0; border-bottom: 2px solid var(--line); }
+.device-tabs .tab[aria-selected="true"] { box-shadow: inset 0 -3px var(--sky); }
+.device [role="tabpanel"] { padding-top: 8px; }
+#visGhost { max-width: min(100%, 350px); }
 .devinfo { font-weight: 700; }
 .legend { display: flex; flex-wrap: wrap; gap: 2px 16px; font-size: 12px; color: var(--soft); margin-top: 6px; }
 .rule { font-size: 13px; color: var(--soft); margin-top: 6px; }
@@ -214,6 +218,25 @@ img, canvas { image-rendering: pixelated; }
   background: conic-gradient(var(--check-a) 25%, var(--check-b) 0 50%, var(--check-a) 0 75%, var(--check-b) 0) 0 0 / 16px 16px; max-width: 100%; }
 .eyeed > div { flex: 1; min-width: 220px; }
 select { border: 2px solid var(--line); border-radius: 10px; padding: 5px 8px; background: var(--panel); }
+.playdate-pictures { display: flex; flex-wrap: wrap; gap: 16px; }
+.playdate-pictures figure { margin: 0; }
+.playdate-pictures canvas { display: block; width: 128px; height: 128px; object-fit: contain; }
+.playdate-pictures figcaption { color: var(--soft); font-size: 13px; }
+.playdate-details { margin-top: 8px; }
+.playdate-details summary { cursor: pointer; }
+.playdate-details dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 14px; }
+.playdate-details dd { margin: 0; overflow-wrap: anywhere; }
+.playdate-animation { margin-top: 6px; }
+.playdate-animation .tools { margin: 6px 0; }
+#visEd, #visEd option { color: var(--model-color, var(--ink)); }
+@supports (appearance: base-select) and selector(::picker(select)) {
+  #visEd, #visEd::picker(select) { appearance: base-select; }
+  #visEd::picker(select) {
+    padding: 4px; border: 2px solid var(--line); border-radius: 10px; background: var(--panel);
+  }
+  #visEd option { padding: 5px 8px; border-radius: 6px; }
+  #visEd option:is(:hover, :focus, :checked) { background: var(--bg); }
+}
 
 /* messages */
 .toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); background: var(--ink); color: var(--panel); padding: 10px 18px; border-radius: 12px; z-index: 20; max-width: min(640px, 92vw); font-size: 14px; display: none; white-space: pre-line; }
@@ -279,11 +302,19 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
     <h3 data-t="h9t"></h3><p data-t="h9"></p>
   </section>
   <section class="plan device" id="device" hidden>
-    <div class="plan-h" data-t="devTitle"></div>
+    <div class="tabs device-tabs" id="deviceTabs" role="tablist" aria-labelledby="btnDevice">
+      <button class="tab" id="deviceTabUart" type="button" role="tab" aria-selected="true" aria-controls="deviceUart" data-t="devTitle"></button>
+      <button class="tab" id="deviceTabPlaydate" type="button" role="tab" aria-selected="false" aria-controls="devicePlaydate" tabindex="-1" data-t="visTitle"></button>
+      <button class="tab" id="deviceTabLab" type="button" role="tab" aria-selected="false" aria-controls="deviceLab" tabindex="-1" data-t="labSend"></button>
+      <button class="tab" id="deviceTabFood" type="button" role="tab" aria-selected="false" aria-controls="deviceFood" tabindex="-1" data-t="foodTitle"></button>
+    </div>
+    <section id="deviceUart" role="tabpanel" aria-labelledby="deviceTabUart">
     <p class="hint" data-t="devHint"></p>
+    <p class="hint" id="uartConnectionHint" hidden></p>
     <p class="devwarn" data-t="devWarn"></p>
     <div class="tools">
       <button class="btn small" id="btnConn" data-t="devConnect"></button>
+      <button class="btn small" id="btnUartRelease" data-t="uartFree" hidden></button>
       <span class="devinfo" id="devInfo"></span>
     </div>
     <div class="tools">
@@ -307,15 +338,164 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
     </div>
     <div class="flash"><span class="seg emu" id="devBar" style="width:0"></span></div>
     <p class="emustat" id="devStat"></p>
+    </section>
+    <section id="devicePlaydate" role="tabpanel" aria-labelledby="deviceTabPlaydate" hidden>
     <div id="visitBox">
-      <h4 class="subhead" data-t="visTitle"></h4>
-      <p class="hint" data-t="visHint" style="white-space:pre-line"></p>
+      <p class="hint" id="visSourceHint" data-t="visSourceHint"></p>
       <div class="tools">
-        <select id="visEd"></select>
-        <button class="btn small primary" id="btnVis" data-t="visStart"></button>
+        <label><span id="visCharacterLabel" data-t="visCharacter"></span>
+          <select id="visGhost" aria-describedby="visSourceHint">
+            <option id="visDefault" value="" data-t="visMirror"></option>
+            <optgroup id="visRomVisitors" label="ROM characters" hidden></optgroup>
+          </select>
+        </label>
+        <button class="btn small" id="btnVisGhostImport" type="button" data-t="visImport"></button>
+        <input id="visGhostImport" type="file" accept=".png,.bin" multiple hidden>
+        <span class="hint" id="visGhostImportStatus" role="status" hidden>
+          <span data-t="visImported"></span> <span id="visGhostImportedFiles"></span>
+        </span>
       </div>
-      <p class="emustat" id="visStat"></p>
+      <p class="hint" id="visGhostError" role="status"></p>
+      <p class="hint" id="visRomVisitorError" role="status"></p>
+      <p class="hint" id="visConnectionHint" hidden></p>
+      <div id="playdateActions">
+        <p class="hint" id="visHint" data-t="visHint"></p>
+        <div class="tools">
+          <label><span data-t="visModel"></span> <select id="visEd"></select></label>
+          <button class="btn small primary" id="btnVis" data-t="visStart" aria-describedby="visHint"></button>
+          <button class="btn small" id="btnVisCapture" data-t="visCapture" disabled></button>
+        </div>
+        <p class="emustat" id="visStat" role="status"></p>
+      </div>
+      <div id="labActions" hidden>
+        <p class="hint" id="labHint" data-t="labHint"></p>
+        <div class="tools">
+          <button class="btn small primary" id="btnLabRelease" data-t="labSend" aria-describedby="labHint" disabled></button>
+        </div>
+        <p class="emustat" id="labStat" role="status"></p>
+      </div>
+      <div id="visVisitor" hidden>
+        <p id="visVisitorName" role="status"></p>
+        <p class="hint" id="visVisitorInfo"></p>
+        <div id="visVisitorAppearance" hidden>
+          <div class="tools">
+            <label><span data-t="visVisitorColor"></span>
+              <select id="visColorChoice"></select>
+            </label>
+            <label><span data-t="visEyes"></span>
+              <select id="visEyesChoice"></select>
+            </label>
+            <button class="btn small" id="btnVisVisitorExport" type="button" data-t="visVisitorExport"></button>
+          </div>
+          <p class="hint" id="visAppearanceNeedsRom" data-t="visAppearanceNeedsRom" hidden></p>
+        </div>
+        <details class="playdate-details" id="visPlaydateEditor" open>
+          <summary data-t="visPlaydateEditor"></summary>
+          <div class="tools">
+            <label><span data-t="visPlanetImageChoice"></span>
+              <select id="visPlanetChoice"></select>
+            </label>
+            <span class="hint" id="visPlanetNeedsRom" data-t="visPlanetNeedsRom" hidden></span>
+          </div>
+          <div class="keygrid" id="visPlaydateFields"></div>
+        </details>
+        <div class="playdate-pictures">
+          <figure id="visVisitorCharacter" hidden>
+            <canvas aria-labelledby="visVisitorCharacterCaption"></canvas>
+            <figcaption id="visVisitorCharacterCaption" data-t="visCharacterPreview"></figcaption>
+            <div class="playdate-animation">
+              <div class="tools">
+                <label><span data-t="visAnimationView"></span>
+                  <select id="visVisitorZoom">
+                    <option value="0" data-t="visTamaZoom"></option>
+                    <option value="1" data-t="visFieldZoom"></option>
+                  </select>
+                </label>
+                <label><span data-t="visAnimationLayer"></span>
+                  <select id="visVisitorLayer">
+                    <option value="pose" data-t="visAllLayers"></option>
+                    <option value="0" data-t="visBody"></option>
+                    <option value="1" data-t="visEyes"></option>
+                    <option value="2" data-t="visMouth"></option>
+                  </select>
+                </label>
+              </div>
+              <div class="tools">
+                <button class="btn small" id="visVisitorPlayback" type="button" disabled></button>
+                <span class="hint" id="visVisitorFrame"></span>
+              </div>
+            </div>
+          </figure>
+          <figure id="visVisitorPlanet" hidden>
+            <canvas aria-label="Planet screenshot"></canvas>
+            <figcaption><span data-t="visPlanetPreview"></span><span id="visVisitorPlanetName"></span></figcaption>
+          </figure>
+        </div>
+        <p class="hint" id="visVisitorImageStatus" data-t="visNoImage" hidden></p>
+        <details class="playdate-details">
+          <summary data-t="visParameters"></summary>
+          <dl id="visVisitorParameters"></dl>
+        </details>
+      </div>
     </div>
+      <section id="visPeer" aria-labelledby="visPeerTitle" hidden>
+        <h4 class="subhead" id="visPeerTitle" data-t="visPeerTitle"></h4>
+        <p id="visPeerName" role="status"></p>
+        <p class="hint" id="visPeerInfo"></p>
+        <div class="playdate-pictures">
+          <figure id="visPeerCharacter" hidden>
+            <canvas aria-labelledby="visPeerCharacterCaption"></canvas>
+            <figcaption id="visPeerCharacterCaption" data-t="visCharacterPreview"></figcaption>
+            <div class="playdate-animation">
+              <div class="tools">
+                <label><span data-t="visAnimationView"></span>
+                  <select id="visPeerZoom">
+                    <option value="0" data-t="visTamaZoom"></option>
+                    <option value="1" data-t="visFieldZoom"></option>
+                  </select>
+                </label>
+                <label><span data-t="visAnimationLayer"></span>
+                  <select id="visPeerLayer">
+                    <option value="pose" data-t="visAllLayers"></option>
+                    <option value="0" data-t="visBody"></option>
+                    <option value="1" data-t="visEyes"></option>
+                    <option value="2" data-t="visMouth"></option>
+                  </select>
+                </label>
+              </div>
+              <div class="tools">
+                <button class="btn small" id="visPeerPlayback" type="button" disabled></button>
+                <span class="hint" id="visPeerFrame"></span>
+              </div>
+            </div>
+          </figure>
+          <figure id="visPeerPlanet" hidden>
+            <canvas aria-label="Planet screenshot"></canvas>
+            <figcaption><span data-t="visPlanetPreview"></span><span id="visPeerPlanetName"></span></figcaption>
+          </figure>
+        </div>
+        <p class="hint" id="visPeerImageStatus" data-t="visNoImage" hidden></p>
+        <details class="playdate-details">
+          <summary data-t="visParameters"></summary>
+          <dl id="visPeerParameters"></dl>
+        </details>
+        <div class="tools">
+          <button class="btn small" id="btnVisPeerExport" data-t="visPeerExport" disabled></button>
+        </div>
+      </section>
+    </section>
+    <section id="deviceLab" role="tabpanel" aria-labelledby="deviceTabLab" hidden></section>
+    <section id="deviceFood" role="tabpanel" aria-labelledby="deviceTabFood" hidden>
+      <p class="hint" id="foodHint" data-t="foodHint"></p>
+      <p class="hint" id="foodConnectionHint" hidden></p>
+      <div class="tools">
+        <button class="btn small" id="btnFoodImport" type="button" data-t="foodImport"></button>
+        <input id="foodImport" type="file" accept=".bin" hidden>
+        <span class="hint" id="foodFile" role="status"></span>
+        <button class="btn small primary" id="btnFoodSend" type="button" data-t="foodSend" aria-describedby="foodHint" disabled></button>
+      </div>
+      <p class="emustat" id="foodStat" role="status"></p>
+    </section>
   </section>
 
   <section class="start" id="start">
@@ -571,13 +751,15 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <div class="tools" id="paraSlotRow" hidden>
         <b class="lbl" data-t="saveSlotL"></b>
         <select id="paraSlot"></select>
+        <button class="btn small" id="btnSlotClear" data-t="slotClearB"></button>
       </div>
       <div class="tools">
         <button class="btn small" id="btnParaOut" data-t="saveParaOutB"></button>
         <button class="btn small" id="btnParaIn" data-t="saveParaInB"></button>
-        <button class="btn small" id="btnSlotClear" data-t="slotClearB" hidden></button>
+        <button class="btn small" id="btnParaClear" data-t="paraClear"></button>
       </div>
       <p class="hint" data-t="saveParaInfo"></p>
+      <p class="hint" id="paraClearStatus" hidden></p>
       <div class="tools">
         <b class="lbl" data-t="petT"></b>
         <button class="btn small" id="btnPetOpen" data-t="petOpen"></button>
@@ -586,14 +768,25 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       </div>
       <div class="tools" id="petRow" hidden>
         <label><span data-t="petLevel"></span> <select id="petLevel"></select></label>
-        <label><span data-t="petChar"></span> <select id="petChar"></select></label>
-        <label class="check"><input type="checkbox" id="petCare"> <span data-t="petCare"></span></label>
+        <label id="petCharRow"><span data-t="petChar"></span> <select id="petChar"></select></label>
+        <label class="check" id="petCareRow"><input type="checkbox" id="petCare"> <span data-t="petCare"></span></label>
+        <label id="petPointsRow" hidden><span data-t="petPoints"></span> <input id="petPoints" type="number" min="0" max="99999" step="1"></label>
+        <label id="petMissionRow" hidden><span data-t="petMission"></span> <select id="petMission"></select></label>
+        <label id="petMissionActionRow" hidden><span data-t="petMissionAction"></span> <select id="petMissionAction">
+          <option value="" data-t="petKeep"></option>
+          <option value="complete" data-t="petMissionComplete"></option>
+          <option value="reset" data-t="petMissionReset"></option>
+        </select></label>
         <button class="btn small" id="btnPetSave" data-t="petSave"></button>
         <button class="btn small" id="btnPetClose" data-t="petClose"></button>
       </div>
       <p class="emustat" id="petStat"></p>
     </div>
     <div class="pane" id="pane-feld" hidden>
+      <div class="tools" id="appsOnlyRow" hidden>
+        <label class="check"><input type="checkbox" id="appsOnlyOn"> <span data-t="appsOnlyOn"></span></label>
+        <span class="hint" data-t="appsOnlyHint"></span>
+      </div>
       <div class="tools">
         <label class="check"><input type="checkbox" id="launchOn"> <span data-t="launchOn"></span></label>
         <span class="hint" data-t="launchHint"></span>
@@ -610,7 +803,11 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
         <label class="check"><input type="checkbox" id="feldOn"> <span data-t="feldOn"></span></label>
         <label class="check"><input type="checkbox" id="bagOn"> <span data-t="bagOn"></span></label>
         <label class="check"><input type="checkbox" id="tamaOn"> <span data-t="tamaOn"></span></label>
-        <span class="hint" data-t="feldHint"></span>
+        <span class="hint" id="feldHint" data-t="feldHint"></span>
+      </div>
+      <div class="tools" id="paramixShortcutRow">
+        <label class="check"><input type="checkbox" id="paramixShortcut"> <span data-t="paramixShortcut"></span></label>
+        <span class="hint" data-t="paramixShortcutHint"></span>
       </div>
       <div class="tools" id="gplayRow">
         <label class="check"><input type="checkbox" id="gplayOn"> <span data-t="gplayOn"></span></label>
@@ -629,6 +826,17 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <div class="tools" id="sixPlanetRow" hidden>
         <label class="check"><input type="checkbox" id="sixPlanet" checked> <span data-t="sixPlanet"></span></label>
         <label class="check"><input type="checkbox" id="sixMenu" checked> <span data-t="sixMenu"></span></label>
+      </div>
+      <div class="tools" id="labReleaseRow" hidden>
+        <label class="check"><input type="checkbox" id="labReleaseOn"> <span data-t="labReleaseOn"></span></label>
+        <button class="btn small" id="labReleasePick" data-t="neonDonorPick" hidden></button>
+        <input type="file" id="labReleaseFile" accept=".bin,.BIN" hidden>
+        <span class="hint" id="labReleaseStat"></span>
+      </div>
+      <div class="tools" id="neonDonorRow" hidden>
+        <button class="btn small" id="neonDonorPick" data-t="neonDonorPick"></button>
+        <input type="file" id="neonDonorFile" accept=".bin,.BIN" hidden>
+        <span class="hint" id="neonDonorStat"></span>
       </div>
       <p class="emustat" id="feldStat"></p>
     </div>
@@ -678,10 +886,23 @@ __EMU__
 __DOOM__
 </script>
 <script>
+__SETTINGS__
+</script>
+<script>
+__HOME_MENU__
+__LAB_RELEASE__
+</script>
+<script>
 __FELD__
 </script>
 <script>
 __SIX__
+</script>
+<script>
+__LEGACY_LZ4__
+</script>
+<script>
+__NEON_TRANSPLANT__
 </script>
 <script>
 __FLASH__

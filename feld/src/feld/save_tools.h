@@ -1,4 +1,4 @@
-/* Local slot copies use independent pool pages, committing the header last.
+/* Local slot copies share immutable identical pool pages, committing the header last.
  * No live save or source slot is modified until the normal switch afterwards. */
 static int save_page(u32 src,u32 i,u32 *addr){
   if((int)src==g_act){
@@ -58,38 +58,42 @@ static int slot_clear(u32 tgt){
 static int slot_copy(u32 src,u32 tgt,u32 fld){
   if(tgt>=g_cfg.nslots || src==tgt || (int)tgt==g_act || slot_valid(tgt) || fld>=nfields()) return 1;
   u32 np; if(source_check(src,&np)) return 2;
-  u32 bytes=0, prev=0, sets=0;
+  pool_mark(tgt);
+  u32 bytes=0, prev=0, sets=0, on=0, need=0;
   /* Exact preflight, including recompressed field/slot settings. */
   for(u32 i=0;i<np;i++){
     u32 a; if(save_page(src,i,&a) || a<g_cfg.user_start || a>=g_cfg.user_end || (i && a<=prev)) return 2;
     prev=a;
     if(copy_settings(a,tgt,fld)) return 2;
     if(a==SET_A) sets|=1u; if(a==SET_B) sets|=2u;
-    bytes+=lz_pack(g_page,g_cmp);
+    u32 n=lz_pack(g_page,g_cmp); bytes+=n;
+    for(u32 k=0;k<n;k++){ g_out[on++]=g_cmp[k]; if(on==PAGE){ need+=pool_need_chunk(on); on=0; } }
   }
   u32 nd=(bytes+PAGE-1u)/PAGE;
   if(sets!=3u) return 2;
-  if(nd>DPG_MAX || nd>pool_free(tgt) || !stash_capacity((u32)g_act,nd)) return 3;
+  if(on) need+=pool_need_chunk(on);
+  if(nd>DPG_MAX || need>pool_free(tgt) || !stash_capacity(need)) return 3;
   pool_mark(tgt);
   for(u32 k=0;k<sizeof g_hdr/4u;k++) ((u32*)&g_hdr)[k]=0xFFFFFFFFu;
-  u32 on=0, used=0, sum=0;
+  on=0; u32 used=0, sum=0;
   for(u32 i=0;i<np;i++){
     u32 a; if(save_page(src,i,&a) || copy_settings(a,tgt,fld)) return 2;
     u32 n=lz_pack(g_page,g_cmp); g_hdr.e[i].page=(u16)(a>>12); g_hdr.e[i].clen=(u16)n;
     for(u32 k=0;k<n;k++){
       g_out[on++]=g_cmp[k]; sum+=g_cmp[k];
       if(on==PAGE){
-        u32 x=pool_take(tgt); if(x==0xFFFFu || used>=nd) return 3;
-        flash_prog4k(pool_addr(x),g_out); if(!flash_same(pool_addr(x),g_out,PAGE)) return 4;
+        if(used>=nd) return 3; u32 x=pool_store(tgt,g_out); if(x==0xFFFFu) return 3;
+        if(!flash_same(pool_addr(x),g_out,PAGE)) return 4;
         g_hdr.dpg[used++]=(u16)x; on=0;
       }
     }
     progress("COPYING",i+1u,np);
   }
   if(on){
-    u32 x=pool_take(tgt); if(x==0xFFFFu || used>=nd) return 3;
+    if(used>=nd) return 3;
     for(u32 k=on;k<PAGE;k++) g_out[k]=0xFF;
-    flash_prog4k(pool_addr(x),g_out); if(!flash_same(pool_addr(x),g_out,PAGE)) return 4;
+    u32 x=pool_store(tgt,g_out); if(x==0xFFFFu) return 3;
+    if(!flash_same(pool_addr(x),g_out,PAGE)) return 4;
     g_hdr.dpg[used++]=(u16)x;
   }
   if(used!=nd) return 4;

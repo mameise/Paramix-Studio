@@ -52,6 +52,22 @@ int main(int argc,char **argv){
   assert(!set_load() && count_get(0)==1 && count_get(3)==1);
   fixture(); run_items("nnnbnbcbb");
   assert(!set_load() && count_get(0)==4 && !count_get(1) && count_get(2)==7);
+  /* Neon keeps IDs after deletion, has holes, and reserves quantities in use. */
+  fixture(); g_cfg.flags=F_NEON_EDIT|F_BAG;
+  for(u32 k=0;k<4;k++) host_flash[g_cfg.cat_off+8+28*k+5]=(u8)((k==1?5:10)<<4);
+  list_set(1,0); list_set(638,5002);
+  g_set[g_cfg.count_off+320]=2; /* two units of slot zero are in use */
+  memcpy(before,g_set,PAGE);
+  assert(bulk_items(1,15,0)==2 && !memcmp(before,g_set,PAGE));
+  assert(bulk_items(1,15,1)==2);
+  assert(list_id(638)==5002 && count_get(638)==5);
+  assert(list_id(1)==5003 && count_get(1)==10 && count_get(2)==7 && count_get(3)==2);
+  assert(bulk_items(0,15,1)==1 && count_get(0)==10 && count_get(3)==2);
+  memcpy(before,g_set,PAGE);
+  assert(bulk_items(0,15,0)==0 && bulk_items(0,15,1)==0 && !memcmp(before,g_set,PAGE));
+  assert(bulk_items(0,10,0)==0 && bulk_items(0,1,0)==3 && !memcmp(before,g_set,PAGE));
+  assert(bulk_items(0,1,1)==3 && count_get(0)==2 && count_get(638)==1 && count_reserved(0)==2);
+  assert(count_get(2)==7 && count_get(3)==2);
   puts("PASS: batch planning, capacity, quantities, cancellation, navigation and mirrored save CRC");
   free(host_flash); return 0;
 }

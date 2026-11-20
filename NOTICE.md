@@ -7,6 +7,24 @@ version 3 or (at your option) any later version. The full text is in
 Parts of this repository are based on the work of other people. Their
 copyright and licenses stay in force; the files keep their original notices.
 
+## Menu extensions and interoperability
+
+- Original Paramix Studio, its on-device menu and Flash-Tool: **mameise**,
+  https://github.com/mameise/Paramix-Studio, GNU GPL version 3 or later.
+- Menu extensions, save tools, character editing/previews, recovery entry and
+  compatibility work in this fork: **ZW Cai (@x43x61x69)**,
+  https://github.com/x43x61x69, under the same project license.
+- The runtime Language/Settings interoperability in `src/settings.js` follows
+  the firmware profiles and language-entry work in **sawaYch's Traditional
+  Chinese patcher**, https://github.com/sawaYch/tamagotchi-paradise-zh-patcher
+  (upstream base commit `6463397`, MIT). The shared helper formats allow both
+  projects to preserve each other's entries and allocated flash pages. Its
+  license is retained in [docs/licenses/paradise-zh-patcher-MIT.txt](docs/licenses/paradise-zh-patcher-MIT.txt).
+- Save-field behavior was checked against user-supplied **Character Editor**
+  and **Care** apps. Their executables and images are not included. Character
+  previews read references into the user's ROM instead of bundling game sprites.
+- Paradise ROM-format research is credited under Formats and protocols below.
+
 ## TamaEmu (`emu/`)
 
 - **tamaemu** by maragotchi, https://github.com/maragotchi/tamaemu,
@@ -137,6 +155,11 @@ not part of Paramix Studio. Arduboy is a trademark of Arduboy Inc.
 
 - File formats of the Paradise flash (archive, sprites, scenes):
   https://github.com/GMMan/tama-para-research by GMMan.
+- Communication ghost structure and flash-layout documentation:
+  https://github.com/GMMan/tama-para-research/blob/master/formats/ghost_data.md
+  and its hardware/flash_layout.md by GMMan.
+- Watchdog versus PRAM reset behavior and WDT0 register research:
+  https://github.com/GMMan/snc7330-hidden-rom by GMMan.
 - The rest (settings block, ID pages, field slots, app loading and the PAU1
   flash protocol in `flash/`) was worked out for this project.
 

@@ -29,10 +29,11 @@ the device over a UART dongle.
 - **More fields:** Land, Water and Sky on Tropical and Glacier, Sky on Jade
   Forest, with pictures, special characters and the matching planet.
 - **Neon Planets (1.7.6):** menu with items, Tamapoints and Tama, programs in the menu, saves, own characters
-  for its planets Cosmic, New Tama and Tama. It switches its planets itself, so there is no field switch.
+  for its planets Cosmic, New Tama and Tama. The game switches planets, while the fork keeps three independent save slots.
 - **Menu:** an on-device menu with several saves (each on a field of your
   choice), items in the bag, Tamapoints and changes to the Tama (level, care,
-  character).
+  character). FLASH TOOL in the Paramix home menu starts the installed rescue
+  flash app directly, without the game's Connection menu.
 - **Save editor:** change level, character and care of a Paradise save
   (a .tamasave or the save inside the loaded ROM).
 - **Characters:** export every character as an image sheet, edit it in any paint
@@ -47,6 +48,16 @@ the device over a UART dongle.
 Everything runs locally in one HTML file. Your ROM, firmware and WAD never leave
 your computer. The Studio contains no ROM, no firmware, no WAD and no game
 graphics; you need your own.
+
+## Fork versions
+
+This fork uses `<upstream base>-plus.<revision>`, for example `1.7.5-plus.20`.
+The base is the upstream version these changes build on; the revision increases
+for fork updates on that base and starts at `plus.1` after each upstream version upgrade.
+The earlier `menu19` naming corresponds to revision 19. `VERSION` is the single
+source for the browser/release version and the Paramix About screen. After changing
+it, rebuild both menu binaries with `sh feld/src/feld/build.sh` before `node build.js`.
+The About screen identifies the version installed on the physical device.
 
 ## Disclaimer
 
@@ -429,20 +440,40 @@ sound), holding the wheel for 2 s saves the whole game and goes back. The games'
 import as .eep in the tab "Save". Games that need a lot of computing run slower than on the Arduboy. Own emulator
 (ATmega32U4, display, timers), program and details: `ab/`.
 
-### Simulated visit for the Paradise itself (1.6.9)
-Under "Device" the Studio can play a second Paradise over the dongle, so one device is enough for a playdate.
-The Paradise runs its normal game (no flash app). "Connect" above is not needed for it.
+### Simulate a Playdate (Paradise)
+Open **Device → Playdate** and attach the USB-UART adapter to the Paradise while the game is running. If the adapter is connected for ROM reading or writing, select **Release UART** on the **Device over UART** tab first.
 
-1. Choose the edition the visitor comes from (Land, Water, Sky, Jade Forest, Tropics, Glacier), "Start", pick the dongle.
-2. On the Paradise: planet menu, CONNECTION, PLAYDATE, then B.
+1. Use **Open ROM** or **Load Character File** to add a character and select it under **Visitor**. **Return received character** works without a file.
+2. Choose the model, click **Start Playdate** and select the adapter.
+3. On the Paradise, open the planet menu, select **CONNECTION → PLAYDATE** and press B.
 
-The visitor is a copy of your own Tama (its picture comes from your device, the Studio has no game data); only
-the edition and its IDs are its own, so every edition is a friend of its own. At the young stage the Paradise
+With a character selected, **Edit Playdate details** lets you change the device UID, character UID, friendship, previous result, hunger, happiness and love flag. The edited settings are used for Playdate and included in the exported Playdate `.bin`. You can choose a planet image from the loaded ROM. The outgoing planet name is **PARAMIX** in every language, and the screenshot size and checksum reflect the encoded image.
+
+With **Return received character**, the Studio sends a copy of your Tama with the selected edition and its own IDs. At the young stage the Paradise
 notes the edition of each partner (seen in its save after a visit from Water and one from Sky); the secret
 characters want two other colours there. Whether the secret character then comes is to be checked on the device.
 Protocol: GMMan's tama-para-research (TCP over UART, 460800 baud), code in `src/visit.js`. The Studio
 answers as the device that was asked (the Paradise presses B), never breeds (it answers BREED 0).
 Checked on the PC with the emulated Land against the Studio in the browser (Sky, Water, Jade Forest).
+
+### Send an adult Tama to My Lab
+
+Open **Device → Send to My Lab**. Use **Open ROM** or **Load Character File**, then select an adult under **Tama to Send**.
+Attach the adapter to My Lab and open **CONNECTION → LAB INVITE**. If the garden is already full, choose a Tama to replace on My Lab.
+Click **Send to My Lab** in the Studio and select the adapter. The Studio reports the serial acknowledgement. Check the garden
+for the character before retrying. The source ROM and character file remain available after sending.
+
+The Studio sender follows a Capybara recording of the Neon Lab Invite transfer. Receipt, replacement in a full garden and persistence after reboot have been verified on a physical My Lab.
+### Release an adult from the Paradise connection menu
+
+Open a Paradise ROM and enable **Send to My Lab in game** in the firmware options. The option starts off. Choose a Neon Planets ROM as the source for the nine game languages. If you are also importing Neon content, Studio can reuse that source. Save the patched ROM with the `_my-lab` filename suffix.
+
+On Paradise, select **CONNECTION → RELEASE** while raising an adult. Confirm the release and connect to a My Lab waiting in **LAB INVITE**. Paradise starts a new egg when My Lab acknowledges the final packet. The firmware handles the three original connection layouts used by editions 1–6, including combined ROMs built on those layouts.
+
+### Send Special Food to Neon Planets
+
+Open **Device → Special Food** and load a decoded My Lab food payload (`.bin`). Attach the USB–UART adapter to Neon Planets and select **Wait for Paradise**. On the Paradise, open **CONNECTION → SPECIAL FOOD → GET FOOD**, then confirm the transfer. The selected food's planet must be unlocked. Accepting the transfer starts a new egg.
+
 
 ### Battery (1.6.9)
 Battery saving (1.6.9, switch `CLK_ECO`, `emu/src/emu/eco.h`): with the screen off T7Emu, V1Emu and V3Emu lower the
@@ -604,7 +635,20 @@ The menu itself, while the screen is dark, sleeps deeply until a key or the whee
   the tick you keep the three own fields and still have several saves; on a
   ROM that already has them, untick it to take the extra fields out again
   (the device must be on one of the own fields).
-- Game menu Fields: all fields from level 4 in the game's own field menu.
+- Choose Neon Planets ROM to add 86 Tama and 59 items to Land, Water, Sky,
+  Jade Forest, Tropical, or Glacier, including existing four- and six-field
+  ROMs. The three Neon rosters appear in the native Tama Files. The imported
+  Tama evolve automatically according to the field where the baby grows into a kid.
+  Land and Tropical map to Cosmic Planet, Water and Glacier to New Tamagotchi
+  Planet, and Sky and Forest to Tamagotchi Planet. Open and save a ROM with an
+  older Neon import to update its growth routine. Use Items and Tamapoints
+  to add the new items to your inventory. On the first import, Tropical and
+  Glacier clear the two old placeholder counts.
+- If you also want six playable fields, enable All 6 fields and supply a Land,
+  Water, or Sky ROM when starting from a single Tropical or Glacier ROM.
+- Game menu Fields: all fields from planet level 4 in the game's own field
+  menu. On six-field ROMs, this includes adults. Existing six-field ROMs with
+  this menu enabled can get the update by opening and saving them in Studio.
 - Sky as 4th field (Jade Forest): tick "Sky as 4th field". Jade Forest
   already has everything of Sky, no second ROM is needed.
 - Planet to match the field: on by default. Land, Water and Sky then show
@@ -615,8 +659,17 @@ The menu itself, while the screen is dark, sleeps deeply until a key or the whee
 - Items: put items into the bag and set their amount, with picture. The list
   and the pictures come from your own ROM. Amount 0 ("REMOVE") takes an item out
   again; items the game holds with amount 0 (eaten up) are not shown (switch `BAG_DEL`).
+  On Neon Planets, **Set Owned Counts** shows how many existing items would
+  change. **MAX** uses each item's own limit. Fixed items and quantities already
+  in use keep their game rules.
 - Tamapoints: set digit by digit.
-- Change Tama: level, care (fed, happy, healthy) and the character.
+- Change Tama: care, planet level, appearance, age and preview. APPEARANCE combines
+  Body/Stage → same-stage Eyes → Color → Review. The body starts with compatible
+  existing eyes or its own default; each step previews the draft. C goes back one
+  step (from Body it discards the draft); only the final B Save writes it.
+  Appearance changes update the settings copies without touching communication
+  ghosts. Saves share identical packed pages safely; eligible six-field layouts
+  also reserve additional space after SIXB assets, below the rescue area.
 - TamaEmu or DOOM, when built in, is the last entry of the same menu.
 
 ### Device (read and write over UART)
@@ -628,10 +681,19 @@ middle = GND, right = TX of the dongle. 3.3 V, not 5 V.
 
 1. On the Paradise open the download screen: Planet, A, Connect, Download,
    Download.
+   Alternatively, in updated Paramix menus press A+C on the game's home screen,
+   select FLASH TOOL, and confirm. This validates and starts the installed rescue
+   flash app in RAM; it does not clear the boot header or saves. If the rescue
+   program is missing or invalid, the menu reports it without jumping to it.
    On a start device choose DOWNLOAD in the menu instead.
 2. Click "Device", then "Connect" and pick the port. The Studio loads its own
    flash app into the device's RAM (nothing is written for this; switching the
    device off and on returns to normal).
+   Updated Flash Tool firmware shows HOLD C TO RESET when safe: hold C for about
+   three seconds, then release when RELEASE C appears. RESET LOCKED blocks this
+   during operations, incomplete writes, or an invalid primary boot header. The
+   reset restarts through Boot ROM without writing flash. An older installed
+   rescue app must first be updated to provide this feature.
 3. "Read ROM" reads all 16 MB (about 6 minutes), downloads the file as a backup
    and opens it in the Studio.
 4. "Write new ROM to the device" writes the ROM you put together.
@@ -731,6 +793,11 @@ Paramix Studio is free software under the GNU General Public License version 3
 or later, see [LICENSE](LICENSE). It builds on the work of others, see
 [NOTICE.md](NOTICE.md) for the full list:
 
+- Original Paramix Studio and its on-device tools: **mameise**. This fork's
+  menu extensions and compatibility work: **ZW Cai (@x43x61x69)**.
+- Runtime Language/Settings interoperability follows **sawaYch's**
+  [Traditional Chinese patcher](https://github.com/sawaYch/tamagotchi-paradise-zh-patcher)
+  (MIT); attribution and license details are retained in NOTICE.md.
 - **TamaEmu** is based on [tamaemu](https://github.com/maragotchi/tamaemu) by
   maragotchi (GPL-3.0). The JIT and the Paradise port were written for this
   project; the emulator core and the download content layout come from tamaemu.

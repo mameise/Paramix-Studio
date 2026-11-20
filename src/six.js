@@ -179,8 +179,8 @@ const LAND_FP = [[0x11000 + 0x38AA6, '46f61811c1f20801'], [0x11000 + 0x4D316, '0
 // (walk ground and objects 0x56316/0x56624, objects of the scene at 0x7FEA4). Land: script 2131+field, pictures
 // 1437+field (table 0x1007AD60), 1443+field (0x1004D860), 1440+field and 1446+field (0x1006D77A/0x1006D79A).
 // The old values (scripts 1558..1567) left the WALKING game of the PLAY list black on Land, Water and Sky.
-const SCENE_LAND = true;
-const LAND_SCENE = SCENE_LAND ? [0x853, 1437, 1443, 1440, 1446] : [0x853, 1558, 1564, 1561, 1567], LAND_WAGON = [1464, 1467], LAND_EGG = 180;
+const SCENE_LAND = 0x200;
+const LAND_SCENE = [0x853, 1437, 1443, 1440, 1446], LAND_WAGON = [1464, 1467], LAND_EGG = 180;
 // Jade Forest keeps the Sky pictures and scripts itself: Sky values in Jade's own numbers
 const JADE_SKY = { bg: [773, 774, 775, 775, 776, 777, 777, 778, 779, 779, 780, 781, 781, 780, 781, 781],
   speed: [1371, 1372, 1373], egg: [183], scene: [2273, 1670, 1676, 1673, 1679], wagon: [1576, 1579, 1580, 1581],
@@ -396,7 +396,9 @@ function importer(src, dst, entries) {
  */
 const SIX_GAMES = true;
 const G_SCENES = [44, 45, 46, 47, 48, 49, 50, 51, 92, 95, 96, 97];   // lab card list (44, 45..51 back from game k), result, games
-const G_SEQ = [[0, 1, 2, 3, 6, 5], [0, 1, 2, 3, 4, 5]];
+// Seven Tropical/Glacier games, plus the three distinct Land variants.
+const G_SEQ = [0, 1, 2, 3, 4, 5, 6, 0xA, 0xB, 0xE];
+const G_OPEN = 0x1001FEBA, G_OPEN_ORIG = '5bf02dff', G_ALL = 0x100;
 const G_NAV = [[0x1002FFE4, 1], [0x1003003A, 2]];       // ldrh.w r1,[r2,#126] -> six_cnext / six_cprev
 const G_NAV_ORIG = 'b2f87e10';
 const G_SITES = [
@@ -500,7 +502,7 @@ const G_TABLES = {
   bg03: { addr: 0x10091CC4, n: 5, w: 2, f1: [[0,'p',1402],[1,'p',1402],[2,'p',1402],[3,'p',1402],[4,'p',1402]], f2: [[0,'p',1402],[1,'p',1402],[2,'p',1402],[3,'p',1402],[4,'p',1402]] },
   play: { addr: 0x10094140, n: 24, w: 2, f1: [[0,'=',809],[2,'=',101],[12,'=',811],[14,'=',103],[18,'=',812],[20,'=',104]] },
 };
-const P_GM = 0x980, P_GM_FN = 0x9B0;
+const P_GM = 0x980, P_GM_FN = 0x9B0, P_GM_END = 0xB00;
 
 /* movw / mov.w / addw / add.w with an immediate: kind w or a, rd, rn, value */
 function immDec(b, o) {
@@ -671,7 +673,8 @@ function gamesBuild(rom, X, base) {
 function kindOf(rom) {
   if (rom.length !== 0x1000000) return null;
   const a = u32(rom, 0xD29000), b = u32(rom, 0xD49000);
-  if (a === 5 || a === 6) return 'gen3';
+  const footer = u32(rom, 0xD29FF8);
+  if (a === 5 || a === 6 || (a === 4 && ((footer + 4) >>> 0) === 0x96CB83B8 && u32(rom, 0xD29FFC) === (~footer >>> 0))) return 'gen3';
   if (b === 4) return 'jade';
   return null;
 }
@@ -681,7 +684,52 @@ function sixInfo(rom) {
   return { version, kind: version >= 3 && u32(rom, SIX_OFF + 28) === 1 ? 'jade' : 'gen3', flagOff: u32(rom, SIX_OFF + 12),
     sprites: u32(rom, SIX_OFF + 16), comps: u32(rom, SIX_OFF + 20), anims: version >= 2 ? u32(rom, SIX_OFF + 24) : 0,
     planet: version >= 5 && (u32(rom, SIX_OFF + 32) & 1) === 1, fieldMenu: version >= 6 && (u32(rom, SIX_OFF + 32) & 2) === 2,
-    games: version >= 7 && (u32(rom, SIX_OFF + 32) & 4) === 4, dna: version >= 7 && (u32(rom, SIX_OFF + 32) & 8) === 8, hunt: version >= 7 && (u32(rom, SIX_OFF + 32) & 16) === 16, food: version >= 7 && (u32(rom, SIX_OFF + 32) & 64) === 64, scene: version >= 7 && (u32(rom, SIX_OFF + 32) & 128) === 128, gamesRest: version >= 7 ? u32(rom, SIX_OFF + 36) : 0 };
+    // On the stock 1.7.6 helper bit 0x80 marked the WALKING repair.
+    // Fork helpers used that bit for the cleanup hooks instead.
+    scene: version >= 7 && (!!(u32(rom, SIX_OFF + 32) & SCENE_LAND) ||
+      (!!(u32(rom, SIX_OFF + 32) & CLEAN_FLAG) && hex(rom, CLEAN_SITES[0][0], 4) === CLEAN_SITES[0][1])),
+    allLabGames: version >= 7 && !!(u32(rom, SIX_OFF + 32) & G_ALL),
+    games: version >= 7 && (u32(rom, SIX_OFF + 32) & 4) === 4, dna: version >= 7 && (u32(rom, SIX_OFF + 32) & 8) === 8, hunt: version >= 7 && (u32(rom, SIX_OFF + 32) & 16) === 16, food: version >= 7 && (u32(rom, SIX_OFF + 32) & 64) === 64, gamesRest: version >= 7 ? u32(rom, SIX_OFF + 36) : 0 };
+}
+// Replace the complete adult-only branch in existing v7 helpers. All entry
+// points, configuration and appended graphics stay at their original addresses.
+const ADULT_FIELDS_AT = SIX_OFF + 0x862;
+const ADULT_FIELDS_OLD = 'ea7db25cd20708d000202070012060700220a0700327084628e0';
+const ADULT_FIELDS_NEW = 'eb7df25c22f00102f25406e000bf00bf00bf00bf00bf00bf00bf';
+const P_CLEAN_LIST = 0xB00, CLEAN_LIST_END = 0xB40, P_CLEAN = 0xF60, CLEAN_FLAG = 128;
+const CLEAN_SITES = [
+  [0x38886, 'eef7a7ff', P_CLEAN_LIST],
+  [0x560A6, '91f92810', P_CLEAN],
+  [0x56056, '2bf09df8', 0xF70],
+  [0x2196A, '07f0b5ff', 0xFB0],
+];
+function sixAdultUpdateNeeded(rom) {
+  return hex(rom, ADULT_FIELDS_AT, ADULT_FIELDS_OLD.length / 2) === ADULT_FIELDS_OLD;
+}
+function sixCleanUpdateNeeded(rom) {
+  return CLEAN_SITES.every(([at, orig]) => hex(rom, at, orig.length / 2) === orig) &&
+    rom.subarray(SIX_OFF + P_CLEAN_LIST, SIX_OFF + CLEAN_LIST_END).every(byte => byte === 0) &&
+    rom.subarray(SIX_OFF + P_CLEAN, SIX_OFF + 0x1000).every(byte => byte === 0xFF);
+}
+function sixFieldsUpdateNeeded(rom) {
+  const info = sixInfo(rom);
+  return info?.kind === 'gen3' && info.fieldMenu && info.version === SIX_VERSION && info.dna &&
+    (sixAdultUpdateNeeded(rom) || sixCleanUpdateNeeded(rom));
+}
+function sixFieldsUpdate(rom, blob) {
+  if (!sixFieldsUpdateNeeded(rom)) return rom;
+  const adult = sixAdultUpdateNeeded(rom);
+  const clean = blob && blob.length > 0xFB0 && sixCleanUpdateNeeded(rom);
+  if (!adult && !clean) return rom;
+  const out = new Uint8Array(rom);
+  if (adult) out.set(bookBytes(ADULT_FIELDS_NEW), ADULT_FIELDS_AT);
+  if (clean) {
+    out.set(blob.subarray(P_CLEAN_LIST, CLEAN_LIST_END), SIX_OFF + P_CLEAN_LIST);
+    out.set(blob.subarray(P_CLEAN), SIX_OFF + P_CLEAN);
+    for (const [at, , target] of CLEAN_SITES) out.set(branch(XIP(at), SIX_XIP + target, true), at);
+    w32(out, SIX_OFF + 32, u32(out, SIX_OFF + 32) | CLEAN_FLAG | (sixInfo(rom).scene ? SCENE_LAND : 0));
+  }
+  return out;
 }
 const movPairBytes = (r, t) => concat([movEnc(r, t & 0xFFFF), movEnc(r, t >>> 16, true)]);
 /** Can this ROM get more fields? (Tropical/Glacier: Land, Water, Sky; Jade Forest: Sky) */
@@ -702,7 +750,7 @@ function sixSource(land) {
 }
 /** Does this ROM need a Land, Water or Sky ROM for its extra fields? (Jade Forest does not) */
 /** SCENE_LAND: six fields of an older Studio with the wrong walk pictures; saving again with the Land ROM fixes them. */
-function sixStale(si) { return SCENE_LAND && !!si && si.kind === 'gen3' && !si.scene; }
+function sixStale(si) { return !!si && si.kind === 'gen3' && !si.scene; }
 function sixNeedsSource(rom) { return kindOf(rom) === 'gen3'; }
 /** Takes the extra fields out again (firmware places, helper page, added pictures and scripts). */
 function sixStrip(rom) {
@@ -721,6 +769,7 @@ function sixStrip(rom) {
     const r = info.gamesRest, n = u32(out, r);
     for (let k = 0; k < n && k < 4096; k++) { const o = r + 4 + 16 * k, xip = u32(out, o), len = u32(out, o + 4); out.set(out.slice(o + 8, o + 8 + len), xip - 0x10000000 + 0x11000); }
   }
+  if (info.allLabGames) put(f(G_OPEN - 0x10000000), G_OPEN_ORIG);
   out.fill(0xFF, SIX_OFF, SIX_OFF + 0x1000);
   if (u32(out, B_OFF) === B_MAGIC) out.fill(0xFF, B_OFF, 0x1000000);
   if (info.kind === 'jade') return out;
@@ -763,8 +812,9 @@ function fmInstall(out, page, K) {
 function install(out, kind, blob, alt, counts, planet, fieldMenu, games) {
   const K = KINDS[kind], f = (o) => 0x11000 + o, sites = (planet ? K.sites.concat(K.planet.sites) : K.sites).concat(...EXTRAS.filter((X) => alt[X.name]).map((X) => X.sites[kind]));
   const page = new Uint8Array(0x1000).fill(0xFF); page.set(blob.subarray(0, Math.min(blob.length, P_DNA)));
+  page.fill(0, P_CLEAN_LIST, CLEAN_LIST_END);
   w32(page, 8, K.flag); w32(page, 12, FLAG_OFF);
-  w32(page, 16, counts[0]); w32(page, 20, counts[1]); w32(page, 24, counts[2]); w32(page, 28, K.id); w32(page, 32, (planet ? 1 : 0) | (fieldMenu ? 2 : 0) | (games ? 4 : 0) | (SCENE_LAND && kind === 'gen3' ? 128 : 0) | EXTRAS.reduce((m, X) => m | (alt[X.name] ? X.bit : 0), 0)); w32(page, 36, games ? games.rest : 0);
+  w32(page, 16, counts[0]); w32(page, 20, counts[1]); w32(page, 24, counts[2]); w32(page, 28, K.id); w32(page, 32, (planet ? 1 : 0) | (fieldMenu ? 2 : 0) | (games ? 4 : 0) | (kind === 'gen3' ? SCENE_LAND : 0) | EXTRAS.reduce((m, X) => m | (alt[X.name] ? X.bit : 0), 0)); w32(page, 36, games ? games.rest : 0);
   // background table and child list
   alt.bg.forEach((v, i) => w16(page, T_BG + 2 * i, v));
   w32(page, P_BG, K.bg.table); w32(page, P_BG + 4, SIX_XIP + T_BG); w32(page, P_BG + 8, K.bg.mode);
@@ -798,16 +848,54 @@ function install(out, kind, blob, alt, counts, planet, fieldMenu, games) {
   out.set(page, SIX_OFF);
   return out;
 }
+function gameHook(at, page, entry) {
+  return branch(at, u32(page, P_GM_FN + 4 * entry) & ~1, true);
+}
+function gamesConfigure(out, page) {
+  const open = G_OPEN - 0x10000000 + 0x11000;
+  if (hex(out, open, 4) !== G_OPEN_ORIG) throw new Error('Lab menu opening routine changed');
+  page.set(G_SCENES, P_GM + 0x0C);
+  page.fill(0, P_GM + 0x18, P_GM + 0x28);
+  page.set(G_SEQ, P_GM + 0x18);
+  w32(page, 32, u32(page, 32) | G_ALL);
+  out.set(gameHook(G_OPEN, page, 3), open);
+}
 function gamesInstall(out, page, K, games) {
-  const g = (k) => u32(page, P_GM_FN + 4 * k) & ~1, fo = (x) => x - 0x10000000 + 0x11000;
+  const fo = xip => xip - 0x10000000 + 0x11000;
   w32(page, P_GM, games.list); w32(page, P_GM + 4, K.flag + 1); w32(page, P_GM + 8, 0x18001CB4);
-  page.fill(0, P_GM + 0x0C, P_GM + 0x18); G_SCENES.forEach((v, i) => { page[P_GM + 0x0C + i] = v; });
-  page.fill(0xFF, P_GM + 0x18, P_GM + 0x28); G_SEQ.forEach((q, fam) => q.forEach((v, i) => { page[P_GM + 0x18 + 8 * fam + i] = v; }));
+  gamesConfigure(out, page);
   for (const [xip, len] of games.patches) {
-    const b = new Uint8Array(len); b.set(branch(xip, g(0), true)); if (len === 8) { w16(b, 4, 0xBF00); w16(b, 6, 0xBF00); }
+    const b = new Uint8Array(len); b.set(gameHook(xip, page, 0)); if (len === 8) w16(b, 4, 0xBF00);
     out.set(b, fo(xip));
   }
-  for (const [xip, k] of G_NAV) { if (hex(out, fo(xip), 4) !== G_NAV_ORIG) throw new Error('game place changed ' + xip.toString(16)); out.set(branch(xip, g(k), true), fo(xip)); }
+  for (const [xip, entry] of G_NAV) {
+    if (hex(out, fo(xip), 4) !== G_NAV_ORIG) throw new Error('game place changed ' + xip.toString(16));
+    out.set(gameHook(xip, page, entry), fo(xip));
+  }
+}
+function sixLabGamesUpdateNeeded(rom) {
+  const info = sixInfo(rom);
+  return !!(info?.kind === 'gen3' && info.version === SIX_VERSION && info.games && !info.allLabGames);
+}
+function sixLabGamesUpdate(rom, blob) {
+  if (!sixLabGamesUpdateNeeded(rom)) return rom;
+  if (!blob || blob.length < P_GM_END || blob.length > 0x1000 || u32(blob, 0) !== SIX_MAGIC || u32(blob, 4) !== SIX_VERSION ||
+      (u32(blob, P_GM_FN + 12) & ~1) < SIX_XIP + P_GM_FN || (u32(blob, P_GM_FN + 12) & ~1) >= SIX_XIP + P_GM_END)
+    throw new Error('Lab game helper missing');
+  const oldPage = rom.subarray(SIX_OFF, SIX_OFF + 0x1000);
+  const page = new Uint8Array(oldPage);
+  page.set(blob.subarray(P_GM_FN, P_GM_END), P_GM_FN);
+  const out = new Uint8Array(rom);
+  const assetHooks = [...G_SITES, ...G_TABS].map(([at]) => [Number(at), 0]);
+  for (const [xip, entry] of [...assetHooks, ...G_NAV]) {
+    const at = xip - 0x10000000 + 0x11000;
+    if (!gameHook(xip, oldPage, entry).every((byte, i) => rom[at + i] === byte))
+      throw new Error('Lab game hook changed ' + xip.toString(16));
+    out.set(gameHook(xip, page, entry), at);
+  }
+  gamesConfigure(out, page);
+  out.set(page, SIX_OFF);
+  return out;
 }
 /* DNA per field: can this ROM (with six fields of version 7 or new) get it? */
 function dnaCan(rom, K) {
@@ -832,7 +920,7 @@ function sixFood(rom, blob) {
 /* Food part alone (Jade Forest): the code of the DNA part, only the values the food code reads. */
 function foodInstall(out, K, blob) {
   const F = K.food, page = out.subarray(SIX_OFF, SIX_OFF + 0x1000);
-  page.fill(0xFF, P_DNA, DNA_END); page.set(blob.subarray(P_DNA), P_DNA); page.fill(0, P_DNA, P_DNA + 0x40);
+  page.fill(0xFF, P_DNA, DNA_END); page.set(blob.subarray(P_DNA, P_CLEAN), P_DNA); page.fill(0, P_DNA, P_DNA + 0x40);
   w32(page, P_DNA, F.ram); w16(page, P_DNA + 6, F.field); page[P_DNA + 15] = F.slots;
   w16(page, P_DNA + 0x34, F.hist); F.kinds.forEach((v, i) => { page[P_DNA + 0x36 + i] = v; });
   w32(page, 32, u32(page, 32) | 64);
@@ -856,7 +944,7 @@ function dnaInstall(out, K, blob, fieldMenu) {
   const D = K.dna, fo = (x) => x - 0x10000000 + 0x11000;
   if (!blob || blob.length <= P_DNA_FN) throw new Error('six fields program missing');
   const page = out.subarray(SIX_OFF, SIX_OFF + 0x1000);
-  page.fill(0xFF, P_DNA, DNA_END); page.set(blob.subarray(P_DNA), P_DNA);
+  page.fill(0xFF, P_DNA, DNA_END); page.set(blob.subarray(P_DNA, P_CLEAN), P_DNA);
   w32(page, P_DNA, D.base); w16(page, P_DNA + 4, D.cnt); w16(page, P_DNA + 6, D.field); w16(page, P_DNA + 8, D.stash); w16(page, P_DNA + 10, D.mark);
   w16(page, P_DNA + 12, D.bits); page[P_DNA + 14] = D.mask; page[P_DNA + 15] = D.slots;
   page.fill(0, P_DNA + 0x10, P_DNA + 0x28); D.regions.forEach(([o, n], i) => { w16(page, P_DNA + 0x10 + 4 * i, o); w16(page, P_DNA + 0x12 + 4 * i, n); });
@@ -876,7 +964,11 @@ function dnaStrip(out, K, info) {
   const fn = (k) => u32(page, P_FN + 4 * k) & ~1;
   out.set(branch(XIP(0x11000 + K.child.at), fn(FN_CHILD), true), 0x11000 + K.child.at);
   if (info.fieldMenu) out.set(branch(0x10000000 + K.fm.set, u32(page, P_FM_FN + 8) & ~1, true), 0x11000 + K.fm.set);
-  w32(page, 32, u32(page, 32) & ~8); page.fill(0xFF, P_DNA, DNA_END);
+  if ((u32(page, 32) & CLEAN_FLAG) && hex(out, CLEAN_SITES[0][0], 4) !== CLEAN_SITES[0][1]) {
+    for (const [at, orig] of CLEAN_SITES) out.set(bookBytes(orig), at);
+    page.fill(0, P_CLEAN_LIST, CLEAN_LIST_END);
+  }
+  w32(page, 32, (u32(page, 32) & ~(8 | CLEAN_FLAG)) | (info.scene ? SCENE_LAND : 0)); page.fill(0xFF, P_DNA, DNA_END);
 }
 /**
  * DNA per field on or off for a ROM that has six fields already (no Land ROM needed). Returns the ROM
@@ -884,14 +976,21 @@ function dnaStrip(out, K, info) {
  */
 function sixDna(rom, blob, on) {
   const info = sixInfo(rom);
-  if (info && info.version >= 7 && on && (info.dna || !KINDS[info.kind].dna)) return sixFood(rom, blob);
+  if (info && info.version >= 7 && on && (info.dna || !KINDS[info.kind].dna)) return sixFieldsUpdate(sixFood(rom, blob), blob);
   if (info && info.food && !on) { const o = new Uint8Array(rom); foodStrip(o, KINDS[info.kind]); return o; }
   if (!info || info.version < 7 || !!info.dna === !!on) return rom;
   const K = KINDS[info.kind], out = new Uint8Array(rom);
-  if (!on) { dnaStrip(out, K, info); return out; }
+  if (!on) {
+    dnaStrip(out, K, info);
+    if (info.kind === 'gen3' && info.fieldMenu &&
+        hex(out, ADULT_FIELDS_AT, ADULT_FIELDS_NEW.length / 2) === ADULT_FIELDS_NEW) {
+      out.set(bookBytes(ADULT_FIELDS_OLD), ADULT_FIELDS_AT);
+    }
+    return out;
+  }
   if (!SIX_DNA || !K.dna || !blob || u32(blob, P_DNA_FN) === 0 || !dnaCan(rom, K)) return rom;
   dnaInstall(out, K, blob, info.fieldMenu);
-  return out;
+  return sixFieldsUpdate(out, blob);
 }
 /** Can this ROM get DNA per field? */
 function sixDnaCan(rom) { const i = sixInfo(rom), k = i ? i.kind : kindOf(rom); return SIX_DNA && !!k && !!KINDS[k].dna; }
@@ -908,13 +1007,15 @@ function rows(rom, addr, n, nrows, repl) {
  */
 function sixApply(rom, land, blob, opts = {}) {
   const planet = opts.planet !== false;
-  const have = sixInfo(rom);
+  let have = sixInfo(rom);
   let fieldMenu = opts.fieldMenu !== false;
   const wantGames = SIX_GAMES && opts.games !== false && kindOf(rom) === 'gen3';
   const wantDna = SIX_DNA && opts.dna !== false && !!(KINDS[have ? have.kind : kindOf(rom)] || {}).dna;
   const wantFood = SIX_FOOD && opts.dna !== false;
 
-  if (have && have.version >= SIX_VERSION && !sixStale(have) && have.planet === planet && have.fieldMenu === fieldMenu && have.games === wantGames) { let r = sixDna(rom, blob, wantDna); if (wantFood) r = sixFood(r, blob); return sixHunt(r); }
+  if (sixStale(have) && have.version === SIX_VERSION && land && have.planet === planet &&
+      have.fieldMenu === fieldMenu && have.games === wantGames) return sixWalkingUpdate(rom, land);
+  if (have && have.version >= SIX_VERSION && have.planet === planet && have.fieldMenu === fieldMenu && have.games === wantGames) { let r = sixDna(rom, blob, wantDna); if (wantFood) r = sixFood(r, blob); return sixLabGamesUpdate(sixFieldsUpdate(sixHunt(r), blob), blob); }
   if (have) rom = sixStrip(rom);
   const kind = kindOf(rom);
   if (kind && fieldMenu && !fmCan(rom, KINDS[kind])) fieldMenu = false;
@@ -936,6 +1037,7 @@ function sixApply(rom, land, blob, opts = {}) {
     alt.pl0 = rows(rom, 0x100811DA, 11, 1, {}); alt.pl1 = SKY_PLANET; alt.pl2 = rows(rom, 0x100811F0, 11, 1, {});
     for (const X of EXTRAS) if (X.on() && opts[X.name] !== false && extraCan(rom, 'jade', X)) alt[X.name] = X.tab(rom, 'jade');
     const outJ = install(new Uint8Array(rom), 'jade', blob, alt, [0, 0, 0], planet, fieldMenu);
+    if (fieldMenu) outJ.set(bookBytes(ADULT_FIELDS_OLD), ADULT_FIELDS_AT);
     if (dnaOk) dnaInstall(outJ, KINDS.jade, blob, fieldMenu);
     else if (wantFood) return sixFood(outJ, blob);
     return outJ;
@@ -1003,7 +1105,7 @@ function sixApply(rom, land, blob, opts = {}) {
   const eggPic = [0, 1, 2].map((fi) => { const p = firstPic(LAND_EGG + fi); if (p < 0) throw new Error('unexpected Land picture ' + (LAND_EGG + fi)); return imp.sprite(p); });
   const scene = [], wagon = [], tw = rows(trop, 0x10095778, 4, 3, {});
   for (let fi = 0; fi < 3; fi++) {
-    LAND_SCENE.forEach((c, k) => scene.push(SCENE_LAND && k > 0 ? imp.sprite(c + fi) : imp.anim(c + fi)));
+    LAND_SCENE.forEach((c, k) => scene.push(k > 0 ? imp.sprite(c + fi) : imp.anim(c + fi)));
     wagon.push(imp.anim(LAND_WAGON[0] + fi), imp.anim(LAND_WAGON[1] + fi), tw[4 * fi + 2], tw[4 * fi + 3]);
   }
   imp.done();
@@ -1027,13 +1129,39 @@ function sixApply(rom, land, blob, opts = {}) {
   for (const X of EXTRAS) if (X.on() && opts[X.name] !== false && extraCan(trop, 'gen3', X)) alt[X.name] = X.tab(trop, 'gen3');
   install(out, 'gen3', blob, alt, [nspr0, ncomp0, nanim0], planet, fieldMenu, games);
   if (dnaOk) dnaInstall(out, KINDS.gen3, blob, fieldMenu);
+  else if (fieldMenu) out.set(bookBytes(ADULT_FIELDS_OLD), ADULT_FIELDS_AT);
   // region B: rain cells
   for (let i = B_OFF; i < B_END; i++) if (trop[i] !== 0xFF) throw new Error('area 0xF00000 is in use');
   const bh = new Uint8Array(bHead); w32(bh, 0, B_MAGIC); w32(bh, 4, bList.length);
   bList.forEach((x, k) => { const o = 8 + k * 260; w32(bh, o, x.id); x.rel.forEach((r, t) => w32(bh, o + 4 + 4 * t, r < 0 ? 0xFFFFFFFF : r)); });
   out.set(bh, B_OFF); out.set(concat(bData), B_OFF + bHead);
   if (games) out.set(games.bytes, gBase);
-  return sixFix(out);
+  return sixFix(sixFieldsUpdate(out, blob));
+}
+/** Fix the walking picture indices without rebuilding the other six-field imports. */
+function sixWalkingUpdate(rom, land) {
+  const info = sixInfo(rom);
+  if (!sixStale(info)) return rom;
+  if (info.version !== SIX_VERSION || !sixSource(land)) throw new Error('the WALKING update needs a Land, Water or Sky ROM');
+  const [site, , originalTable] = KINDS.gen3.sites.find(x => x[3] === 'scene');
+  const ret = (XIP(0x11000 + site) + 4) | 1;
+  let table = 0;
+  for (let at = SIX_OFF + T_SITES; at + 12 <= SIX_OFF + T_MORE && u32(rom, at); at += 12) {
+    if (u32(rom, at) === ret && u32(rom, at + 4) === originalTable)
+      table = SIX_OFF + u32(rom, at + 8) - SIX_XIP;
+  }
+  if (table < SIX_OFF + T_MORE || table + 30 > SIX_OFF + 0x800)
+    throw new Error('six-field scene table is damaged');
+  const dst = C.openRom(rom), src = C.openRom(land), entries = dst.entries.slice();
+  const imp = importer({ tabs: dpSplit(src.files[0]), entries: src.entries },
+    { tabs: dpSplit(dst.files[0]), entries: dst.entries }, entries);
+  const out = new Uint8Array(rom);
+  for (let field = 0; field < 3; field++) for (let col = 1; col < 5; col++)
+    w16(out, table + 2 * (5 * field + col), imp.sprite(LAND_SCENE[col] + field));
+  // The imported sprites are appended so existing characters and scripts keep their indices.
+  const built = C.buildRom({ ...dst, rom: out, entries }, new Map()).rom;
+  w32(built, SIX_OFF + 32, u32(built, SIX_OFF + 32) | SCENE_LAND);
+  return sixFix(built);
 }
 /** Points the rain pictures at their cells in region B again (call after every archive rebuild). */
 function sixFix(rom) {
@@ -1051,6 +1179,246 @@ function sixFix(rom) {
 const SIX_B64 = '__SIX_B64__';
 function embedded() { return SIX_B64.startsWith('__') ? null : b64(SIX_B64); }
 
-root.ParamixSix = { sixStale, VERSION: SIX_VERSION, DNA: SIX_DNA, HUNT: SIX_HUNT, sixHunt, sixDna, sixDnaCan, sixApply, sixStrip, sixFix, sixCan, sixSource, sixInfo, sixNeedsSource, kindOf, embedded, FLAG_OFF, SIX_OFF, packGroup, reduceOne, mapCells };
+/* The native three-row Tama File selector can browse multiple banks without changing
+ * the number of scene objects. Only install where the three extra fields and
+ * their character data can be verified. Flash offsets are for Tropical/Glacier.
+ */
+const BOOK_B64 = '__BOOK_B64__', BOOK_AT = 0x300, BOOK_MAGIC = 0x36304b42;
+const BOOK_VERSION = 3;
+const BOOK_NEON_COUNTS = [24, 38, 24];
+const BOOK_NEON_NAMES = ['COSMIC PLANET', 'NEW TAMAGOTCHI PLANET', 'TAMAGOTCHI PLANET'];
+const BOOK_SITES = [
+  [0x166d4, '80b586b0', 'jump', 0],
+  [0x16630, '80b586b0', 'jump', 1],
+  [0x1680c, '80b586b0', 'jump', 2],
+  [0x16778, '80b586b0', 'jump', 3],
+  [0x292d8, '84b0adf80c00', 'jump', 4],
+  [0x6fee4, 'a4f776fd', 'call', 5],
+  [0x6e18a, '01f23621', 'call', 6],
+  [0x90bcc, '45f25652c5f2555280fb023202ebd27202eb4202801a', 'call', 7],
+  [0x90c08, '42f6b850c1f20900', 'r0', 8],
+  [0x90ca6, '42f6b850c1f20900', 'r0', 8],
+  [0x6e33c, '0068806a', 'call', 9],
+  [0x6e340, 'd0f82801', 'to', 0x6e396],
+  [0x90bf4, 'a4f794f9', 'call', 10],
+  [0x90c92, 'a4f745f9', 'call', 10],
+  [0x6d3ba, '43f2aa41c1f20901', 'r1', 11],
+  [0x6d4e2, 'd0f8cc04', 'call', 12],
+  [0x6d4e6, '0f9040b1', 'to', 0x6d56a],
+  [0x90c72, '0220', 'hex', '0520'], // wrap backward to field 5
+  [0x6e1d4, '2020', 'hex', '82e0'], // bank-aware refresh replaces the native scan
+  [0x70160, '06d0', 'hex', '06e0'], // all six areas can now show their special character
+  [0x16b88, '40f2ec40', 'hex', '40f2f040'], // allocate a pointer for the page arrow
+];
+const LEGACY_BOOKS = {
+  gen1: { code: '__BOOK_GEN1_B64__', fields: [1, 2, 3], sites: [
+    [0x155e4, '80b584b0', 'jump', 0],
+    [0x15570, '80b584b0', 'jump', 1],
+    [0x156f4, '80b584b0', 'jump', 2],
+    [0x15658, '80b584b0', 'jump', 3],
+    [0x628f6, '01f22321', 'call', 6],
+    [0x7e4a8, '45f25652c5f2555280fb023202ebd27202eb4202801a', 'call', 7],
+    [0x7e4e4, '4af2bc70c1f20700', 'r0', 8],
+    [0x7e582, '4af2bc70c1f20700', 'r0', 8],
+    [0x62aa2, '0068806a', 'call', 9],
+    [0x62aa6, 'd0f82801', 'to', 0x62afc],
+    [0x7e4d0, 'b1f72aff', 'call', 10],
+    [0x7e56e, 'b1f7dbfe', 'call', 10],
+    [0x61a9e, '4af29c21c1f20701', 'r1', 11],
+    [0x61c4a, 'd0f8ec02', 'call', 12],
+    [0x61c4e, '0f9040b1', 'to', 0x61cd2],
+    [0x7e54e, '0220', 'hex', '0520'],
+    [0x62940, '1320', 'hex', '7fe0'],
+    [0x64876, '06d0', 'hex', '06e0'],
+    [0x15a78, '4ff44370', 'movw', 0x310],
+    [0x645c8, '13201190', 'jump', 14],
+  ] },
+  jade: { code: '__BOOK_JADE_B64__', fields: [1, 2, 4], sites: [
+    [0x156d0, '80b586b0', 'jump', 0],
+    [0x1562c, '80b586b0', 'jump', 1],
+    [0x15808, '80b586b0', 'jump', 2],
+    [0x15774, '80b586b0', 'jump', 3],
+    [0x65bc2, '01f22521', 'call', 6],
+    [0x82374, '45f25652c5f2555280fb023202ebd27202eb4202801a', 'call', 7],
+    [0x823b0, '4ff65810c1f20700', 'r0', 8],
+    [0x8244e, '4ff65810c1f20700', 'r0', 8],
+    [0x65d74, '0068806a', 'call', 9],
+    [0x65d78, 'd0f82801', 'to', 0x65dce],
+    [0x8239c, 'aff766f9', 'call', 10],
+    [0x8243a, 'aff717f9', 'call', 10],
+    [0x64df2, '4ff63071c1f20701', 'r1', 11],
+    [0x64f1a, 'd0f87c03', 'call', 12],
+    [0x64f1e, '0f9040b1', 'to', 0x64fa2],
+    [0x8241a, '0220', 'hex', '0520'],
+    [0x65c0c, '1820', 'hex', '82e0'],
+    [0x67b98, '06d0', 'hex', '06e0'],
+    [0x15b84, '4ff46770', 'movw', 0x3a0],
+    [0x678e4, '18201190', 'jump', 14],
+  ] },
+};
+const LEGACY_BOOK_VERSION = 4;
+function legacyBookKind(rom) {
+  const id = C.editionIdOf(rom);
+  if (id >= 1 && id <= 3) return 'gen1';
+  if (id === 4) return 'jade';
+  return null;
+}
+const bookBytes = (s) => Uint8Array.from(s.match(/../g), (x) => parseInt(x, 16));
+function bookSites(version) {
+  if (version === 1) return BOOK_SITES.slice(0, -1);
+  if (version === 2) return BOOK_SITES;
+  return BOOK_SITES.map((site) => site[0] === 0x90c72 ? [site[0], site[1], 'hex', '0820'] : site)
+    .concat([[0x6feac, '20201190', 'jump', 14]]);
+}
+
+function bookReplacement(page, at, site) {
+  const [off, orig, type, key] = site;
+  if (type === 'hex') return bookBytes(key);
+  if (type === 'movw') return movEnc(0, key);
+  if (type === 'to') return branch(XIP(off), XIP(key), false);
+  const target = XIP(at) + u32(page, 8 + 4 * key);
+  if (type === 'r0' || type === 'r1') return movPairBytes(type === 'r0' ? 0 : 1, target);
+  const bytes = new Uint8Array(orig.length / 2);
+  bytes.set(branch(XIP(off), target, type === 'call'));
+  for (let i = 4; i < bytes.length; i += 2) w16(bytes, i, 0xbf00);
+  return bytes;
+}
+
+function bookPlanetNames(english) {
+  const n = u16(english, 0), first = u16(english, 2);
+  if (first !== n + 2 || u16(english, 2 * (n + 1)) * 2 !== english.length) return [];
+  const glyphs = BOOK_NEON_NAMES.map((name) => Array.from(name, (letter) => C.TXT_ENC[letter]));
+  const matches = (id, codes) => {
+    const at = 2 * u16(english, 2 * (id + 1)), end = 2 * u16(english, 2 * (id + 2));
+    return at >= first * 2 && end === at + 2 * (codes.length + 1) && u16(english, end - 2) === 0 &&
+      codes.every((code, k) => u16(english, at + 2 * k) === code);
+  };
+  for (let id = 0; id + glyphs.length <= n; id++) {
+    if (glyphs.every((codes, k) => matches(id + k, codes))) return glyphs.map((_, k) => id + k);
+  }
+  return [];
+}
+
+function bookCharacters(rom) {
+  const info = sixInfo(rom);
+  const nt = root.ParamixNeonTransplant || (typeof require !== 'undefined'
+    ? require('../six/experimental-neon/transplant.js') : null);
+  if (kindOf(rom) !== 'gen3') return null;
+  if (info) {
+    if (info.kind !== 'gen3' || info.version !== SIX_VERSION || info.flagOff !== FLAG_OFF ||
+        u32(rom, B_OFF) !== B_MAGIC || u32(rom, B_OFF + 4) !== 9) return null;
+    const pack = C.ASSET_BASE + u32(rom, C.ASSET_BASE + 36), data = B_OFF + 8 + 9 * 260;
+    const sprites = new Set();
+    for (let k = 0; k < 9; k++) {
+      const off = B_OFF + 8 + k * 260, id = u32(rom, off);
+      if (id < info.sprites || id > 4096 || sprites.has(id) || pack + id * 4 + 4 > rom.length) return null;
+      sprites.add(id);
+      const h = pack + u32(rom, pack + 4 * id), pix = h + u16(rom, h + 20);
+      if (h < pack || pix < h || pix + 64 * 8 > B_OFF) return null;
+      for (let t = 0; t < 64; t++) {
+        const rel = u32(rom, off + 4 + 4 * t);
+        const size = u32(rom, pix + t * 8 + 4);
+        if (rel !== 0xffffffff && (!size || size > B_END - data - rel)) return null;
+      }
+    }
+  } else if (!nt?.installed(rom)) return null;
+  const chars = C.charTable(C.arc2Files(rom, C.ASSET_BASE)[0]);
+  const added = [];
+  for (let field = 1; field <= 6; field++) {
+    const ids = chars.filter((c) => c.field === field && c.stage >= 3 && c.stage <= 5).map((c) => c.id).sort((a, b) => a - b);
+    if (ids.length !== 22 || new Set(ids).size !== 22) return null;
+    if (field <= 3) added.push(...ids);
+    else {
+      const ordinal = field === 4 ? 2 : field - 5, record = 0xaed4c + ordinal * 8;
+      const list = u32(rom, record) - XIP(0);
+      if (list < 0x11000 || list + 44 > 0x111000 || u32(rom, record + 4) !== ids.length ||
+          ids.some((id, i) => u16(rom, list + 2 * i) !== id)) return null;
+    }
+  }
+  if (new Set(added).size !== 66) return null;
+  const data = neonBookCharacters(rom, chars);
+  if (!data) return info && !chars.some(c => c.field >= 7 && c.field <= 9) ? { ids: added, names: [] } : null;
+  const ids = added.concat(data.ids);
+  return new Set(ids).size === ids.length ? { ids, names: data.names } : null;
+}
+
+function neonBookCharacters(rom, chars) {
+  const neon = BOOK_NEON_COUNTS.map((_, k) => chars.filter((c) =>
+    c.id > 1000 && c.id < 9000 && c.field === 7 + k && c.stage >= 3 && c.stage <= 5)
+    .map((c) => c.id).sort((a, b) => a - b));
+  if (neon.some((ids, k) => ids.length !== BOOK_NEON_COUNTS[k])) return null;
+  const ids = neon.flat();
+  if (new Set(ids).size !== ids.length) return null;
+  const texts = C.arc2Files(rom, C.ASSET_BASE)[2];
+  const english = C.arc2Files(texts, 0)[1];
+  const manifest = 0x107FE0, packed = u32(rom, manifest + 4);
+  const first = (packed & 0xFFFF) + 86;
+  const localized = u32(rom, manifest) === 0x314E5A4E && packed >>> 16 === 86 &&
+    u32(rom, manifest + 8) === (~packed >>> 0) && u32(rom, manifest + 16) === 0x31465A4E &&
+    first + 3 <= u16(english, 0);
+  const names = localized ? [first, first + 1, first + 2] : bookPlanetNames(english);
+  return names.length ? { ids, names } : null;
+}
+
+function legacyBookCharacters(rom, profile) {
+  const nt = root.ParamixNeonTransplant || (typeof require !== 'undefined'
+    ? require('../six/experimental-neon/transplant.js') : null);
+  if (!nt?.installed(rom)) return null;
+  const chars = C.charTable(C.arc2Files(rom, C.ASSET_BASE)[0]);
+  const rosters = profile.fields.map(field =>
+    chars.filter(c => c.field === field && c.stage >= 3 && c.stage <= 5 && c.id < 9000)
+      .map(c => c.id).sort((a, b) => a - b));
+  if (rosters.some(ids => ids.length !== 22 || new Set(ids).size !== 22)) return null;
+  const neon = neonBookCharacters(rom, chars);
+  return neon && { ...neon, rosters: rosters.flat() };
+}
+
+function sixBookApply(rom, stubOff) {
+  const at = stubOff + BOOK_AT, kind = legacyBookKind(rom), legacy = LEGACY_BOOKS[kind];
+  let data;
+  try { data = legacy ? legacyBookCharacters(rom, legacy) : bookCharacters(rom); } catch (_) { return false; }
+  if (!data) return false;
+  const { ids, names, rosters } = data;
+  const version = legacy ? LEGACY_BOOK_VERSION : names.length ? BOOK_VERSION : 2;
+  const sites = legacy ? legacy.sites : bookSites(version);
+  if (sites.some(([off, orig]) => hex(rom, off, orig.length / 2) !== orig)) return false;
+  const code = legacy ? legacy.code : BOOK_B64;
+  const file = legacy ? 'book-' + kind : 'book';
+  const page = code.startsWith('__')
+    ? (typeof require === 'undefined' ? null : require('node:fs').readFileSync(__dirname + '/../six/' + file + '.bin'))
+    : b64(code);
+  if (!page) return false;
+  const idsAt = u32(page, 60), countAt = u32(page, 68), namesAt = u32(page, 72);
+  const rostersAt = legacy ? u32(page, 76) : 0;
+  if (u32(page, 0) !== BOOK_MAGIC || u32(page, 4) !== (legacy ? LEGACY_BOOK_VERSION : BOOK_VERSION) ||
+      idsAt + 2 * ids.length > page.length || countAt >= page.length ||
+      namesAt + 2 * names.length > page.length ||
+      (legacy && rostersAt + 2 * rosters.length > page.length) ||
+      at + page.length > stubOff + 0x1000 || !rom.subarray(at, at + page.length).every((b) => b === 255)) return false;
+  w32(page, 4, version);
+  page[countAt] = legacy ? 6 : names.length ? 9 : 6;
+  if (rosters) rosters.forEach((id, i) => w16(page, rostersAt + 2 * i, id));
+  ids.forEach((id, i) => w16(page, idsAt + 2 * i, id));
+  names.forEach((id, i) => w16(page, namesAt + 2 * i, id));
+  rom.set(page, at);
+  sites.forEach((site) => rom.set(bookReplacement(page, at, site), site[0]));
+  return true;
+}
+
+function sixBookStrip(rom, stubOff) {
+  const at = stubOff + BOOK_AT;
+  if (u32(rom, at) !== BOOK_MAGIC) return;
+  const page = rom.subarray(at, stubOff + 0x1000);
+  const version = u32(page, 4);
+  const legacy = version === LEGACY_BOOK_VERSION ? LEGACY_BOOKS[legacyBookKind(rom)] : null;
+  const sites = legacy ? legacy.sites : bookSites(version);
+  if ((!legacy && (version < 1 || version > BOOK_VERSION)) || sites.some((site) => {
+    const b = bookReplacement(page, at, site);
+    return hex(rom, site[0], b.length) !== hex(b, 0, b.length);
+  })) throw new Error('the native Tama File patch has changed');
+  sites.forEach(([off, orig]) => rom.set(bookBytes(orig), off));
+}
+
+root.ParamixSix = { sixStale, sixWalkingUpdate, VERSION: SIX_VERSION, DNA: SIX_DNA, HUNT: SIX_HUNT, sixHunt, sixLabGamesUpdate, sixLabGamesUpdateNeeded, sixFieldsUpdate, sixFieldsUpdateNeeded, sixDna, sixDnaCan, sixApply, sixStrip, sixFix, sixCan, sixSource, sixInfo, sixNeedsSource, sixBookApply, sixBookStrip, kindOf, embedded, FLAG_OFF, SIX_OFF, packGroup, reduceOne, mapCells };
 if (typeof module !== 'undefined') module.exports = root.ParamixSix;
 })(typeof window !== 'undefined' ? window : globalThis);

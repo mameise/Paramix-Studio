@@ -37,7 +37,7 @@ const FLASH_SIZE = 0x1000000, SECTOR = 0x1000, BLOCK64 = 0x10000;
 const BAUD = 460800;
 const FIRST_USER = 0x111000;   // write order starts here
 // PAU1 commands
-const CLOCK_READ = 14, CLOCK_SET = 15;
+const CLOCK_READ = 14, CLOCK_SET = 15, RESET_CONTROL = 16;
 const HELLO = 1, READ = 5, CRC = 6, WRITE_TEST = 8, WRITE_BEGIN = 9, WRITE_DATA = 10, WRITE_COMMIT = 11, WRITE_FINISH = 12, WRITE_STATE = 13;
 // App loading: constants of the device's download protocol (needed to load our
 // own flash app, the same values as in the Paradise Flash Tool).
@@ -51,7 +51,6 @@ const LINK_KEY = String.fromCharCode(...LV.subarray(0, 32)), PDLO_TOKEN = String
 const PDLO_XOR = (LV[40] | LV[41] << 8 | LV[42] << 16 | LV[43] << 24) >>> 0;
 const IMAGE_SIZE = 0x10000, CHUNK = 0x1000;
 const EDITIONS = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier', 7: 'Tropical/Glacier', 8: 'Neon Planets' };
-const GEN3_ID4 = true;   // 1.7.6: ID 4 with the Tropical/Glacier footer (Forest or Sky active) = edition 7
 
 // ------------------------------------------------------------------ messages
 // English texts; every error and note carries .code and .p so the page can show
@@ -85,9 +84,9 @@ const MSG = {
   appSilent: 'the flash app was sent but does not answer. Try again',
   unknownEd: 'unknown edition in the new ROM, untick "keep saves"',
   otherEd: 'the device is {d}, the new ROM is {r}. Untick "keep saves" to switch the edition',
-  noteNoFit: 'field {f} does not fit into the new slot and is not kept',
+  slotMigration: 'Keep Saves could not preserve slot {f}. The write was cancelled before any flash changes.',
+  slotMenuRequired: 'Keep Saves cannot preserve stored slots without a save menu. The write was cancelled before any flash changes.',
   noteMoved: 'field {f} moved to the new slot',
-  noteDropped: 'the new ROM has no field menu, stored fields on the device are dropped',
   noteEdKept: 'the device is {d}, the new ROM is {r}: same firmware, the device keeps its save and its field ({d})',
   noteSaveMoved: 'save of {n} taken along',
   noteEmu: 'TamaEmu firmware chosen again, the emulator starts fresh. For an update just open the ROM and save it',
@@ -421,30 +420,59 @@ class Paradise {
   async hello(ms = 6000) {
     const r = await this.link.request(HELLO, 0, undefined, ms);
     const p = r.payload; if (p.length !== 44) throw fe('hello');
-    this.info = { edition: p[8], wave: p[9], maxBlock: p[10] | (p[11] << 8), jedec: u32(p, 24), capacity: u32(p, 32), flashError: u32(p, 36) };
+    this.info = { edition: p[8], wave: p[9], maxBlock: p[10] | (p[11] << 8), jedec: u32(p, 24), capacity: u32(p, 32), flashError: u32(p, 36), resetControl: !!(u32(p, 40) & 1) };
     // The flash app always reports 1 (Land). The real edition is the ID page in the flash
-    // (0xD49000, Tropical/Glacier 0xD29000), read like the Studio reads a ROM (1.3.0).
+    // (0xD49000, Tropical/Glacier 0xD29000, Neon Planets 0xD85000).
     try {
       // 1.7.3 test11: Tropical/Glacier first, with the page's footer (C minus ID, inverse): a Glacier was taken for Land
       // (its save data at 0xD49000 can begin with 1..6)
-      const C = [0, 0x70169E2C, 0x70169E2C, 0x70169E2C, 0x849633DB, 0x96CB83B8, 0x96CB83B8];
+      const C = [0, 0x70169E2C, 0x70169E2C, 0x70169E2C, 0x849633DB, 0x96CB83B8, 0x96CB83B8, 0x99431749];
       const ok = async (p, ids) => { const a = await this.read(p, 4), v = u32(a, 0); if (!ids.includes(v)) return 0;
-        const f = await this.read(p + 0xFF8, 8), k = u32(f, 0), ft = (cc) => ((k + v) >>> 0) === cc && u32(f, 4) === (~k >>> 0);
-        if (GEN3_ID4 && v === 4 && p !== 0xD49000 && ft(C[5])) return 7;
-        return ft(C[v]) ? v : -v; };
-      // 1.7.6 NEON_ED: Neon Planets, ID page 0xD85000 (ID 7, own footer), edition 8 in the Studio
-      const neonAt = async (p) => { const a = await this.read(p, 4); if (u32(a, 0) !== 7) return false; const f = await this.read(p + 0xFF8, 8), k = u32(f, 0); return ((k + 7) >>> 0) === 0x99431749 && u32(f, 4) === (~k >>> 0); };
-      const neon = await neonAt(0xD85000) || await neonAt(0xEFD000);   // 0xEFD000: Neon without the Paradise (clean ROM)
-      if (neon) { this.info.edition = 8; this.info.name = EDITIONS[8]; return this.info; }
-      const g = await ok(0xD29000, GEN3_ID4 ? [5, 6, 4] : [5, 6]), l = g > 0 ? 0 : await ok(0xD49000, [1, 2, 3, 4]);
-      const c = g > 0 || l > 0 ? 0 : await ok(0xEFD000, [1, 2, 3, 4, 5, 6]);   // 1.7.3 test13: a clean ROM's ID page
-      const v = g > 0 ? g : l > 0 ? l : c > 0 ? c : l < 0 ? -l : g < 0 ? -g : 0;
+        const f = await this.read(p + 0xFF8, 8), k = u32(f, 0); const footer = (k + v) >>> 0, valid = u32(f, 4) === (~k >>> 0);
+        if (valid && v === 4 && (p === 0xD29000 || p === 0xEFD000) && footer === C[5]) return 7;
+        if (p === 0xD29000 && v === 4) return 0;
+        return valid && footer === C[v] ? (v === 7 ? 8 : v) : -v; };
+      const n = await ok(0xD85000, [7]), g = n > 0 ? 0 : await ok(0xD29000, [4, 5, 6]);
+      const l = n > 0 || g > 0 ? 0 : await ok(0xD49000, [1, 2, 3, 4]);
+      const c = n > 0 || g > 0 || l > 0 ? 0 : await ok(0xEFD000, [1, 2, 3, 4, 5, 6, 7]);
+      const v = n > 0 ? n : g > 0 ? g : l > 0 ? l : c > 0 ? c : l < 0 ? -l : g < 0 ? -g : 0;
       if (v) this.info.edition = v;
     } catch (e) { if (!(e instanceof TimeoutError)) throw e; }
     this.info.name = EDITIONS[this.info.edition] || 'Edition ' + this.info.edition;
     return this.info;
   }
   ready() { if (!this.info || this.info.capacity !== FLASH_SIZE || this.info.flashError) throw fe('notReady'); }
+  /** The device also keeps its own incomplete-write latch; IDLE can be refused. */
+  async resetIdle(idle) {
+    if (!this.info || !this.info.resetControl) return false;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const r = await this.link.request(RESET_CONTROL, 0, u32le(idle ? 1 : 0), 3000);
+        return r.status === 0;
+      } catch (e) { if (!(e instanceof TimeoutError) || attempt >= 2) throw e; }
+    }
+  }
+  /** Hold the reset lock across a complete operation, including nested checks. */
+  async resetTask(fn) {
+    if (!this.resetDepth) this.resetFailed = false;
+    this.resetDepth = (this.resetDepth || 0) + 1;
+    let complete = false;
+    try {
+      if (this.resetDepth === 1 && this.info && this.info.resetControl && !await this.resetIdle(false))
+        throw new Error('The device could not lock reset');
+      const result = await fn();
+      complete = true;
+      return result;
+    } finally {
+      if (!complete) this.resetFailed = true;
+      this.resetDepth--;
+      if (!this.resetDepth && !this.resetFailed) {
+        // Failed operations stay locked. A lost IDLE reply never masks the completed result.
+        try { await this.resetIdle(true); } catch (_) {}
+      }
+    }
+  }
+
   async read(off, len) {
     const out = new Uint8Array(len), blk = this.block;
     for (let o = 0; o < len; o += blk) {
@@ -497,7 +525,7 @@ class Paradise {
     throw fe('lost');
   }
   /** Write single 4 KB sectors (Map address -> data), checked one by one. */
-  async writeSectors(map, progress, cancel, guard) {
+  async writeSectors(map, progress, cancel, guard, finishCheck) {
     this.ready();
     let jobs = [...map.keys()].sort((a, b) => a - b).map((s) => [s, map.get(s)]), extra = 0;
     // test15: with the rescue start on the device, its own table is off while the pages are written, back last
@@ -520,6 +548,8 @@ class Paradise {
       await this.putSector(s, d);
       n++; if (progress) progress('write', n, jobs.length);
     }
+    // Final read-back checks must pass before the device clears its incomplete-write latch.
+    if (finishCheck) await finishCheck();
     await this.link.request(WRITE_FINISH, 0, undefined, 15000);
     return n - extra;
   }
@@ -577,8 +607,9 @@ class Paradise {
   }
   async rescueInstall(block, progress, cancel) {
     const m = new Map(); for (let s = 0; s < BLOCK64; s += SECTOR) m.set(RESCUE_OFF + s, block.subarray(s, s + SECTOR));
-    await this.writeSectors(m, progress, cancel);
-    if (await this.crc(RESCUE_OFF, BLOCK64) !== crc32(block)) throw fe('rescueFail');
+    await this.writeSectors(m, progress, cancel, null, async () => {
+      if (await this.crc(RESCUE_OFF, BLOCK64) !== crc32(block)) throw fe('rescueFail');
+    });
   }
   /**
    * Test on the device (1.6.13 test13): rescue start in place, then the device's own table (sector 0) cleared.
@@ -597,8 +628,9 @@ class Paradise {
   async rescueRestore(hdr, progress, cancel) {
     this.ready();
     if (String.fromCharCode(...hdr.subarray(0, 8)) !== 'SONIXDEV') throw fe('notParadise');
-    await this.writeSectors(new Map([[0, hdr.subarray(0, SECTOR)]]), progress, cancel);
-    if (await this.crc(0, SECTOR) !== crc32(hdr, 0, SECTOR)) throw fe('checkFail', { a: hex(0) });
+    await this.writeSectors(new Map([[0, hdr.subarray(0, SECTOR)]]), progress, cancel, null, async () => {
+      if (await this.crc(0, SECTOR) !== crc32(hdr, 0, SECTOR)) throw fe('checkFail', { a: hex(0) });
+    });
   }
   /** Whole flash (16 MB). */
   async dump(progress, cancel) {
@@ -781,6 +813,8 @@ function keepPlan(F, E, menu, opts = {}) {
     // CLEAN_ROM: without the Paradise there is no save of it and no main program at 0x0A0000 (any program may sit
     // there); the menu's clock stays when the device is clean too
     const clean = !!(F.isClean && F.isClean(img)), dclean = !!(F.isClean && F.isClean(view)), mainOk = !clean && !dclean;
+    const neon = root.ParamixNeonTransplant;
+    const importNeonItems = mainOk && ed.profile.name === 'gen3' && neon?.itemsInstalled(img) && !neon.itemsInstalled(view);
     // six fields keep pictures from 0xF00000; a start device (1.6.8) may have programs there (the Paradise never writes there)
     const launchImg = !!(menu && F.isLaunch && F.isLaunch(img, menu.stub));
     const ranges = mainOk ? [[ed.profile.idPage + (sameFam ? 0 : SECTOR), (F.isSix && F.isSix(img)) || launchImg || (NEON_HI && ed.profile.ring) ? 0xF00000 : FLASH_SIZE]] : [];   // NEON_HI: Neon's save ends at 0xF00000, programs may follow
@@ -789,28 +823,43 @@ function keepPlan(F, E, menu, opts = {}) {
     const fi = menu && F.feldFind(img, menu.stub), fd = menu && F.feldFind(view, menu.stub);
     if (fd && (fd.flags & 1)) {
       const at = (f, i) => (F.slotAddr ? F.slotAddr(f, i) : f.slotOff + i * f.slotSize);
-      if (fi && (fi.flags & 1) && fi.slotOff === fd.slotOff && fi.slotSize === fd.slotSize && fi.nslots === fd.nslots && (fi.slotOff2 || 0) === (fd.slotOff2 || 0) && (fi.slotN1 || 0) === (fd.slotN1 || 0)) {
-        for (let i = 0; i < fd.nslots; i++) ranges.push([at(fd, i), at(fd, i) + fd.slotSize]);
+      const slotRanges = f => F.slotRanges ? F.slotRanges(f) : Array.from({length:f.nslots},(_,i)=>[at(f,i),at(f,i)+f.slotSize]);
+      if (!importNeonItems && fi && (fi.flags & 1) && fi.slotOff === fd.slotOff && fi.slotSize === fd.slotSize && fi.nslots === fd.nslots && (fi.slotOff2 || 0) === (fd.slotOff2 || 0) && (fi.slotN1 || 0) === (fd.slotN1 || 0) && (fi.poolExtraOff || 0) === (fd.poolExtraOff || 0) && (fi.poolExtraPages || 0) === (fd.poolExtraPages || 0)) {
+        ranges.push(...slotRanges(fd));
       }
       else if (fi && (fi.flags & 1) && F.slotReadAsync) {
         // other layout: copy every stored field into the new slots (shared pool, 1.2.12)
         const slots = [];
         for (let i = 0; i < fd.nslots; i++) {
-          const s = await F.slotReadAsync((a, n) => dev.read(a, n), fd, i);
+          let s;
+          try {
+            s = await F.slotReadAsync((a, n) => dev.read(a, n), fd, i);
+            if (s) F.slotPages(s);
+          } catch (_) { throw fe('slotMigration', { f: i + 1 }); }
           if (!s) continue;
           const idx = fd.version >= 3 ? s.field - 1 : i;
-          if (idx < 0 || idx >= fi.nslots) { notes.push(note('noteNoFit', { f: s.field })); continue; }
+          if (idx < 0 || idx >= fi.nslots || slots.some(([j]) => j === idx))
+            throw fe('slotMigration', { f: i + 1 });
           slots.push([idx, s]);
         }
         // the device's saves replace whatever the new image carries in the slots
-        for (let i = 0; i < fi.nslots; i++) image.fill(0xFF, at(fi, i), at(fi, i) + fi.slotSize);
+        for (const [a,b] of slotRanges(fi)) image.fill(0xFF,a,b);
         const used = new Set();
         for (const [idx, s] of slots) {
-          try { F.slotPlace(image, fi, idx, s, used); notes.push(note('noteMoved', { f: s.field })); }
-          catch (e) { notes.push(note('noteNoFit', { f: s.field })); }
+          try {
+            const migrated = importNeonItems ? neon.clearItemSaveSlots([{ ...s, index: idx }])[0] : s;
+            F.slotPlace(image, fi, idx, migrated, used);
+            notes.push(note('noteMoved', { f: s.field }));
+          }
+          catch (_) { throw fe('slotMigration', { f: s.field }); }
         }
-        for (let i = 0; i < fi.nslots; i++) for (let a = at(fi, i); a < at(fi, i) + fi.slotSize; a += SECTOR) if (crc32(image, a, SECTOR) !== crc32(img, a, SECTOR)) changed.add(a);
-      } else notes.push(note('noteDropped'));
+        for (const [from,to] of slotRanges(fi)) for (let a=from;a<to;a+=SECTOR) if (crc32(image,a,SECTOR)!==crc32(img,a,SECTOR)) changed.add(a);
+      } else {
+        for (let i = 0; i < fd.nslots; i++) {
+          const head = await dev.read(at(fd, i), SECTOR);
+          if (u32(head, 0) === 0x544C5346) throw fe('slotMenuRequired');
+        }
+      }
     }
     const guestR = [];   // 1.6.8: TamaEmu firmware areas; sectors the Studio changed there (download items) come from the image
     const mine = opts.mine || null;
@@ -978,7 +1027,16 @@ function keepPlan(F, E, menu, opts = {}) {
           const c = await cfgOf(base); const m = u32(c, 0x140);
           // 1.7.6 DLC_KEEP: a TamaEmu whose firmware came along from the device (saveCarry: moved or other layout)
           // takes its run state along (it does not depend on the layout)
-          if (m === PMXC_ && u32(c, 0x144) >= 3 && opts.carried) { out.push({ kind: m, tama: u32(c, 0x154), saveOff: u32(c, 0x150), saveLen: 0x50000, base }); return; }
+          if (m === PMXC_ && u32(c, 0x144) >= 3 && opts.carried) {
+            const tama = u32(c, 0x154), guest = u32(c, 0x148);
+            const resetBlock = tama === 0 ? 0 : 0x40;
+            const code = [resetBlock, resetBlock + 1].map(block => {
+              const mapped = c[0x158 + block];
+              return mapped === 0xFF ? -1 : guest + ((mapped === 0xFE ? block : mapped) << 16);
+            });
+            out.push({ kind: m, tama, code, saveOff: u32(c, 0x150), saveLen: 0x50000, base });
+            return;
+          }
           if (m !== T7M && m !== V1M) return;
           const isMain = base === 0xA0000, so = u32(c, 0x150);
           out.push({ kind: m, romOff: u32(c, 0x148), romLen: u32(c, 0x14C), saveOff: so, saveLen: m === V1M ? 0x2000 : (isMain ? 0x6000 : 0x6000), base });
@@ -995,8 +1053,22 @@ function keepPlan(F, E, menu, opts = {}) {
         for (const p of ip) {
           if (covered(p.saveOff)) continue;
           if (p.tama !== undefined) {
-            const d = dp.find((x) => x.tama === p.tama && opts.carried.has(x.base));
-            if (d) { const data = await dev.read(d.saveOff, p.saveLen); image.set(data, p.saveOff); for (let s = p.saveOff; s < p.saveOff + p.saveLen; s += SECTOR) changed.add(s); }
+            const matches = [];
+            for (const d of dp) {
+              if (d.tama !== p.tama || !opts.carried.has(d.base) ||
+                  p.code.some((at, i) => at < 0 || d.code[i] < 0 || at + BLOCK64 > img.length || d.code[i] + BLOCK64 > img.length)) continue;
+              let same = true;
+              for (const [i, at] of p.code.entries()) {
+                const dc = dev.crc ? await dev.crc(d.code[i], BLOCK64) : crc32(await dev.read(d.code[i], BLOCK64));
+                if (dc !== crc32(img, at, BLOCK64)) { same = false; break; }
+              }
+              if (same) matches.push(d);
+            }
+            if (matches.length === 1) {
+              const data = await dev.read(matches[0].saveOff, p.saveLen);
+              image.set(data, p.saveOff);
+              for (let s = p.saveOff; s < p.saveOff + p.saveLen; s += SECTOR) changed.add(s);
+            }
             continue;
           }
           const want = crc32(img, p.romOff, p.romLen);
@@ -1022,7 +1094,13 @@ function keepPlan(F, E, menu, opts = {}) {
     for (const [a, b] of opts.fresh || []) for (let s = a & ~0xFFF; s < b; s += SECTOR) prot.delete(s);   // 1.6.8: imported saves
     let kept = 0;
     for (const s of prot) if (changed.has(s)) { image.set(await dev.read(s, SECTOR), s); kept++; }
-    // 1.7.6 PS_DL2: a last step of the caller on the finished image (the stamp card byte in a P's run state)
+    if (importNeonItems) {
+      for (const s of [0xEFE000, 0xEFF000]) {
+        if (!prot.has(s) || !neon.clearPlaceholderCounts(image.subarray(s, s + SECTOR))) continue;
+        changed.add(s);
+        prot.delete(s);
+      }
+    }
     if (opts.after) { const before = image.slice(); await opts.after(image); for (let s = 0; s < image.length; s += SECTOR) { if (changed.has(s)) continue; for (let i = s; i < s + SECTOR; i++) if (image[i] !== before[i]) { changed.add(s); break; } } }
     const protectedSectors = [...prot].filter((s) => changed.has(s));
     return { image, notes, kept, protectedSectors };

@@ -39,9 +39,10 @@ static void framing(void){
   sl_fd=fd[0]; assert(sl_read(100) && sl_rx_type=='A' && sl_rx_seq==0);
   close(fd[0]); close(fd[1]); sl_fd=-1;
 }
-static void transfer(int compatible,int stored){
+static void transfer(int compatible,int stored,int shared){
   save_fixture();
   if(stored){ assert(!slot_copy(0,2,1)); }
+  if(shared){ g_cfg.slot_size=2*PAGE; assert(!stash(2)); assert(pool_free(1)<rd32(slot_base(2)+24)); }
   u8 original[PAGE]; memcpy(original,host_flash+SET_A,PAGE);
   int fd[2]; assert(!socketpair(AF_UNIX,SOCK_STREAM,0,fd));
   fflush(stdout);
@@ -59,9 +60,15 @@ static void transfer(int compatible,int stored){
       u32 phases=(1u<<SL_ROM)|(1u<<SL_WAIT)|(1u<<SL_PEER)|(1u<<SL_HEADER)|(1u<<SL_DATA)|(1u<<SL_VERIFY)|(1u<<SL_COMMIT)|(1u<<SL_FINISH);
       assert((sl_ui_seen&phases)==phases && sl_ui_full_paints>=8u);
       assert(slot_valid(1) && !slot_set(1,g_page) && set_ok(g_page));
+      if(shared) for(u32 k=0;k<rd32(slot_base(1)+24);k++){
+        u32 o=offsetof(SlotHdr,dpg)+2*k; assert(rd16(slot_base(1)+o)==rd16(slot_base(2)+o));
+      }
       assert(field_of(g_page)==(stored?1:0));
-      assert(!slot_clear(2) && !slot_copy(1,2,2));
-      assert(!slot_set(2,g_page) && sl_r32(g_page+16)==sl_r32(original+16)-900u);
+      assert(!slot_clear(2));
+      if(!shared){
+        assert(!slot_copy(1,2,2));
+        assert(!slot_set(2,g_page) && sl_r32(g_page+16)==sl_r32(original+16)-900u);
+      }
       assert(!restore(1,0));
       assert(sl_r32(host_flash+SET_A+16)==sl_r32(original+16)-900u);
       assert(set_ok(host_flash+SET_A) && !memcmp(host_flash+SET_A,host_flash+SET_B,PAGE));
@@ -96,8 +103,140 @@ static void interrupted_transfer(void){
   assert(sl_request('D',g_cmp,128)); close(fd[0]); sl_fd=-1;
   int status; assert(waitpid(pid,&status,0)==pid && WIFEXITED(status) && !WEXITSTATUS(status));
 }
+static void flash_fixture(void){
+  save_fixture(); g_cfg.version=9; g_cfg.stub_off=0xB6000;
+  sl_w32(host_flash+g_cfg.stub_off+0x0C,0x4604B672u);
+  memset(host_flash+FT_BASE,0xA5,0x10000); sl_w32(host_flash+FT_BASE,0x1801F000u); sl_w32(host_flash+FT_BASE+4,9);
+  sl_w32(host_flash+FT_TABLE,0x494E4F53u); sl_w32(host_flash+FT_TABLE+4,0x56454458u);
+  sl_w32(host_flash+FT_TABLE+8,0x12); sl_w32(host_flash+FT_TABLE+0x10,0x60FF0000u); sl_w32(host_flash+FT_TABLE+0x14,FT_SIZE);
+  u32 crc=0xFFFFFFFFu; for(u32 i=0;i<FT_SIZE;i++) crc=sl_crc(crc,host_flash[FT_BASE+i]); sl_w32(host_flash+FT_TABLE+0x24,crc^0xFFFFFFFFu);
+  host_flash_tool_src=0;
+}
+static void root_pause(const char *seq){ keys(seq); int jump=setjmp(g_jb); if(!jump) main_menu(); assert(jump==2 && !g_seq[g_pos]); }
+static void assert_large_title(u32 y,const char *name,u16 color){
+  u16 title[14u*128u]; memcpy(title,g_fb+y*128u,sizeof title);
+  rect(0,(int)y,128,(int)y+14,BG); ctext((int)y,name,color,2);
+  assert(!memcmp(title,g_fb+y*128u,sizeof title));
+}
+static void flash_tool_tests(void){
+  flash_fixture(); assert(flash_tool_header() && flash_tool_stub() && flash_tool_valid());
+  u8 rescue[0x10000],live[PAGE]; memcpy(rescue,host_flash+FT_BASE,sizeof rescue); memcpy(live,host_flash+SET_A,PAGE);
+  u32 leaves=host_leave_count;
+  keys("c"); flash_tool_menu(); assert(!host_flash_tool_src && host_leave_count==leaves && !g_seq[g_pos]);
+  assert_large_title(12,"FLASH TOOL",ORANGE);
+  keys("b"); int jump=setjmp(g_jb); if(!jump) flash_tool_menu();
+  assert(jump==1 && host_flash_tool_src==0x10FDF000u && host_leave_count==leaves && !g_seq[g_pos]);
+  assert(!memcmp(rescue,host_flash+FT_BASE,sizeof rescue) && !memcmp(live,host_flash+SET_A,PAGE));
+  flash_fixture(); host_flash[FT_BASE+0x100]^=1; assert(!flash_tool_valid()); keys("c"); flash_tool_menu(); assert(!host_flash_tool_src && !g_seq[g_pos]);
+  flash_fixture(); sl_w32(host_flash+FT_TABLE+0x14,0x10000); assert(!flash_tool_header()); keys("c"); flash_tool_menu(); assert(!host_flash_tool_src && !g_seq[g_pos]);
+  flash_fixture(); sl_w32(host_flash+FT_BASE+4,0xE001); assert(!flash_tool_header());
+  flash_fixture(); sl_w32(host_flash+FT_TABLE+8,0x13); assert(!flash_tool_header());
+  flash_fixture(); sl_w32(host_flash+g_cfg.stub_off+0x0C,0); keys("c"); flash_tool_menu(); assert(!host_flash_tool_src && !g_seq[g_pos]);
+  flash_fixture(); memset(host_flash+FT_TABLE,0xFF,PAGE); keys("c"); flash_tool_menu(); assert(!host_flash_tool_src && !g_seq[g_pos]);
+  /* Without apps/launcher flags/dl_src, root still reaches FLASH TOOL. */
+  flash_fixture(); g_cfg.dl_src=0; keys("ppbcc"); jump=setjmp(g_jb); if(!jump) main_menu();
+  assert(jump==1 && host_leave_count==leaves+1u && !host_flash_tool_src && !g_seq[g_pos]);
+  /* Circular viewport: crossing either end keeps adjacent wrapped entries
+   * visible and scrolls only one row, rather than switching whole pages. */
+  flash_fixture(); root_pause(""); assert(g_fb[12u*128u+3u]==fcol((u32)g_cur));
+  u16 title[7u*128u]; memcpy(title,g_fb+128u,sizeof title);
+  rect(0,1,128,8,BG); ctext(1,"PARAMIX",GREY,1);
+  assert(!memcmp(title,g_fb+128u,sizeof title)); /* no version in the title */
+  root_pause("p"); assert(g_fb[12u*128u+3u]==ABOUT_COLOR && g_fb[39u*128u+3u]==BG);
+  u16 subtitle[7u*128u]; memcpy(subtitle,g_fb+29u*128u,sizeof subtitle);
+  rect(0,29,128,36,BG); text(9,29,PARAMIX_VERSION,GREY,1);
+  for(u32 y=0;y<7u;y++) assert(!memcmp(subtitle+y*128u+8u,g_fb+(29u+y)*128u+8u,112u*sizeof(u16)));
+  root_pause("pn"); assert(g_fb[39u*128u+3u]==fcol((u32)g_cur)); /* SAVES below wrapped ABOUT */
+  root_pause("nnn"); assert(g_fb[93u*128u+3u]==RGB(120,220,120)); /* TAMA */
+  root_pause("nnnn"); assert(g_fb[93u*128u+3u]==RGB(192,160,255)); /* lilac PROGRESS follows TAMA */
+  root_pause("nnnnn"); assert(g_fb[93u*128u+3u]==ORANGE); /* one-row shift to FLASH */
+  root_pause("nnnnnn"); assert(g_fb[93u*128u+3u]==ABOUT_COLOR);
+  root_pause("nnnnnnn"); assert(g_fb[93u*128u+3u]==fcol((u32)g_cur)); /* wrap while retaining viewport */
+  flash_fixture(); g_cfg.flags=F_BAG; root_pause(""); assert(g_fb[12u*128u+3u]==PINK);
+  root_pause("nn"); assert(g_fb[66u*128u+3u]==ORANGE); /* four items fit without scrolling */
+  /* All eight categories: preserve PROGRAM default, scroll through FLASH and
+   * back around to SAVES, then launch from the actual root action. */
+  flash_fixture(); g_napp=1; g_appsrc[0]=0; strcpy(g_appnm[0],"TEST APP");
+  root_pause(""); assert(g_fb[93u*128u+3u]==ORANGE);
+  root_pause("n"); assert(g_fb[93u*128u+3u]==ORANGE && g_fb[103u*128u+126u]==BG);
+  root_pause("nn"); assert(g_fb[93u*128u+3u]==ABOUT_COLOR);
+  root_pause("nnn"); assert(g_fb[93u*128u+3u]==fcol((u32)g_cur));
+  root_pause("nnp"); assert(g_fb[66u*128u+3u]==ORANGE);
+  keys("nnpbb"); jump=setjmp(g_jb); if(!jump) main_menu();
+  assert(jump==1 && host_flash_tool_src==0x10FDF000u && !g_seq[g_pos]);
+  assert(!memcmp(rescue,host_flash+FT_BASE,sizeof rescue));
+  /* About opens from the root, shows the version, and B/C return without exit. */
+  flash_fixture(); leaves=host_leave_count;
+  keys("c"); about_menu(); assert(host_leave_count==leaves && !g_seq[g_pos]);
+  assert_large_title(10,"ABOUT",ABOUT_COLOR);
+  u32 version_pixels=0; for(u32 y=74;y<81;y++) for(u32 x=0;x<128;x++) if(g_fb[y*128u+x]==GOLD) version_pixels++;
+  assert(version_pixels>20u);
+  keys("b"); about_menu(); assert(host_leave_count==leaves && !g_seq[g_pos]);
+  root_pause("pbc"); assert(g_fb[12u*128u+3u]==ABOUT_COLOR);
+  root_pause("pbb"); assert(g_fb[12u*128u+3u]==ABOUT_COLOR);
+  assert(!memcmp(rescue,host_flash+FT_BASE,sizeof rescue));
+}
+static void neon_progress_keys(const char *sequence){
+  keys(sequence);
+  int jump=setjmp(g_jb); if(!jump) neon_progress_menu();
+  assert(!jump && !g_seq[g_pos]);
+}
+static void neon_progress_tests(void){
+  save_fixture();
+  g_cfg.flags=F_NEON_EDIT;
+  memset(g_set,0,PAGE);
+  sl_w32(g_set+0xAD0,35);
+  sl_w32(g_set+0xC0,12345);
+  g_set[0xD2]=0x80; g_set[0xD3]=0xA5;
+  /* This mission is already complete and has an unclaimed native reward. */
+  g_set[0xF8]=1u<<4;
+  stamp(g_set); memcpy(host_flash+0xD86000,g_set,PAGE);
+  neon_progress_keys("baaaaabcc"); /* Galaxy Level +5, save, stay, back. */
+  assert(!set_load() && neon_set_generation(g_set)==36u && g_set[0x88]==0x55u);
+  neon_progress_keys("ababbccc"); /* Complete all missions. */
+  assert(!set_load() && neon_set_generation(g_set)==37u);
+  assert(sl_r32(g_set+0xF8)==0x3FFFFFu);
+  assert(sl_r32(g_set+0xFC)==0x3FFFEFu && sl_r32(g_set+0x100)==0x3FFFEFu);
+  assert(g_set[0xD2]==0xBFu && g_set[0xD3]==0xA5u);
+  neon_progress_keys("abbbbccc"); /* Reset the first mission. */
+  assert(!set_load() && neon_set_generation(g_set)==38u);
+  assert((g_set[0xC4]|((u32)g_set[0xC5]<<8))==499u);
+  assert(sl_r32(g_set+0xF8)==0x3FFFFEu);
+  assert(sl_r32(g_set+0xFC)==0x3FFFEEu && sl_r32(g_set+0x100)==0x3FFFEEu);
+  assert(sl_r32(g_set+0xC0)==12345u);
+
+  u8 before[PAGE], expected[PAGE];
+  g_set[0x88]=0x44; g_set[0x89]=0x83;
+  sl_w32(g_set+0x118,4152u|(4152u<<16));
+  g_set[0x12C]=5u<<2;
+  memset(g_set+0x162,0xAB,6);
+  stamp(g_set);
+  u8 *old_page=host_flash+NEON_SET_FIRST+neon_set_slot*PAGE;
+  memcpy(old_page,g_set,PAGE);
+  memcpy(before,g_set,PAGE);
+  neon_progress_keys("ppbbc"); /* Select the planet already in use. */
+  neon_progress_keys("ppbpbccc"); /* Planet 2 is locked by its own flag. */
+  neon_progress_keys("ppbnbccc"); /* Cancel a move to planet 1. */
+  assert(!set_load() && !memcmp(g_set,before,PAGE));
+  neon_progress_keys("ppbnbbcc");
+  memcpy(expected,before,PAGE);
+  expected[0x88]=0x45;
+  expected[0x207]=1;
+  memset(expected+0x162,0,6);
+  sl_w32(expected+NEON_SET_GENERATION,39);
+  stamp(expected);
+  assert(!set_load() && !memcmp(g_set,expected,PAGE) && !memcmp(old_page,before,PAGE));
+  neon_progress_keys("pbbbccc"); /* Lock Cosmic Planet while on planet 1. */
+  assert(!set_load() && neon_set_generation(g_set)==40u && g_set[0x89]==0x82u);
+  neon_progress_keys("pbnbccc"); /* The active planet cannot be locked. */
+  assert(!set_load() && neon_set_generation(g_set)==40u && g_set[0x89]==0x82u);
+  neon_progress_keys("pbpbbccc"); /* Unlock all planets. */
+  assert(!set_load() && neon_set_generation(g_set)==41u && g_set[0x89]==0x87u);
+  assert(g_set[0x88]==0x45u && g_set[0x207]==1u);
+}
 int main(int argc,char **argv){
   assert(argc==2); g_dir=argv[1]; host_flash=malloc(0x1000000); assert(host_flash);
+  flash_tool_tests();
   /* Confirmation/background pixels must never survive a transfer transition. */
   sl_ui_begin(1);
   for(u32 i=0;i<128u*128u;i++) g_fb[i]=RED;
@@ -112,11 +251,11 @@ int main(int argc,char **argv){
   assert(wrap_step(1,-1,1,15)==15 && wrap_step(15,1,1,15)==1 && wrap_step(0,-9,0,3)==3);
   filter_fixture(); g_show_max=0; cat_build(); assert(g_catn==2 && g_cat[0]==5002 && g_cat[1]==5003);
   g_show_max=1; cat_build(); assert(g_catn==3);
-  filter_fixture(); keys("b"); assert(count_edit(5001,15,1)==15);
-  keys("nb"); assert(count_edit(5001,15,1)==1);
-  keys("pb"); assert(count_edit(5001,1,1)==15);
-  keys("nb"); assert(count_edit(5001,15,0)==0);
-  keys("pb"); assert(count_edit(5001,0,0)==15);
+  filter_fixture(); keys("b"); assert(count_edit(5001,15,1,0)==15);
+  keys("nb"); assert(count_edit(5001,15,1,0)==1);
+  keys("pb"); assert(count_edit(5001,1,1,0)==15);
+  keys("nb"); assert(count_edit(5001,15,0,0)==0);
+  keys("pb"); assert(count_edit(5001,0,0,0)==15);
   /* Add picker: last -> filter row -> last, toggle filter on and off. */
   filter_fixture(); keys("ppnbnbnb"); cat_pick(); assert(g_show_max && g_dirty && count_get(0)==1);
   fixture(); count_set(0,15); count_set(1,15); list_set(4,5003); count_set(4,15);
@@ -130,8 +269,8 @@ int main(int argc,char **argv){
   /* Real input() returns zero until an edge arrives. Idle polling must not
    * repaint/re-enter wait_release(), which otherwise consumes physical keys. */
   fixture(); int frame=g_frame;
-  points("...n...b...c...c"); /* Second entry edits digits; C exits. */
-  assert(g_frame-frame==4);
+  points("...n...n...b...c...c"); /* Third entry edits digits; C exits. */
+  assert(g_frame-frame==5);
   frame=g_frame; points("...c"); assert(g_frame-frame==1);
   frame=g_frame; points("...b...c...c"); assert(g_frame-frame==3);
 
@@ -144,9 +283,16 @@ int main(int argc,char **argv){
   assert(jump==1 && host_leave_count==leaves+1u && !g_seq[g_pos]);
   /* Two edits in the same Points session without restarting the device. */
   fixture(); leaves=host_leave_count;
-  points("bbb" "nb" "p" "bbbbb" "b" "b" "c");
+  points("bbb" "nnb" "p" "bbbbb" "b" "b" "c");
   assert(host_leave_count==leaves && !set_load() && money_get()==89999u);
   assert(set_ok(host_flash+SET_A) && !memcmp(host_flash+SET_A,host_flash+SET_B,PAGE));
+  /* SET ZERO is second, requires confirmation, saves both mirrors, stays here. */
+  fixture(); money_put(12345); stamp(g_set); memcpy(host_flash+SET_A,g_set,PAGE); memcpy(host_flash+SET_B,g_set,PAGE);
+  points("nbcc"); assert(!set_load() && money_get()==12345u);
+  leaves=host_leave_count; points("nbbbc");
+  assert(host_leave_count==leaves && !set_load() && !money_get());
+  assert(set_ok(host_flash+SET_A) && !memcmp(host_flash+SET_A,host_flash+SET_B,PAGE));
+  points("nbbc"); assert(!set_load() && !money_get()); /* already zero: no redundant save prompt */
   save_fixture(); leaves=host_leave_count;
   keys("nbb"); level_edit(); assert(host_leave_count==leaves && lv_get()==1 && !g_seq[g_pos]);
   keys("bb"); care_full(); assert(host_leave_count==leaves && !g_seq[g_pos]);
@@ -195,6 +341,7 @@ int main(int argc,char **argv){
 
   /* Rejected copy (capacity, corrupt source) makes no live/source changes. */
   save_fixture(); g_cfg.slot_size=2*PAGE; assert(!stash(1));
+  host_flash[g_cfg.user_start]^=0x5A; /* distinct live backup cannot share the stored chunk */
   memcpy(source_header,host_flash+slot_base(1),PAGE); assert(slot_copy(1,2,2)==3);
   assert(!slot_valid(2) && !memcmp(source_header,host_flash+slot_base(1),PAGE));
   host_flash[pool_addr(rd16(slot_base(1)+offsetof(SlotHdr,dpg)))]^=1;
@@ -219,7 +366,8 @@ int main(int argc,char **argv){
   run_saves("nbnbnbc"); assert(!slot_valid(1) && field_now()==0);
   /* Active slot clear is refused. */
   run_saves("bnbcc"); assert(field_now()==0);
-  framing(); transfer(1,0); transfer(1,1); transfer(0,0); interrupted_transfer();
+  framing(); transfer(1,0,0); transfer(1,1,0); transfer(1,0,1); transfer(0,0,0); interrupted_transfer();
+  neon_progress_tests();
   puts("PASS: filtering, circular controls, max points, slot copy/clear, UI, CRC/replay and two-peer save transfer");
   free(host_flash); return 0;
 }

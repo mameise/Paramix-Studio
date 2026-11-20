@@ -2,6 +2,12 @@
 
 Versions are listed newest first.
 
+## 1.7.6-plus.1 (2026-11-21)
+
+- Integrate Paramix Studio 1.7.6 and start fork revisions at plus.1 for each upstream base.
+- Read older Neon save exports and preserve the optional PARAMIX shortcut when rebuilding older fork menus.
+- Keep the fork's expanded save tools, Neon and My Lab features, and Traditional Chinese patch compatibility.
+
 ## 1.7.6 (2026-11-20)
 
 New:
@@ -36,6 +42,167 @@ Fixes:
 - All 6 fields: the WALKING game shows its landscape on Land, Water and Sky again. Older ROMs with six fields need your Land, Water or Sky ROM once more when saving.
 - V1Emu: the Mothra Tamagotchi shows its own menu icons in the right order. Open and save your ROM once.
 - V1Emu: Mothra and Genjintchi react to every key press.
+
+## 1.7.5-plus.45 (2026-11-21)
+
+- Add optional in-game RELEASE for My Lab with localized prompts and compatible character sprites.
+- Manage the three native planet unlock flags in PLANET ACCESS.
+- Use field-based Neon growth in all six original Paradise editions, including existing imports.
+- Show the ten Lab games in every field of a supported six-field ROM.
+- Replay a decoded My Lab Special Food payload from the Studio Device panel.
+
+## 1.7.5-plus.44 (2026-11-20)
+
+- Sweep all six fields in Clean Poop and include both groups in the native biofuel calculation.
+- Add CURRENT PLANET to the Neon Planets progress menu.
+
+## 1.7.5-plus.43 (2026-11-20)
+
+- Import 86 Neon Planets Tama, three native Tama Files groups and 59 items into all six original Paradise editions.
+- Support the imported rosters in the on-device progress menu and keep the save slots of single- and multi-field games.
+- Let adults move among the six fields in a six-field game and preserve each field's decorations.
+
+## 1.7.5-plus.42 (2026-11-20)
+
+- Add a My Lab sender for adult characters selected from a loaded ROM or imported from a ghost or Playdate file.
+- Accept My Lab acknowledgments with NUL padding during the serial handshake.
+- Give UART tools, Playdate and Send to My Lab separate tabs in Device.
+- Edit Playdate fields and choose a planet image from the loaded ROM.
+- Unlock or relock native Neon Planets Tama Files from the on-device Progress menu.
+- Display Edition 7 as Neon Planets.
+
+## 1.7.5-plus.41 (2026-11-20)
+
+- Import all 59 Neon Planets items into six-field LZ4 ROMs and include them in Items and Tamapoints.
+- Reset the two replaced placeholder item counts when migrating active and stored saves.
+- Show MAX and explain per-item limits in the Neon batch inventory editor.
+
+## 1.7.5-plus.40 (2026-11-20)
+
+- Support Neon Planets items, characters, missions and three save slots.
+- Import the 86 Neon Tama and localized Tama Files groups into six-field LZ4 ROMs.
+- Credit the original author and fork extensions in the on-device About screen.
+
+## 1.7.5-plus.39 (2026-11-19)
+
+- Relock individual Tama Files and reset individual completed missions after confirmation.
+
+## 1.7.5-plus.38 (2026-11-19)
+
+- Complete one mission or all missions from Progress without adding a TamaPoints reward.
+
+## 1.7.5-plus.37 (2026-11-19)
+
+- Use the main-menu accent for large About and Flash Tool titles. Keep small top headings grey.
+
+## 1.7.5-plus.36 (2026-11-19)
+
+- Include the current Flash Tool when downloading a ROM with Paramix Menu. Allow re-export when Flash Tool is the only pending update.
+
+## 1.7.5-plus.35 (2026-11-19)
+
+- Match the on-device Flash Tool to the Paramix Menu font, title and palette.
+- Show the bare version under a light blue About entry. Use white for ordinary submenu entries.
+
+## 1.7.5-plus.34 (2026-11-19)
+
+- Use white for the Tama File entry and single-character unlock. Keep accent colors for Planet Level and bulk unlocks.
+
+## 1.7.5-plus.33 (2026-11-19)
+
+- Match submenu and editor headings to the grey Paramix home title and color Progress rows by action.
+
+## 1.7.5-plus.32 (2026-11-19)
+
+- Give Progress a lilac accent, move Planet Level to its first row, and group the three unlock actions under Tama File.
+
+## 1.7.5-plus.31 (2026-11-19)
+
+- Show the game's up and down arrow sprites on the two pages of the six-field Tama File selector.
+
+## 1.7.5-plus.30 (2026-11-19)
+
+- Add Progress after Tama. Review and unlock one Tama File, one field, or all supported fields in the active save.
+- Extend the native Tama File on validated six-field Tropical and Glacier ROMs. The existing field selector also browses Land, Water and Sky, including unlock and viewed state per save.
+
+## 1.7.5-plus.29 (2026-11-18)
+
+- Show the selected eyes and the body's own mouth in the appearance preview, matching the layers used by the game for mixed traits.
+
+## 1.7.5-plus.28 (2026-11-18)
+
+- Have Paradise rebuild the active Tama's appearance from the saved Body, Eyes and Color when returning to the game.
+- Stage slot backups directly in unreferenced pages, sharing exact matches as they arrive. A full pool leaves the live save and existing slot headers intact. Consolidate legacy duplicates in Studio during ROM rebuilds.
+- Journal slot switches using one spare pool page, and restore the pre-switch backup when Paramix reopens after an interruption. Verify the new live settings before committing.
+- Stop Keep Saves before flashing if any stored slot cannot be preserved in a new layout.
+- Validate the entire destination save before switching. Allow UART reception to share identical pages and report allocation failure to the sender.
+
+## 1.7.5-plus.27 (2026-11-18)
+
+- Fix appearance saves falsely requiring an own-Tama file: ROM Body/Eyes/Color are settings fields. Remove ghost-package matching and writes, preserving all visitor, gene and export data.
+- Share byte-identical packed save pages with copy-on-write allocation; compact legacy duplicate references and count newly required pages before switching or copying. Clear only a slot header, retaining pages used by other saves.
+- Expand eligible six-field ROM save pools into a validated erased SIXB tail, preserving referenced rain/game data and the rescue region. The supplied layout grows from 432 to 660 KiB; total capacity still depends on unique save data.
+- Carry the expanded pool through rebuilds, Keep Saves and layout migration. Validate device pool geometry and read referenced pages before direct save-import deduplication.
+
+## 1.7.5-plus.26 (2026-11-18)
+
+- Merge Body/Stage, Eyes and Body Color into APPEARANCE: select body, compatible same-stage eyes, then color, review the preview and save once. C returns one step; leaving the first step discards the draft. Keep the existing names, IDs, current-value markers and circular selection. Show a green BODY / EYES MATCH hint for original body/eye pairs throughout selection and review.
+
+## 1.7.5-plus.25 (2026-11-18)
+
+- When changing Tama body across stages, use the selected body’s default eyes if the existing eyes belong to another stage or cannot be validated. Keep compatible custom eyes, preview the resulting pair, and disclose the fallback before confirmation.
+
+## 1.7.5-plus.24 (2026-11-18)
+
+- Add a guarded Flash Tool reset: hold C for about three seconds, then release after RELEASE C appears. Use a watchdog reset to enter Boot ROM rather than restarting the RAM flash app.
+- Lock reset during host operations and unfinished or failed writes; re-enable only at a successful whole-job boundary with a structurally valid boot target.
+- Compress Flash Tool status artwork without changing its pixels, leaving room for reset hints.
+
+## 1.7.5-plus.23 (2026-11-18)
+
+- Show the installed version directly in the ABOUT row subtitle as `Ver. <version>`.
+
+## 1.7.5-plus.22 (2026-11-18)
+
+- Add ABOUT at the end of the circular Paramix home menu. Show the installed Studio version inside About, with B/C returning to the menu.
+- Restore the plain PARAMIX title without a version suffix.
+
+## 1.7.5-plus.21 (2026-11-18)
+
+- Move the Studio version to the Paramix menu title and remove the misplaced Flash-Tool version display.
+- Replace home-menu pages with a continuous circular viewport, retaining large separate name/status lines and B/C hints.
+- Generate and verify matching versions for both standard and clean menu binaries.
+
+## 1.7.5-plus.20 (2026-11-18)
+
+- Use `<upstream version>-plus.<revision>` for this fork, retaining the existing revision sequence (menu19 becomes plus.19; this update is plus.20).
+- Show PARAMIX and the corresponding Studio version below the Flash-Tool progress bar, generated from the same VERSION file.
+- Refuse offline builds with a mismatched Flash-Tool binary and reject rescue binaries exceeding their 0xE000-byte region.
+
+## 1.7.5-menu19 (2026-11-18)
+
+- Leave the optional PARAMIX game-menu shortcut unchecked by default. Loading a ROM preserves an existing installed shortcut; older menus without one no longer opt in automatically.
+
+## 1.7.5-menu18 (2026-11-18)
+
+- Restore large two-line categories in the Paramix home menu with up to four entries per page and a page indicator.
+- Keep FLASH TOOL on the second page, alongside PROGRAMS when present; wheel/A navigation wraps between pages.
+
+## 1.7.5-menu17 (2026-11-18)
+
+- Add FLASH TOOL to the ordinary Paramix home menu, with explicit confirmation and validation of the installed rescue program before starting it in RAM.
+- Scroll the home menu when six entries are present so the recovery entry stays accessible alongside programs.
+
+## 1.7.5-menu16 (2026-11-18)
+
+- Fix opening the main game menu after adding PARAMIX: increase its GUI object pool from 12 to 14 slots, allowing the six-item list's 13 widgets.
+- Upgrade the previous shortcut automatically when rebuilding the menu; restore the original pool size when removing it.
+
+## 1.7.5-menu15 (2026-11-18)
+
+- Add optional PARAMIX shortcut after TRAVEL at the end of the game menu containing CONNECTION.
+- Migrate the previous PARAMIX Settings entry to the main list while preserving the Language entry.
+- Preserve the main shortcut when applying the compatible language patcher, without adding a duplicate in Settings.
 
 ## 1.7.5 (2026-11-12)
 

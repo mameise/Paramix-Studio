@@ -7,11 +7,30 @@ const E = window.ParamixEmu;
 const D = window.ParamixDoom;
 const F = window.ParamixFeld;
 const S6 = window.ParamixSix;
+const LZ = window.ParamixLegacyLz4;
+const NT = window.ParamixNeonTransplant;
+const LR = window.ParamixLabRelease;
 const $ = (id) => document.getElementById(id);
+
+// New/legacy ROMs start unchecked; retain an actually installed shortcut.
+function paramixShortcutOf(rom, menu) {
+  if (!menu || (menu.flags & F.F_NO_SHORTCUT)) return false;
+  try {
+    const home = window.ParamixHomeMenu.inspect(rom), settings = window.ParamixSettings.inspect(rom);
+    return !!((home && !home.original) || (settings && (settings.flags & 2)));
+  } catch (_) { return false; } // malformed helpers are refused by the ROM rebuild
+}
+
 
 // ------------------------------------------------------------------ texts
 const T = {
   de: {
+    neonBagUnavailable: 'Das Inventarformat dieser Neon-Planets-Firmware ist unbekannt.',
+    paraClear: 'Aktiven ROM-Spielstand löschen', paraClearAsk: 'Den aktiven Paradise-Spielstand im geladenen ROM löschen?', paraClearDone: 'Aktiver Spielstand gelöscht. Speichere das ROM als neue Datei.', paraClearPending: 'Schliesse zuerst die Spielstand-Wiederherstellung im Paramix-Menü ab.',
+    labReleaseOn: 'Send to My Lab im Spiel', labReleaseHint: 'Unter CONNECTION erscheint RELEASE. Wähle ein Neon-Planets-ROM für die Spieltexte.', labReleaseInstalled: 'RELEASE ist bereits installiert.', labReleaseUpgrade: 'RELEASE wird beim Export aktualisiert.', labReleaseFail: 'Lab Invite konnte nicht hinzugefügt werden: {e}',
+    neonDonorPick: 'Neon-Planets-ROM wählen', neonDonorHint: 'Ergänzt 86 Tama und 59 Items aus Neon Planets.', neonDonorReady: 'Neon-Quelle: {name}', neonDonorBad: 'Wähle ein unterstütztes Neon-Planets-ROM.', neonDonorFail: 'Neon-Inhalte konnten nicht eingebaut werden: {e}', neonDonorOn: 'Neon-Inhalte', neonItemsHint: 'Ergänzt 59 Items aus Neon Planets.', neonLocalizeHint: 'Übernimmt die originalen Planetennamen in allen Sprachen.',
+    appsOnlyOn: 'Programmmenü', appsOnlyHint: 'Paramix neben dem normalen Neon-Planets-Spiel öffnen. Enthält Programme und das Flash-Werkzeug.', neonSaves: 'Drei Neon-Spielstände', neonSaveFields: 'Neue Spielstände starten mit der Original-Einrichtung. Das Spiel schaltet Felder mit dem Fortschritt frei.', neonSaveFull: 'Für einen Neon-Spielstand im Menü ist eine vollständige .tamasave-Datei erforderlich.',
+    neonTamaOn: 'Tama im Programmmenü (Pflege, Aussehen, Alter)', petPoints: 'Tamapoints', petMission: 'Mission', petMissionAction: 'Abschluss', petMissionComplete: 'Als erledigt markieren', petMissionReset: 'Abschluss zurücksetzen',
     open: 'ROM öffnen', save: 'Neues ROM speichern',
     startTitle: 'Mehr aus deinem Tamagotchi Paradise',
     startText: 'Paramix Studio baut dein eigenes Paradise-ROM um. Lade dein Paradise-Abbild (16 MB Flash-Dump) oder lies es direkt vom Gerät aus, wähl aus, was dazukommen soll, und schreib das neue ROM zurück.',
@@ -46,8 +65,49 @@ const T = {
     devConnect: 'Verbinden', devDump: 'ROM auslesen', devWrite: 'Neues ROM aufs Gerät schreiben', devOnly: 'Nur Änderungen schreiben', devKeep: 'Spielstände behalten', devStop: 'Abbrechen',
     devNoSerial: 'Dieser Browser kann nicht mit dem Dongle reden. Bitte Chrome oder Edge am Computer verwenden.', devNone: 'Nicht verbunden.',
     devOn: 'Verbunden: {ed}, {mb} MB{l}', devLoaded: ', Flash-App geladen', devReady: 'Bereit.', devNeedRom: 'Zum Schreiben zuerst ein ROM öffnen (oder auslesen).',
-    visTitle: 'Besuch simulieren (Paradise)', visStart: 'Starten', visStop: 'Beenden',
-    visHint: 'Das Studio spielt ein zweites Paradise. Dongle an die Kontakte, das Paradise läuft normal.\n1. Edition wählen, Starten, Dongle wählen.\n2. Am Paradise: Planet-Menü, VERBINDUNG, PLAYDATE, dann B.\nOben "Verbinden" ist nur fürs ROM, für den Besuch nicht drücken.',
+    visTitle: 'Playdate', visStart: 'Playdate starten', visStop: 'Beenden',
+    visModel: 'Modell', visCapture: 'Empfangene UART-Daten herunterladen',
+    visCharacter: 'Besucher', visMirror: 'Empfangenen Charakter zurücksenden', visImport: 'Charakterdatei laden…',
+    labCharacter: 'Tama zum Senden', labChoose: 'Erwachsenes Tama auswählen',
+    visSourceHint: 'Über „ROM öffnen“ eine Paradise-ROM öffnen oder über „Charakterdatei laden“ eine Ghost- oder Playdate-Datei (.bin) oder eine .ghost.png-Datei laden. Dann hier den Charakter wählen.',
+    visConnectionHint: 'Der Adapter wird im Tab „{tab}“ verwendet. Wechsle dorthin, um die Verbindung zu beenden.',
+    visImported: 'Importiert',
+    visRomCharacters: 'Charaktere aus der ROM', visRomVisitorError: 'Charakter konnte nicht vorbereitet werden ({reason}).',
+    visVisitorColor: 'Körperfarbe', visKeepColor: 'Aktuelle Farbe', visKeepEyes: 'Aktuelle Augen',
+    visPaletteNames: 'Rot|Rosa|Magenta|Violett|Blau|Cyan|Grün|Gelb|Orange|Rosé|Lavendel|Himmelblau|Limette|Creme|Weiß|Grau',
+    visVisitorExport: 'Besucher exportieren (.bin)', visAppearanceNeedsRom: 'Für Farben und Augen eine Paradise-ROM laden.',
+    visPeerTitle: 'Empfangener Playdate-Charakter',
+    visPeerExport: 'Empfangenen Charakter exportieren (.bin)', visNoImage: 'Kein Vorschaubild verfügbar.',
+    visUnknownModel: 'Unbekanntes Modell', visUnnamed: 'Unbenannter Charakter',
+    visRomInfo: '{model} (ROM-Typ {rom} / {hex})', visSourceDevice: 'Quellgerät',
+    visCharacterInfo: 'Charakter-ID {chara} · Stufe {stage}',
+    visCharacterPreview: 'Charakter', visPlanetPreview: 'Planetenbild', visParameters: 'Charakter- und Paketdaten',
+    visTamaZoom: 'Tama-Ansicht', visFieldZoom: 'Feldansicht',
+    visAnimationView: 'Ansicht', visAnimationLayer: 'Ebene', visAllLayers: 'Kompletter Charakter',
+    visPlayFrames: 'Abspielen', visPauseFrames: 'Pausieren', visFrameCount: 'Bild {index} / {total}',
+    visBody: 'Körper', visEyes: 'Augen', visMouth: 'Mund',
+    visField: 'Herkunftsfeld', visEyeId: 'Augen-ID', visOriginalId: 'Ursprüngliche Charakter-ID', visRank: 'Speziesrang',
+    visColor: 'Farbindex', visOriginalPalette: 'Originalpalette', visCharacterFlags: 'Charakter-Flags',
+    visGhostType: 'Pakettyp', visGhostFlags: 'Paket-Flags', visGhostLength: 'Paketgröße (Bytes)', visGhostChecksum: 'Prüfsumme',
+    visBodyPalette: 'Körperpalette (RGB565)', visMouthPalette: 'Mundpalette (RGB565)',
+    visPlanetSize: 'Planetenbildgröße (Bytes)', visPlanetChecksum: 'Planetenbild-Prüfsumme',
+    visPlaydateEditor: 'Playdate-Daten bearbeiten', visPlanetImageChoice: 'Planetenbild', visPlanetAuto: 'Automatisch',
+    visPlanetNeedsRom: 'Eine ROM öffnen, um ein Planetenbild auszuwählen.',
+    visNameSlot: 'Charaktername · {language}', visPlanetNameSlot: 'Planetenname · {language}',
+    visDeviceUid: 'Geräte-UID', visCharacterUid: 'Charakter-UID', visFriendship: 'Freundschaft',
+    visPreviousResult: 'Vorheriges Ergebnis', visHunger: 'Hunger', visHappiness: 'Zufriedenheit', visLove: 'Verliebt (0/1)',
+    visGhostFormat: 'Ungültiges .ghost.png oder Playdate-Paket',
+    labSend: 'An My Lab senden', labHint: 'Den USB-UART-Adapter an My Lab anschließen und ein erwachsenes Tama wählen. Am My Lab VERBINDUNG → LAB INVITE öffnen. Bei einem vollen Garten dort ein Tama zum Ersetzen wählen. Dann hier „An My Lab senden“ wählen und den Adapter auswählen.',
+    labRun: 'Charakter wird an My Lab übertragen…', labWait: 'Charakter übertragen. Warte auf das Ende der Verbindung…',
+    labDone: 'Übertragung bestätigt. Prüfe, ob das Tama im Garten von My Lab angekommen ist.',
+    labError: 'My Lab: {e}. Prüfe den Garten vor einem erneuten Versuch.',
+    foodTitle: 'Spezialfutter', foodImport: 'My-Lab-Futterdatei öffnen…', foodSend: 'Auf Paradise warten',
+    foodHint: 'Eine dekodierte My-Lab-Futterdatei laden und den USB-UART-Adapter an Neon Planets anschließen. Hier die Verbindung starten, dann mit einem erwachsenen Tama VERBINDUNG → SPEZIALFUTTER → FUTTER HOLEN öffnen. Beim Annehmen wird ein neues Ei gestartet.',
+    foodReady: 'Warte auf die Anfrage von Paradise…', foodRun: 'Paradise hat eine Verbindung hergestellt…',
+    foodConfirm: 'Futterdaten gesendet. Bestätige die Annahme auf dem Paradise.',
+    foodDone: 'Paradise hat die Übertragung bestätigt.', foodDeclined: 'Paradise hat die Annahme abgebrochen.',
+    foodFormat: 'Öffne eine dekodierte My-Lab-Futterdatei (.bin) mit vollständigen Futterdaten.',
+    visHint: 'Den USB-UART-Adapter an das Paradise im normalen Spiel anschließen. Hier das Modell wählen, „Playdate starten“ drücken und den Adapter auswählen. Am Paradise im Planetenmenü VERBINDUNG → PLAYDATE öffnen und B drücken. Zum Zurücksenden des empfangenen Charakters ist keine Datei nötig.',
     visWait: 'Bereit als {ed}. Am Paradise PLAYDATE wählen und B drücken.', visRun: 'Verbunden, Daten werden getauscht…', visPlay: 'Die beiden spielen…',
     visDone: 'Besuch fertig ({ed}). Für den nächsten wieder B am Paradise.', visErr: 'Abgebrochen: {e}. Am Paradise nochmals B.', visBadKey: 'Das Paradise versteht die Daten nicht.',
     phload: 'Flash-App laden', phread: 'Auslesen', phcompare: 'Vergleichen', phwrite: 'Schreiben', phcheck: 'Prüfen', phprepare: 'Vorbereiten',
@@ -69,8 +129,8 @@ const T = {
     fl_noteDropped: 'das neue ROM hat kein Feld-Menü, die gespeicherten Felder auf dem Gerät fallen weg', fl_noteEdKept: 'das Gerät ist {d}, das neue ROM ist {r}: gleiche Firmware, Spielstand und Feld vom Gerät bleiben ({d})', fl_noteEmu: 'TamaEmu-Firmware neu gewählt, der Emulator startet frisch. Für ein Update das ROM nur öffnen und speichern',
     cleanOn: 'Ohne Paradise (Clean ROM)', cleanClock: 'Uhr beim Start stellen', cleanClockHint: 'Fehlt die Uhr (neue Batterien), fragt das Menü beim Einschalten danach. Ohne: Die Uhr stellst du im Menü unter SETTINGS oder in jedem Emulator selbst.', emuClockOff: 'Geht nur mit "Uhr beim Start stellen" (Tab Menü).', emuSess: 'Spielstand beim Verlassen merken', emuSessHint: 'Beim nächsten Start geht es genau dort weiter. Ohne: Das Spiel startet neu und lädt seinen eigenen Spielstand, wie das echte Gerät.', ruleClean: 'Ohne Paradise: alle Programme kommen ins Menü, fast der ganze Speicher ist für sie da.', cleanHint: 'Kein Paradise mehr auf dem Gerät, nur das Menü mit deinen Programmen. Fast die ganzen 16 MB sind frei.', cleanUse: 'Nach dem Einschalten kommt gleich das Menü. Beim ersten Start stellst du die Uhr, später unter SETTINGS. Zurück aus einem Programm wie gewohnt.', cleanWarn: 'Das Paradise und sein Spielstand gehen beim Schreiben verloren. Mach vorher eine Sicherung.', cleanNoDoom: 'DOOM geht noch nicht ohne Paradise. Bitte DOOM entfernen.', doomOne: 'DOOM geht nur einmal ins Menü.', cleanSure: 'Auf dem Gerät ist das Paradise. Es wird gelöscht, mit seinem Spielstand. Hast du eine Sicherung des Geräts? Weiter?', cleanLoaded: 'ROM ohne Paradise ({ed}) geladen: {n} Programme.',
     launchOn: 'Nur Startgerät für Programme', launchHint: 'Vom Paradise bleibt nur die Einrichtung (Sprache, Uhr, Weiter oder Neu). Danach kommt immer das Menü mit deinen Emulatoren und DOOM. Alle Bilder des Spiels fallen weg, das gibt etwa 5 MB mehr Platz.', launchUse: 'Nach dem Einschalten und dem Stellen der Uhr kommt das Menü. Rad wählt, B startet. Zurück aus einem Programm wie gewohnt, dann kommt wieder das Menü.', launchOld: 'Dieses ROM ist ein Startgerät. Für ein normales Paradise das Original-ROM laden.', launchNeed: 'Ein Startgerät braucht mindestens ein Programm (Emulator oder DOOM).', launchSix: 'Startgerät geht nicht mit eingebauten sechs Feldern. Bitte das Original-ROM laden.', planLaunch: 'Startgerät',
-    tabFeld: 'Menü', feldOn: 'Mehrere Spielstände (mit Feldwahl)', bagOn: 'Items und Tamapoints', tamaOn: 'Tama ändern (Stufe, Pflege, Figur)', gplayOn: 'Spielzeit gibt Tamapoints', gplayHint: 'DOOM, Wolfenstein, Game Boy, Master System, Pokémon mini und Arduboy: 10 Tamapoints pro Minute Spielzeit, beim Zurückkehren ins Paradise.', saveSlot: 'Spielstand {n}',
-    sixOn: 'Alle 6 Felder', sixPick: 'Land-, Water- oder Sky-ROM wählen', sixHint: 'Holt Land, Water und Sky zu Tropical und Glacier dazu. Die Feldbilder kommen aus deinem eigenen Land-, Water- oder Sky-ROM. Die Lab-Spiele richten sich nach dem Feld, mit dem der Tama im Menü startet.',
+    tabFeld: 'Menü', feldOn: 'Mehrere Spielstände (mit Feldwahl)', bagOn: 'Items und Tamapoints', tamaOn: 'Tama ändern (Stufe, Pflege, Figur)', paramixShortcut: 'PARAMIX am Ende des Spielmenüs hinzufügen', paramixShortcutHint: 'Optional. A + C auf dem Startbildschirm funktioniert weiterhin.', gplayOn: 'Spielzeit gibt Tamapoints', gplayHint: 'DOOM, Wolfenstein, Game Boy, Master System, Pokémon mini und Arduboy: 10 Tamapoints pro Minute Spielzeit, beim Zurückkehren ins Paradise.', saveSlot: 'Spielstand {n}',
+    sixOn: 'Alle 6 Felder', sixPick: 'Land-, Water- oder Sky-ROM wählen', sixHint: 'Holt Land, Water und Sky zu Tropical und Glacier dazu. Die Feldbilder kommen aus deinem eigenen Land-, Water- oder Sky-ROM. Alle zehn Lab-Spiele sind in jedem Feld verfügbar.',
     sixNeed: 'Für alle 6 Felder fehlt noch ein Land-, Water- oder Sky-ROM.', sixOk: 'Feldbilder aus {n} übernommen.', sixBad: '{n} ist kein Land-, Water- oder Sky-ROM.', sixIn: 'Alle 6 Felder sind eingebaut.', sixOff: 'Beim Speichern kommen Land, Water und Sky wieder raus. Mehrere Spielstände gehen weiterhin.', sixOffJ: 'Beim Speichern kommt Sky wieder raus. Mehrere Spielstände gehen weiterhin.', sixOffField: 'Das Gerät ist gerade auf {f}. Erst im Menü auf {s} wechseln.', sixOffSlots: 'Die im Menü gespeicherten Spielstände werden dabei gelöscht. Weiter?', sixFail: 'Felder nicht eingebaut: {e}', sixNoFw: 'Die Firmware dieses ROMs ist verändert, weitere Felder gehen hier nicht.', planSix: 'Mehr Felder', sixOnJ: 'Sky als 4. Feld', sixHintJ: 'Jade Forest hat die Sky-Bilder schon dabei.', sixInJ: 'Sky ist als 4. Feld eingebaut.', sixOld: 'Alle 6 Felder sind eingebaut, aber in einer älteren Version. Wähl dein Land-, Water- oder Sky-ROM, dann wird beim Speichern alles nachgerüstet.', sixOldJ: 'Sky ist eingebaut und wird beim Speichern auf den neuen Stand gebracht.', sixPlanet: 'Planet passend zum Feld', sixMenu: 'Spielmenü Felder: alle Felder ab Stufe 4', sixPlanetNeed: 'Zum Ändern dieser Einstellung braucht es nochmals dein Land-, Water- oder Sky-ROM.', sixApp: 'DOOM und Emulator passen nicht dazu',
     exitKey: 'Zurück aus Programmen', exitHint: 'Wie man aus allen Programmen (Emulatoren und Spiele) zum Paradise oder ins Menü zurückkommt.', exit0: 'Rad lange drücken', exit1: 'Rad und A halten', exit2: 'Rad und C halten', exit3: 'Rad 5 s drücken', feldHint: 'Kleines Menü im ROM: zwischen Spielständen wechseln (neuer Spielstand auf einem Feld nach Wahl), Items in die Tasche legen, Tamapoints setzen, Tama ändern.',
     feldUse: 'Öffnen: auf dem Heimbildschirm A und C zusammen halten. Rad wählt, B bestätigt, C zurück.',
@@ -93,8 +153,8 @@ const T = {
     emuOk: 'Firmware erkannt ({size}). Sie wird beim Speichern eingebaut.', emuBad: 'Firmware nicht erkannt: {e}', t18Ok: 'TG18-Firmware erkannt (T18Emu, Meets/On). Sie wird beim Speichern eingebaut.', t18Has: 'In diesem ROM ist T18Emu eingebaut.', t18Use: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Zurück: Rad lange drücken (speichert). Hängt T18Emu: mit A und C starten, loslassen, in den ersten 3 Sekunden das Rad drücken und mit A bestätigen. Dann startet die Firmware neu ab ihrem eigenen Spielstand. Experimentell: das Tama läuft noch langsamer als echt.',
     emuGone: 'Emulator wird beim Speichern entfernt.', emuMissing: 'In dieser Ausgabe fehlt das Emulator-Programm.',
     emuFail: 'Emulator nicht eingebaut: {e}', savedEmu: 'Gespeichert: {name}',
-    t18Pics: 'Bilder für Erwachsen', t18PicsPick: 'Bilder wählen', t18PicsDel: 'Bilder entfernen', t18PicsOk: '{n} Bilder übernommen.', t18PicsUnknown: '{f}: unbekannter Name', t18PicsHint: 'Am Gerät zeigt Erwachsen dann das Bild der Wahl. PNG-Dateien, Name = Figur (z.B. Mametchi.png, Kuchipatchi.png) oder ihre Nummer (16.png). Der Ordner erwachsen aus dem Android-T18Emu geht auch: alle Dateien samt erwachsen.json wählen. Jede Grösse, wird auf 64x64 verkleinert.', t18Items: 'Items', t18ItemsPick: 'MyMeets-Dateien wählen', t18ItemsNoSave: 'Items gehen, sobald das Spiel einmal gelaufen ist (ROM vom Gerät lesen).', t18ItemsHint: 'Items, Raum und Tamapoints kommen in den Spielstand des Spiels. Beim Schreiben ersetzt das den Spielstand von T18Emu auf dem Gerät, auch mit «Spielstände behalten». Das Tama bleibt, der laufende Stand fängt neu an. Spiele und Ausflugsziele (z.B. Magic Hut) stehen am Tama unter TRAVEL TO OTHER TOWN ganz unten.', t18ItemsNone: 'Keine Items in den Dateien gefunden.', t18ItemsOther: '{n} ist für {m}, nicht für die Meets/On. Ob es dort geht, ist nicht sicher.', t18ItemsFull: 'kein Platz mehr', mmTitle: 'MixingMeets (Besuch, Heirat)', uartBusy: 'Paramix Studio ist noch mit dem Dongle verbunden. So lange geht die Brücke nicht.', uartFree: 'UART freigeben', uartFreed: 'Dongle freigegeben. Das Paradise neu starten, damit das Spiel wieder läuft.', uartRun: 'Erst warten, bis das Gerät fertig ist.', pairTitle: 'Zwei Paradise verbinden (Besuch, Spiel)', pairHint: 'Beide Paradise oben zusammenstecken, an beiden T18Emu starten. Dann an beiden CONNECTION, TAMAGOTCHI und weiter wie bei zwei Tamas.', pairHintDigi: 'Beide Paradise oben zusammenstecken, an beiden V1Emu mit Digimon starten. Dann den Kampf wählen und starten wie bei zwei echten Digimon.', pairHintPs: 'Beide Paradise oben zusammenstecken, an beiden TamaEmu (P\'s) starten. Dann an beiden Verbindung, たまごっちP\'s, あそぶ. Am einen あそびにいく, am anderen ともだちをよぶ, ふたりで, ein Spiel, dann B.', pairHintIdl: 'Beide Paradise oben zusammenstecken, an beiden TamaEmu (iD L) starten. Dann an beiden die Verbindung im Spiel wählen wie bei zwei echten iD L.', pairHintV3: 'Beide Paradise oben zusammenstecken, an beiden V3Emu starten. Dann an beiden die Verbindung im Spiel wählen wie bei zwei echten V3.', pairHintT7: 'Beide Paradise oben zusammenstecken, an beiden T7Emu (Tama-Go) starten. Dann an beiden Verbindung, TAMA-GO, VISIT oder GAME. Am Gerät, das besuchen geht, B drücken.', mmLink: 'Paramix-Brücke', mmDrag: 'In die Lesezeichenleiste ziehen, dann auf mixing-meets.com anklicken.', mmHint2: '1. Den Knopf Paramix-Brücke einmal in die Lesezeichenleiste ziehen (Chrome oder Edge).\n2. Paramix Studio vom Dongle trennen (UART freigeben oder das Studio schliessen). Dongle an die Kontakte wie beim Flashen. Am Paradise TAMA MEETS starten.\n3. Auf mixing-meets.com Connect oder Return öffnen, das Lesezeichen anklicken, dann Select Tamagotchi und den Dongle wählen.\n4. Sobald unten links «On the Tama now» steht: am Tama CONNECTION, APP, VISIT (zum Zurückholen: A drücken, GO BACK, YES).\nNach jedem Seitenwechsel das Lesezeichen nochmals anklicken. Klappt es nicht, steht unten links, was schiefging.', mmHint: '1. Den Knopf Paramix-Brücke einmal in die Lesezeichenleiste ziehen (Chrome oder Edge).\n2. Paramix Studio vom Dongle trennen (UART freigeben oder das Studio schliessen). Dongle an die Kontakte wie beim Flashen. Am Tama: CONNECTION, APP, VISIT (zum Zurückholen: A drücken, GO BACK, YES).\n3. Auf mixing-meets.com Connect oder Return öffnen, das Lesezeichen anklicken, dann Select Tamagotchi und den Dongle wählen.\nNach jedem Seitenwechsel das Lesezeichen nochmals anklicken.', t7Gp: 'Gotchi Points', t7GpHint: 'Kommt wie ein eingespielter Spielstand ins ROM: das Tama bleibt, der laufende Stand fängt neu an (am Gerät DOWNLOAD wählen).', t18KeepAsk: 'T18Emu: Items oder Tamapoints geändert. Sein Spielstand auf dem Gerät wird durch den aus dem ROM ersetzt (Stand beim Auslesen), auch mit «Spielstände behalten». Weiter?', t18ItemNo: 'Nr. {n}', t18ItemOk: '{n} liegt jetzt bei {k}.', t18Points: 'Tamapoints', t18A_food: 'Essen', t18A_item: 'Gegenstände', t18A_acc: 'Accessoires', t18A_room: 'Raum', t18A_dl: 'Spiele und Ausflugsziele', t18RoomBack: 'eigener Raum weg', t18RoomBuiltin: 'eingebauter Raum', dlcPick: 'Download-Inhalte hinzufügen', dlcInfo: 'Belegte Plätze zeigen', progMore: 'Einstellungen und Inhalt', progMakeMain: 'Zum Hauptprogramm machen', progIsMain: 'Hauptprogramm', v1Ok: 'Erstes Tamagotchi oder Digimon erkannt (V1Emu).', v3Ok: 'Tamagotchi Connection V3 erkannt (V3Emu).', v3Use: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Rad kurz: Einstellungen. Zurück: Rad lange drücken.', optVol: 'Lautstärke', optVolN: 'normal', optVolQ: 'leise', optVolL: 'laut', optOff: 'aus', optDim: 'Helligkeit', optScr: 'Bild aus nach', optDev: 'Auch am Gerät: Rad kurz drücken. Dort Geändertes gilt, bis du es hier wieder änderst.', optScrToy: 'wie am Tama', v1Use: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Rad kurz: Einstellungen. Rad drehen: schütteln. Zurück: Rad lange drücken.', progNoMainDoom: 'DOOM ist das Hauptprogramm. Für ein anderes zuerst DOOM entfernen (×).', doomAutoHint: 'Rad 2 s drücken: zurück ins Paradise, es bleibt dort.', progReplaced: '{n} ist jetzt das Hauptprogramm statt {o}.', mainAuto: '{n} ist jetzt der erste Eintrag im Menü, nur so passt alles.', mainNoRoom: 'Als erster Eintrag fehlen etwa {k} KB Platz. Es bleibt wie es war.', appTwice: '{n} ist schon dabei.', progNoMainV1: 'V1Emu startet nur aus dem Menü', progNoMain: 'Geht nur im Startgerät', progMainNow: '{n} ist jetzt das Hauptprogramm. Die Spielstände der getauschten Programme fangen neu an.', dlcLoading: 'Wird gelesen…', dlcNewArea: 'Der Speicher dieses Emulators wird dafür neu eingeteilt. Sein Spielstand fängt nach dem Schreiben neu an.', dlcHint: 'Essen, Kleider, Accessoires, Spiele usw. als .jpg-Download-Dateien oder .zip. Mehrere Dateien auf einmal gehen, bei P\'s einen VDP-Satz immer ganz. Eine neue Stempelkarte ersetzt die alte.', dlcFreeN: '{n} frei', dlcDel: 'entfernen', dlcK0: 'Mahlzeiten', dlcK1: 'Snacks', dlcK2: 'Kleider', dlcK3: 'Accessoires', dlcK4: 'Gegenstände', dlcK5: 'Alltagsdinge', dlcK6: 'Hintergründe', dlcK7: 'Spiele', dlcK8: 'Ausflugsziele', dlcK9: 'Briefe', dlcK10: 'Rezepte', dlcK11: 'Stempelkarte', dlcK12: 'Happy Mail', dlcK15: 'Dekorationen', dlcK16: 'Gutscheine', dlcK17: 'Bingo', dlcK18: 'Gashapon', dlcK19: 'Figuren', dlcOk: '{n} liegt jetzt in {k}, Platz {s}.', dlcBad: '{f}: {e}', dlcGone: '{n} entfernt.',
-    figField: 'Feld:', figAll: 'alle', zipField: 'Feld als ZIP', fieldZipOk: '{f}: {n} Figuren und {s} Bilder als ZIP.', fieldIn: 'Feld aus ZIP übernehmen', fieldInBad: 'Kein Feld-ZIP (field.json fehlt).', fieldInOk: '{src} in {dst} übernommen: {n} Teile.', fieldInEyes: '{k} Figuren bleiben original, ihre Augenbilder sind hier zu gross.',
+    t18Pics: 'Bilder für Erwachsen', t18PicsPick: 'Bilder wählen', t18PicsDel: 'Bilder entfernen', t18PicsOk: '{n} Bilder übernommen.', t18PicsUnknown: '{f}: unbekannter Name', t18PicsHint: 'Am Gerät zeigt Erwachsen dann das Bild der Wahl. PNG-Dateien, Name = Figur (z.B. Mametchi.png, Kuchipatchi.png) oder ihre Nummer (16.png). Der Ordner erwachsen aus dem Android-T18Emu geht auch: alle Dateien samt erwachsen.json wählen. Jede Grösse, wird auf 64x64 verkleinert.', t18Items: 'Items', t18ItemsPick: 'MyMeets-Dateien wählen', t18ItemsNoSave: 'Items gehen, sobald das Spiel einmal gelaufen ist (ROM vom Gerät lesen).', t18ItemsHint: 'Items, Raum und Tamapoints kommen in den Spielstand des Spiels. Beim Schreiben ersetzt das den Spielstand von T18Emu auf dem Gerät, auch mit «Spielstände behalten». Das Tama bleibt, der laufende Stand fängt neu an.', t18ItemsNone: 'Keine Items in den Dateien gefunden.', t18ItemsOther: '{n} ist für {m}, nicht für die Meets/On. Ob es dort geht, ist nicht sicher.', t18ItemsFull: 'kein Platz mehr', mmTitle: 'MixingMeets (Besuch, Heirat)', uartBusy: 'Paramix Studio ist noch mit dem Dongle verbunden. So lange geht die Brücke nicht.', uartFree: 'UART freigeben', uartFreed: 'Dongle freigegeben. Das Paradise neu starten, damit das Spiel wieder läuft.', uartRun: 'Erst warten, bis das Gerät fertig ist.', pairTitle: 'Zwei Paradise verbinden (Besuch, Spiel)', pairHint: 'Beide Paradise oben zusammenstecken, an beiden T18Emu starten. Dann an beiden CONNECTION, TAMAGOTCHI und weiter wie bei zwei Tamas.', pairHintDigi: 'Beide Paradise oben zusammenstecken, an beiden V1Emu mit Digimon starten. Dann den Kampf wählen und starten wie bei zwei echten Digimon.', pairHintPs: 'Beide Paradise oben zusammenstecken, an beiden TamaEmu (P\'s) starten. Dann an beiden Verbindung, たまごっちP\'s, あそぶ. Am einen あそびにいく, am anderen ともだちをよぶ, ふたりで, ein Spiel, dann B.', pairHintIdl: 'Beide Paradise oben zusammenstecken, an beiden TamaEmu (iD L) starten. Dann an beiden die Verbindung im Spiel wählen wie bei zwei echten iD L.', pairHintV3: 'Beide Paradise oben zusammenstecken, an beiden V3Emu starten. Dann an beiden die Verbindung im Spiel wählen wie bei zwei echten V3.', pairHintT7: 'Beide Paradise oben zusammenstecken, an beiden T7Emu (Tama-Go) starten. Dann an beiden Verbindung, TAMA-GO, VISIT oder GAME. Am Gerät, das besuchen geht, B drücken.', mmLink: 'Paramix-Brücke', mmDrag: 'In die Lesezeichenleiste ziehen, dann auf mixing-meets.com anklicken.', mmHint: '1. Den Knopf Paramix-Brücke einmal in die Lesezeichenleiste ziehen (Chrome oder Edge).\n2. Paramix Studio vom Dongle trennen (UART freigeben oder das Studio schliessen). Dongle an die Kontakte wie beim Flashen. Am Tama: CONNECTION, APP, VISIT (zum Zurückholen: A drücken, GO BACK, YES).\n3. Auf mixing-meets.com Connect oder Return öffnen, das Lesezeichen anklicken, dann Select Tamagotchi und den Dongle wählen.\nNach jedem Seitenwechsel das Lesezeichen nochmals anklicken.', t7Gp: 'Gotchi Points', t7GpHint: 'Kommt wie ein eingespielter Spielstand ins ROM: das Tama bleibt, der laufende Stand fängt neu an (am Gerät DOWNLOAD wählen).', t18KeepAsk: 'T18Emu: Items oder Tamapoints geändert. Sein Spielstand auf dem Gerät wird durch den aus dem ROM ersetzt (Stand beim Auslesen), auch mit «Spielstände behalten». Weiter?', t18ItemNo: 'Nr. {n}', t18ItemOk: '{n} liegt jetzt bei {k}.', t18Points: 'Tamapoints', t18A_food: 'Essen', t18A_item: 'Gegenstände', t18A_acc: 'Accessoires', t18A_room: 'Raum', t18RoomBack: 'eigener Raum weg', t18RoomBuiltin: 'eingebauter Raum', dlcPick: 'Download-Inhalte hinzufügen', dlcInfo: 'Belegte Plätze zeigen', progMore: 'Einstellungen und Inhalt', progMakeMain: 'Zum Hauptprogramm machen', progIsMain: 'Hauptprogramm', v1Ok: 'Erstes Tamagotchi oder Digimon erkannt (V1Emu).', v3Ok: 'Tamagotchi Connection V3 erkannt (V3Emu).', v3Use: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Rad kurz: Einstellungen. Zurück: Rad lange drücken.', optVol: 'Lautstärke', optVolN: 'normal', optVolQ: 'leise', optVolL: 'laut', optOff: 'aus', optDim: 'Helligkeit', optScr: 'Bild aus nach', optDev: 'Auch am Gerät: Rad kurz drücken. Dort Geändertes gilt, bis du es hier wieder änderst.', optScrToy: 'wie am Tama', v1Use: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Rad kurz: Einstellungen. Rad drehen: schütteln. Zurück: Rad lange drücken.', progNoMainDoom: 'DOOM ist das Hauptprogramm. Für ein anderes zuerst DOOM entfernen (×).', doomAutoHint: 'Rad 2 s drücken: zurück ins Paradise, es bleibt dort.', progReplaced: '{n} ist jetzt das Hauptprogramm statt {o}.', mainAuto: '{n} ist jetzt der erste Eintrag im Menü, nur so passt alles.', mainNoRoom: 'Als erster Eintrag fehlen etwa {k} KB Platz. Es bleibt wie es war.', appTwice: '{n} ist schon dabei.', progNoMainV1: 'V1Emu startet nur aus dem Menü', progNoMain: 'Geht nur im Startgerät', progMainNow: '{n} ist jetzt das Hauptprogramm. Die Spielstände der getauschten Programme fangen neu an.', dlcLoading: 'Wird gelesen…', dlcNewArea: 'Der Speicher dieses Emulators wird dafür neu eingeteilt. Sein Spielstand fängt nach dem Schreiben neu an.', dlcHint: 'Essen, Kleider, Accessoires, Spiele usw. als .jpg-Download-Dateien oder .zip. Mehrere Dateien auf einmal gehen, bei P\'s einen VDP-Satz immer ganz.', dlcFreeN: '{n} frei', dlcDel: 'entfernen', dlcK0: 'Mahlzeiten', dlcK1: 'Snacks', dlcK2: 'Kleider', dlcK3: 'Accessoires', dlcK4: 'Gegenstände', dlcK5: 'Alltagsdinge', dlcK6: 'Hintergründe', dlcK7: 'Spiele', dlcK8: 'Ausflugsziele', dlcK10: 'VDP-Rezepte', dlcK15: 'Dekorationen', dlcK16: 'Gutscheine', dlcK17: 'Bingo', dlcK18: 'Gashapon', dlcK19: 'Figuren', dlcOk: '{n} liegt jetzt in {k}, Platz {s}.', dlcBad: '{f}: {e}', dlcGone: '{n} entfernt.',
+    figField: 'Feld:', figAll: 'alle', zipField: 'Feld als ZIP', fieldZipOk: '{f}: {n} Figuren und {s} Bilder als ZIP.', fieldIn: 'Feld aus ZIP übernehmen', fieldInBad: 'Kein Feld-ZIP (field.json fehlt).', fieldInOk: '{src} in {dst} übernommen: {n} Teile.', fieldInEyes: '{k} Figuren bleiben original, ihre Augenbilder sind hier zu gross.', fieldInShared: 'Figurengruppe {n} hat unterschiedliche Vorlagen.',
     zipFigs: 'Alle Figuren als ZIP', zipAll: 'Alle Sprites als ZIP', upload: 'Sheets hochladen (PNG oder ZIP)',
     numbers: 'Nummern-Test-ROM',
     figHint: 'Eine Figur besteht aus Körper, Augen und Mund, je gross und klein. Klick auf eine Figur für ihr Sheet.',
@@ -109,7 +169,7 @@ const T = {
     disclaimer: 'Benutzung auf eigene Gefahr. Das Ändern und Beschreiben des Geräts kann es unbrauchbar machen oder Spielstände löschen. Lies vorher ein Backup aus und nutze das Tool nur, wenn du weisst, was du tust. Es gibt keine Garantie und keine Haftung für Schäden an Geräten oder Daten.',
     trademarks: 'Tamagotchi und Digimon sind Marken von BANDAI. DOOM und Wolfenstein sind Marken von id Software (ZeniMax Media). Game Boy und Pokémon mini sind Marken von Nintendo, SEGA und Master System sind Marken von SEGA. Arduboy ist eine Marke von Arduboy Inc. Alle Marken, Spiele und Figuren gehören ihren jeweiligen Inhabern und werden nur genannt, um zu beschreiben, wofür das Tool gedacht ist. Kein offizielles Produkt, keine Verbindung zu diesen Firmen. Das Tool enthält keine Spiele, Firmware oder Spieldaten: du verwendest nur deine eigenen Dateien.',
     devWarn: 'Schreiben auf das Gerät geschieht auf eigene Gefahr und ohne Haftung. Vorher ein Backup auslesen und das Gerät während des Schreibens eingeschaltet lassen.',
-    footer: 'Läuft lokal im Browser. Von mameise.',
+    footer: 'Läuft lokal im Browser. Von mameise. Erweiterungen von x43x61x69.',
     edition: 'Edition', sprites: 'Sprites', figures: 'Figuren', changed: 'geändert', space: 'Platz für Figuren',
     figure: 'Figur', sprite: 'Sprite',
     mSize: 'Zelle {w}×{h}, {n} Bilder, Raster {iw}×{ih}', mColors: '{c}, Palettensätze: {p}',
@@ -132,6 +192,12 @@ const T = {
     mColorsFig: 'Bleiben alle Farben aus dem Original, färbt das Spiel die Figur weiter je nach Tama um. Neue Farben werden fest (bis 8 Farben plus Umriss).',
   },
   en: {
+    neonBagUnavailable: 'This Neon Planets firmware uses an unrecognized item save layout.',
+    paraClear: 'Clear active ROM save', paraClearAsk: 'Clear the active Paradise save in the loaded ROM?', paraClearDone: 'Active save cleared. Save the ROM as a new file.', paraClearPending: 'Finish recovering the saved game in the Paramix menu first.',
+    labReleaseOn: 'Send to My Lab in game', labReleaseHint: 'Adds RELEASE under CONNECTION. Choose a Neon Planets ROM for the in-game text.', labReleaseInstalled: 'RELEASE is already installed.', labReleaseUpgrade: 'RELEASE will be updated on export.', labReleaseFail: 'Could not add Lab Invite: {e}',
+    neonDonorPick: 'Choose Neon Planets ROM', neonDonorHint: 'Add 86 Tama and 59 items from Neon Planets.', neonDonorReady: 'Neon source: {name}', neonDonorBad: 'Choose a supported Neon Planets ROM.', neonDonorFail: 'Could not add Neon content: {e}', neonDonorOn: 'Neon content', neonItemsHint: 'Add 59 items from Neon Planets.', neonLocalizeHint: 'Update Tama Files with the original planet names in all languages.',
+    appsOnlyOn: 'Programs menu', appsOnlyHint: 'Open Paramix alongside the Neon Planets game to use programs and the Flash Tool.', neonSaves: 'Three Neon save slots', neonSaveFields: 'New saves use the game’s setup. The game unlocks fields with progress.', neonSaveFull: 'Writing a Neon menu slot requires a complete .tamasave backup.',
+    neonTamaOn: 'Tama in Programs menu (care, appearance, age)', petPoints: 'Tamapoints', petMission: 'Mission', petMissionAction: 'Completion', petMissionComplete: 'Mark complete', petMissionReset: 'Reset completion',
     open: 'Open ROM', save: 'Save new ROM',
     startTitle: 'Get more out of your Tamagotchi Paradise',
     startText: 'Paramix Studio rebuilds your own Paradise ROM. Load your Paradise dump (16 MB flash image) or read it straight from the device, pick what to add, and write the new ROM back.',
@@ -166,8 +232,49 @@ const T = {
     devConnect: 'Connect', devDump: 'Read ROM', devWrite: 'Write new ROM to the device', devOnly: 'Only write changes', devKeep: 'Keep saves', devStop: 'Cancel',
     devNoSerial: 'This browser cannot talk to the dongle. Please use Chrome or Edge on a computer.', devNone: 'Not connected.',
     fl_noRescueRoom: 'No room for the write protection (rescue start, top 64 KB of the flash). Nothing was written. Remove a program from the start device and write again.', plHint: 'Prolific adapter (PL2303): newer Windows drivers block older and copied PL2303 chips, then no data gets through. Fix: pick the older Prolific driver 3.3.2.x in the Device Manager, or use an adapter with CH340 or CP2102.', resOn: 'Write protection on: if a write is cut off, the device starts in the flash screen.', resModeGo: 'The last write was cut off. The device is in the flash screen and waits. Press "Continue writing".', resModeRom: 'The last write was cut off. The device is in the flash screen and waits. Open the ROM again (or your backup) and write it to the device.', resResume: 'Continue writing', resHalf: 'The last write did not finish. Press "Continue writing" so everything fits together again.', resResumed: 'Done: {w} sectors written. Switch the Paradise off and on.', resTest: 'Test rescue start', resBack: 'Write header back', resSure: 'Test: the rescue start goes to 0xFF0000, then the device header (sector 0) is cleared. Then switch the Paradise off and on. If the flash screen appears, connect here and "Write header back". If it does not, the device will not start without your own flash tool. Go on?', resCleared: 'Header cleared. Switch the Paradise off and on. Flash screen there? Then connect and "Write header back".', resBackDone: 'Header written back. Switch the Paradise off and on: it starts normally again.', resNoHdr: 'No header kept.', devOn: 'Connected: {ed}, {mb} MB{l}', devLoaded: ', flash app loaded', devReady: 'Ready.', devNeedRom: 'To write, open a ROM first (or read one).',
-    visTitle: 'Simulate a visit (Paradise)', visStart: 'Start', visStop: 'Stop',
-    visHint: 'The Studio plays a second Paradise. Dongle on the contacts, the Paradise runs normally.\n1. Choose the edition, Start, choose the dongle.\n2. On the Paradise: planet menu, CONNECTION, PLAYDATE, then B.\n"Connect" above is only for the ROM, do not press it for a visit.',
+    visTitle: 'Playdate', visStart: 'Start Playdate', visStop: 'Stop',
+    visModel: 'Model', visCapture: 'Download incoming UART',
+    visCharacter: 'Visitor', visMirror: 'Return received character', visImport: 'Load Character File…',
+    labCharacter: 'Tama to Send', labChoose: 'Choose an adult Tama',
+    visSourceHint: 'Use Open ROM to load a Paradise ROM, or Load Character File to import a ghost or Playdate .bin or a .ghost.png. Then select the character below.',
+    visConnectionHint: 'The adapter is in use on the {tab} tab. Open that tab to end the connection.',
+    visImported: 'Imported',
+    visRomCharacters: 'ROM characters', visRomVisitorError: 'Could not prepare visitor ({reason}).',
+    visVisitorColor: 'Body color', visKeepColor: 'Keep color', visKeepEyes: 'Keep eyes',
+    visPaletteNames: 'Red|Pink|Magenta|Purple|Blue|Cyan|Green|Yellow|Orange|Rose|Lavender|Sky blue|Lime|Cream|White|Gray',
+    visVisitorExport: 'Export Visitor (.bin)', visAppearanceNeedsRom: 'Load a Paradise ROM to choose colors and eyes.',
+    visPeerTitle: 'Received Playdate character',
+    visPeerExport: 'Export received character (.bin)', visNoImage: 'No preview image available.',
+    visUnknownModel: 'Unknown model', visUnnamed: 'Unnamed character',
+    visRomInfo: '{model} (ROM type {rom} / {hex})', visSourceDevice: 'Source device',
+    visCharacterInfo: 'Character ID {chara} · Stage {stage}',
+    visCharacterPreview: 'Character', visPlanetPreview: 'Planet screenshot', visParameters: 'Character and packet details',
+    visTamaZoom: 'Tama view', visFieldZoom: 'Field view',
+    visAnimationView: 'View', visAnimationLayer: 'Layer', visAllLayers: 'Full character',
+    visPlayFrames: 'Play', visPauseFrames: 'Pause', visFrameCount: 'Frame {index} / {total}',
+    visBody: 'Body', visEyes: 'Eyes', visMouth: 'Mouth',
+    visField: 'Native field', visEyeId: 'Eye character ID', visOriginalId: 'Original character ID', visRank: 'Species rank',
+    visColor: 'Color index', visOriginalPalette: 'Original palette', visCharacterFlags: 'Character flags',
+    visGhostType: 'Ghost package type', visGhostFlags: 'Ghost package flags', visGhostLength: 'Ghost package size (bytes)',
+    visGhostChecksum: 'Ghost checksum', visBodyPalette: 'Body palette (RGB565)', visMouthPalette: 'Mouth palette (RGB565)',
+    visPlanetSize: 'Planet screenshot size (bytes)', visPlanetChecksum: 'Planet screenshot checksum',
+    visPlaydateEditor: 'Edit Playdate details', visPlanetImageChoice: 'Planet image', visPlanetAuto: 'Automatic',
+    visPlanetNeedsRom: 'Open a ROM to choose a planet image.',
+    visNameSlot: 'Character name · {language}', visPlanetNameSlot: 'Planet name · {language}',
+    visDeviceUid: 'Device UID', visCharacterUid: 'Character UID', visFriendship: 'Friendship',
+    visPreviousResult: 'Previous result', visHunger: 'Hunger', visHappiness: 'Happiness', visLove: 'In love (0/1)',
+    visGhostFormat: 'Invalid .ghost.png or Playdate package',
+    labSend: 'Send to My Lab', labHint: 'Attach the USB-UART adapter to My Lab and select an adult Tama. On My Lab, open CONNECTION → LAB INVITE. If the garden is full, choose a Tama to replace on My Lab. Then click Send to My Lab here and select the adapter.',
+    labRun: 'Sending the character to My Lab…', labWait: 'Character sent. Waiting for the connection to finish…',
+    labDone: 'Transfer acknowledged. Check the My Lab garden for the Tama.',
+    labError: 'My Lab: {e}. Check the garden before trying again.',
+    foodTitle: 'Special Food', foodImport: 'Load My Lab Food File…', foodSend: 'Wait for Paradise',
+    foodHint: 'Load a decoded My Lab food file and attach the USB-UART adapter to Neon Planets. Start here, then select CONNECTION → SPECIAL FOOD → GET FOOD with an adult Tama. Accepting the transfer starts a new egg.',
+    foodReady: 'Waiting for Paradise to request food…', foodRun: 'Paradise connected…',
+    foodConfirm: 'Food data sent. Confirm on Paradise.',
+    foodDone: 'Paradise confirmed the transfer.', foodDeclined: 'Paradise cancelled the transfer.',
+    foodFormat: 'Open a decoded My Lab food file (.bin) containing complete food data.',
+    visHint: 'Attach the USB-UART adapter to the Paradise while the game is running. Choose the model here, click Start Playdate and select the adapter. On the Paradise, open the planet menu, choose CONNECTION → PLAYDATE and press B. Return received character works without loading a file.',
     visWait: 'Ready as {ed}. On the Paradise choose PLAYDATE and press B.', visRun: 'Connected, exchanging data…', visPlay: 'The two are playing…',
     visDone: 'Visit done ({ed}). For the next one press B on the Paradise again.', visErr: 'Stopped: {e}. Press B on the Paradise again.', visBadKey: 'The Paradise does not understand the data.',
     phload: 'Loading flash app', phread: 'Reading', phcompare: 'Comparing', phwrite: 'Writing', phcheck: 'Checking', phprepare: 'Preparing',
@@ -179,8 +286,8 @@ const T = {
     devSame: 'Nothing to write, the device already has this ROM.', devErr: 'Error: {e}', devCancelled: 'Cancelled.',
     cleanOn: 'Without the Paradise (clean ROM)', cleanClock: 'Set the clock at the start', cleanClockHint: 'When the clock is missing (new batteries), the menu asks for it when switched on. Without: set the clock in the menu under SETTINGS or in each emulator itself.', emuClockOff: 'Only with "Set the clock at the start" (tab Menu).', emuSess: 'Remember where you left off', emuSessHint: 'The next start continues right there. Without: the game starts anew and loads its own save, as the real device does.', ruleClean: 'Without the Paradise: all programs go to the menu, almost the whole flash is theirs.', cleanHint: 'No Paradise on the device any more, only the menu with your programs. Almost the whole 16 MB is free.', cleanUse: 'After switching on the menu comes up right away. On the first start you set the clock, later under SETTINGS. Leave a program as usual.', cleanWarn: 'The Paradise and its save are lost when writing. Make a backup first.', cleanNoDoom: 'DOOM does not work without the Paradise yet. Please remove DOOM.', doomOne: 'DOOM goes into the menu only once.', cleanSure: 'The device has the Paradise on it. It is deleted, with its save. Do you have a backup of the device? Go on?', cleanLoaded: 'ROM without the Paradise ({ed}) loaded: {n} programs.',
     launchOn: 'Start device for programs only', launchHint: 'Only the setup of the Paradise stays (language, clock, continue or new). After it the menu with your emulators and DOOM always comes up. All pictures of the game go, which gives about 5 MB more room.', launchUse: 'After switching on and setting the clock the menu comes up. Wheel selects, B starts. Leave a program as usual, then the menu comes up again.', launchOld: 'This ROM is a start device. Load the original ROM for a normal Paradise.', launchNeed: 'A start device needs at least one program (emulator or DOOM).', launchSix: 'A start device does not go with six fields built in. Please load the original ROM.', planLaunch: 'Start device',
-    tabFeld: 'Menu', feldOn: 'Several saves (with field choice)', bagOn: 'Items and Tamapoints', tamaOn: 'Change Tama (level, care, character)', gplayOn: 'Play time earns Tamapoints', gplayHint: 'DOOM, Wolfenstein, Game Boy, Master System, Pokémon mini and Arduboy: 10 Tamapoints per minute of play, when going back to the Paradise.', saveSlot: 'Save {n}',
-    sixOn: 'All 6 fields', sixPick: 'Choose Land, Water or Sky ROM', sixHint: 'Adds Land, Water and Sky to Tropical and Glacier. The field pictures come from your own Land, Water or Sky ROM. The lab games follow the field the Tama starts with in the menu.',
+    tabFeld: 'Menu', feldOn: 'Several saves (with field choice)', bagOn: 'Items and Tamapoints', tamaOn: 'Change Tama (level, care, character)', paramixShortcut: 'Add PARAMIX at the end of the game menu', paramixShortcutHint: 'Optional. A + C on the home screen remains available.', gplayOn: 'Play time earns Tamapoints', gplayHint: 'DOOM, Wolfenstein, Game Boy, Master System, Pokémon mini and Arduboy: 10 Tamapoints per minute of play, when going back to the Paradise.', saveSlot: 'Save {n}',
+    sixOn: 'All 6 fields', sixPick: 'Choose Land, Water or Sky ROM', sixHint: 'Adds Land, Water and Sky to Tropical and Glacier. The field pictures come from your own Land, Water or Sky ROM. All ten Lab games are available in every field.',
     sixNeed: 'All 6 fields still need a Land, Water or Sky ROM.', sixOk: 'Field pictures taken from {n}.', sixBad: '{n} is not a Land, Water or Sky ROM.', sixIn: 'All 6 fields are built in.', sixOff: 'Saving takes Land, Water and Sky out again. Several saves keep working.', sixOffJ: 'Saving takes Sky out again. Several saves keep working.', sixOffField: 'The device is on {f} now. First switch to {s} in the menu.', sixOffSlots: 'The saves stored in the menu are deleted. Continue?', sixFail: 'Fields not built in: {e}', sixNoFw: 'The firmware of this ROM is changed, more fields do not work here.', planSix: 'More fields', sixOnJ: 'Sky as 4th field', sixHintJ: 'Jade Forest already has the Sky pictures.', sixInJ: 'Sky is built in as the 4th field.', sixOld: 'All 6 fields are built in, but an older version. Choose your Land, Water or Sky ROM and everything is updated when you save.', sixOldJ: 'Sky is built in and is updated when you save.', sixPlanet: 'Planet to match the field', sixMenu: 'Game menu Fields: all fields from level 4', sixPlanetNeed: 'Changing this setting needs your Land, Water or Sky ROM again.', sixApp: 'DOOM and the emulator do not fit with it',
     exitKey: 'Back from programs', exitHint: 'How to get from all programs (emulators and games) back to the Paradise or the menu.', exit0: 'Hold the wheel', exit1: 'Hold wheel and A', exit2: 'Hold wheel and C', exit3: 'Hold the wheel 5 s', feldHint: 'Small menu in the ROM: switch between saves (a new save on a field of your choice), put items in the bag, set Tamapoints, change the Tama.',
     feldUse: 'Open: hold A and C together on the home screen. Wheel selects, B confirms, C goes back.',
@@ -203,8 +310,8 @@ const T = {
     emuOk: 'Firmware recognised ({size}). It is built in on save.', emuBad: 'Firmware not recognised: {e}', t18Ok: 'TG18 firmware recognised (T18Emu, Meets/On). It is built in on save.', t18Has: 'This ROM contains T18Emu.', t18Use: 'Start: hold A and C together on the home screen. Back: hold the wheel (saves). If T18Emu hangs: start with A and C, release them, press the wheel within the first 3 seconds and confirm with A. The firmware then starts over from its own save. Experimental: the Tama still runs slower than the real one.',
     emuGone: 'The emulator is removed on save.', emuMissing: 'This build does not contain the emulator program.',
     emuFail: 'Emulator not built in: {e}', savedEmu: 'Saved: {name}',
-    t18Pics: 'Pictures for grow up', t18PicsPick: 'Choose pictures', t18PicsDel: 'Remove pictures', t18PicsOk: '{n} pictures taken.', t18PicsUnknown: '{f}: unknown name', t18PicsHint: 'On the device grow up then shows the picture of the choice. PNG files, name = character (e.g. Mametchi.png, Kuchipatchi.png) or its number (16.png). The folder erwachsen of the Android T18Emu works too: choose all files with erwachsen.json. Any size, scaled to 64x64.', t18Items: 'Items', t18ItemsPick: 'Choose MyMeets files', t18ItemsNoSave: 'Items work once the game has run (read the ROM from the device).', t18ItemsHint: 'Items, room and Tamapoints go into the game\'s save. When written it replaces T18Emu\'s save on the device, even with "Keep saves". The Tama stays, the running state starts anew. Games and destinations (e.g. Magic Hut) are at the bottom of TRAVEL TO OTHER TOWN on the Tama.', t18ItemsNone: 'No items found in the files.', t18ItemsOther: '{n} is for {m}, not for the Meets/On. It may not work there.', t18ItemsFull: 'no room left', mmTitle: 'MixingMeets (visit, marriage)', uartBusy: 'Paramix Studio is still connected to the dongle. The bridge does not work meanwhile.', uartFree: 'Release UART', uartFreed: 'Dongle released. Restart the Paradise so the game runs again.', uartRun: 'Wait until the device is done.', pairTitle: 'Connect two Paradise (visit, game)', pairHint: 'Plug both Paradise together at the top and start T18Emu on both. Then on both CONNECTION, TAMAGOTCHI and on as with two Tamas.', pairHintDigi: 'Plug both Paradise together at the top and start V1Emu with Digimon on both. Then choose and start the battle as with two real Digimon.', pairHintPs: 'Plug both Paradise together at the top and start TamaEmu (P\'s) on both. Then on both connection, たまごっちP\'s, あそぶ. On one あそびにいく, on the other ともだちをよぶ, ふたりで, a game, then B.', pairHintIdl: 'Plug both Paradise together at the top and start TamaEmu (iD L) on both. Then choose the connection in the game on both as with two real iD L.', pairHintV3: 'Plug both Paradise together at the top and start V3Emu on both. Then choose the connection in the game on both as with two real V3.', pairHintT7: 'Plug both Paradise together at the top and start T7Emu (Tama-Go) on both. Then on both connection, TAMA-GO, VISIT or GAME. Press B on the device that goes visiting.', mmLink: 'Paramix bridge', mmDrag: 'Drag it to the bookmarks bar, then click it on mixing-meets.com.', mmHint2: '1. Drag the Paramix bridge button to the bookmarks bar once (Chrome or Edge).\n2. Disconnect Paramix Studio from the dongle (Release UART or close the Studio). Dongle on the contacts as for flashing. Start TAMA MEETS on the Paradise.\n3. On mixing-meets.com open Connect or Return, click the bookmark, then Select Tamagotchi and choose the dongle.\n4. As soon as "On the Tama now" shows at the bottom left: on the Tama CONNECTION, APP, VISIT (to bring it back: press A, GO BACK, YES).\nClick the bookmark again after every page change. If it fails, the bottom left says what went wrong.', mmHint: '1. Drag the Paramix bridge button to the bookmarks bar once (Chrome or Edge).\n2. Disconnect Paramix Studio from the dongle (Release UART or close the Studio). Dongle on the contacts as for flashing. On the Tama: CONNECTION, APP, VISIT (to bring it back: press A, GO BACK, YES).\n3. On mixing-meets.com open Connect or Return, click the bookmark, then Select Tamagotchi and choose the dongle.\nClick the bookmark again after every page change.', t7Gp: 'Gotchi Points', t7GpHint: 'Goes into the ROM like an imported save: the Tama stays, the running state starts anew (choose DOWNLOAD on the device).', t18KeepAsk: 'T18Emu: items or Tamapoints changed. Its save on the device is replaced by the one in the ROM (as read), even with "Keep saves". Go on?', t18ItemNo: 'No. {n}', t18ItemOk: '{n} is now in {k}.', t18Points: 'Tamapoints', t18A_food: 'Food', t18A_item: 'Items', t18A_acc: 'Accessories', t18A_room: 'Room', t18A_dl: 'Games and destinations', t18RoomBack: 'remove own room', t18RoomBuiltin: 'built-in room', dlcPick: 'Add download content', dlcInfo: 'Show used slots', progMore: 'Settings and content', progMakeMain: 'Make it the main program', progIsMain: 'Main program', v1Ok: 'First Tamagotchi or Digimon recognised (V1Emu).', v3Ok: 'Tamagotchi Connection V3 recognised (V3Emu).', v3Use: 'Start: hold A and C together on the home screen. Wheel short: settings. Back: hold the wheel.', optVol: 'Volume', optVolN: 'normal', optVolQ: 'quiet', optVolL: 'loud', optOff: 'off', optDim: 'Brightness', optScr: 'Screen off after', optDev: 'Also on the device: press the wheel briefly. A change made there applies until you change it here again.', optScrToy: 'as on the Tama', v1Use: 'Start: hold A and C together on the home screen. Wheel short: settings. Turn the wheel: shake. Back: hold the wheel.', progNoMainDoom: 'DOOM is the main program. For another one remove DOOM first (×).', doomAutoHint: 'Hold the wheel for 2 s: back to the Paradise, it stays there.', progReplaced: '{n} is now the main program instead of {o}.', mainAuto: '{n} is now the first entry of the menu, only this way everything fits.', mainNoRoom: 'As the first entry about {k} KB of room are missing. It stays as it was.', appTwice: '{n} is already in.', progNoMainV1: 'V1Emu starts from the menu only', progNoMain: 'Only in a start device', progMainNow: '{n} is now the main program. The saves of the swapped programs start anew.', dlcLoading: 'Reading…', dlcNewArea: 'The memory of this emulator is laid out anew for it. Its save starts anew after writing.', dlcHint: 'Food, clothes, accessories, games etc. as .jpg download files or .zip. Several files at once work, on the P\'s always a whole VDP set. A new stamp card replaces the old one.', dlcFreeN: '{n} free', dlcDel: 'remove', dlcK0: 'Meals', dlcK1: 'Snacks', dlcK2: 'Clothing', dlcK3: 'Accessories', dlcK4: 'Items', dlcK5: 'Daily items', dlcK6: 'Wallpapers', dlcK7: 'Games', dlcK8: 'Destinations', dlcK9: 'Letters', dlcK10: 'Recipes', dlcK11: 'Stamp card', dlcK12: 'Happy mail', dlcK15: 'Decorations', dlcK16: 'Coupons', dlcK17: 'Bingo', dlcK18: 'Gashapon', dlcK19: 'Characters', dlcOk: '{n} now sits in {k}, slot {s}.', dlcBad: '{f}: {e}', dlcGone: '{n} removed.',
-    figField: 'Field:', figAll: 'all', zipField: 'Field as ZIP', fieldZipOk: '{f}: {n} characters and {s} pictures as ZIP.', fieldIn: 'Load field from ZIP', fieldInBad: 'Not a field ZIP (field.json missing).', fieldInOk: '{src} applied to {dst}: {n} parts.', fieldInEyes: '{k} characters stay original, their eye images are too big here.',
+    t18Pics: 'Pictures for grow up', t18PicsPick: 'Choose pictures', t18PicsDel: 'Remove pictures', t18PicsOk: '{n} pictures taken.', t18PicsUnknown: '{f}: unknown name', t18PicsHint: 'On the device grow up then shows the picture of the choice. PNG files, name = character (e.g. Mametchi.png, Kuchipatchi.png) or its number (16.png). The folder erwachsen of the Android T18Emu works too: choose all files with erwachsen.json. Any size, scaled to 64x64.', t18Items: 'Items', t18ItemsPick: 'Choose MyMeets files', t18ItemsNoSave: 'Items work once the game has run (read the ROM from the device).', t18ItemsHint: 'Items, room and Tamapoints go into the game\'s save. When written it replaces T18Emu\'s save on the device, even with "Keep saves". The Tama stays, the running state starts anew.', t18ItemsNone: 'No items found in the files.', t18ItemsOther: '{n} is for {m}, not for the Meets/On. It may not work there.', t18ItemsFull: 'no room left', mmTitle: 'MixingMeets (visit, marriage)', uartBusy: 'Paramix Studio is still connected to the dongle. The bridge does not work meanwhile.', uartFree: 'Release UART', uartFreed: 'Dongle released. Restart the Paradise so the game runs again.', uartRun: 'Wait until the device is done.', pairTitle: 'Connect two Paradise (visit, game)', pairHint: 'Plug both Paradise together at the top and start T18Emu on both. Then on both CONNECTION, TAMAGOTCHI and on as with two Tamas.', pairHintDigi: 'Plug both Paradise together at the top and start V1Emu with Digimon on both. Then choose and start the battle as with two real Digimon.', pairHintPs: 'Plug both Paradise together at the top and start TamaEmu (P\'s) on both. Then on both connection, たまごっちP\'s, あそぶ. On one あそびにいく, on the other ともだちをよぶ, ふたりで, a game, then B.', pairHintIdl: 'Plug both Paradise together at the top and start TamaEmu (iD L) on both. Then choose the connection in the game on both as with two real iD L.', pairHintV3: 'Plug both Paradise together at the top and start V3Emu on both. Then choose the connection in the game on both as with two real V3.', pairHintT7: 'Plug both Paradise together at the top and start T7Emu (Tama-Go) on both. Then on both connection, TAMA-GO, VISIT or GAME. Press B on the device that goes visiting.', mmLink: 'Paramix bridge', mmDrag: 'Drag it to the bookmarks bar, then click it on mixing-meets.com.', mmHint: '1. Drag the Paramix bridge button to the bookmarks bar once (Chrome or Edge).\n2. Disconnect Paramix Studio from the dongle (Release UART or close the Studio). Dongle on the contacts as for flashing. On the Tama: CONNECTION, APP, VISIT (to bring it back: press A, GO BACK, YES).\n3. On mixing-meets.com open Connect or Return, click the bookmark, then Select Tamagotchi and choose the dongle.\nClick the bookmark again after every page change.', t7Gp: 'Gotchi Points', t7GpHint: 'Goes into the ROM like an imported save: the Tama stays, the running state starts anew (choose DOWNLOAD on the device).', t18KeepAsk: 'T18Emu: items or Tamapoints changed. Its save on the device is replaced by the one in the ROM (as read), even with "Keep saves". Go on?', t18ItemNo: 'No. {n}', t18ItemOk: '{n} is now in {k}.', t18Points: 'Tamapoints', t18A_food: 'Food', t18A_item: 'Items', t18A_acc: 'Accessories', t18A_room: 'Room', t18RoomBack: 'remove own room', t18RoomBuiltin: 'built-in room', dlcPick: 'Add download content', dlcInfo: 'Show used slots', progMore: 'Settings and content', progMakeMain: 'Make it the main program', progIsMain: 'Main program', v1Ok: 'First Tamagotchi or Digimon recognised (V1Emu).', v3Ok: 'Tamagotchi Connection V3 recognised (V3Emu).', v3Use: 'Start: hold A and C together on the home screen. Wheel short: settings. Back: hold the wheel.', optVol: 'Volume', optVolN: 'normal', optVolQ: 'quiet', optVolL: 'loud', optOff: 'off', optDim: 'Brightness', optScr: 'Screen off after', optDev: 'Also on the device: press the wheel briefly. A change made there applies until you change it here again.', optScrToy: 'as on the Tama', v1Use: 'Start: hold A and C together on the home screen. Wheel short: settings. Turn the wheel: shake. Back: hold the wheel.', progNoMainDoom: 'DOOM is the main program. For another one remove DOOM first (×).', doomAutoHint: 'Hold the wheel for 2 s: back to the Paradise, it stays there.', progReplaced: '{n} is now the main program instead of {o}.', mainAuto: '{n} is now the first entry of the menu, only this way everything fits.', mainNoRoom: 'As the first entry about {k} KB of room are missing. It stays as it was.', appTwice: '{n} is already in.', progNoMainV1: 'V1Emu starts from the menu only', progNoMain: 'Only in a start device', progMainNow: '{n} is now the main program. The saves of the swapped programs start anew.', dlcLoading: 'Reading…', dlcNewArea: 'The memory of this emulator is laid out anew for it. Its save starts anew after writing.', dlcHint: 'Food, clothes, accessories, games etc. as .jpg download files or .zip. Several files at once work, on the P\'s always a whole VDP set.', dlcFreeN: '{n} free', dlcDel: 'remove', dlcK0: 'Meals', dlcK1: 'Snacks', dlcK2: 'Clothing', dlcK3: 'Accessories', dlcK4: 'Items', dlcK5: 'Daily items', dlcK6: 'Wallpapers', dlcK7: 'Games', dlcK8: 'Destinations', dlcK10: 'VDP recipes', dlcK15: 'Decorations', dlcK16: 'Coupons', dlcK17: 'Bingo', dlcK18: 'Gashapon', dlcK19: 'Characters', dlcOk: '{n} now sits in {k}, slot {s}.', dlcBad: '{f}: {e}', dlcGone: '{n} removed.',
+    figField: 'Field:', figAll: 'all', zipField: 'Field as ZIP', fieldZipOk: '{f}: {n} characters and {s} pictures as ZIP.', fieldIn: 'Load field from ZIP', fieldInBad: 'Not a field ZIP (field.json missing).', fieldInOk: '{src} applied to {dst}: {n} parts.', fieldInEyes: '{k} characters stay original, their eye images are too big here.', fieldInShared: 'Character group {n} has conflicting source images.',
     zipFigs: 'All characters as ZIP', zipAll: 'All sprites as ZIP', upload: 'Upload sheets (PNG or ZIP)',
     numbers: 'Number test ROM',
     figHint: 'A character is made of body, eyes and mouth, each large and small. Click a character for its sheet.',
@@ -219,7 +326,7 @@ const T = {
     disclaimer: 'Use at your own risk. Changing and writing the device can make it unusable or erase saves. Read a backup first and only use the tool if you know what you are doing. There is no warranty and no liability for damage to devices or data.',
     trademarks: 'Tamagotchi and Digimon are trademarks of BANDAI. DOOM and Wolfenstein are trademarks of id Software (ZeniMax Media). Game Boy and Pokémon mini are trademarks of Nintendo, SEGA and Master System are trademarks of SEGA. Arduboy is a trademark of Arduboy Inc. All trademarks, games and characters belong to their owners and are only named to describe what the tool is for. Not an official product, not affiliated with these companies. The tool contains no games, firmware or game data: you only use your own files.',
     devWarn: 'Writing to the device is at your own risk and without liability. Read a backup first and keep the device switched on while writing.',
-    footer: 'Runs locally in your browser. By mameise.',
+    footer: 'Runs locally in your browser. By mameise. Extensions by x43x61x69.',
     edition: 'Edition', sprites: 'Sprites', figures: 'Characters', changed: 'changed', space: 'Room for characters',
     figure: 'Character', sprite: 'Sprite',
     mSize: 'Cell {w}×{h}, {n} images, grid {iw}×{ih}', mColors: '{c}, palette sets: {p}',
@@ -242,8 +349,16 @@ const T = {
     mColorsFig: 'If all colours come from the original, the game keeps recolouring the character per tama. New colours become fixed (up to 8 colours plus outline).',
   },
 };
-let lang = 'de';
-try { lang = localStorage.getItem('paramix-lang') || (navigator.language || 'de').slice(0, 2); } catch (e) {}
+let lang = 'en';
+try {
+  // This local build defaults to English, including an earlier saved German
+  // preference. Later explicit DE/EN selections continue to be remembered.
+  if (localStorage.getItem('paramix-language-default') !== 'en-v1') {
+    localStorage.setItem('paramix-lang', 'en');
+    localStorage.setItem('paramix-language-default', 'en-v1');
+  }
+  lang = localStorage.getItem('paramix-lang') || 'en';
+} catch (e) {}
 if (!T[lang]) lang = 'en';
 function t(k, vars) { let s = (T[lang][k] ?? T.en[k] ?? k); if (vars) for (const [a, b] of Object.entries(vars)) s = s.split('{' + a + '}').join(b); return s; }
 /* Messages of the modules (core, emu, doom, feld) are English; the German page
@@ -356,17 +471,28 @@ function applyLang() {
     document.querySelectorAll('#gridFigs .tile').forEach((b) => { const g = +b.dataset.idx; b.querySelector('.cap span').textContent = [state.charNames.get(g), groupRole(g)].filter(Boolean).join(' '); });
     if (state.open) openDrawer(state.open.kind, state.open.idx);
   }
-  try { if (!dv.run) devRender(); } catch (e) {}   // dv does not exist yet on the first call
+  try {
+    if (!dv.run) devRender();
+    else visRender();
+    visPeerLabels();
+    visPlaybackLabel('visPeer');
+    visPlaybackLabel('visVisitor');
+    $('visRomVisitors').label = t('visRomCharacters');
+    visAppearanceLabels();
+    visRenderVisitor(false);
+  } catch (e) {}   // Device controls may not be initialized yet.
 }
 document.querySelectorAll('[data-lang]').forEach(b => b.onclick = () => { lang = b.dataset.lang; try { localStorage.setItem('paramix-lang', lang); } catch (e) {} applyLang(); });
 
 // ------------------------------------------------------------------ state
-const state = { ctx: null, name: '', changed: new Map(), dim: null, open: null, zoom: 2, decoded: new Map(), eyeOffsets: new Map(), eyeRects: new Map(), eyeLayer: false, fields: [], charNames: new Map() };
+const state = { ctx: null, name: '', changed: new Map(), dim: null, open: null, zoom: 2, decoded: new Map(), eyeOffsets: new Map(), eyeRects: new Map(), eyeLayer: false, fields: [], charNames: new Map(), paramixShortcut: false };
 const entry = (i) => state.changed.get(i) || (state.launch && state.launchMap && state.launchMap.get(i)) || state.ctx.entries[i];
 /* 1.7.2 CLEAN_ROM: start device without any Paradise code (Menu tab); the menu starts right away, sets the clock
  * itself, and almost the whole flash is for programs */
 const CLEAN_ROM = true;
-const menuWanted = () => !!(state.feld || state.bag || state.tama || state.gplay || state.launch);
+const neonRom = () => state.ctx && state.ctx.editionId === 8 && !state.ctx.clean;
+const menuWanted = () => !!(state.appsOnly || state.feld || state.bag || state.tama || state.gplay || state.launch ||
+  (!state.clean && state.ctx && (state.neonDonor || NT?.installed(state.ctx.rom))));
 /* launcher ROM (1.6.8): the small images, computed once per ROM */
 function launchMapGet() { if (!state.launchMap) state.launchMap = C.launcherChanges(state.ctx); return state.launchMap; }
 function decode(i) {
@@ -406,7 +532,7 @@ async function inflateRaw(bytes) {
   return new Uint8Array(out);
 }
 const pad4 = (n) => String(n).padStart(4, '0');
-const baseName = () => state.name.replace(/\.[^.]+$/, '').replace(/(_paramix|_emu|_t7|_t18|_doom_E\d|_felder|_fields|_4fields|_6fields|_items|_start|_clean)+$/, '');
+const baseName = () => state.name.replace(/\.[^.]+$/, '').replace(/(_paramix|_emu|_t7|_t18|_doom_E\d|_felder|_fields|_4fields|_6fields|_neon-tama|_neon-items|_my-lab|_items|_start|_clean)+$/, '');
 
 // ------------------------------------------------------------- loading
 async function loadRom(file) {
@@ -417,13 +543,18 @@ async function loadRom(file) {
   if (clean) { const ed = F.edition(buf); ctx = { rom: buf, entries: [], files: [], groups: [], edition: ed ? (FL.EDITIONS[ed.id] || ed.id) : '?', limit: 0, clean: true }; }
   else try { ctx = C.openRom(buf); } catch (e) { toast(t('notRom', { e: em(e) }), true); return; }
   state.clean = clean; state.cleanInit = clean;
+  $('btnPetClose').onclick();
   Object.assign(state, { ctx, name: file.name, changed: new Map(), decoded: new Map(), open: null, eyeOffsets: new Map() });
   // 1.7.3 test21 SPR_ALIGN: own Tama pictures of older versions with an odd length are padded (playdates failed at 90 %)
   if (!clean) for (const g of ctx.groups) for (let k = 0; k < 6; k++) { const f = C.spriteAlign(ctx.entries[g + k]); if (f) state.changed.set(g + k, f); }
   $('start').hidden = true; $('work').classList.add('on'); $('btnSave').disabled = false;
   $('romname').textContent = file.name;
   state.pmBios = undefined; state.pmKeys = null; state.abKeys = null;
+  state.neonDonor = null;
+  state.paraCleared = false;
+  state.stampSet = null;
   state.emu = null; state.t7save = null; state.t7saveX = null; state.saveIn = null; state.emuRemove = false; state.doom = null; state.doomKeys = null; state.six = null; state.sixName = ''; state.sixWant = false; state.sixOff = false; state.petDirty = false; state.texts = new Map(); state.eyeShift = new Map(); state.mouthShift = new Map(); state.poseAdj = new Map(); state.poseCache = null; face.g = -1; state.dlcT = 'main'; state.figT = 'main'; state.dlcOpen = false; state.mainGuest = null; state.emuPack = (() => { const c = romEmuCfg(buf); return !!(c && c.version >= 5 && c.lzOff) && (!E.PACK_ASK || E.lzCount(buf, c.lzOff) > E.PACK_FEW); })();   // PACK_ASK: the 2 or 3 blocks every main TamaEmu packs do not mean "Pack the firmware" state.t18Main = null; state.t18Dirty = false; state.t18Pics = E.t18PicsRead(buf); state.t18PicsDirty = false; state.itemT = 'main'; state.progOpen = new Set(); state.mainPick = null; state.mainDirty = false; state.roomFree = null; state.paraMainTaken = false;
+  state.labRelease = false; state.labDonor = null;
   { const si = S6.sixInfo(buf); state.sixPlanet = si && si.version >= 5 ? si.planet : true; state.sixMenu = si && si.version >= 6 ? si.fieldMenu : true; }
   { const l = stubList(buf); const g = E.autoGet(buf, l); state.emuAuto = g === null ? E.autoGetOld(buf, l) : g; }
   { const c = E.emuClockGet(buf); state.emuClock = c === null ? true : c; }
@@ -431,8 +562,9 @@ async function loadRom(file) {
   { const c = E.emuNfcGet(buf); state.emuNfc = c === null ? true : c; }
   state.emuOpt = E.emuOptGet(buf) || { vol: 0, dim: 0, off: 0 };
   { const fe = F.embedded(), f = fe && F.feldFind(buf, fe.stub);
-    state.feld = !!(f && (f.flags & F.F_FIELDS)); state.bag = !!(f && (f.flags & F.F_BAG)); state.tama = !!(f && (f.flags & F.F_TAMA)); state.gplay = !!(f && (f.flags & F.F_GPLAY)); state.saves = true;
-    state.feldInit = state.feld; state.bagInit = state.bag; state.tamaInit = state.tama; state.gplayInit = state.gplay; state.savesInit = true;
+    state.feld = !!(f && (f.flags & F.F_FIELDS)); state.bag = !!(f && (f.flags & F.F_BAG)); state.tama = !!(f && (f.flags & (F.F_TAMA | F.F_NEON_TAMA))); state.paramixShortcut = paramixShortcutOf(buf, f); state.gplay = !!(f && (f.flags & F.F_GPLAY)); state.saves = true;
+    state.appsOnly = !!(f && (f.flags & F.F_APPS)); state.appsOnlyInit = state.appsOnly;
+    state.feldInit = state.feld; state.bagInit = state.bag; state.tamaInit = state.tama; state.paramixShortcutInit = state.paramixShortcut; state.gplayInit = state.gplay; state.savesInit = true;
     state.launch = !!(f && f.version >= 2 && (f.flags & F.F_LAUNCH)); state.launchInit = state.launch; state.launchMap = null;
     state.t18Few = false; state.exitKey = EXIT_KEY ? exitGet(buf) : 0; state.exitKeyInit = state.exitKey; if ($('exitKey')) $('exitKey').value = String(state.exitKey);
     state.extras = f ? E.appsRead(buf, F.feldApps(buf, fe.stub).apps).map((x) => sessKeep(x, x.kind === 'tama' ? { kind: 'tama', guest: x.guest, dev: x.dev, clock: x.clock, nfc: x.nfc, opt: x.opt, pack: x.pack } : x.kind === 't18' ? { kind: 't18', fw: x.fw, clock: x.clock, opt: x.opt, keepOff: x.off } : x.kind === 'v1' ? { kind: 'v1', rom: x.rom, clock: x.clock } : x.kind === 'gb' ? { kind: 'gb', rom: x.rom, keys: x.keys, inv: x.inv, save: x.save } : x.kind === 'sms' ? { kind: 'sms', rom: x.rom, title: x.title, gg: x.gg, keys: x.keys, inv: x.inv, save: x.save } : x.kind === 'ab' ? { kind: 'ab', rom: x.rom, title: x.title, keys: x.keys, inv: x.inv, save: x.save } : x.kind === 'pm' ? { kind: 'pm', rom: x.rom, title: x.title, keys: x.keys, inv: x.inv, save: x.save, bios: x.bios } : x.kind === 'wolf' ? { kind: 'wolf', pack: x.pack, keys: x.keys, save: x.save } : x.kind === 'doom' ? { kind: 'doom', mcu: x.mcu, keys: x.keys, keys0: JSON.stringify(x.keys), save: x.save, name: x.name, region: x.region } : { rom: x.rom, figs: x.figs || [], clock: x.clock })) : []; state.extrasDirty = false;
@@ -457,7 +589,7 @@ async function loadRom(file) {
         const embOld = { stub: fe.stub, oldStub: E.embedded() && E.embedded().stub };
         const fa = F.feldApps(buf, fe.stub), low = fa.apps.length ? Math.min(...fa.apps.map((a) => a.src - 0x10000000 + 0x11000)) : 0;
         const dl = f.version >= 7 ? (buf[f.off + 0x334] | buf[f.off + 0x335] << 8 | buf[f.off + 0x336] << 16 | buf[f.off + 0x337] << 24) >>> 0 : 0, dlo = dl ? dl - 0x10000000 + 0x11000 : 0;
-        const re = F.feldApply(F.feldStrip(buf, embOld, E), { fields: state.feld, bag: state.bag, tama: state.tama, gplay: state.gplay, saves: state.saves, launch: state.launch, apps: fa.apps, name0: fa.name0, appsLow: low, dl, mainSrc: fa.mainSrc, auto: fa.auto, fieldNames: fieldTexts(buf).map((x) => x.name) }, F.feldSlots(buf, fe.stub), { feld: fe.feld, stub: fe.stub }, E);
+        const re = F.feldApply(F.feldStrip(buf, embOld, E), { fields: state.feld, bag: state.bag, tama: !neonRom() && state.tama, neonTama: neonRom() && state.tama, appsOnly: state.appsOnly, paramixShortcut: state.paramixShortcut, gplay: state.gplay, saves: state.saves, launch: state.launch, apps: fa.apps, name0: fa.name0, appsLow: low, dl, mainSrc: fa.mainSrc, auto: fa.auto, fieldNames: fieldTexts(buf).map((x) => x.name) }, F.feldSlots(buf, fe.stub), { feld: fe.feld, stub: fe.stub }, E);
         if (dlo) re.set(buf.subarray(dlo, dlo + 0x10000), dlo);   // the flash app stays where it is
         state.feldStale = re.length !== buf.length || re.some((v, i) => v !== buf[i]);
       } catch (e) { state.feldStale = false; }
@@ -466,9 +598,16 @@ async function loadRom(file) {
   state.fields = []; state.charNames = new Map();
   try {
     state.fields = C.fieldSets(ctx);
-    const tt = F.textTabelle(buf), chars = C.charGroups ? C.charGroups(ctx) : [];   // 1.7.6 GFX_MAP: Neon Planets too
-    if (tt >= 0) chars.forEach((c) => { const n = F.zeichenkette(buf, tt, c.name); if (n && !state.charNames.has(c.group)) state.charNames.set(c.group, n); });
+    const tt = F.textTabelle(buf);
+    if (tt >= 0) {
+      for (const c of C.characterSprites(ctx)) {
+        if (state.charNames.has(c.group)) continue;
+        const name = F.zeichenkette(buf, tt, c.name);
+        if (name) state.charNames.set(c.group, name);
+      }
+    }
   } catch (e) { state.fields = []; }
+  visRefreshRomVisitors();
   cleanTabs();
   renderInfo(); if (!clean) { renderGrids(); renderNames(); renderDim(); } renderEmu(); renderDoom(); renderFeld(); renderSave(); if (!dv.run) devRender();
   toast(clean ? t('cleanLoaded', { ed: ctx.edition, n: state.extras.length }) : t('loaded', { ed: ctx.edition, s: ctx.entries.length, f: ctx.groups.length }));
@@ -479,6 +618,7 @@ async function loadRom(file) {
  * Menu tab, their names can be changed before they are built in */
 const sixActive = () => !!state.ctx && !state.launch && ((!!S6.sixInfo(state.ctx.rom) && !state.sixOff) || !!state.six || !!state.sixWant);
 function fieldTexts(rom, six) {
+  if (F.feldId(rom) === 7) return [];
   let fn = F.fieldNames(rom).map((s) => s.toUpperCase()); const lws = ['LAND', 'WATER', 'SKY'], out = [];
   if (six !== undefined) {
     const id = F.feldId(rom);
@@ -587,12 +727,12 @@ function refreshTile(kind, idx) {
 const CLEAN_TABS = ['figs', 'all', 'names', 'dim'];
 function cleanTabs() {
   const off = !!state.clean;
-  document.querySelectorAll('.tab').forEach((b) => { b.hidden = off && CLEAN_TABS.includes(b.dataset.tab); });
-  const sel = document.querySelector('.tab[aria-selected="true"]');
+  document.querySelectorAll('.tab[data-tab]').forEach((b) => { b.hidden = off && CLEAN_TABS.includes(b.dataset.tab); });
+  const sel = document.querySelector('.tab[data-tab][aria-selected="true"]');
   if (off && sel && sel.hidden) document.querySelector('.tab[data-tab="emu"]').click();
 }
-document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
-  document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x === b)));
+document.querySelectorAll('.tab[data-tab]').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tab[data-tab]').forEach(x => x.setAttribute('aria-selected', String(x === b)));
   ['figs', 'all', 'names', 'dim', 'emu', 'doom', 'gb', 'sms', 'pm', 'ab', 'wolf', 'feld', 'save'].forEach(k => $('pane-' + k).hidden = k !== b.dataset.tab);
 });
 
@@ -680,7 +820,15 @@ $('figField').onchange = applyFieldPick;
 $('btnZipField').onclick = () => busy(async () => {
   const f = state.fields.find((x) => String(x.type) === $('figField').value); if (!f) return;
   const files = [], lines = ['Paramix Studio: ' + f.name + ' (' + state.ctx.edition + ')', ''];
-  for (const c of f.chars) { files.push({ name: sheetName('fig', c.group), data: await pngBytes(sheetOf('fig', c.group)) }); lines.push(sheetName('fig', c.group) + '  stage ' + c.stage + '  ' + (state.charNames.get(c.group) || '')); }
+  const groups = new Set();
+  for (const c of f.chars) {
+    const name = sheetName('fig', c.group);
+    if (!groups.has(c.group)) {
+      files.push({ name, data: await pngBytes(sheetOf('fig', c.group)) });
+      groups.add(c.group);
+    }
+    lines.push(name + '  stage ' + c.stage + '  ' + (C.textGet(state.ctx.rom, c.name) || ''));
+  }
   const pics = [...f.maps, ...f.overlays, ...f.closeups];
   for (const i of pics) files.push({ name: sheetName('spr', i), data: await pngBytes(sheetOf('spr', i)) });
   if (f.maps.length) lines.push('', 'field map: ' + f.maps.map((i) => sheetName('spr', i)).join(' '));
@@ -709,7 +857,16 @@ $('fileField').onchange = (e) => {
       try { applySheet(kind, dstIdx, await decodePng(new Blob([data], { type: 'image/png' }))); n++; refreshTile(kind, dstIdx); }
       catch (err) { if (/^eye image too detailed/.test(err.message)) eyes++; else skip.push(t('wrongSize', { f: nm, e: em(err) })); }
     };
-    for (let i = 0; i < meta.chars.length && i < dst.chars.length; i++) await put('fig', meta.chars[i].group, dst.chars[i].group);
+    const groups = new Map();
+    for (let i = 0; i < meta.chars.length && i < dst.chars.length; i++) {
+      const src = meta.chars[i], target = dst.chars[i];
+      if (!groups.has(target.group)) groups.set(target.group, src.group);
+      else if (groups.get(target.group) !== src.group) groups.set(target.group, null);
+    }
+    for (const [target, source] of groups) {
+      if (source === null) skip.push(t('fieldInShared', { n: target }));
+      else await put('fig', source, target);
+    }
     for (let i = 0; i < meta.maps.length && i < dst.maps.length; i++) await put('spr', meta.maps[i], dst.maps[i]);
     for (let i = 0; i < meta.overlays.length && i < dst.overlays.length; i++) await put('spr', meta.overlays[i], dst.overlays[i]);
     for (let i = 0; i < meta.closeups.length && i < dst.closeups.length; i++) await put('spr', meta.closeups[i], dst.closeups[i]);
@@ -1049,14 +1206,15 @@ function renderPlan() {
     planWolf(),
     [t('planDoom'), st(doomOn, !!state.doom, kind === 1, state.doom ? (DOOM_EPS && doomFree() && state.doom.sel ? doomChip(state.doom) : 'E' + $('doomEp').value) + ($('doomMusic').checked ? ' + ' + t('doomMusic') : '') : ''), state.doom ? 'new' : doomOn ? 'keep' : kind === 1 ? 'del' : 'off'],
   ];
-  const menuOn = menuWanted(), parts = [state.launch ? t('planLaunch') : '', state.feld ? t('feldOn') : '', state.bag ? t('bagOn') : '', state.tama ? t('tamaOn') : '', state.gplay ? t('gplayOn') : ''].filter(Boolean).join(', ');
-  const menuSame = state.feld === state.feldInit && state.bag === state.bagInit && state.tama === state.tamaInit && !!state.gplay === !!state.gplayInit && state.saves === state.savesInit && state.launch === state.launchInit;
+  const menuOn = menuWanted(), parts = [state.appsOnly ? t('appsOnlyOn') : '', state.launch ? t('planLaunch') : '', state.feld ? t(neonRom() ? 'neonSaves' : 'feldOn') : '', state.bag ? t('bagOn') : '', state.tama ? t('tamaOn') : '', menuOn && state.paramixShortcut !== false && !state.launch && !state.clean && !state.ctx.clean ? t('paramixShortcut') : '', state.gplay ? t('gplayOn') : ''].filter(Boolean).join(', ');
+  const menuSame = state.appsOnly === state.appsOnlyInit && state.feld === state.feldInit && state.bag === state.bagInit && state.tama === state.tamaInit && state.paramixShortcut === state.paramixShortcutInit && !!state.gplay === !!state.gplayInit && state.saves === state.savesInit && state.launch === state.launchInit;
   if (state.clean) chips[0] = [t('planFig'), t('cleanOn'), state.cleanInit ? 'keep' : 'new'];
   chips.push([t('planMenu'), menuOn ? parts + (state.feldStale && menuSame ? ' (' + t('stUpd') + ')' : '') : (menuOld ? t('stDel') : t('stNone')), menuOn ? ((menuSame && !state.feldStale) ? 'keep' : 'new') : menuOld ? 'del' : 'off']);
   const sixIn = !!S6.sixInfo(rom);
   { const n = new Set([...(state.eyeShift || new Map()).keys(), ...(state.mouthShift || new Map()).keys(), ...(state.poseAdj || new Map()).keys()]).size; if (n) chips.push([t('planEyes'), t('planNamesN', { n }), 'new']); }
   if (state.texts && state.texts.size) chips.push([t('planNames'), t('planNamesN', { n: state.texts.size }), 'new']);
   if (sixIn || state.six || state.sixWant) chips.push([t('planSix'), sixIn ? t('stKeep') : t('stNew'), sixIn ? 'keep' : 'new']);
+  if (state.neonDonor) chips.push([t('neonDonorOn'), t('stNew'), 'new']);
   // Flash: from 0x111000 to the end
   const base = state.clean ? 0x10000 : 0x111000, end = 0x1000000, total = end - base, segs = [];
   const assets = state.clean ? 0 : estimateEnd() - base + (state.six && !sixIn ? 0xB9000 : 0); if (assets) segs.push(['fw', t('segFw'), assets]);
@@ -1682,7 +1840,7 @@ function doomChip(d) {
 }
 /* 1.7.6 DOOM_LAUNCH: DOOM goes into the menu as in a ROM without the Paradise also in a start device of an edition
  * without room at 0x0A0000 (Tropical/Glacier, Neon Planets) */
-const DOOM_LAUNCH = true, NEON_PET = true, NEON_BAR = true;
+const DOOM_LAUNCH = true, NEON_BAR = true;
 function doomFree() { return DOOM_FREE && (!!state.clean || (DOOM_LAUNCH && !!state.launch && !!state.ctx && !a0Free())); }
 function doomXs() { return (state.extras || []).filter((x) => x.kind === 'doom'); }
 function doomMcuOf(x) {
@@ -1882,9 +2040,11 @@ async function addExtra(g, fname, preset) {
   // outside a start device a colour Tama or TG18 only runs as the main program (A and C): it becomes the main one
   if (!state.launch && (x.kind === 'tama' || x.kind === 't18')) { busy(() => makeMain(state.extras.length - 1)); return; }
   // 1.6.8: does it still fit? A trial build right away, not only when writing
+  const wasAppsOnly = state.appsOnly, wasShortcut = state.paramixShortcut;
+  if (neonRom() && !state.launch && !state.appsOnly) { state.appsOnly = true; state.paramixShortcut = true; }
   const f = await busy(roomFit), k = f.k;
-  if (k || f.err) { state.extras = state.extras.filter((y) => y !== x); state.extrasDirty = true; renderEmu(); toast(k ? t('noRoomAdd', { n: E.extraName(x), k }) + (E.PACK_OPT && (state.extras || []).some((y) => y.kind === 'tama' && !y.pack) ? t('packTip') : '') : t('appFail', { e: f.err }), true); return; }
-  renderEmu();
+  if (k || f.err) { state.appsOnly = wasAppsOnly; state.paramixShortcut = wasShortcut; state.extras = state.extras.filter((y) => y !== x); state.extrasDirty = true; renderEmu(); toast(k ? t('noRoomAdd', { n: E.extraName(x), k }) + (E.PACK_OPT && (state.extras || []).some((y) => y.kind === 'tama' && !y.pack) ? t('packTip') : '') : t('appFail', { e: f.err }), true); return; }
+  renderEmu(); if (neonRom()) renderFeld();
 }
 $('btnT7Fig').onclick = () => $('fileT7Fig').click();
 $('fileT7Fig').onchange = async (e) => {
@@ -2454,34 +2614,68 @@ function renderFeld() {
   if (!state.ctx) return;
   if (EXIT_KEY) { const sx = $('exitKey'), v = String(state.exitKey || 0); sx.innerHTML = ''; for (let i = 0; i < 4; i++) { const o = document.createElement('option'); o.value = String(i); o.textContent = t('exit' + i); sx.appendChild(o); } sx.value = v; }
   const fe = F.embedded(), rom = state.ctx.rom, ed = F.edition(rom), can = F.canFields(rom);
-  const box = $('feldOn'), bag = $('bagOn'), tm = $('tamaOn'), la = !!state.launch;
-  $('launchOn').checked = la; $('launchOn').disabled = !fe || !ed || !!state.ctx.clean || (state.launchInit && C.isLauncher(state.ctx)) || !!S6.sixInfo(rom); $('launchOn').parentNode.title = S6.sixInfo(rom) ? t('launchSix') : '';
+  const box = $('feldOn'), bag = $('bagOn'), tm = $('tamaOn'), la = !!state.launch, neon = neonRom();
+  $('appsOnlyRow').hidden = !neon || la; $('appsOnlyOn').checked = !!state.appsOnly; $('appsOnlyOn').disabled = !fe || !!state.feld;
+  $('launchOn').checked = la; $('launchOn').disabled = !fe || !ed || (neon && !SV.neonSaveLayout(rom)) || !!state.ctx.clean || (state.launchInit && C.isLauncher(state.ctx)) || !!S6.sixInfo(rom); $('launchOn').parentNode.title = S6.sixInfo(rom) ? t('launchSix') : '';
   $('cleanRow').hidden = !CLEAN_ROM || !la; $('cleanClockRow').hidden = !state.clean; $('cleanClock').checked = state.cleanClock !== false; $('cleanOn').checked = !!state.clean; $('cleanOn').disabled = !fe || !ed || !!state.ctx.clean || !FL.embedded() || !cleanCan();
   box.checked = !!state.feld && can && !la; box.disabled = !fe || !can || la;
-  bag.checked = !!state.bag && !la; bag.disabled = !fe || !ed || la;
-  tm.checked = !!state.tama && !la; tm.disabled = !fe || !ed || la;
-  { const g = $('gplayOn'), off = la || !!state.clean || !!state.ctx.clean; $('gplayRow').hidden = !F.GPLAY; g.checked = !!state.gplay && !off; g.disabled = !fe || !ed || off; }
+  if (neon) box.disabled = box.disabled || !SV.neonSaveLayout(rom);
+  const fieldLabel = box.parentNode.querySelector('[data-t]');
+  fieldLabel.dataset.t = neon ? 'neonSaves' : 'feldOn';
+  fieldLabel.textContent = t(fieldLabel.dataset.t);
+  const fieldHint = $('feldHint');
+  fieldHint.dataset.t = neon ? 'neonSaveFields' : 'feldHint';
+  fieldHint.textContent = t(fieldHint.dataset.t);
+  bag.checked = !!state.bag && !la; bag.disabled = !fe || !ed || (neon && !F.neonBagLayout(rom)) || la;
+  bag.parentNode.title = neon && bag.disabled ? t('neonBagUnavailable') : '';
+  tm.checked = !!state.tama && !la;
+  tm.disabled = !fe || !ed || la || (neon && (!SV.neonSaveLayout(rom) || !F.neonAppearance(rom)));
+  const tamaLabel = tm.parentNode.querySelector('[data-t]');
+  tamaLabel.dataset.t = neon ? 'neonTamaOn' : 'tamaOn';
+  tamaLabel.textContent = t(tamaLabel.dataset.t);
+  { const shortcut = $('paramixShortcut'), off = la || !!state.clean || !!state.ctx.clean;
+    shortcut.checked = state.paramixShortcut !== false && !off; shortcut.disabled = !fe || !ed || off || !menuWanted();
+    $('paramixShortcutRow').hidden = off; }
+  { const g = $('gplayOn'), off = la || !!state.clean || !!state.ctx.clean; $('gplayRow').hidden = !F.GPLAY; g.checked = !!state.gplay && !off; g.disabled = !fe || !ed || neon || off; }
   let s;
   // six fields (Tropical/Glacier): row visible there only
-  const si = S6.sixInfo(rom), sixIn = !!si, sixOld = !!si && (si.version < S6.VERSION || (!!S6.sixStale && S6.sixStale(si))), sixCan = !!S6.kindOf(rom), jade = S6.kindOf(rom) === 'jade';
+  const si = S6.sixInfo(rom), sixIn = !!si, sixOld = !!si && (si.version < S6.VERSION || S6.sixStale(si)), sixCan = !!S6.kindOf(rom), jade = S6.kindOf(rom) === 'jade';
+  const neonBuilt = !!NT?.installed?.(rom);
+  const labUpgrade = LR.needsUpgrade(rom);
+  const labInstalled = labUpgrade || LR.installed(rom);
+  $('labReleaseRow').hidden = la || !!state.clean || !(labInstalled || LR.supported(rom));
+  $('labReleaseOn').checked = labInstalled || !!state.labRelease;
+  $('labReleaseOn').disabled = labInstalled;
+  $('labReleasePick').hidden = labInstalled || !state.labRelease;
+  const labDonor = state.labDonor || state.neonDonor;
+  $('labReleaseStat').textContent = labUpgrade ? t('labReleaseUpgrade') : labInstalled ? t('labReleaseInstalled') :
+    labDonor && state.labRelease ? t('neonDonorReady', { name: labDonor.name }) : t('labReleaseHint');
+  const neonItems = !!NT?.itemsInstalled(rom);
+  $('neonDonorRow').hidden = !NT || !LZ || !ed || neon || la || !!state.clean ||
+    (neonBuilt && neonItems && !NT.needsPlanetNames(rom));
+  const neonHint = !neonBuilt ? 'neonDonorHint' : neonItems ? 'neonLocalizeHint' : 'neonItemsHint';
+  $('neonDonorStat').textContent = (state.neonDonor
+    ? t('neonDonorReady', { name: state.neonDonor.name }) : t(neonHint));
   $('sixRow').hidden = !sixCan || la;
   for (const [id, k] of [['sixOnTxt', jade ? 'sixOnJ' : 'sixOn'], ['sixHintTxt', jade ? 'sixHintJ' : 'sixHint']]) { $(id).dataset.t = k; $(id).textContent = t(k); }
-  $('sixOn').checked = (sixIn && !state.sixOff) || !!state.six || !!state.sixWant; $('sixOn').disabled = !fe || !S6.embedded();
-  $('btnSix').hidden = jade || (sixIn && !sixOld && sixSame(si));
+  $('sixOn').checked = (sixIn && !state.sixOff) || !!state.six || !!state.sixWant; $('sixOn').disabled = !fe || !S6.embedded() || neonBuilt;
+  if (neonBuilt && state.feldInit) box.disabled = true;
+  $('btnSix').hidden = jade || (neonBuilt && !S6.sixStale(si)) || (sixIn && !sixOld && sixSame(si));
   $('sixPlanetRow').hidden = !sixCan || la || !((sixIn && !state.sixOff) || state.six || state.sixWant);
-  $('sixPlanet').checked = state.sixPlanet !== false; $('sixPlanet').disabled = !fe || !S6.embedded();
-  $('sixMenu').checked = state.sixMenu !== false; $('sixMenu').disabled = !fe || !S6.embedded();
+  $('sixPlanet').checked = state.sixPlanet !== false; $('sixPlanet').disabled = !fe || !S6.embedded() || neonBuilt;
+  $('sixMenu').checked = state.sixMenu !== false; $('sixMenu').disabled = !fe || !S6.embedded() || neonBuilt;
   if (!fe) s = t('feldMissing');
   else if (!ed) s = t('feldUnknown');
   else if (state.clean) s = t('cleanUse') + (state.ctx.clean ? '' : '\n' + t('cleanWarn'));
   else if (la) s = t('launchUse') + (state.launchInit && C.isLauncher(state.ctx) ? '\n' + t('launchOld') : '');
-  else if (ed.profile.ring) s = t('feldNeon') + (state.bag || state.tama ? '\n' + t('feldUse') : '');   // 1.7.6 NEON_FELD
   else {
     s = t('feldCur', { f: F.fieldNow(rom) });
     if (can) {
       s += ' ' + t('feldList', { s: F.fieldNames(rom).slice(0, sixIn && state.sixOff ? 3 : 99).concat(!sixIn && (state.six || (jade && state.sixWant)) ? (jade ? ['Sky'] : ['Land', 'Water', 'Sky']) : []).join(', ') });
       const ff = F.feldFind(rom, fe.stub), sm = ff && ff.version >= 6 && (ff.flags & F.F_SAVES);
-      const sl = F.feldSlots(rom, fe.stub).map(x => sm ? t('saveSlot', { n: x.index + 1 }) : F.NAMES[x.field]);
+      const sl = neon
+        ? (F.saveSlots(rom, fe.stub)?.list || []).filter(x => x.used).map(x => t('saveSlot', { n: x.i + 1 }))
+        : F.feldSlots(rom, fe.stub).map(x => sm ? t('saveSlot', { n: x.index + 1 }) : F.NAMES[x.field]);
       if (sl.length) s += ' ' + t('feldStored', { s: sl.join(', ') });
     } else s += '\n' + t('feldNo');
     if (sixCan && sixIn && state.sixOff) s += '\n' + t(jade ? 'sixOffJ' : 'sixOff');
@@ -2495,17 +2689,22 @@ function renderFeld() {
       else if (state.sixWant && !state.six) s += '\n' + t('sixNeed');
       else if (state.six) s += '\n' + t('sixOk', { n: state.sixName });
     }
-    if (state.feld || state.bag || state.tama) s += '\n' + t('feldUse');
+    if (state.feld || state.bag || state.tama || state.appsOnly) s += '\n' + t('feldUse');
   }
   $('feldStat').textContent = s;
   renderPlan();
 }
-$('feldOn').onchange = (e) => { state.feld = e.target.checked; renderFeld(); };
+$('appsOnlyOn').onchange = (e) => { state.appsOnly = e.target.checked; if (state.appsOnly) state.paramixShortcut = true; else if (neonRom()) { state.tama = false; state.bag = false; } renderFeld(); };
+$('feldOn').onchange = (e) => {
+  state.feld = e.target.checked;
+  if (state.feld && neonRom() && !state.appsOnly) { state.appsOnly = true; state.paramixShortcut = true; }
+  renderFeld();
+};
 $('exitKey').onchange = (e) => { state.exitKey = +e.target.value; renderPlan(); };
 $('launchOn').onchange = (e) => busy(async () => {
   state.launch = e.target.checked;
   if (!state.launch) { state.clean = false; await paraMainSync(); doomFreeSync(); cleanTabs(); }
-  if (state.launch) { launchMapGet(); state.feld = state.bag = state.tama = state.gplay = false; state.sixWant = false; state.six = null; }
+  if (state.launch) { launchMapGet(); state.appsOnly = false; state.feld = state.bag = state.tama = state.gplay = false; state.sixWant = false; state.six = null; state.neonDonor = null; }
   renderInfo(); renderFeld(); renderEmu(); renderNames();
 });
 /* CLEAN_ROM: the feld build of this Studio knows the clock sector (menu version 10) */
@@ -2521,7 +2720,7 @@ $('cleanClock').onchange = (e) => { state.cleanClock = e.target.checked; state.m
 $('sixOn').onchange = (e) => {
   state.sixOff = !e.target.checked && !!S6.sixInfo(state.ctx.rom);   // 1.6.8: take the extra fields out again
   state.sixWant = e.target.checked;
-  if (!e.target.checked) state.six = null;
+  if (!e.target.checked) { state.six = null; state.neonDonor = null; }
   else { state.feld = true; if (!state.six && S6.sixNeedsSource(state.ctx.rom)) $('fileSix').click(); }
   renderFeld(); renderNames();
 };
@@ -2537,8 +2736,40 @@ $('fileSix').onchange = async (e) => {
   toast(t('sixOk', { n: f.name }));
   renderFeld(); renderNames();
 };
-$('bagOn').onchange = (e) => { state.bag = e.target.checked; renderFeld(); };
-$('tamaOn').onchange = (e) => { state.tama = e.target.checked; renderFeld(); };
+$('labReleaseOn').onchange = (e) => { state.labRelease = e.target.checked; renderFeld(); };
+$('labReleasePick').onclick = () => $('labReleaseFile').click();
+$('labReleaseFile').onchange = async (e) => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  const rom = new Uint8Array(await file.arrayBuffer());
+  if (rom.length !== 0x1000000 || C.editionIdOf(rom) !== 8) { toast(t('neonDonorBad'), true); return; }
+  state.labDonor = { rom, name: file.name };
+  renderFeld();
+};
+$('neonDonorPick').onclick = () => $('neonDonorFile').click();
+$('neonDonorFile').onchange = async (e) => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  const buf = new Uint8Array(await file.arrayBuffer());
+  if (buf.length !== 0x1000000 || C.editionIdOf(buf) !== 8) { toast(t('neonDonorBad'), true); return; }
+  state.neonDonor = { rom: buf, name: file.name };
+  if (S6.kindOf(state.ctx.rom) === 'gen3' && (state.six || state.sixWant || S6.sixInfo(state.ctx.rom))) {
+    state.sixOff = false; state.sixWant = true; state.feld = true;
+  }
+  state.bag = true;
+  renderFeld(); renderNames();
+};
+$('bagOn').onchange = (e) => {
+  state.bag = e.target.checked;
+  if (state.bag && neonRom() && !state.appsOnly) { state.appsOnly = true; state.paramixShortcut = true; }
+  renderFeld();
+};
+$('tamaOn').onchange = (e) => {
+  state.tama = e.target.checked;
+  if (state.tama && neonRom() && !state.appsOnly) { state.appsOnly = true; state.paramixShortcut = true; }
+  renderFeld();
+};
+$('paramixShortcut').onchange = (e) => { state.paramixShortcut = e.target.checked; renderFeld(); };
 $('gplayOn').onchange = (e) => { state.gplay = e.target.checked; renderFeld(); };
 
 /* Build the new ROM from the loaded one and everything chosen in the tabs.
@@ -2634,10 +2865,21 @@ async function composeClean() {
 async function composeRom() {
   if (CLEAN_ROM && state.clean) return composeClean();
   const keysDirty = !state.doom && doomInstalled() && state.doomKeys && D.doomKeysGet(state.ctx.rom) && JSON.stringify(state.doomKeys) !== JSON.stringify(D.doomKeysGet(state.ctx.rom));
-  const si0 = S6.sixInfo(state.ctx.rom), sixUp = (!!si0 && (si0.version < S6.VERSION || !sixSame(si0)) && !S6.sixNeedsSource(state.ctx.rom)) || sixDnaUp(si0);
+  const si0 = S6.sixInfo(state.ctx.rom), sixUp = (!!si0 && (si0.version < S6.VERSION || !sixSame(si0)) && !S6.sixNeedsSource(state.ctx.rom)) || sixDnaUp(si0) || S6.sixFieldsUpdateNeeded(state.ctx.rom) || S6.sixLabGamesUpdateNeeded(state.ctx.rom);
   const emuUp = emuUpPending();
-  if (!state.changed.size && !state.t7save && !state.emu && !state.emuRemove && !state.doom && !keysDirty && !emuUp && !emuAutoDirty() && !state.six && !sixUp && !(state.sixWant && !S6.sixInfo(state.ctx.rom)) && state.feld === state.feldInit && state.bag === state.bagInit && state.tama === state.tamaInit && !!state.gplay === !!state.gplayInit && state.saves === state.savesInit && state.launch === state.launchInit && (state.exitKey || 0) === (state.exitKeyInit || 0) && !state.feldStale && !state.extrasDirty && !state.mainDirty && !state.extrasUp && !state.t7saveX && !state.saveIn && !state.sixOff && !state.petDirty && !state.t18Dirty && !state.t18PicsDirty && !(state.texts && state.texts.size) && !(state.eyeShift && state.eyeShift.size) && !(state.mouthShift && state.mouthShift.size) && !(state.poseAdj && state.poseAdj.size)) return { rom: state.ctx.rom, name: state.name, res: null, same: true };
-  const fe = F.embedded(); let feldSaved = fe ? F.feldSlots(state.ctx.rom, fe.stub) : [];
+  const growthUp = NT?.growthUpdateNeeded(state.ctx.rom);
+  if (!state.changed.size && !state.t7save && !state.emu && !state.emuRemove && !state.doom && !keysDirty && !emuUp && !emuAutoDirty() && !state.six && !state.neonDonor && !state.labRelease && !sixUp && !growthUp && !(state.sixWant && !S6.sixInfo(state.ctx.rom)) && state.appsOnly === state.appsOnlyInit && state.feld === state.feldInit && state.bag === state.bagInit && state.tama === state.tamaInit && state.paramixShortcut === state.paramixShortcutInit && !!state.gplay === !!state.gplayInit && state.saves === state.savesInit && state.launch === state.launchInit && (state.exitKey || 0) === (state.exitKeyInit || 0) && !state.feldStale && !state.extrasDirty && !state.mainDirty && !state.extrasUp && !state.t7saveX && !state.saveIn && !state.sixOff && !state.petDirty && !state.t18Dirty && !state.t18PicsDirty && !(state.texts && state.texts.size) && !(state.eyeShift && state.eyeShift.size) && !(state.mouthShift && state.mouthShift.size) && !(state.poseAdj && state.poseAdj.size)) {
+    try {
+      const rom = LR.upgrade(state.ctx.rom);
+      const name = state.paraCleared ? baseName() + '_save-cleared.bin' :
+        rom === state.ctx.rom ? state.name : baseName() + '_release-fixed.bin';
+      return { rom, name, res: null, same: !state.paraCleared && rom === state.ctx.rom };
+    } catch (e) { toast(t('labReleaseFail', { e: em(e) }), true); return null; }
+  }
+  const fe = F.embedded(); let feldSaved;
+  try { feldSaved = fe ? F.feldSlots(state.ctx.rom, fe.stub) : []; }
+  catch (e) { toast(t('feldFail', { e: em(e) }), true); return null; }
+  if (neonRom() && !state.feld && feldSaved.length && !confirm(t('sixOffSlots'))) return null;
   // start device with DOOM (1.6.8): DOOM is the program at 0x0A0000, the emulator of the Emulator tab goes along as a further program
   const doomL = !!state.launch && (!!state.doom || (doomInstalled() && !state.emuRemove));
   let mainX = null;
@@ -2718,8 +2960,12 @@ async function composeRom() {
   }
   const needSrc = S6.sixNeedsSource(rom);
   if (state.sixWant && needSrc && !state.six && !S6.sixInfo(rom)) { toast(t('sixNeed'), true); return null; }
-  const sixHave = S6.sixInfo(rom);
+  let sixHave = S6.sixInfo(rom);
   if (sixHave && needSrc && !state.six && sixHave.version >= S6.VERSION && !sixSame(sixHave)) { toast(t('sixPlanetNeed'), true); return null; }
+  if (state.six && S6.sixStale(sixHave) && sixHave.version === S6.VERSION && sixSame(sixHave)) {
+    try { rom = S6.sixWalkingUpdate(rom, state.six); sixHave = S6.sixInfo(rom); }
+    catch (e) { toast(t('sixFail', { e: em(e) }), true); return null; }
+  }
   if ((state.six || (state.sixWant && !needSrc) || (!needSrc && sixHave)) && !(sixHave && sixHave.version >= S6.VERSION && sixSame(sixHave) && !(S6.sixStale && S6.sixStale(sixHave)))) {
     if (state.doom || doomInstalled() || state.emu) { toast(t('sixFail', { e: t('sixApp') }), true); return null; }
     if (state.extras && state.extras.length) { toast(t('appSix'), true); return null; }
@@ -2728,7 +2974,41 @@ async function composeRom() {
   }
   if (S6.DNA && S6.sixInfo(rom)) rom = S6.sixDna(rom, S6.embedded(), true);
   if (S6.HUNT && S6.sixInfo(rom)) rom = S6.sixHunt(rom);   // 1.7.3 test23: egg hunt per field
+  try { rom = S6.sixLabGamesUpdate(rom, S6.embedded()); }
+  catch (e) { toast(t('sixFail', { e: em(e) }), true); return null; }
   if (S6.sixInfo(rom)) rom = S6.sixFix(rom);   // the archive may have moved: rain pictures point to 0xF00000
+  if (state.neonDonor) {
+    try {
+      if (NT.installed(rom)) {
+        if (NT.needsPlanetNames(rom)) rom = NT.localizePlanetNames(rom, state.neonDonor.rom);
+      } else {
+        if (C.editionIdOf(rom) >= 4 || LZ.isInstalled(rom)) {
+          const helper = LZ.embedded(rom);
+          rom = LZ.isInstalled(rom) ? LZ.refresh(rom, helper) : LZ.patch(rom, helper, null, true, fe?.stub).rom;
+        }
+        const added = NT.transplant(rom, state.neonDonor.rom);
+        rom = NT.installGrowth(added.rom, added.rows);
+      }
+      if (!NT.itemsInstalled(rom)) {
+        rom = NT.transplantItems(rom, state.neonDonor.rom).rom;
+        if (C.editionIdOf(rom) >= 5) feldSaved = NT.clearItemSaveSlots(feldSaved);
+      }
+    } catch (e) { toast(t('neonDonorFail', { e: em(e) }), true); return null; }
+  }
+  if (NT?.growthUpdateNeeded(rom)) {
+    try { rom = NT.upgradeGrowth(rom); }
+    catch (e) { toast(t('neonDonorFail', { e: em(e) }), true); return null; }
+  }
+  let labLabel = null;
+  if (state.labRelease && !state.launch && !state.clean) {
+    const donor = state.labDonor || state.neonDonor;
+    // Grow the archive before placing programs, the catalog and save slots.
+    try {
+      const prepared = LR.prepare(rom, donor?.rom);
+      rom = prepared.rom;
+      labLabel = prepared.label;
+    } catch (e) { toast(t('labReleaseFail', { e: em(e) }), true); return null; }
+  }
   // more emulators (1.6.0): the old blocks go, the list is placed again from the top of the emulator area
   let apps = [], appsLow = 0;
   if (fe && !APPS_CLEAR_FIRST) { const old = E.appsRead(state.ctx.rom, F.feldApps(state.ctx.rom, fe.stub).apps); if (old.length) rom = E.appsClear(rom, old.filter((o) => !extrasL.some((x) => x.kind === 't18' && x.keepOff === o.off))); }   // test2: an installed T18Emu stays
@@ -2749,7 +3029,8 @@ async function composeRom() {
     }
     let dlRes = false;
     if (state.launch) { rom = dlStrip(rom, fe); if (DL_RESCUE && FL.embedded()) { const w = FL.withRescue(rom, FL.embedded()); if (w) { rom = w; dlRes = true; } } }
-    try { const r = E.appsPlace(rom, extrasL, progs, { lang, clock: state.emuClock !== false, nfc: state.emuNfc !== false, launch: !!state.launch, txSpare: T18_FEW && state.t18Few ? 0x40000 : undefined, keep: F.appKind(rom) === 1 ? [[0x830000, 0xD48000]] : [], dlApp: state.launch && !dlRes ? FL.embedded() : null }); rom = r.rom; apps = r.list; appsLow = r.low; dl = dlRes ? DL_AT : r.dl; lastFree = r.freeKB;
+    const keep = neonRom() && state.feld ? [F.neonSlotRange()] : F.appKind(rom) === 1 ? [[0x830000, 0xD48000]] : [];
+    try { const r = E.appsPlace(rom, extrasL, progs, { lang, clock: state.emuClock !== false, nfc: state.emuNfc !== false, launch: !!state.launch, txSpare: T18_FEW && state.t18Few ? 0x40000 : undefined, keep, dlApp: state.launch && !dlRes ? FL.embedded() : null }); rom = r.rom; apps = r.list; appsLow = r.low; dl = dlRes ? DL_AT : r.dl; lastFree = r.freeKB;
       for (const x of extrasL) if (x.kind === 't18' && x.items && x.keepOff !== undefined) t18Fresh(rom, x.keepOff, fresh);   // test3
       if (state.t7saveX && apps[state.t7saveX.i + (mainX ? 1 : 0)]) rom = SV.t7SaveIn(rom, state.t7saveX.save, apps[state.t7saveX.i + (mainX ? 1 : 0)].off + 0x10000);
       if (state.saveIn && typeof state.saveIn.key === 'number' && apps[state.saveIn.key + (mainX ? 1 : 0)]) {
@@ -2763,11 +3044,17 @@ async function composeRom() {
   }
   // 1.6.8: always the firmware's name (TAMA-GO, FRIENDS, ID L, 4U+ ...), not the emulator's
   // 1.6.9 test13: the chosen main program's place in the list (0 = the program at 0x0A0000)
-  const mainSrcOf = () => { if (!state.launch || !state.mainPick || !doomL) return 0; const k = state.mainPick === 'emu' ? (mainX ? 0 : -1) : extrasL.indexOf(state.mainPick); return k >= 0 && apps[k] ? apps[k].src : 0; };
+  const mainSrcOf = () => { if (!state.launch || !state.mainPick || (a0Free() && !doomL)) return 0; const k = state.mainPick === 'emu' ? (mainX ? 0 : -1) : extrasL.indexOf(state.mainPick); return k >= 0 && apps[k] ? apps[k].src : 0; };
   const name0 = F.appKind(rom) === 1 ? 'DOOM' : state.emu && state.emu.guest ? E.tamaName(state.emu.guest, state.emu.dev) : (!state.emu && !state.emuRemove && fe && F.appKind(state.ctx.rom) === F.appKind(rom) && F.feldApps(state.ctx.rom, fe.stub).name0) || mainName(rom);
   if (fe && menuWanted()) {
-    try { rom = F.feldApply(rom, { fields: state.feld, bag: state.bag, tama: state.tama, gplay: state.gplay && !state.clean, saves: state.saves, launch: !!state.launch, apps, name0, appsLow, dl, mainSrc: mainSrcOf(), auto: !!state.emuAuto, fieldNames: fieldTexts(rom).map((x) => x.name) }, feldSaved, { feld: fe.feld, stub: fe.stub }, E); }
+    try { rom = F.feldApply(rom, { fields: state.feld, bag: state.bag, tama: !neonRom() && state.tama, neonTama: neonRom() && state.tama, appsOnly: state.appsOnly, paramixShortcut: state.paramixShortcut, gplay: state.gplay && !state.clean, saves: state.saves, launch: !!state.launch, apps, name0, appsLow, dl, mainSrc: mainSrcOf(), auto: !!state.emuAuto, fieldNames: fieldTexts(rom).map((x) => x.name) }, feldSaved, { feld: fe.feld, stub: fe.stub }, E); }
     catch (e) { toast(t('feldFail', { e: em(e) }), true); return null; }
+  }
+  if (state.neonDonor && NT.installed(rom)) {
+    const menu = fe && F.feldFind(rom, fe.stub);
+    if (!menu || !(menu.flags & 0x100) || ![3, 4].includes(rd32(rom, menu.stubOff + 0x304))) {
+      toast(t('neonDonorFail', { e: 'native Tama Files could not be installed' }), true); return null;
+    }
   }
   // autostart of the emulator (the stubs above were written with it off), clock switch (1.5.1)
   if (F.appKind(rom) === 2) rom = E.emuSessSet(E.emuOptSet(E.emuNfcSet(E.emuClockSet(rom, state.emuClock !== false), state.emuNfc !== false), state.emuOpt), state.emuSess !== false);
@@ -2781,24 +3068,74 @@ async function composeRom() {
     if (a) rom = a;
   }
   if (EXIT_KEY && (state.exitKey || exitGet(rom))) rom = exitSet(rom, state.exitKey || 0);
-  const name = baseName() + (state.changed.size ? '_paramix' : '') + (state.emu ? (state.emu.v1 ? '_v1' : state.emu.t7 ? '_t7' : state.emu.t18 ? '_t18' : '_emu') : '') + (state.doom ? '_doom_E' + $('doomEp').value : '') + (S6.sixInfo(rom) ? (S6.kindOf(rom) === 'jade' ? '_4fields' : '_6fields') : state.feld ? '_fields' : '') + (state.bag ? '_items' : '') + (state.launch ? '_start' : '') + '.bin';
+  if (labLabel !== null || LR.needsUpgrade(rom)) {
+    // A blank save-pool page is already allocated once the menu is built.
+    try { rom = labLabel === null ? LR.upgrade(rom) : LR.install(rom, labLabel); }
+    catch (e) { toast(t('labReleaseFail', { e: em(e) }), true); return null; }
+  }
+  const name = baseName() + (state.changed.size ? '_paramix' : '') + (state.emu ? (state.emu.v1 ? '_v1' : state.emu.t7 ? '_t7' : state.emu.t18 ? '_t18' : '_emu') : '') + (state.doom ? '_doom_E' + $('doomEp').value : '') + (S6.sixInfo(rom) ? (S6.kindOf(rom) === 'jade' ? '_4fields' : '_6fields') : state.feld ? '_fields' : '') + (NT?.installed?.(rom) ? '_neon-tama' : '') + (NT?.itemsInstalled?.(rom) ? '_neon-items' : '') + (state.bag ? '_items' : '') + (LR.installed(rom) ? '_my-lab' : '') + (state.launch ? '_start' : '') + '.bin';
   return { rom, name, res, fresh };
 }
 $('btnSave').onclick = () => busy(async () => {
   const c = await composeRom(); if (!c) return;
-  if (c.same) { toast(t('nothing')); return; }
-  if (!packOk(c.rom)) return;
-  download(c.rom, c.name);
+  // Device writes install the rescue Flash Tool separately. A standalone ROM
+  // export needs the same tool for the on-device menu (including emulator use).
+  const menu = F.embedded(), flash = FL.embedded();
+  const withTool = menu && flash && F.feldFind(c.rom, menu.stub) ? FL.withRescue(c.rom, flash) : c.rom;
+  if (c.same && withTool === c.rom) { toast(t('nothing')); return; }
+  if (c.same && !withTool) { toast(t('fl_noRescue'), true); return; }
+  const rom = withTool || c.rom;
+  if (!packOk(rom)) return;
+  const name = c.same ? c.name.replace(/(?:\.bin)?$/i, '_flash-tool.bin') : c.name;
+  download(rom, name);
   state.saved = state.changed.size;
-  toast(c.res ? t('saved', { name: c.name, n: state.changed.size, kb: c.res.free / 1024 | 0 }) : t('savedEmu', { name: c.name }));
+  const msg = c.res ? t('saved', { name, n: state.changed.size, kb: c.res.free / 1024 | 0 }) : t('savedEmu', { name });
+  toast(withTool ? msg : msg + '\n' + t('fl_noRescue'), !withTool);
 });
 
 // ------------------------------------------------------------- device (UART)
 const FL = window.ParamixFlash;
-const dv = { io: null, d: null, loaded: false, run: false, cancel: false };
+const hasFlashApp = !!FL.embedded();
+const dv = { io: null, d: null, loaded: false, opening: false, run: false, cancel: false };
+const deviceTabs = Array.from($('deviceTabs').querySelectorAll('[role="tab"]'));
+function showDeviceTab(tab) {
+  const panel = $(tab.getAttribute('aria-controls'));
+  for (const item of deviceTabs) {
+    const selected = item === tab;
+    item.setAttribute('aria-selected', String(selected));
+    item.tabIndex = selected ? 0 : -1;
+    $(item.getAttribute('aria-controls')).hidden = !selected;
+  }
+  if (panel.id === 'devicePlaydate' || panel.id === 'deviceLab') {
+    const lab = panel.id === 'deviceLab';
+    panel.prepend($('visitBox'));
+    $('playdateActions').hidden = lab;
+    $('labActions').hidden = !lab;
+    $('visPlaydateEditor').hidden = lab;
+    for (const [id, key] of [['visCharacterLabel', lab ? 'labCharacter' : 'visCharacter'], ['visDefault', lab ? 'labChoose' : 'visMirror']]) {
+      const element = $(id);
+      element.dataset.t = key;
+      element.textContent = t(key);
+    }
+  }
+  visRender();
+}
+for (const tab of deviceTabs) {
+  tab.onclick = () => showDeviceTab(tab);
+  tab.onkeydown = event => {
+    const index = deviceTabs.indexOf(tab);
+    const count = deviceTabs.length;
+    const next = { ArrowLeft: (index + count - 1) % count, ArrowRight: (index + 1) % count, Home: 0, End: count - 1 }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    showDeviceTab(deviceTabs[next]);
+    deviceTabs[next].focus();
+  };
+}
 function devRender(msg) {
-  const ser = !!(navigator.serial && FL.embedded());
-  $('btnConn').disabled = !ser || dv.run;
+  const ser = !!(navigator.serial && hasFlashApp);
+  $('btnUartRelease').hidden = !dv.io;
+  $('btnUartRelease').disabled = dv.opening || dv.run;
   $('btnDump').disabled = !dv.d || dv.run;
   $('btnWrite').disabled = !dv.d || dv.run || !state.ctx;
   $('btnSaveRead').disabled = $('btnSaveWrite').disabled = $('btnParaIn').disabled = !dv.d || dv.run;
@@ -2810,6 +3147,7 @@ function devRender(msg) {
   else if (!ser) $('devStat').textContent = t('devNoSerial');
   else if (dv.d && !state.ctx && !dv.run) $('devStat').textContent = t('devNeedRom');
   uartWarnRender();
+  visRender();
 }
 /* Flasher errors and notes carry a code; German has its own texts, English uses the module's */
 function flMsg(x) { return x && x.code && lang !== 'en' && T[lang]['fl_' + x.code] ? t('fl_' + x.code, x.p) : (x.message || x.text || String(x)); }
@@ -2821,72 +3159,812 @@ function devProg(ph, done, total) {
 }
 async function devTask(fn) {
   dv.run = true; dv.cancel = false; devRender('');
-  let msg;
-  try { await fn(); msg = $('devStat').textContent; }
-  catch (e) { msg = dv.cancel ? t('devCancelled') : t('devErr', { e: flMsg(e) }); }
-  dv.run = false; devRender(msg);
+  const initialDevice = dv.d;
+  let msg, complete = false;
+  try {
+    if (initialDevice) await initialDevice.resetTask(fn); else await fn();
+    msg = $('devStat').textContent;
+    complete = true;
+  } catch (e) { msg = dv.cancel ? t('devCancelled') : t('devErr', { e: flMsg(e) }); }
+  finally {
+    // Connect creates its device inside fn; arm only after hello and rescue checks finish.
+    if (complete && dv.d && dv.d !== initialDevice) { try { await dv.d.resetIdle(true); } catch (_) {} }
+    dv.run = false; devRender(msg);
+  }
 }
 $('btnDevice').onclick = () => { $('device').hidden = !$('device').hidden; devRender(); };
+$('btnUartRelease').onclick = devFree;
 $('btnHelp').onclick = () => { $('helpBox').hidden = !$('helpBox').hidden; };
 $('helpClose').onclick = () => { $('helpBox').hidden = true; };
 $('btnDevStop').onclick = () => { dv.cancel = true; };
 /* 1.6.9: simulated playdate partner for the Paradise (src/visit.js). Same link key and serial transport as the
  * flash app loader (src/flash.js). */
-const VS = { io: null, v: null };
-const VIS_ED = [['land', 'Land'], ['water', 'Water'], ['sky', 'Sky'], ['jade', 'Jade Forest'], ['tropics', 'Tropics'], ['glacier', 'Glacier']];
+const VIS = window.ParamixVisit;
+const VS = {
+  io: null, mode: null, opening: false, v: null, peer: null, chunks: [], bytes: 0,
+  ghosts: [], baseVisitor: null, visitor: null, romContext: null, romVisitors: new Map(),
+  romPalette: null, eyeChoices: new Map(), food: null,
+};
+const VIS_CAPTURE_LIMIT = 4 * 1024 * 1024;
+const VIS_SCREENSHOT = 0x1b000;
+// Native Space planet sprites, matched by decoded pixels across editions.
+const VIS_ROM_PLANETS = {
+  1: [207, 217, 218, 219, 223],
+  4: [213, 223, 224, 225, 229, 241],
+  5: [222, 232, 233, 234, 238, 250, 252, 253, 254, 255, 256, 257, 260, 261],
+  7: [225, 227, 228, 229, 230, 235, 237, 238, 239, 240, 241, 242, 245, 246, 247, 248, 249, 250, 251, 252, 254],
+};
+const VIS_PLANET_PROFILES = [0, 1, 1, 1, 4, 5, 5, 7];
+const VIS_ED = [
+  ['land', 'Land', '#A42D5D', '#FF9CC1'],
+  ['water', 'Water', '#145EB6', '#8DC2FF'],
+  ['sky', 'Sky', '#7541A8', '#D7B1FF'],
+  ['jade', 'Jade Forest', '#236D3F', '#90DFA7'],
+  ['tropics', 'Tropics', '#A64110', '#FFB881'],
+  ['glacier', 'Glacier', '#53657A', '#DFE8F4'],
+  ['neon', 'Neon Planets', '#526300', '#D7F25D'],
+  ['my-lab', 'My Lab', '#126E70', '#79D8D3'],
+];
+const VIS_LANGUAGES = [
+  ['ja', '日本語'], ['en', 'English'], ['fr', 'Français'], ['de', 'Deutsch'],
+  ['pt', 'Português'], ['es', 'Español'], ['it', 'Italiano'], ['zh-Hans', '简体中文'], ['ko', '한국어'],
+];
+// These ROM glyph indices precede the CJK table. They are not Unicode code points.
+const VIS_NAME_SYMBOLS = [];
+for (const [start, chars] of [
+  [2, '0123456789+-'],
+  [15, 'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをんぁぃぅぇぉっゃゅょがぎぐげござじずぜぞだぢづでどばびぶべぼぱぴぷぺぽ'],
+  [95, 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンァィゥェォッャュョガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポ'],
+  [175, 'ヴー〜…、。（）「」．・！？＆○×,:“”’#$*/;<=>@[¥]^_‘{|}♡☀★🍥𝅘𝅥𝅮╬⤴⤵→←¢%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz+😁😠😡😑😫😢😸🎱😦😖😒🎁👜🍙🍰✨🔄🌣'],
+  [299, '²💩'],
+  [305, ' 0123456789+-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!“#$%&’()*,./:;<=>?@[¥]^_‘{|}~ÀÁÂÃÄÆÇÉÈÊËÎÏÓÒÔÕÖŒÙÚÛÜŸÍÌÑ¿¡°'],
+  [432, 'カ💦💡☂🌩🍀🌠🌃🌙🌧⚾🎮👜📖⌚☕🚗🏘😷👓🌷🌸🛒🛸😀😓😖😵😬😳😮'],
+]) {
+  Array.from(chars).forEach((char, index) => { VIS_NAME_SYMBOLS[start + index] = char; });
+}
+VIS_NAME_SYMBOLS[298] = '✈️';
+let visCjkNames;
+function visCjkGlyphs() {
+  if (visCjkNames) return visCjkNames;
+  const decodePairs = (encoding, first, last, skip) => {
+    const decoder = new TextDecoder(encoding, { fatal: true }), chars = new Set();
+    const pair = new Uint8Array(2);
+    for (let lead = first; lead <= last; lead++) for (let trail = 0xa1; trail <= 0xfe; trail++) {
+      if (skip?.(lead, trail)) continue;
+      pair[0] = lead; pair[1] = trail;
+      try {
+        const char = decoder.decode(pair);
+        if (char.length === 1) chars.add(char);
+      } catch (_) {}
+    }
+    return Array.from(chars).sort().join('');
+  };
+  const sequence = (start, count) => Array.from({ length: count }, (_, i) => String.fromCharCode(start + i)).join('');
+  // KS X 1001 Hangul and GB2312 Han characters are both in Unicode order in the ROM.
+  visCjkNames = decodePairs('euc-kr', 0xb0, 0xc8) + '　　' +
+    sequence(0x3105, 37) + sequence(0x3220, 10) +
+    decodePairs('gbk', 0xb0, 0xf7, (lead, trail) => lead === 0xd7 && trail > 0xf9);
+  return visCjkNames;
+}
+function visNameGlyph(code) {
+  const glyph = code < 481 ? VIS_NAME_SYMBOLS[code] : visCjkGlyphs()[code - 481];
+  return glyph ?? '[' + visHex(code) + ']';
+}
+function visReadName(view, start) {
+  let name = '';
+  for (let i = 0; i < 13; i++) {
+    const code = view.getUint16(start + i * 2, true);
+    if (!code) break;
+    name += visNameGlyph(code);
+  }
+  return name.trim();
+}
+function visGhostName(view, start = 0x12) {
+  return visReadName(view, start + 26) || visReadName(view, start);
+}
+function visView(bytes) { return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength); }
+function visDecodeSprite(sprite, colorPalette) {
+  if (sprite.length < 22) return null;
+  const h = C.spriteHeader(sprite), cells = h.sw * h.sh * h.numSprites;
+  if (!cells || cells > 0x80000 || h.numSprites > 256 || !h.iw || !h.ih ||
+      h.sw * h.iw > 128 || h.sh * h.ih > 128 || h.numPal > 16) return null;
+  try {
+    if (colorPalette && h.bpp === 2 && h.palOffset + 32 <= sprite.length) {
+      sprite = sprite.slice();
+      sprite.set(colorPalette, h.palOffset);
+    }
+    return C.spriteDecode(sprite, 0, true).subs;
+  } catch (_) {
+    return null;
+  }
+}
+function visPlanetImage(bytes) {
+  const view = visView(bytes);
+  if (view.getUint32(VIS_SCREENSHOT + 8, true) !== 0x54485353) return null;
+  const size = view.getUint32(VIS_SCREENSHOT + 12, true);
+  if (size < 0x216 || size > 0x5000) return null;
+  return visDecodeSprite(bytes.subarray(VIS_SCREENSHOT + 0x200, VIS_SCREENSHOT + size))?.[0];
+}
+function visSpriteSheets(bytes) {
+  const view = visView(bytes);
+  // Each zoom level has its own body, eyes and mouth sprite block.
+  return Array.from({ length: 6 }, (_, part) => {
+    const field = 0x110 + part * 8;
+    const offset = view.getUint32(field, true), length = view.getUint32(field + 4, true);
+    if (offset < 0x1d34 || length < 22 || offset + length > VIS_SCREENSHOT) return null;
+    const palette = part % 3 === 0 ? 0x140 : part % 3 === 2 ? 0x160 : 0;
+    const entry = bytes.subarray(offset, offset + length);
+    const frames = visDecodeSprite(entry, palette ? bytes.subarray(palette, palette + 32) : null);
+    if (!frames?.length) return null;
+    return { frames, x: view.getInt8(offset + 10), y: view.getInt8(offset + 11) };
+  });
+}
+function visCharacterPoses(bytes, sheets) {
+  const view = visView(bytes), poses = [[], []];
+  for (let pose = 0; pose < 54; pose++) {
+    const layers = [];
+    const start = 0x600 + pose * 110, group = pose >= 30 ? 3 : 0;
+    for (let layer = 0; layer < 3; layer++) {
+      const at = start + layer * 22;
+      const part = view.getUint16(at, true);
+      if (part !== group + layer || !bytes.subarray(at, at + 22).some(Boolean)) continue;
+      const sheet = sheets[part];
+      const sprite = sheet?.frames[view.getUint16(at + 12, true)];
+      if (!sprite) continue;
+      // The first two signed coordinates come after the sprite ID.
+      layers.push({ part, sprite, x: view.getInt16(at + 2, true) + sheet.x, y: view.getInt16(at + 4, true) + sheet.y });
+    }
+    const body = layers.find(layer => layer.part === 0 || layer.part === 3);
+    if (!body) continue;
+    // The layers share a vertical center, with additional offsets from the sprite headers.
+    for (const layer of layers) {
+      layer.y += Math.trunc((body.sprite.h - layer.sprite.h) / 2);
+    }
+    const left = Math.min(...layers.map(l => l.x)), top = Math.min(...layers.map(l => l.y));
+    const width = Math.max(...layers.map(l => l.x + l.sprite.w)) - left;
+    const height = Math.max(...layers.map(l => l.y + l.sprite.h)) - top;
+    if (width > 256 || height > 256) continue;
+    const image = C.emptyImage(width, height);
+    for (const { sprite, x: dx, y: dy } of layers) {
+      for (let y = 0; y < sprite.h; y++) for (let x = 0; x < sprite.w; x++) {
+        const src = (y * sprite.w + x) * 4;
+        if (!sprite.data[src + 3]) continue;
+        image.data.set(sprite.data.subarray(src, src + 4), ((dy - top + y) * width + dx - left + x) * 4);
+      }
+    }
+    poses[group / 3].push({ ...image, x: left - body.x, y: top - body.y });
+  }
+  return poses;
+}
+function visDrawImage(canvas, image) {
+  canvas.width = image.w;
+  canvas.height = image.h;
+  canvas.getContext('2d').putImageData(new ImageData(image.data, image.w, image.h), 0, 0);
+}
+function visPicture(id, image) {
+  const figure = $(id);
+  figure.hidden = !image;
+  if (image) visDrawImage(figure.querySelector('canvas'), image);
+}
+const VIS_FRAME_MS = 320;
+const visAnimations = new Map();
+
+function visStopAnimation(prefix) {
+  const playback = visAnimations.get(prefix);
+  if (playback) clearInterval(playback.timer);
+  visAnimations.delete(prefix);
+}
+function visPlaybackLabel(prefix) {
+  const playback = visAnimations.get(prefix);
+  const button = $(prefix + 'Playback'), label = t(playback?.timer ? 'visPauseFrames' : 'visPlayFrames');
+  if (button.textContent !== label) button.textContent = label;
+  if (playback) {
+    $(prefix + 'Frame').textContent = t('visFrameCount', { index: playback.index + 1, total: playback.frames.length });
+  }
+}
+function visPaintFrame(prefix) {
+  const playback = visAnimations.get(prefix);
+  const { canvas, frames, index, left, top } = playback;
+  const frame = frames[index], context = canvas.getContext('2d');
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.putImageData(new ImageData(frame.data, frame.w, frame.h), (frame.x || 0) - left, (frame.y || 0) - top);
+  visPlaybackLabel(prefix);
+}
+function visToggleFrameTimer(prefix, play) {
+  const playback = visAnimations.get(prefix);
+  clearInterval(playback.timer);
+  playback.timer = play && playback.frames.length > 1 ? setInterval(() => {
+    if (document.hidden || $('device').hidden) return;
+    playback.index = (playback.index + 1) % playback.frames.length;
+    visPaintFrame(prefix);
+  }, VIS_FRAME_MS) : null;
+  visPlaybackLabel(prefix);
+}
+function visSetFrameSequence(prefix) {
+  const playback = visAnimations.get(prefix), zoom = $(prefix + 'Zoom'), layer = $(prefix + 'Layer');
+  const views = playback.views;
+  for (const option of zoom.options) option.disabled = !views[Number(option.value)].some(frames => frames?.length);
+  if (!views[Number(zoom.value)].some(frames => frames?.length)) zoom.value = zoom.options[0].disabled ? '1' : '0';
+  const available = views[Number(zoom.value)];
+  for (const [index, option] of Array.from(layer.options).entries()) option.disabled = !available[index]?.length;
+  if (!available[layer.selectedIndex]?.length) layer.selectedIndex = Array.from(layer.options).findIndex(option => !option.disabled);
+  playback.frames = available[layer.selectedIndex];
+  playback.index = 0;
+  const frames = playback.frames;
+  playback.left = Math.min(...frames.map(f => f.x || 0));
+  playback.top = Math.min(...frames.map(f => f.y || 0));
+  playback.canvas.width = Math.max(...frames.map(f => (f.x || 0) + f.w)) - playback.left;
+  playback.canvas.height = Math.max(...frames.map(f => (f.y || 0) + f.h)) - playback.top;
+  $(prefix + 'Playback').disabled = frames.length < 2;
+  visPaintFrame(prefix);
+  visToggleFrameTimer(prefix, !playback.paused);
+}
+function visSetAnimation(prefix, bytes, sheets) {
+  const previous = visAnimations.get(prefix);
+  visStopAnimation(prefix);
+  const figure = $(prefix + 'Character');
+  const poses = visCharacterPoses(bytes, sheets);
+  const views = poses.map((frames, zoom) => {
+    const layers = sheets.slice(3 * zoom, 3 * zoom + 3).map(sheet => sheet?.frames);
+    return [frames.length ? frames : layers[0], ...layers];
+  });
+  const hasFrames = views.some(view => view.some(frames => frames?.length));
+  figure.hidden = !hasFrames;
+  if (!hasFrames) return false;
+  const playback = {
+    views, canvas: figure.querySelector('canvas'), frames: [], index: 0, timer: null,
+    paused: previous?.paused ?? window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  };
+  visAnimations.set(prefix, playback);
+  $(prefix + 'Zoom').onchange = () => visSetFrameSequence(prefix);
+  $(prefix + 'Layer').onchange = () => visSetFrameSequence(prefix);
+  $(prefix + 'Playback').onclick = () => {
+    playback.paused = !playback.paused;
+    visToggleFrameTimer(prefix, !playback.paused);
+  };
+  visSetFrameSequence(prefix);
+  return true;
+}
+function visCharacterImages(prefix, bytes, planet) {
+  const character = visSetAnimation(prefix, bytes, visSpriteSheets(bytes));
+  visPicture(prefix + 'Planet', planet);
+  const planetName = planet ? visGhostName(visView(bytes), VIS_SCREENSHOT + 0x10) : '';
+  $(prefix + 'PlanetName').textContent = planetName ? ' · ' + planetName : '';
+  $(prefix + 'ImageStatus').hidden = !!(character || planet);
+}
+const visHex = (n, width = 4) => '0x' + n.toString(16).toUpperCase().padStart(width, '0');
+function visModel(code) {
+  return VIS_ED.find(([key]) => VIS.ED[key] === code);
+}
+function visNativeFieldModel(field) {
+  return C.FIELD_NAMES[field] || field === VIS.ED.neon ? visModel(field) : undefined;
+}
+function visModelColor([, , light, dark]) {
+  return 'light-dark(' + light + ', ' + dark + ')';
+}
+function visCharacterParameters(prefix, view, playdate, hasPlanet) {
+  const word = (offset) => view.getUint16(offset, true);
+  const hexWord = (offset) => visHex(word(offset));
+  const palette = (offset) => Array.from({ length: 16 }, (_, i) => hexWord(offset + 2 * i)).join(' ');
+  const field = word(0x100), color = view.getUint8(0x10);
+  const fieldModel = visNativeFieldModel(field);
+  const rows = [
+    ['visField', field + ' · ' + (fieldModel?.[1] || t('visUnknownModel'))],
+    ['visEyeId', hexWord(0x0e)], ['visOriginalId', hexWord(0x10a)], ['visRank', word(0xfe)],
+    ['visColor', color === 0xff ? t('visOriginalPalette') : color],
+    ['visCharacterFlags', hexWord(0x102)],
+    ['visGhostType', view.getUint32(8, true) & 3], ['visGhostFlags', visHex(view.getUint32(8, true), 8)],
+    ['visGhostLength', view.getUint32(0x10c, true)],
+    ['visGhostChecksum', visHex(view.getUint32(0, true), 8)],
+    ['visBodyPalette', palette(0x140)], ['visMouthPalette', palette(0x160)],
+  ];
+  const addNames = (base, label) => {
+    VIS_LANGUAGES.forEach(([locale, language], slot) => {
+      const name = visReadName(view, base + slot * 26);
+      if (name) rows.push([t(label, { language }), name, locale]);
+    });
+  };
+  addNames(0x12, 'visNameSlot');
+  if (hasPlanet) {
+    rows.push(
+      ['visPlanetSize', view.getUint32(VIS_SCREENSHOT + 12, true)],
+      ['visPlanetChecksum', visHex(view.getUint32(VIS_SCREENSHOT, true), 8)],
+    );
+    addNames(VIS_SCREENSHOT + 0x10, 'visPlanetNameSlot');
+  }
+  if (playdate && prefix === 'visPeer') {
+    const data = visView(playdate), base = VIS.GHOST_SIZE;
+    rows.push(
+      ['visDeviceUid', visHex(data.getUint32(base + 4, true), 8)],
+      ['visCharacterUid', visHex(data.getUint32(base + 8, true), 8)],
+      ['visFriendship', data.getUint16(base + 12, true)],
+      ['visPreviousResult', data.getUint16(base + 14, true)],
+      ['visHunger', data.getUint8(base + 16)], ['visHappiness', data.getUint8(base + 17)],
+      ['visLove', data.getUint16(base + 18, true) & 1],
+    );
+  }
+  const list = $(prefix + 'Parameters');
+  list.replaceChildren();
+  for (const [key, value, locale] of rows) {
+    const label = document.createElement('dt'), detail = document.createElement('dd');
+    label.textContent = t(key);
+    detail.textContent = value;
+    if (key === 'visField' && fieldModel) detail.style.color = visModelColor(fieldModel);
+    if (locale) detail.lang = locale;
+    list.append(label, detail);
+  }
+}
+function visCharacterLabels(prefix, bytes, name, playdate, planet, romType = playdate && visView(playdate).getUint16(VIS.GHOST_SIZE + 2, true)) {
+  const view = visView(bytes);
+  const info = [];
+  if (romType !== undefined) {
+    const model = visModel(romType)?.[1] || t('visUnknownModel');
+    const device = t('visRomInfo', { model, rom: romType, hex: visHex(romType) });
+    info.push(prefix === 'visVisitor' ? t('visSourceDevice') + ' — ' + device : device);
+  }
+  info.push(t('visCharacterInfo', {
+    chara: visHex(view.getUint16(0x0c, true)), stage: view.getUint16(0xfc, true),
+  }));
+  $(prefix + 'Name').textContent = name || visGhostName(view) || t('visUnnamed');
+  $(prefix + 'Info').textContent = info.join(' · ');
+  visCharacterParameters(prefix, view, playdate, !!planet);
+}
+function visPeerLabels(planet = VS.peer && visPlanetImage(VS.peer)) {
+  if (!VS.peer) return;
+  visCharacterLabels('visPeer', VS.peer, null, VS.peer, planet);
+}
+function visRefreshRomVisitors() {
+  if (VS.io || VS.romContext === state.ctx) return;
+  VS.romContext = state.ctx;
+  VS.romVisitors.clear();
+  VS.romPalette = null;
+  const group = $('visRomVisitors');
+  group.label = t('visRomCharacters');
+  group.replaceChildren();
+  try {
+    const ctx = state.clean ? null : state.ctx;
+    VS.romPalette = ctx ? C.characterPaletteVariants(ctx.entries)?.bytes : null;
+    for (const visitor of VIS.collectRomVisitors(ctx, C)) {
+      const { id, field } = visitor.character;
+      const codes = visitor.names[1]?.length ? visitor.names[1] : visitor.names[0];
+      const name = codes?.map(visNameGlyph).join('').trim() || visHex(id);
+      const option = document.createElement('option');
+      option.value = 'rom:' + id;
+      const fieldName = visNativeFieldModel(field)?.[1];
+      option.textContent = [name, fieldName, visHex(id)].filter(Boolean).join(' · ');
+      group.appendChild(option);
+      VS.romVisitors.set(option.value, { visitor, name });
+    }
+  } catch (_) {
+    group.replaceChildren();
+    VS.romVisitors.clear();
+  }
+  group.hidden = !VS.romVisitors.size;
+  if ($('visGhost').value.startsWith('rom:')) $('visGhost').value = '';
+  visSelectVisitor();
+}
+function visAddChoice(select, value, label) {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = label;
+  select.appendChild(option);
+}
+function visAppearanceLabels() {
+  const colors = $('visColorChoice').options, originalEyes = $('visEyesChoice').options[0];
+  const names = t('visPaletteNames').split('|');
+  if (colors[0]) colors[0].textContent = t('visKeepColor');
+  for (let i = 1; i < colors.length; i++) colors[i].textContent = names[Number(colors[i].value)];
+  if (originalEyes) originalEyes.textContent = t('visKeepEyes');
+}
+function visConfigureAppearance() {
+  const base = VS.baseVisitor;
+  $('visVisitorAppearance').hidden = !base?.canEdit;
+  const colors = $('visColorChoice'), eyes = $('visEyesChoice');
+  colors.replaceChildren(); eyes.replaceChildren(); VS.eyeChoices.clear();
+  visAddChoice(colors, '', t('visKeepColor'));
+  visAddChoice(eyes, '', t('visKeepEyes'));
+  colors.value = ''; eyes.value = '';
+  $('visAppearanceNeedsRom').hidden = !base?.canEdit || !!VS.romPalette || !!VS.romVisitors.size;
+  if (!base?.canEdit) return;
+
+  const available = VIS.ghostAppearanceOptions(base.bytes, C);
+  if (VS.romPalette && available.tint) {
+    t('visPaletteNames').split('|').forEach((name, index) => visAddChoice(colors, String(index), name));
+  }
+  if (available.eyes) {
+    const originalId = visView(base.bytes).getUint16(0x0e, true);
+    for (const [value, { visitor, name }] of VS.romVisitors) {
+      const donor = VIS.romEyes(visitor, available.eyes, C);
+      if (!donor || (base.fromRom && donor.id === originalId)) continue;
+      const field = visNativeFieldModel(visitor.character.field)?.[1];
+      visAddChoice(eyes, value, [name, field, visHex(donor.id)].filter(Boolean).join(' · '));
+      VS.eyeChoices.set(value, donor);
+    }
+  }
+}
+function visSelectVisitor() {
+  const value = $('visGhost').value, rom = VS.romVisitors.get(value);
+  VS.baseVisitor = null;
+  let error;
+  try {
+    VS.baseVisitor = rom ? {
+      bytes: VIS.buildRomGhost(rom.visitor, C), name: rom.name, fromRom: true, canEdit: true,
+      romType: VS.romContext.editionId || undefined,
+    } : VS.ghosts[value];
+  } catch (e) {
+    error = e;
+  }
+  visConfigureAppearance();
+  visConfigurePlaydate();
+  visRenderVisitor();
+  if (error) $('visRomVisitorError').textContent = t('visRomVisitorError', { reason: error.message });
+}
+function visConfigurePlaydate() {
+  const base = VS.baseVisitor, select = $('visPlanetChoice');
+  const ids = VIS_ROM_PLANETS[VIS_PLANET_PROFILES[state.ctx?.editionId]] || [];
+  select.replaceChildren();
+  visAddChoice(select, '', t('visPlanetAuto'));
+  select.options[0].dataset.t = 'visPlanetAuto';
+  for (const id of ids) {
+    if (state.ctx.entries[id]) visAddChoice(select, String(id), '#' + id);
+  }
+  $('visPlanetNeedsRom').hidden = select.options.length > 1;
+  VS.playdateFields = base ? VIS.playdateFields(base.playdate, base.bytes, base.romType || VIS.ED[$('visEd').value]) : null;
+  for (const [key, , width] of VIS.PLAYDATE_FIELDS) {
+    const value = VS.playdateFields?.[key];
+    $(key + 'Input').value = value === undefined ? '' : width === 4 ? visHex(value, 8) : String(value);
+  }
+}
+
+for (const [key, , width] of VIS.PLAYDATE_FIELDS) {
+  const label = document.createElement('label'), title = document.createElement('span');
+  title.dataset.t = key;
+  const input = document.createElement('input');
+  input.id = key + 'Input';
+  input.type = 'text';
+  input.inputMode = width === 4 ? 'text' : 'numeric';
+  input.maxLength = width === 4 ? 10 : width === 2 ? 5 : width === 1 ? 3 : 1;
+  input.onchange = () => {
+    if (!VS.playdateFields) return;
+    const text = input.value.trim(), max = width ? 2 ** (8 * width) - 1 : 1;
+    const valid = width === 4 ? /^(?:0x[0-9a-f]+|[0-9]+)$/i.test(text) : /^\d+$/.test(text);
+    const value = Number(text);
+    if (valid && value <= max) VS.playdateFields[key] = value;
+    const saved = VS.playdateFields[key];
+    input.value = width === 4 ? visHex(saved, 8) : String(saved);
+  };
+  label.append(title, input);
+  $('visPlaydateFields').append(label);
+}
+$('visPlanetChoice').onchange = () => visRenderVisitor();
+function visRenderVisitor(renderImages = true) {
+  if (renderImages) {
+    const base = VS.baseVisitor;
+    $('visRomVisitorError').textContent = '';
+    VS.visitor = null;
+    try {
+      if (base) {
+        const color = $('visColorChoice').value;
+        let bytes = VIS.editGhostAppearance(base.bytes, {
+          color: color === '' ? undefined : Number(color), palette: VS.romPalette,
+          eyes: VS.eyeChoices.get($('visEyesChoice').value),
+        });
+        const planetId = $('visPlanetChoice').value;
+        const sourcePlanet = planetId === '' ? null : visDecodeSprite(state.ctx.entries[Number(planetId)])?.[0];
+        if (sourcePlanet || base.fromRom || visPlanetImage(bytes)) {
+          if (bytes === base.bytes) bytes = bytes.slice();
+          if (sourcePlanet) VIS.writeRomGhostPlanet(bytes, sourcePlanet, C);
+          else if (base.fromRom) {
+            const poses = visCharacterPoses(bytes, visSpriteSheets(bytes));
+            const portrait = poses[0][0] || poses[1][0];
+            if (portrait) VIS.writeRomGhostPlanet(bytes, portrait, C);
+          } else VIS.setPlanetNameAndChecksum(bytes, C);
+        }
+        VS.visitor = { ...base, bytes, sourcePlanet: !!sourcePlanet };
+      }
+    } catch (e) {
+      $('visRomVisitorError').textContent = t('visRomVisitorError', { reason: e.message });
+    }
+    visRender();
+  }
+  const ghost = VS.visitor || VS.baseVisitor;
+  $('visVisitor').hidden = !ghost;
+  if (!ghost) { visStopAnimation('visVisitor'); return; }
+  // A ROM visitor's generated portrait is for the Playdate packet, not a planet screenshot.
+  const planet = ghost.fromRom && !ghost.sourcePlanet ? null : visPlanetImage(ghost.bytes);
+  visCharacterLabels('visVisitor', ghost.bytes, ghost.name, ghost.playdate, planet, ghost.romType);
+  if (renderImages) visCharacterImages('visVisitor', ghost.bytes, planet);
+}
+function visReceivePeer(bytes) {
+  VS.peer = bytes;
+  const planet = visPlanetImage(bytes);
+  visCharacterImages('visPeer', bytes, planet);
+  $('btnVisPeerExport').disabled = false;
+  visPeerLabels(planet);
+  $('visPeer').hidden = false;
+}
+async function visImportGhost(file) {
+  if (file.size > 8 * 1024 * 1024) throw new Error(t('visGhostFormat'));
+  const fileBytes = new Uint8Array(await file.arrayBuffer());
+  const view = visView(fileBytes);
+  let bytes = fileBytes, name;
+  const png = fileBytes.length >= 8 && view.getUint32(0) === 0x89504e47 && view.getUint32(4) === 0x0d0a1a0a;
+  if (png) {
+    bytes = null;
+    for (let offset = 8; offset + 12 <= fileBytes.length;) {
+      const end = offset + 8 + view.getUint32(offset);
+      if (end + 4 > fileBytes.length) throw new Error(t('visGhostFormat'));
+      const type = view.getUint32(offset + 4);
+      const chunk = fileBytes.subarray(offset + 8, end);
+      if (type === 0x7461426e) { // taBn
+        if (C.crc32(fileBytes.subarray(offset + 4, end)) !== view.getUint32(end)) throw new Error(t('visGhostFormat'));
+        bytes = chunk;
+      } else if (type === 0x74455874) { // tEXt
+        const text = new TextDecoder().decode(chunk);
+        if (text.startsWith('tama:meta\0')) {
+          try { name = JSON.parse(text.slice(10))?.item_name; } catch (_) {}
+        }
+      } else if (type === 0x49454e44) break; // IEND
+      offset = end + 4;
+    }
+  }
+  const playdate = bytes?.length === VIS.PACKET_SIZE ? bytes : undefined;
+  if (playdate) bytes = playdate.subarray(0, VIS.GHOST_SIZE);
+  if (bytes?.length !== VIS.GHOST_SIZE) throw new Error(t('visGhostFormat'));
+  const header = visView(bytes);
+  const size = header.getUint32(0x10c, true);
+  if ((header.getUint32(8, true) & 3) || ((header.getUint32(0, true) + header.getUint32(4, true)) >>> 0) ||
+      size < 0x1d34 || size > VIS_SCREENSHOT) throw new Error(t('visGhostFormat'));
+  return { name: typeof name === 'string' && name ? name : visGhostName(header) || file.name, bytes, playdate, canEdit: !png };
+}
+$('visGhost').onchange = visSelectVisitor;
+$('visColorChoice').onchange = () => visRenderVisitor();
+$('visEyesChoice').onchange = () => visRenderVisitor();
+$('btnVisGhostImport').onclick = () => $('visGhostImport').click();
+$('visGhostImport').onchange = async () => {
+  const imported = [], errors = [];
+  const files = Array.from($('visGhostImport').files);
+  $('visGhostImport').value = '';
+  for (const file of files) {
+    try {
+      const ghost = await visImportGhost(file);
+      const option = document.createElement('option');
+      option.textContent = ghost.name;
+      option.value = String(VS.ghosts.push(ghost) - 1);
+      $('visGhost').appendChild(option);
+      if (!VS.io) $('visGhost').value = option.value;
+      imported.push(file.name);
+    } catch (e) {
+      errors.push(file.name + ' (' + e.message + ')');
+    }
+  }
+  $('visGhostImportStatus').hidden = !imported.length;
+  $('visGhostImportedFiles').textContent = imported.join(', ');
+  $('visGhostError').textContent = errors.join(', ');
+  if (!VS.io) visSelectVisitor();
+};
+function visDownloadCharacter(bytes, name, prefix) {
+  const filename = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'character';
+  download(bytes, prefix + filename + '.bin');
+}
+$('btnVisPeerExport').onclick = () => {
+  if (VS.peer) visDownloadCharacter(VS.peer, visGhostName(visView(VS.peer)), 'playdate-');
+};
+$('btnVisVisitorExport').onclick = () => {
+  const ghost = VS.visitor;
+  if (!ghost?.canEdit) return;
+  const bytes = ghost.playdate ? ghost.playdate.slice() : new Uint8Array(VIS.PACKET_SIZE);
+  if (!ghost.playdate) visView(bytes).setUint16(VIS.GHOST_SIZE + 2, ghost.romType || VIS.ED[$('visEd').value], true);
+  bytes.set(ghost.bytes);
+  VIS.writePlaydateFields(bytes, VS.playdateFields);
+  visDownloadCharacter(bytes, ghost.name, 'visitor-');
+};
+$('btnVisCapture').onclick = () => {
+  if (!VS.bytes) return;
+  const date = new Date().toISOString().replace(/[:.]/g, '-');
+  download(new Blob(VS.chunks, { type: 'application/octet-stream' }), 'playdate-incoming-' + date + '.bin');
+};
 function visKey() { return window.ParamixVisit.parseKey(FL.linkKey); }
-function visStat(m) { $('visStat').textContent = m; }
+const VIS_MODES = {
+  playdate: ['visStat', 'visTitle'], lab: ['labStat', 'labSend'], food: ['foodStat', 'foodTitle'],
+};
+function visStat(m, mode = 'playdate') { $(VIS_MODES[mode][0]).textContent = m; }
 function visEdName() { const e = $('visEd').value; const x = VIS_ED.find((a) => a[0] === e); return x ? x[1] : e; }
 function visRender() {
-  $('btnVis').textContent = t(VS.io ? 'visStop' : 'visStart');
-  $('btnVis').disabled = !navigator.serial;
+  const locked = VS.opening || !!VS.io;
+  const playdate = VS.mode === 'playdate', lab = VS.mode === 'lab', food = VS.mode === 'food';
+  const uartBusy = dv.opening || dv.run || !!dv.io;
+  const activeTab = deviceTabs.find(tab => tab.getAttribute('aria-selected') === 'true');
+  const activeMode = { deviceTabPlaydate: 'playdate', deviceTabLab: 'lab', deviceTabFood: 'food' }[activeTab.id];
+  const otherMode = VS.mode && VS.mode !== activeMode;
+  const hint = $(activeMode === 'food' ? 'foodConnectionHint' : 'visConnectionHint'), uartHint = $('uartConnectionHint');
+  hint.hidden = !(uartBusy || otherMode);
+  hint.textContent = hint.hidden ? '' : t('visConnectionHint', { tab: t(uartBusy ? 'devTitle' : VIS_MODES[VS.mode][1]) });
+  uartHint.hidden = !VS.io;
+  uartHint.textContent = uartHint.hidden ? '' : t('visConnectionHint', { tab: t(VIS_MODES[VS.mode][1]) });
+  $('btnConn').disabled = !navigator.serial || !hasFlashApp || dv.run || dv.opening || locked;
+  $('btnVis').textContent = t(playdate ? 'visStop' : 'visStart');
+  $('btnVis').disabled = !navigator.serial || uartBusy || VS.opening || lab || food || (!VS.io && !!$('visGhost').value && !VS.visitor);
+  $('btnLabRelease').textContent = t(lab ? 'visStop' : 'labSend');
+  $('btnLabRelease').disabled = !navigator.serial || uartBusy || VS.opening || playdate || food ||
+    (!lab && (!VS.visitor || visView(VS.visitor.bytes).getUint16(0xfc, true) !== 5));
+  $('btnFoodSend').textContent = t(food ? 'visStop' : 'foodSend');
+  $('btnFoodSend').disabled = !navigator.serial || uartBusy || VS.opening || playdate || lab || !VS.food;
+  $('btnFoodImport').disabled = locked;
+  $('visEd').disabled = lab || food || VS.opening;
+  $('btnVisCapture').disabled = !VS.bytes;
+  $('visGhost').disabled = locked;
+  $('btnVisGhostImport').disabled = locked;
+  $('visGhostImport').disabled = locked;
+  $('visPlanetChoice').disabled = locked || $('visPlanetChoice').options.length < 2;
+  for (const [key] of VIS.PLAYDATE_FIELDS) $(key + 'Input').disabled = locked;
+  $('visColorChoice').disabled = locked || $('visColorChoice').options.length < 2;
+  $('visEyesChoice').disabled = locked || $('visEyesChoice').options.length < 2;
+  $('btnVisVisitorExport').disabled = !VS.visitor?.canEdit;
 }
 {
   const sel = $('visEd');
-  for (const [v, n] of VIS_ED) { const o = document.createElement('option'); o.value = v; o.textContent = n; sel.appendChild(o); }
+  for (const model of VIS_ED) {
+    const [value, name] = model;
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = name;
+    option.style.setProperty('--model-color', visModelColor(model));
+    sel.appendChild(option);
+  }
   try { const e = localStorage.getItem('pmxVisitEd'); if (e) sel.value = e; } catch (e) {}
   if (!sel.value) sel.value = 'water';
-  sel.onchange = () => { try { localStorage.setItem('pmxVisitEd', sel.value); } catch (e) {} if (VS.io && (!VS.v || VS.v.state.phase === 'wait' || VS.v.state.phase === 'done' || VS.v.state.phase === 'error')) visArm(); };
+  const updateModelColor = () => {
+    sel.style.setProperty('--model-color', sel.selectedOptions[0]?.style.getPropertyValue('--model-color') || '');
+  };
+  updateModelColor();
+  sel.onchange = () => {
+    updateModelColor();
+    try { localStorage.setItem('pmxVisitEd', sel.value); } catch (e) {}
+    if (VS.mode === 'playdate' && (!VS.v || VS.v.state.phase === 'wait' || VS.v.state.phase === 'done' || VS.v.state.phase === 'error')) visArm();
+  };
   visRender();
 }
 function visArm() {
   if (VS.v) VS.v.stop();
   const ed = visEdName();
+  const io = VS.io;
   VS.v = window.ParamixVisit.createVisitor({
     edition: $('visEd').value, key: visKey(),
-    send: (b) => VS.io.write(b),
+    ghost: VS.visitor?.bytes, playdateFields: VS.visitor && VS.playdateFields,
+    send: (b) => io.write(b),
     log: (e, i) => {
-      if (e === 'start') visStat(t('visRun'));
+      if (e === 'packet' && i.kind === 'data') visReceivePeer(i.playdate);
+      else if (e === 'start') visStat(t('visRun'));
       else if (e === 'sent') visStat(t('visPlay'));
-      else if (e === 'done') { visStat(t('visDone', { ed })); setTimeout(() => { if (VS.io) visArm(); visStat(t('visDone', { ed })); }, 500); }
-      else if (e === 'error') { visStat(i.text === 'key' ? t('visBadKey') : t('visErr', { e: i.text })); if (i.text !== 'key') setTimeout(() => { if (VS.io) visArm(); }, 1000); }
+      else if (e === 'done') { visStat(t('visDone', { ed })); setTimeout(() => { if (VS.io === io) { visArm(); visStat(t('visDone', { ed })); } }, 500); }
+      else if (e === 'error') { visStat(i.text === 'key' ? t('visBadKey') : t('visErr', { e: i.text })); if (i.text !== 'key') setTimeout(() => { if (VS.io === io) visArm(); }, 1000); }
     },
   });
   visStat(t('visWait', { ed }));
 }
 async function visClose() {
-  const io = VS.io; VS.io = null;
-  if (VS.v) VS.v.stop(); VS.v = null;
+  const io = VS.io, session = VS.v;
+  VS.opening = true;
+  VS.v = null;
+  visRender();
+  try { await session?.stop(); } catch (_) {}
   try { if (io) await io.close(); } catch (e) {}
+  VS.io = null; VS.mode = null; VS.opening = false;
+  visRefreshRomVisitors();
   visRender();
 }
-$('btnVis').onclick = async () => {
-  if (VS.io) { await visClose(); visStat(''); return; }
-  if (!navigator.serial) { visStat(t('devNoSerial')); return; }
-  if (dv.io) { visStat(t('uartBusy')); return; }
-  let port;
-  try { port = await navigator.serial.requestPort(); } catch (e) { return; }
-  try { VS.io = await FL.serialOpen(port); } catch (e) { visStat(t('visErr', { e: e.message })); return; }
-  VS.io.onData = (d) => { if (VS.v) VS.v.feed(d); };
-  visRender(); visArm();
+async function visOpen(mode) {
+  if (VS.opening) return;
+  if (VS.io) {
+    if (VS.mode === mode) { await visClose(); visStat('', mode); }
+    return;
+  }
+  if (!navigator.serial) { visStat(t('devNoSerial'), mode); return; }
+  if (dv.opening || dv.run || dv.io) return;
+  const ghost = VS.visitor?.bytes;
+  visStat('', mode);
+  VS.opening = true;
+  visRender();
+  try {
+    const port = await navigator.serial.requestPort();
+    VS.io = await FL.serialOpen(port);
+    VS.mode = mode;
+  } catch (e) {
+    if (e.name !== 'NotFoundError') visStat(t(mode === 'lab' ? 'labError' : 'visErr', { e: e.message }), mode);
+    return;
+  } finally {
+    VS.opening = false;
+    visRender();
+  }
+  const io = VS.io;
+  VS.chunks = [];
+  VS.bytes = 0;
+  io.onData = (d) => {
+    const remaining = VIS_CAPTURE_LIMIT - VS.bytes;
+    if (remaining > 0 && d.length) {
+      const chunk = d.slice(0, remaining);
+      VS.chunks.push(chunk);
+      VS.bytes += chunk.length;
+      $('btnVisCapture').disabled = false;
+    }
+    if (VS.v) VS.v.feed(d);
+  };
+  visRender();
+  if (mode === 'playdate') { visArm(); return; }
+  if (mode === 'food') {
+    try {
+      VS.v = VIS.createSpecialFood({
+        payload: VS.food, core: C, key: visKey(), send: bytes => io.write(bytes),
+        log(event, info) {
+          if (VS.io !== io) return;
+          if (event === 'start') visStat(t('foodRun'), mode);
+          if (event === 'sent') visStat(t('foodConfirm'), mode);
+          if (event === 'done' || event === 'error') {
+            const message = event === 'error' ? t('visErr', { e: info.text }) : t(info.result === 1 ? 'foodDone' : 'foodDeclined');
+            visClose().then(() => visStat(message, mode));
+          }
+        },
+      });
+      visStat(t('foodReady'), mode);
+    } catch (e) {
+      await visClose();
+      visStat(t('visErr', { e: e.message }), mode);
+    }
+    return;
+  }
+  try {
+    VS.v = VIS.createLabRelease({
+      ghost, core: C, key: visKey(), send: bytes => io.write(bytes),
+      log(event, info) {
+        if (VS.io !== io) return;
+        if (event === 'start') visStat(t('labRun'), 'lab');
+        if (event === 'sent') visStat(t('labWait'), 'lab');
+        if (event === 'done' || event === 'error') {
+          const message = event === 'done' ? t('labDone') : t('labError', { e: info.text });
+          visClose().then(() => visStat(message, 'lab'));
+        }
+      },
+    });
+    void VS.v.start();
+  } catch (e) {
+    await visClose();
+    visStat(t('labError', { e: e.message }), 'lab');
+  }
+}
+$('btnVis').onclick = () => visOpen('playdate');
+$('btnLabRelease').onclick = () => visOpen('lab');
+$('btnFoodSend').onclick = () => visOpen('food');
+$('btnFoodImport').onclick = () => $('foodImport').click();
+$('foodImport').onchange = async () => {
+  const input = $('foodImport'), file = input.files[0];
+  input.value = '';
+  if (!file || VS.io || VS.opening) return;
+  VS.food = null;
+  $('foodFile').textContent = '';
+  visRender();
+  try {
+    if (file.size !== VIS.SPECIAL_FOOD_PAYLOAD) throw new Error();
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    VIS.checkSpecialFood(bytes, C);
+    VS.food = bytes;
+    $('foodFile').textContent = file.name;
+    visStat('', 'food');
+  } catch (_) { visStat(t('foodFormat'), 'food'); }
+  visRender();
 };
 const PL_HINT = true;
 $('btnConn').onclick = async () => {
-  if (VS.io) await visClose();
+  if (VS.opening || VS.io || dv.opening || dv.run) return;
+  dv.opening = true;
+  devRender();
   let port;
   try { port = await navigator.serial.requestPort(); } catch (e) { return; }
+  finally { dv.opening = false; devRender(); }
+  // A reconnect must not wait for a lock acknowledgement from the old transport.
+  const previousIO = dv.io; dv.io = null; dv.d = null;
   devTask(async () => {
-    if (dv.io) { await dv.io.close(); dv.io = null; dv.d = null; }
+    if (previousIO) await previousIO.close();
     dv.io = await FL.serialOpen(port);
     /* 1.7.3 PL_HINT: a Prolific adapter (USB vendor 0x067B) that gets no readable answer: say what usually helps */
     let r;
@@ -2959,6 +4037,9 @@ async function saveCarry(d, c1) {
   return out;
 }
 $('btnWrite').onclick = async () => {
+  const device = dv.d;
+  if (!device) return;
+  try { await device.resetTask(async () => {
   let c = await busy(composeRom); if (!c) return;
   const keep = $('devKeep').checked;
   if (!packOk(c.rom)) return;
@@ -3025,7 +4106,7 @@ $('btnWrite').onclick = async () => {
   }
   // test4: items or Tamapoints of T18Emu: its save on the device is replaced by the one in the ROM, "keep saves" or not
   if (keep && (state.t18Dirty || (state.extras || []).some((x) => x.kind === 't18' && x.items)) && !confirm(t('t18KeepAsk'))) return;
-  devTask(async () => {
+  await devTask(async () => {
     const fe = F.embedded();
     const plan = keep ? FL.keepPlan(F, E, fe && { stub: fe.stub }, { emuChanged: !!state.emu && !emuSame && !emuSess, emuSess, carried: DLC_KEEP ? carried : null, after: state.stampSet ? stampSess : null, t7Save: !!state.t7save, t7SaveX: state.t7saveX ? state.t7saveX.i : -1, t18Imp: !!(state.extras || []).some((x) => x.saveImp), mine: studioSecs(state.ctx.rom, c.rom), fresh: c.fresh || [] }) : null;
     let img = c.rom;
@@ -3040,6 +4121,7 @@ $('btnWrite').onclick = async () => {
     if (r.notes.length) m += '\n' + r.notes.map(flMsg).join('\n');
     devRender(m);
   });
+  }); } catch (e) { devRender(t('devErr', { e: flMsg(e) })); }
 };
 /* 1.7.6 PS_DL2: after the plan (the device's run states are in the image): every P's TamaEmu whose guest save got a
  * stamp card change in the Studio takes the same byte into the save copy of its run state. */
@@ -3228,6 +4310,12 @@ function renderSave() {
   $('btnEmuOut').textContent = t('saveBtnOut', { f }); $('btnEmuIn').textContent = t('saveBtnIn', { f });
   $('btnEmuOut').disabled = !p; $('btnEmuIn').disabled = false; $('btnEmuOut').title = '';
   $('saveStat').textContent = !p ? t('saveNoProg') : t('saveProgInfo');
+  $('btnPetOpen').disabled = $('btnPetRom').disabled = !!state.ctx.clean || (neonRom() && !SV.neonSaveLayout(state.ctx.rom));
+  const [saveStart, saveEnd] = SV.region(state.ctx.editionId);
+  $('btnParaClear').disabled = !!state.clean || !!state.ctx.clean || !F.edition(state.ctx.rom)
+    || state.ctx.rom.subarray(saveStart, saveEnd).every(byte => byte === 0xFF);
+  $('paraClearStatus').hidden = !state.paraCleared;
+  $('paraClearStatus').textContent = state.paraCleared ? t('paraClearDone') : '';
   let con = false; try { con = !!dv.d && !dv.run; } catch (e) {}
   $('btnParaIn').disabled = !con;
   // 1.6.8: which save (the menu keeps several)
@@ -3240,8 +4328,21 @@ function renderSave() {
     for (const x of ss.list) add(x.i === ss.live ? 'live' : String(x.i), x.i === ss.live ? t('slotLive', { n: slotLabel(ss, x.i) }) : x.used ? slotLabel(ss, x.i) : t('slotEmpty', { n: slotLabel(ss, x.i) }));
     if ([...sl.options].some((o) => o.value === sc)) sl.value = sc;
   }
-  if (SLOT_CLEAR) { const v = paraSlotPick(), ss0 = paraSlots(), x = ss0 && v !== 'live' && ss0.list.find((y) => String(y.i) === v); $('btnSlotClear').hidden = !ss0; $('btnSlotClear').disabled = !con || !x || !x.used; }
+  $('btnSlotClear').disabled = !con || !ss?.list.some(x => x.used && String(x.i) === paraSlotPick());
 }
+$('btnParaClear').onclick = () => {
+  if ($('btnParaClear').disabled || !state.ctx) return;
+  const { rom, editionId } = state.ctx;
+  const slots = paraSlots()?.f;
+  if (slots && (slots.flags & F.F_NEON_SAVES) && F.neonSwitchPending(rom, slots)) {
+    toast(t('paraClearPending'), true); return;
+  }
+  if (!confirm(t('paraClearAsk'))) return;
+  state.ctx.rom = SV.paraClear(rom, editionId);
+  state.paraCleared = true;
+  if (petFromRom) $('btnPetClose').click();
+  renderSave(); renderFeld();
+};
 function paraSlots() { const fe = F.embedded(); try { return state.ctx && fe ? F.saveSlots(state.ctx.rom, fe.stub) : null; } catch (e) { return null; } }
 function slotLabel(ss, i) { return ss.saves ? t('saveSlot', { n: i + 1 }) : (F.fieldNames(state.ctx.rom)[i] || t('saveSlot', { n: i + 1 })); }
 function paraSlotPick() { return $('paraSlotRow').hidden ? 'live' : $('paraSlot').value; }
@@ -3250,21 +4351,24 @@ function t7SaveOutSel() {
   return p.key === 'm' ? SV.t7SaveOut(state.ctx.rom) : SV.t7SaveOut(state.ctx.rom, p.saveOff);
 }
 $('saveFor').onchange = () => renderSave();
-/* 1.7.6 SLOT_CLEAR (User: no way to empty a save slot, an empty slot cannot be exported): the header page of the chosen
- * slot on the device is erased; the menu then shows the slot empty and starts a new game there (any field). */
-const SLOT_CLEAR = true;
 $('paraSlot').onchange = () => renderSave();
 $('btnSlotClear').onclick = () => {
-  const ss = paraSlots(), v = paraSlotPick(); if (!ss || v === 'live' || !dv.d) return;
-  const i = +v; if (!confirm(t('slotClearSure', { n: slotLabel(ss, i) }))) return;
+  const ss = paraSlots(), i = Number(paraSlotPick());
+  if (!dv.d || !ss?.list.some(x => x.i === i && x.used && x.i !== ss.live)) return;
+  if (!confirm(t('slotClearSure', { n: slotLabel(ss, i) }))) return;
   devTask(async () => {
     const d = dv.d, f = ss.f, rom = state.ctx.rom;
-    const mine = rom.subarray(f.off + 0x140, f.off + 0x140 + 0x180), dev = (await d.read(f.off, 0x1000)).subarray(0x140, 0x140 + 0x180);
-    for (const o of [0, 8, 12, 16, 364, 368]) if (mine[o] !== dev[o] || mine[o + 1] !== dev[o + 1] || mine[o + 2] !== dev[o + 2] || mine[o + 3] !== dev[o + 3]) throw new Error(t('slotDevOther'));
-    const at = F.slotAddr(f, i);
-    await d.writeSectors(new Map([[at, new Uint8Array(0x1000).fill(0xFF)]]), devProg, () => dv.cancel, FL.embedded());
-    const r = new Uint8Array(state.ctx.rom); r.fill(0xFF, at, at + 0x1000); state.ctx.rom = r;   // the loaded ROM shows it too
-    devRender(t('slotClearDone', { n: slotLabel(ss, i) })); renderSave(); renderFeld();
+    const deviceView = new Uint8Array(rom);
+    await readSlotTarget(d, deviceView, f, i);
+    const at = F.slotAddr(f, i), header = await d.read(at, 0x1000);
+    if (!header.every((byte, index) => byte === rom[at + index]))
+      throw new Error(t('slotDevOther'));
+    const empty = new Uint8Array(0x1000).fill(0xFF);
+    await d.writeSectors(new Map([[at, empty]]), devProg, () => dv.cancel, FL.embedded());
+    deviceView.set(empty, at);
+    state.ctx.rom = deviceView;
+    devRender(t('slotClearDone', { n: slotLabel(ss, i) }));
+    renderSave(); renderFeld();
   });
 };
 let g_slotIn = 'live';
@@ -3410,13 +4514,31 @@ $('btnPetClose').onclick = () => { petSave = null; $('petRow').hidden = true; $(
 let petFromRom = false;
 function petOpen(save, name, fromRom) {
   const ed = save.edition || state.ctx.editionId;
-  if (!NEON_PET && (SV.family(ed) === 'neon' || SV.family(state.ctx.editionId) === 'neon')) { toast(t('neonSave'), true); return; }   // 1.7.6 NEON_ED: its save is laid out differently (NEON_PET: the ring, saves.js)
   if (SV.family(ed) !== SV.family(state.ctx.editionId)) { toast(t('petOther'), true); return; }
-  const pet = SV.paraPet(save, ed);
+  const neon = ed === 8;
+  const pet = neon ? SV.neonProgress(save) : SV.paraPet(save, ed);
   if (!pet) { toast(t('petNoSet'), true); return; }
   petSave = save; petSave.edition = ed; petName = name; petFromRom = fromRom;
   const lv = $('petLevel'); lv.innerHTML = '';
   for (let i = 0; i <= 10; i++) { const o = document.createElement('option'); o.value = i; o.textContent = i; if (i === pet.level) o.selected = true; lv.appendChild(o); }
+  $('petCare').checked = false;
+  $('petCharRow').hidden = neon && !pet.canCare;
+  $('petCareRow').hidden = neon && !pet.canCare;
+  $('petPointsRow').hidden = $('petMissionRow').hidden = $('petMissionActionRow').hidden = !neon;
+  $('petRow').hidden = false;
+  if (neon) {
+    $('petPoints').value = pet.points;
+    const missions = $('petMission');
+    missions.innerHTML = '';
+    pet.missions.forEach((mission, index) => {
+      const option = document.createElement('option');
+      option.value = index;
+      const label = C.textGet(state.ctx.rom, 177 + index) || '#' + (index + 1);
+      option.textContent = (mission.complete ? '✓ ' : '') + label + ' (' + mission.count + '/' + mission.target + ')';
+      missions.appendChild(option);
+    });
+    $('petMissionAction').value = '';
+  }
   const sel = $('petChar'); sel.innerHTML = '';
   const keep = document.createElement('option'); keep.value = ''; keep.textContent = t('petKeep'); sel.appendChild(keep);
   const chars = F.characters(state.ctx.rom), fn = F.fieldNames(state.ctx.rom);
@@ -3433,25 +4555,41 @@ function petOpen(save, name, fromRom) {
     sel.appendChild(g);
   }
   $('petCare').checked = false;
-  $('petRow').hidden = false;
-  $('petStat').textContent = t('petNow', { l: pet.level, c: cur || pet.id, h: pet.hunger, j: pet.happy, s: pet.sick ? t('petSick') : '' });
+  $('petStat').textContent = !neon || pet.canCare ? t('petNow', { l: pet.level, c: cur || pet.id, h: pet.hunger, j: pet.happy, s: pet.sick ? t('petSick') : '' }) : '';
 }
 $('btnPetSave').onclick = () => {
   if (!petSave) return;
-  const ed = petSave.edition, pet = SV.paraPet(petSave, ed), ch = {};
+  const ed = petSave.edition, neon = ed === 8, ch = {};
+  const pet = neon ? SV.neonProgress(petSave) : SV.paraPet(petSave, ed);
   const lv = +$('petLevel').value; if (lv !== pet.level) ch.level = lv;
-  const v = $('petChar').value; if (v) { const [id, st] = v.split(':').map(Number); if (id !== pet.id || st !== pet.stage) { ch.id = id; ch.stage = st; } }
-  if ($('petCare').checked) ch.care = true;
+  if (neon) {
+    const points = $('petPoints').valueAsNumber;
+    if (points !== pet.points) ch.points = points;
+    const action = $('petMissionAction').value;
+    if (action) ch.mission = { index: +$('petMission').value, complete: action === 'complete' };
+  }
+  const v = $('petChar').value;
+  if (v && !$('petCharRow').hidden) {
+    const [id, stage] = v.split(':').map(Number);
+    if (id !== pet.id || stage !== pet.stage) Object.assign(ch, { id, stage });
+  }
+  if (!$('petCareRow').hidden && $('petCare').checked) ch.care = true;
   if (!Object.keys(ch).length) { toast(t('petNothing')); return; }
+  let nw;
+  try { nw = neon ? SV.neonProgressSet(petSave, ch) : SV.paraPetSet(petSave, ed, ch); }
+  catch (err) { toast(em(err), true); return; }
+  if (nw === petSave) { toast(t('petNothing')); return; }
   if (petFromRom) {
-    const nw = SV.paraPetSet(petSave, ed, ch), r = new Uint8Array(state.ctx.rom);
+    const r = new Uint8Array(state.ctx.rom);
     for (const [a, d] of nw.pages) if (d.length === 0x1000) r.set(d, a);
-    state.ctx.rom = r; state.petDirty = true; petSave = nw; petSave.edition = ed;
+    state.ctx.rom = r; state.petDirty = true;
+    petOpen(nw, petName, true);
     $('petStat').textContent = t('petRomDone'); renderPlan(); return;
   }
-  const out = SV.paraWrite(SV.paraPetSet(petSave, ed, ch), ed);
+  const out = SV.paraWrite(nw, ed);
   const name = petName.replace(/\.tamasave$/i, '') + '-' + stamp() + '.tamasave';
   download(out, name);
+  if (neon) petOpen(nw, petName, false);
   $('petStat').textContent = t('petDone', { n: name });
 };
 
@@ -3602,10 +4740,38 @@ $('fileSave').onchange = async (e) => {
   });
 };
 
+// Recheck the on-device menu geometry and live slot before writing a slot.
+async function readSlotTarget(d, view, f, slot) {
+  const c = f.off + 0x140, size = f.version >= 11 ? 620 : 372;
+  const menu = (await d.read(f.off, 0x1000)).subarray(0x140, 0x140 + size);
+  const fields = [0, 4, 8, 12, 16, 28, 36, 364, 368];
+  if (f.version >= 11) fields.push(612, 616);
+  if (fields.some(o => rd32(menu, o) !== rd32(view, c + o)))
+    throw new Error(t('slotDevOther'));
+  if (f.flags & F.F_NEON_SAVES) {
+    const from = f.slotOff - 0x2000;
+    view.set(await d.read(from, 0x2000), from);
+    if (F.neonActive(view, f) < 0 || F.neonSwitchPending(view, f))
+      throw new Error(t('slotDevOther'));
+  } else {
+    view.set(await d.read(0xEFE000, 0x1000), 0xEFE000);
+  }
+  for (let i = 0; i < f.nslots; i++) {
+    const at = F.slotAddr(f, i);
+    view.set(await d.read(at, 0x1000), at);
+  }
+  const current = F.saveSlots(view, F.embedded().stub);
+  if (!current || current.live < 0 || current.live === slot)
+    throw new Error(t('slotDevOther'));
+}
+
 /* 1.6.8: a save into a slot of the menu on the device (packed like the menu does it, header page last) */
 function slotWrite(save, chk, i, warn) {
   const ss = paraSlots(), rom = state.ctx.rom, ed = dv.d.info.edition;
   if (!ss) return;
+  if ((ss.f.flags & F.F_NEON_SAVES) && !chk.complete) {
+    devRender(t('devErr', { e: t('neonSaveFull') })); return;
+  }
   if (!ss.saves) {
     const set = chk.pages.get(0xEFE000), fi = F.fieldOfSettings(rom, set);
     if (fi !== i) { devRender(t('devErr', { e: t('slotField', { a: F.fieldNames(rom)[fi] || '?', b: slotLabel(ss, i) }) })); return; }
@@ -3613,15 +4779,25 @@ function slotWrite(save, chk, i, warn) {
   if (!confirm(t('slotSure', { n: slotLabel(ss, i) }) + (warn ? '\n\n' + warn : ''))) return;
   devTask(async () => {
     const d = dv.d, f = ss.f, [a, b] = SV.region(ed);
-    const mine = rom.subarray(f.off + 0x140, f.off + 0x140 + 0x180), dev = (await d.read(f.off, 0x1000)).subarray(0x140, 0x140 + 0x180);
-    for (const o of [0, 8, 12, 16, 364, 368]) if (mine[o] !== dev[o] || mine[o + 1] !== dev[o + 1] || mine[o + 2] !== dev[o + 2] || mine[o + 3] !== dev[o + 3]) throw new Error(t('slotDevOther'));
+    const mine = rom.subarray(f.off + 0x140, f.off + 0x140 + 620), dev = (await d.read(f.off, 0x1000)).subarray(0x140, 0x140 + 620);
+    for (const o of [0, 4, 8, 12, 16, 36, 364, 368, ...(f.version >= 11 ? [612, 616] : [])]) if (mine[o] !== dev[o] || mine[o + 1] !== dev[o + 1] || mine[o + 2] !== dev[o + 2] || mine[o + 3] !== dev[o + 3]) throw new Error(t('slotDevOther'));
+    const img = new Uint8Array(0x1000000).fill(0xFF);
+    if (f.flags & F.F_NEON_SAVES) {
+      const from = f.slotOff - 0x2000;
+      img.set(await d.read(from, 0x2000), from);
+      const active = F.neonActive(img, f);
+      if (active < 0 || active === i || F.neonSwitchPending(img, f)) throw new Error(t('slotDevOther'));
+    }
     const heads = [];
     for (let j = 0; j < f.nslots; j++) heads.push(new Uint8Array(await d.read(F.slotAddr(f, j), 0x1000)));
-    const s = F.slotBuild(chk.pages, i, a, b), img = new Uint8Array(0x1000000).fill(0xFF);
-    const written = F.slotPlace(img, f, i, s, F.poolUsed(f, heads, i));
-    const first = new Map([[written[0], new Uint8Array(0x1000).fill(0xFF)]]);
-    for (const p of written.slice(1)) first.set(p, img.slice(p, p + 0x1000));
-    let w = await d.writeSectors(first, devProg, () => dv.cancel, FL.embedded());
+    const s = F.slotBuild(chk.pages, i, a, b);
+    // Keep the old destination referenced until the replacement header commits.
+    const used = F.poolUsed(f, heads);
+    // Sharing must compare actual device bytes, not the empty staging image.
+    for (const x of used) img.set(new Uint8Array(await d.read(F.poolAddr(f, x), 0x1000)), F.poolAddr(f, x));
+    const written = F.slotPlace(img, f, i, s, used);
+    const data = new Map(written.slice(1).map(p => [p, img.slice(p, p + 0x1000)]));
+    let w = data.size ? await d.writeSectors(data, devProg, () => dv.cancel, FL.embedded()) : 0;
     w += await d.writeSectors(new Map([[written[0], img.slice(written[0], written[0] + 0x1000)]]), devProg, () => dv.cancel, FL.embedded());
     devRender(t('slotDone', { n: slotLabel(ss, i) }));
   });

@@ -65,6 +65,32 @@ static u8* const frm  = (u8*)FRAME;
 static u8* const outf = (u8*)OUTF;
 static u8* const cob  = (u8*)COBSO;
 
+#include "reset_policy.h"
+static ResetPolicy* const g_reset=(ResetPolicy*)0x1801A808u;
+static void reset_poll_hw(void);
+static void reset_ui_update(void);
+/* Require a present, bounded primary boot target. This is structural validation,
+ * not a plaintext CRC comparison of an encrypted boot image. */
+static u32 reset_boot_valid(void){
+  const volatile u32 *h=(const volatile u32*)0x60000000u;
+  u32 src=h[4],len=h[5];
+  return h[0]==0x494E4F53u && h[1]==0x56454458u && src>=0x60001000u &&
+    src<0x61000000u && !(src&3u) && len && len<=0x10000u &&
+    !(len&3u) && len<=0x61000000u-src && !(F_DCTL&1u);
+}
+/* SNC73410 SYSRESETREQ restarts PRAM. A watchdog reset instead starts Boot ROM,
+ * like the external reset path (GMMan/snc7330-hidden-rom reset research).
+ * Called only after C is released and all reset guards pass; no flash writes. */
+static void reset_system(void){
+  __asm__ volatile("cpsid i");
+  REG(0x40008000u)=0x5AFA0000u;
+  REG(0x40008008u)=0x5AFA00FFu; /* retain the proven WDT0 timeout */
+  REG(0x4000800Cu)=0x5AFA55AAu;
+  REG(0x40008000u)=0x5AFA0001u;
+  dsb(); for(;;){} /* stop feeding WDT0 */
+}
+
+
 /* ============================ Hardware init ============================ */
 /* Faithful to the firmware (SystemInit, clock routine 0x8c38+0x8a58). XIP is
  * NOT needed: we run from PRAM and read the flash via DMA. */
@@ -117,11 +143,13 @@ static void uart_init(void){
 
 /* ============================ UART input/output ============================ */
 static void putb(u8 c){ while(!(U_LSR & 0x20u)){} U_DATA=c; }
-static int  getb(void){
+static int  getb(u32 packet_idle){
   u32 g=0;
   while(!(U_LSR & 0x01u)){
+    if(packet_idle) reset_poll_hw();
     if((++g & 0x3FFFFu)==0){ REG(0x4000800Cu)=0x5AFA55AAu; REG(0x4000900Cu)=0x5AFA55AAu; } /* feed the watchdog */
   }
+  rp_activity(g_reset);
   return (int)(U_DATA & 0xFF);
 }
 
@@ -254,8 +282,23 @@ static u32 cobs_encode(const u8* s, u32 n, u8* o){
  * ANZEIGE=0 builds the app without display (dump only), like mameise-flashtool.pdlo.
  */
 #include "assets.h"
+#include "reset_hint.h"
 #include "disp_power.h"
 #define PANEL 0x4000E000u
+#define SCR_W 128u
+#define SCR_H 128u
+#define STATUS_Y 50u
+#define BAR_X0 16u
+#define BAR_X1 112u
+#define BAR_Y0 80u
+#define BAR_Y1 88u
+#define RGB(r,g,b) ((u16)((((r)>>3)<<11)|(((g)>>2)<<5)|((b)>>3)))
+#define UI_BG RGB(16,16,40)
+#define UI_GREY RGB(140,140,160)
+#define UI_WHITE RGB(255,255,255)
+#define UI_GOLD RGB(255,200,60)
+#define UI_ORANGE RGB(255,170,40)
+#define UI_GREEN RGB(120,220,120)
 static u16* const fb = (u16*)0x18008000u;   /* 128x128 framebuffer in SRAM */
 static u32* const g_wrcnt=(u32*)0x1801A804u; /* sectors counted while writing (display) */
 
@@ -388,12 +431,33 @@ static void push_fb(void){
   }
   LCD_DC(0);
 }
-static void draw(const u16* status, u32 num, u32 den){
+static void paint_mask(u32 y,const u8 *mask,u32 rows,u16 color){
+  for(u32 i=0;i<rows*SCR_W;i++)
+    fb[y*SCR_W+i]=(mask[i>>3]&(0x80u>>(i&7u)))?color:UI_BG;
+}
+static void paint_reset_hint(u32 mode){
+  paint_mask(111,reset_hint_bits[mode],7,mode==2u?UI_ORANGE:UI_GREY);
+  g_reset->ui=mode;
+}
+static void paint_progress(const u8 *status,u32 num,u32 den){
+  u16 color=status==st_done?UI_GREEN:status==st_writing?UI_ORANGE:UI_WHITE;
+  paint_mask(STATUS_Y,status,14,color);
+  u32 fillx=BAR_X0+((BAR_X1-BAR_X0)*num)/(den?den:1);
+  if(fillx>BAR_X1) fillx=BAR_X1;
+  for(u32 y=BAR_Y0-1;y<=BAR_Y1;y++){
+    for(u32 x=BAR_X0-1;x<=BAR_X1;x++){
+      int border=y==BAR_Y0-1 || y==BAR_Y1 || x==BAR_X0-1 || x==BAR_X1;
+      fb[y*SCR_W+x]=border?UI_GREY:x<fillx?UI_GOLD:UI_BG;
+    }
+  }
+}
+static void draw(const u8* status, u32 num, u32 den){
 #if ANZEIGE
-  for(u32 i=0;i<SCR_W*SCR_H;i++) fb[i]=static_bg[i];
-  for(int r=0;r<16;r++) for(int c=0;c<SCR_W;c++) fb[(STATUS_Y+r)*SCR_W+c]=status[r*SCR_W+c];
-  u32 fillx = BAR_X0 + ((BAR_X1-BAR_X0)*num)/(den?den:1);
-  for(u32 y=BAR_Y0;y<BAR_Y1;y++) for(u32 x=BAR_X0;x<fillx;x++) fb[y*SCR_W+x]=ACC565;
+  for(u32 i=0;i<SCR_W*SCR_H;i++) fb[i]=UI_BG;
+  paint_mask(1,title_paramix,7,UI_GREY);
+  paint_mask(19,title_flash_tool,14,UI_ORANGE);
+  paint_progress(status,num,den);
+  paint_reset_hint(rp_hint(g_reset));
   push_fb();
 #else
   (void)status; (void)num; (void)den;
@@ -418,14 +482,28 @@ static void push_rows(u32 y0, u32 y1){
   LCD_DC(0);
 }
 /* Redraw the status line and bar and push only that strip. */
-static void draw_live(const u16* status, u32 num, u32 den){
-  for(u32 y=STATUS_Y;y<BAR_Y1;y++) for(u32 x=0;x<SCR_W;x++) fb[y*SCR_W+x]=static_bg[y*SCR_W+x];
-  for(int r=0;r<16;r++) for(int c=0;c<SCR_W;c++) fb[(STATUS_Y+r)*SCR_W+c]=status[r*SCR_W+c];
-  u32 fillx = BAR_X0 + ((BAR_X1-BAR_X0)*num)/(den?den:1);
-  for(u32 y=BAR_Y0;y<BAR_Y1;y++) for(u32 x=BAR_X0;x<fillx;x++) fb[y*SCR_W+x]=ACC565;
-  push_rows(STATUS_Y, BAR_Y1);
+static void draw_live(const u8* status, u32 num, u32 den){
+  paint_progress(status,num,den);
+  push_rows(STATUS_Y,BAR_Y1+1);
 }
 #endif
+
+static void reset_ui_update(void){
+#if ANZEIGE
+  u32 mode=rp_hint(g_reset); if(mode==g_reset->ui) return;
+  paint_reset_hint(mode);
+#if HALTBILD
+  push_rows(111,118);
+#else
+  push_fb();
+#endif
+#endif
+}
+static void reset_poll_hw(void){
+  if(!g_reset->allowed) return;
+  if(rp_poll(g_reset,(REG(GPIO0)&0x400u)==0,REG(0x45000304u)) && reset_boot_valid()) reset_system();
+  reset_ui_update();
+}
 
 /* ============================ PAU1 ============================ */
 static u32 rd32(const u8* p){ return p[0]|(p[1]<<8)|(p[2]<<16)|((u32)p[3]<<24); }
@@ -459,6 +537,13 @@ static void handle(const u8* f, u32 flen){
   u8 type=f[6];
   u32 seq=rd32(f+12), off=rd32(f+16);
   const u8* pl=f+24;
+  rp_packet(g_reset,type);
+  reset_ui_update();
+  if(type==16){ /* RESET_CONTROL: explicit whole-job boundary from the host */
+    u32 ok=off==0u && plen==4u && rd32(pl)<=1u && rp_idle(g_reset,rd32(pl),reset_boot_valid());
+    reset_ui_update(); reply_head(16,seq,off,ok?0:1,0); send_frame(28); return;
+  }
+
 
   if(type==2){ /* ECHO */
     u8* p=reply_head(2,seq,off,0,plen);
@@ -477,6 +562,7 @@ static void handle(const u8* f, u32 flen){
     wr32(p+24, 0x00C22018u); /* jedecId MX25L12833F */
     wr32(p+32, FLASH_SIZE);  /* capacity */
     wr32(p+36, 0);           /* flashError */
+    wr32(p+40, 1);           /* capability bit0: RESET_CONTROL */
     send_frame(28+44); return;
   }
   if(type==5){ /* READ len@payload at off */
@@ -498,7 +584,7 @@ static void handle(const u8* f, u32 flen){
 #if ANZEIGE
     arm_for_dump();
 #if HALTBILD
-    if((off & 0x000FFFFFu)==0) draw_live(st_lesen, off, FLASH_SIZE);
+    if((off & 0x000FFFFFu)==0) draw_live(st_reading, off, FLASH_SIZE);
 #endif
 #endif
     u32 len=plen>=4?rd32(pl):MAXP; if(len>MAXP) len=MAXP;
@@ -534,7 +620,7 @@ static void handle(const u8* f, u32 flen){
 #if ANZEIGE && HALTBILD
     /* Last block of the dump: set the display to "done", otherwise "reading..."
        would stay on screen (a dump has no finish command). */
-    if(off + len >= FLASH_SIZE) draw_live(st_fertig, 1, 1);
+    if(off + len >= FLASH_SIZE) draw_live(st_done, 1, 1);
 #endif
     return;
   }
@@ -542,7 +628,7 @@ static void handle(const u8* f, u32 flen){
 #if ANZEIGE
     arm_for_dump();
 #if HALTBILD
-    if((off & 0x000FFFFFu)==0) draw_live(st_schreiben, off, FLASH_SIZE);
+    if((off & 0x000FFFFFu)==0) draw_live(st_writing, off, FLASH_SIZE);
 #endif
 #endif
     u32 len=plen>=4?rd32(pl):0;
@@ -562,7 +648,7 @@ static void handle(const u8* f, u32 flen){
 #if ANZEIGE && HALTBILD
     /* Switch to "writing" right away, otherwise the "done" from the dump stays
        on screen until the first sector on a 1 MB boundary. */
-    *g_wrcnt=0; draw_live(st_schreiben, 0, 1);
+    *g_wrcnt=0; draw_live(st_writing, 0, 1);
 #endif
     u8* p=reply_head(9,seq,off,0,4); wr32(p,0); send_frame(28+4); return;
   }
@@ -588,7 +674,7 @@ static void handle(const u8* f, u32 flen){
 #if ANZEIGE && HALTBILD
     /* Bar based on counted sectors (keeps the display moving forward, since the
        write order is not sequential). Redraw every 16 sectors. */
-    { u32 n=++(*g_wrcnt); if((n & 0x0Fu)==0) draw_live(st_schreiben, n, FLASH_SIZE/0x1000u); }
+    { u32 n=++(*g_wrcnt); if((n & 0x0Fu)==0) draw_live(st_writing, n, FLASH_SIZE/0x1000u); }
 #endif
     u32 c=crc32_flash(base, 0x1000u);        /* CRC read back (XIP), checked by the tool */
     /* Byte compare on the device: 0 = sector matches, otherwise error status 1 */
@@ -599,7 +685,7 @@ static void handle(const u8* f, u32 flen){
   }
   if(type==12){ /* WRITE_FINISH */
 #if ANZEIGE && HALTBILD
-    draw_live(st_fertig, 1, 1);
+    draw_live(st_done, 1, 1);
 #endif
     u8* p=reply_head(12,seq,off,0,0); send_frame(28+0); return;
   }
@@ -621,7 +707,7 @@ static void handle(const u8* f, u32 flen){
 static void pau1_loop(void){
   u32 w=0;
   for(;;){
-    int b=getb();
+    int b=getb(w==0u);
     if(b==0){ if(w>0){ u32 dl=cobs_decode(rxac,w,frm); handle(frm,dl); } w=0; }
     else { if(w<8000u) rxac[w++]=(u8)b; else w=0; }   /* RXACC 8 KB */
   }
@@ -724,10 +810,11 @@ void Reset_Handler(void){
   flashctl_init();
   pin_mux();
   uart_init();
+  rp_init(g_reset,reset_boot_valid());
 #if ANZEIGE
   display_power();
   display_init();
-  draw(st_bereit, 0, 1);
+  draw(st_ready, 0, 1);
   backlight_on();
   *g_armed=0;   /* dump switch not done yet; screen stays on while idle */
 #endif

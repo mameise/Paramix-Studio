@@ -72,7 +72,7 @@ static void sl_ui_draw(int full){
   if(!sl_ui_phase) return;
   u32 now=sl_now(); sl_ui_paint=now;
   if(full){
-    rect(0,0,128,128,BG); ctext(4,sl_ui_receiving?"RECEIVE SAVE":"SEND SAVE",GOLD,1);
+    rect(0,0,128,128,BG); menu_title(4,sl_ui_receiving?"RECEIVE SAVE":"SEND SAVE");
     ctext(20,sl_ui_phase<=SL_PREPARE?"PLEASE WAIT":sl_ui_phase==SL_WAIT?"CONNECT BOTH TAMAS":sl_ui_phase==SL_FINISH?"FINISHING LINK":"CONNECTED",GREY,1);
     ctext(118,sl_ui_phase>=SL_COMMIT?"DO NOT DISCONNECT":"C CANCEL",GREY,1);
 #ifdef HOST
@@ -245,8 +245,9 @@ static int sl_send(u32 src){
   int ok=sl_request('E',0,0); if(ok) sl_ui_set(SL_FINISH); return ok;
 }
 static int sl_flush(u32 tgt,u32 *nd){
-  u32 x=pool_take(tgt); if(x==0xFFFFu || *nd>=DPG_MAX) return 0;
-  flash_prog4k(pool_addr(x),g_out); if(!flash_same(pool_addr(x),g_out,PAGE)) return 0;
+  if(*nd>=DPG_MAX) return 0;
+  u32 x=pool_store(tgt,g_out);
+  if(x==0xFFFFu || !flash_same(pool_addr(x),g_out,PAGE)) return 0;
   g_hdr.dpg[(*nd)++]=(u16)x; return 1;
 }
 static int sl_receive(u32 tgt){
@@ -266,7 +267,7 @@ offer:;
   u32 np=sl_r32(sl_rx+8),by=sl_r32(sl_rx+12),sum=sl_r32(sl_rx+16),fld=sl_r32(sl_rx+20),src=sl_r32(sl_rx+24);
   u32 from_counter=sl_r32(sl_rx+28),to_counter=sl_counter();
   u32 nd=(by+PAGE-1u)/PAGE;
-  if(sl_r32(sl_rx)!=1u || sl_r32(sl_rx+4)!=sig || !np || np>NPAGE_MAX || !by || by>np*sizeof g_cmp || fld>=nfields() || nd>DPG_MAX || nd>pool_free(tgt)){
+  if(sl_r32(sl_rx)!=1u || sl_r32(sl_rx+4)!=sig || !np || np>NPAGE_MAX || !by || by>np*sizeof g_cmp || fld>=nfields() || nd>DPG_MAX){
     sl_ack(0,1); return 0;
   }
   rect(0,0,128,128,BG); ctext(14,"RECEIVE SAVE?",WHITE,1);
@@ -277,6 +278,7 @@ offer:;
   /* Repaint BEFORE ACK: the sender is still waiting, so no incoming frame
    * can be lost while the LCD changes from confirmation to transfer. */
   sl_ui_set(SL_HEADER);
+  pool_mark(g_cfg.nslots);
   sl_accept();
   for(u32 i=0;i<sizeof g_hdr/4u;i++) ((u32*)&g_hdr)[i]=0xFFFFFFFFu;
   u32 count=0,prev=0,sets=0;
@@ -309,14 +311,18 @@ offer:;
     if(a==SET_A || a==SET_B){ if(!set_ok(g_page) || field_of(g_page)!=(int)fld) return 0; sets|=a==SET_A?1u:2u; }
     for(u32 k=0;k<n;k++){
       actual+=g_cmp[k]; g_out[on++]=g_cmp[k];
-      if(on==PAGE){ if(!sl_flush(tgt,&used)) return 0; on=0; }
+      if(on==PAGE){ if(!sl_flush(tgt,&used)){ sl_ack(sl_seq,1); return 0; } on=0; }
     }
     if(i+1u==np) sl_ui_set(SL_VERIFY);
     sl_accept();
   }
-  if(actual!=sum || sets!=3u) return 0;
-  if(on){ for(u32 i=on;i<PAGE;i++) g_out[i]=0xFF; if(!sl_flush(tgt,&used)) return 0; }
-  if(used!=nd || !sl_next('E',0)) return 0;
+  if(!sl_next('E',0)) return 0;
+  if(actual!=sum || sets!=3u){ sl_ack(sl_seq,1); return 0; }
+  if(on){
+    for(u32 i=on;i<PAGE;i++) g_out[i]=0xFF;
+    if(!sl_flush(tgt,&used)){ sl_ack(sl_seq,1); return 0; }
+  }
+  if(used!=nd){ sl_ack(sl_seq,1); return 0; }
   sl_ui_set(SL_COMMIT);
   g_hdr.magic=SLOT_MAGIC; g_hdr.field=tgt+1u; g_hdr.npages=np; g_hdr.bytes=by; g_hdr.sum=sum;
   g_hdr.res[0]=POOL_MAGIC; g_hdr.res[1]=used; g_hdr.res[2]=0;
@@ -333,7 +339,7 @@ offer:;
 }
 /* Return true only when reception created a new local slot. */
 static int save_link_menu(u32 slot,int receive){
-  rect(0,0,128,128,BG); ctext(14,receive?"RECEIVE SAVE":"SEND SAVE",WHITE,1);
+  rect(0,0,128,128,BG); menu_title(14,receive?"RECEIVE SAVE":"SEND SAVE");
   ctext(42,"CONNECT BOTH TAMAS",GREY,1); ctext(56,"AT THE TOP",GREY,1);
   ctext(82,"B START",WHITE,1); ctext(102,"C CANCEL",GREY,1); show();
   if(!yes_no()) return 0;

@@ -22,7 +22,7 @@ const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 
   { const k = cfg0.map[saveAt >> 16]; const at = cfg0.guestOff + ((k === 0xFE ? saveAt >> 16 : k) << 16) + (saveAt & 0xFFFF); dev.fill(0x42, at, at + 0x100); }
   dev.fill(0x33, cfg0.saveOff, cfg0.saveOff + 0x2000);
   // Studio: a clothing item into the empty store (a new block)
-  const rec = new Uint8Array(0x400).fill(0); rec.set([0x54, 0x41, 0x4D, 0x41, 0x47, 0x4F]); rec[0x4E] = 0x81; rec[0x50] = 0x33; rec[0x4B] = 0x00; rec[0x4A] = 0x04; rec[0xFF] = 2; 
+  const rec = new Uint8Array(0x400).fill(0); rec.set([0x54, 0x41, 0x4D, 0x41, 0x47, 0x4F]); rec[0x4E] = 0x81; rec[0x50] = 0x33; rec[0x4B] = 0x00; rec[0x4A] = 0x04; rec[0xFF] = 2;
   const st = E.dlcStores(g0).find((k) => k.kind === 2); ok(st && st.slots.every((x) => !x.name), 'clothing store empty');
   const r = E.dlcAdd(g0, rec); const gS = r.guest;
   const nb0 = E.packGuest(g0, 'ps').blocks, nb1 = E.packGuest(gS, 'ps').blocks; ok(nb1 !== nb0, 'the item needs a new block (' + nb0 + ' -> ' + nb1 + ')');

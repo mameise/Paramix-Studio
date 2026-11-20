@@ -66,10 +66,23 @@ jobs:
       - name: Self test (no ROM needed)
         working-directory: ${{ env.PROJECT }}
         run: |
+          node test/menu_version_test.js
+          node test/compat_176_test.js
+          node test/gen3_id4_test.js
+          python3 test/flash_assets_test.py
+          node test/flash_reset_test.js
+          node test/flash_reset_host_test.js
           node test/unit_test.js
           node test/feld_bulk_test.js
           node test/feld_menu_test.js
+          node test/feld_pool_test.js
+          node test/feld_tama_test.js
+          node test/feld_preview_test.js
+          node test/feld_preview_catalog_test.js
+          node test/settings_test.js
+          node test/home_menu_test.js
           node test/feld_slot_clock_test.js
+          node test/lab_release_test.js
 
       - name: Build
         working-directory: ${{ env.PROJECT }}

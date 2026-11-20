@@ -10,6 +10,7 @@ function ok(c, m) { console.log((c ? 'ok   ' : 'WRONG ') + m); if (!c) bad++; }
 const trop = rd(process.argv[2]), land = rd(process.argv[3]);
 const blob = rd(__dirname + '/../six/six.bin');
 const emb = { feld: rd(__dirname + '/../feld/feld.bin'), stub: rd(__dirname + '/../feld/stub_feld_tpl.bin') };
+const u16 = (b, o) => b[o] | b[o + 1] << 8;
 
 ok(S.sixCan(trop), 'base ROM can get six fields');
 ok(S.sixSource(land), 'second ROM gives Land, Water, Sky');
@@ -18,6 +19,15 @@ let base = F.feldStrip(trop, emb, E);
 const t0 = Date.now();
 const six = S.sixApply(base, land, blob);
 ok(true, 'built in ' + (Date.now() - t0) + ' ms');
+const oldWalking = six.slice();
+const walkFlags = new DataView(oldWalking.buffer);
+walkFlags.setUint32(S.SIX_OFF + 32, walkFlags.getUint32(S.SIX_OFF + 32, true) & ~0x200, true);
+ok(S.sixStale(S.sixInfo(oldWalking)), 'legacy cleanup bit is not the WALKING fix');
+const walking = S.sixWalkingUpdate(oldWalking, land);
+ok(!S.sixStale(S.sixInfo(walking)) && S.sixInfo(walking).allLabGames &&
+  Buffer.from(walking.slice(0xD29000, 0xF00000)).equals(Buffer.from(oldWalking.slice(0xD29000, 0xF00000))),
+  'WALKING upgrade keeps other field features and save bytes');
+
 const info = S.sixInfo(six), ctx = C.openRom(six);
 ok(info && info.sprites === C.openRom(base).entries.length, 'helper page ' + JSON.stringify(info));
 ok(ctx.assetEnd < 0xD29000, 'archive ends at 0x' + ctx.assetEnd.toString(16) + ' (before the ID page)');
@@ -26,13 +36,36 @@ ok(ctx.entries.length >= info.sprites + 12, (ctx.entries.length - info.sprites) 
   ok(Buffer.compare(Buffer.from(st.subarray(0x11000, 0x111000)), Buffer.from(base.subarray(0x11000, 0x111000))) === 0, 'strip: firmware and helper page as before');
   ok(cs.entries.length === cb.entries.length && Buffer.compare(Buffer.from(cs.files[0]), Buffer.from(cb.files[0])) === 0, 'strip: data pack and picture count as before'); }
 ok(S.sixApply(six, land, blob) === six, 'second run changes nothing');
+{
+  const old = six.slice();
+  old.set(Buffer.from('ea7db25cd20708d000202070012060700220a0700327084628e0', 'hex'), S.SIX_OFF + 0x862);
+  ok(S.sixFieldsUpdateNeeded(old) && !S.sixFieldsUpdateNeeded(six), 'recognizes the old adult Fields limit');
+  ok(Buffer.compare(Buffer.from(S.sixApply(old, null, blob)), Buffer.from(six)) === 0,
+    'existing six-field ROM upgrades without re-importing its donor');
+}
+{
+  const old = six.slice(), sites = [0x38886, 0x560A6, 0x56056, 0x2196A];
+  old[S.SIX_OFF + 32] &= ~128;
+  old.fill(0, S.SIX_OFF + 0xB00, S.SIX_OFF + 0xB40);
+  old.fill(0xFF, S.SIX_OFF + 0xF60, S.SIX_OFF + 0x1000);
+  for (const at of sites) old.set(base.subarray(at, at + 4), at);
+  ok(S.sixFieldsUpdateNeeded(old) && !S.sixFieldsUpdateNeeded(six), 'recognizes the three-field cleaning loop');
+  ok(Buffer.from(S.sixDna(old, blob, true)).equals(Buffer.from(six)),
+    'existing six-field ROM upgrades the cleaning loop without a donor');
+  const disabled = S.sixDna(six, blob, false);
+  ok(sites.every(at => u32(disabled, at) === u32(base, at)), 'disabling per-field saves restores native cleaning');
+}
 // firmware patches point into the helper page
 const tgt = (o) => { const h1 = six[o] | six[o + 1] << 8, h2 = six[o + 2] | six[o + 3] << 8; return h1 >> 11 === 0x1E && (h2 >> 14) >= 2; };
 ok(tgt(0x1BEAC) && tgt(0x20ED2) && tgt(0x20FBC) && tgt(0x20D62), 'branches into the helper');
 ok(info.fieldMenu && tgt(0x11000 + 0x265E2) && tgt(0x11000 + 0x41690) && tgt(0x11000 + 0x416B8) && tgt(0x11000 + 0x414EC) && six[0x11000 + 0x41496 + 2] === 0x53, 'game field menu hooked');
 { const nm = S.sixApply(six, land, blob, { fieldMenu: false }), ni = S.sixInfo(nm);
   ok(ni && !ni.fieldMenu && nm[0x11000 + 0x41690] === 0x90 && nm[0x11000 + 0x41496 + 2] === 0x4F, 'switch off: game field menu as before'); }
-ok(info.games && tgt(0x11000 + 0x50B1E) && tgt(0x11000 + 0x2FFE4) && tgt(0x11000 + 0x83938), 'lab games per start field hooked');
+ok(info.games && info.allLabGames && tgt(0x11000 + 0x50B1E) && tgt(0x11000 + 0x2FFE4) && tgt(0x11000 + 0x83938),
+  'all Lab games are hooked');
+ok(six.subarray(S.SIX_OFF + 0x998, S.SIX_OFF + 0x9A2).join() === '0,1,2,3,4,5,6,10,11,14',
+  'Lab list contains the seven base games and the three distinct Land cards');
+ok(!S.sixLabGamesUpdateNeeded(six) && S.sixLabGamesUpdate(six, blob) === six, 'Lab list upgrade is idempotent');
 { const ng = S.sixApply(six, land, blob, { games: false }), gi = S.sixInfo(ng);
   ok(gi && !gi.games && Buffer.compare(Buffer.from(ng.subarray(0x11000 + 0x50B1E, 0x11000 + 0x50B22)), Buffer.from(base.subarray(0x11000 + 0x50B1E, 0x11000 + 0x50B22))) === 0 && ng[0x11000 + 0x2FFE4] === 0xB2 && ng[0x11000 + 0x2FFE5] === 0xF8, 'switch off: lab games as before'); }
 ok(u32(six, 0xF00000) === 0x42584953, 'rain pictures in region B');
@@ -57,6 +90,36 @@ ok(true, 'pictures decode');
 const m = F.feldApply(six, { fields: true, bag: true }, F.feldSlots(trop, emb.stub), emb, E);
 const f = F.feldFind(m, emb.stub);
 ok(F.fieldNames(m).join() === 'Tropical,Glacier,Forest,Land,Water,Sky', 'menu: ' + F.fieldNames(m).join(', '));
+ok((f.flags & 0x100) !== 0 && u32(m, f.stubOff + 0x300) === 0x36304b42 &&
+   u32(m, 0x166d4) !== u32(six, 0x166d4), 'native Tama File adds six-region navigation and lookups');
+ok(u32(m, f.stubOff + 0x304) === 2 && u32(m, 0x16b88) === 0x40f0f240,
+   'six-region selector allocates a scene-owned page arrow');
+{
+  const bare = F.feldApply(base, { fields: true, bag: true }, [], emb, E), stock = F.feldFind(bare, emb.stub);
+  ok((stock.flags & 0x100) === 0 && u32(bare, 0x166d4) === u32(base, 0x166d4), 'native Tama File remains stock without six-field data');
+  ok(u32(bare, 0x16b88) === u32(base, 0x16b88), 'three-region selector has no extra page arrow');
+  const invalid = new Uint8Array(six);
+  invalid[0xf00004] = 8;
+  ok(!S.sixBookApply(invalid, f.stubOff) && u32(invalid, 0x166d4) === u32(six, 0x166d4), 'invalid extra field assets cannot enable Tama File hooks');
+  const incomplete = new Uint8Array(six), data = C.arc2Parse(incomplete, C.ASSET_BASE).ents[0];
+  const sky = C.charTable(ctx.files[0]).find((c) => c.field === 3 && c.stage === 3);
+  const rows = [];
+  for (let i = C.ASSET_BASE + data.offset, end = i + data.ulen; i + 30 <= end; i += 2) {
+    if (u16(incomplete, i) === sky.id && u16(incomplete, i + 4) === sky.name - 1 &&
+        u16(incomplete, i + 6) === sky.stage && u16(incomplete, i + 14) === sky.field) rows.push(i);
+  }
+  ok(rows.length === 1, 'located Sky character in ROM data');
+  if (rows.length === 1) {
+    incomplete[rows[0] + 14] = 0;
+    new DataView(incomplete.buffer).setUint32(C.ASSET_BASE + 4,
+      C.arc2Checksum(incomplete, C.ASSET_BASE, u32(incomplete, C.ASSET_BASE + 8)), true);
+    ok(!!S.sixInfo(incomplete) && !S.sixBookApply(incomplete, f.stubOff) &&
+       u32(incomplete, 0x166d4) === u32(six, 0x166d4), 'SIX metadata alone cannot enable an incomplete extra field archive');
+  }
+  const stripped = F.feldStrip(m, emb, E);
+  ok(Buffer.compare(Buffer.from(stripped.subarray(0x11000, f.stubOff)), Buffer.from(six.subarray(0x11000, f.stubOff))) === 0,
+    'removing the menu restores native Tama File firmware bytes');
+}
 { const cfg = m.subarray(0, 0x111000); let fam = 0; for (let o = 0; o + 4 <= cfg.length; o += 4) if (cfg[o] === 0x05 && cfg[o + 1] === 0x0F && cfg[o + 3] === 0 && (cfg[o + 2] === 1 || cfg[o + 2] === 2)) fam++;
   ok(fam === 4, 'menu: fresh Land, Water, Sky and Forest get their game family (' + fam + ')'); }
 ok(f.nslots === 6 && f.version >= 4, 'six slots, ' + (f.slotSize >> 10) + ' KB each');
@@ -78,6 +141,7 @@ if (process.argv[4]) {
   ok(Buffer.compare(Buffer.from(j4.subarray(0x111000, 0xD49000)), Buffer.from(jade.subarray(0x111000, 0xD49000))) === 0, 'Jade: archive untouched');
   const jm = F.feldApply(j4, { fields: true, bag: true }, [], emb, E);
   ok(F.fieldNames(jm).join() === 'Land,Water,Forest,Sky', 'Jade menu: ' + F.fieldNames(jm).join(', '));
+  ok((F.feldFind(jm, emb.stub).flags & 0x100) === 0, 'Tropical/Glacier Tama File patch skips Jade Forest');
   ok(S.sixInfo(j4).fieldMenu, 'Jade: field menu flag');
   { const jt = (o) => { const h1 = j4[o] | j4[o + 1] << 8, h2 = j4[o + 2] | j4[o + 3] << 8; return h1 >> 11 === 0x1E && (h2 >> 14) >= 2; };
     ok(jt(0x11000 + 0x2262C) && jt(0x11000 + 0x3C470) && jt(0x11000 + 0x3C498) && jt(0x11000 + 0x3C2E0) && j4[0x11000 + 0x3C29E + 2] === 0x4F, 'Jade: game field menu hooked'); }

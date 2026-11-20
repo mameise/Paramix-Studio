@@ -4,6 +4,10 @@ const fs = require('fs');
 const v = fs.readFileSync(__dirname + '/VERSION', 'utf8').trim();
 let html = fs.readFileSync(__dirname + '/src/index.html', 'utf8');
 const core = fs.readFileSync(__dirname + '/src/core.js', 'utf8');
+const settings = fs.readFileSync(__dirname + '/src/settings.js', 'utf8');
+const homeMenu = fs.readFileSync(__dirname + '/src/home_menu.js', 'utf8');
+const labRelease = fs.readFileSync(__dirname + '/src/lab_release.js', 'utf8')
+  .replace("'__LAB_RELEASE_HELPER__'", () => fs.readFileSync(__dirname + '/six/my-lab/helper.json', 'utf8').trim());
 const app = fs.readFileSync(__dirname + '/src/app.js', 'utf8');
 // Emulator: embed the prebuilt program and stub template as Base64 (if present)
 let emu = fs.readFileSync(__dirname + '/src/emu.js', 'utf8');
@@ -74,18 +78,34 @@ let feld = fs.readFileSync(__dirname + '/src/feld.js', 'utf8');
 {
   const d = (f) => fs.readFileSync(__dirname + '/feld/' + f).toString('base64');
   for (const f of ['feld.bin', 'stub_feld_tpl.bin']) if (!fs.existsSync(__dirname + '/feld/' + f)) throw new Error('feld/' + f + ' fehlt');
+  for (const name of ['feld.bin', 'feldc.bin']) {
+    if (!fs.readFileSync(__dirname + '/feld/' + name).includes(Buffer.from('PMXVER:' + v + '\0')))
+      throw new Error('Paramix menu version does not match VERSION; run sh feld/src/feld/build.sh first');
+  }
   feld = feld.replace('__FELD_B64__', d('feld.bin')).replace('__FELD_STUB_B64__', d('stub_feld_tpl.bin'));
   if (fs.existsSync(__dirname + '/feld/feldc.bin')) feld = feld.replace('__FELDC_B64__', d('feldc.bin'));   // 1.7.2 CLEAN_ROM: menu for ROMs without the Paradise
-  if (fs.existsSync(__dirname + '/feld/feld_s.bin')) feld = feld.replace('__FELDS_B64__', d('feld_s.bin')).replace('__FELDCS_B64__', d('feldc_s.bin'));   // 1.7.6 FELD_BIG: the 1.7.5 menu where the big one does not fit
 }
 // Six fields: helper page (source in six/src)
 let six = fs.readFileSync(__dirname + '/src/six.js', 'utf8');
 {
-  const f = __dirname + '/six/six.bin';
-  if (!fs.existsSync(f)) throw new Error('six/six.bin fehlt');
-  six = six.replace('__SIX_B64__', fs.readFileSync(f).toString('base64'));
+  const binary = (name) => fs.readFileSync(__dirname + '/six/' + name + '.bin').toString('base64');
+  six = six.replace('__SIX_B64__', binary('six')).replace('__BOOK_B64__', binary('book'))
+    .replace('__BOOK_GEN1_B64__', binary('book-gen1')).replace('__BOOK_JADE_B64__', binary('book-jade'));
 }
 if (six.includes('</script')) throw new Error('script end tag inside source');
+const lz4 = fs.readFileSync(__dirname + '/six/experimental-lz4/patch.js', 'utf8')
+  .replace("'__LEGACY_LZ4_B64__'", JSON.stringify(fs.readFileSync(__dirname + '/six/experimental-lz4/helper.bin').toString('base64')))
+  .replace("'__LEGACY_LZ4_GEN1_B64__'", JSON.stringify(fs.readFileSync(__dirname + '/six/experimental-lz4/helper-gen1.bin').toString('base64')))
+  .replace("'__LEGACY_LZ4_JADE_B64__'", JSON.stringify(fs.readFileSync(__dirname + '/six/experimental-lz4/helper-jade.bin').toString('base64')));
+const growth = (suffix = '') => fs.readFileSync(__dirname + '/six/experimental-neon/growth' + suffix + '.bin').toString('base64');
+const neon = fs.readFileSync(__dirname + '/six/experimental-neon/transplant.js', 'utf8')
+  .replace("'__NEON_GROWTH_B64__'", JSON.stringify(growth()))
+  .replace("'__NEON_GROWTH_GEN1_B64__'", JSON.stringify(growth('-gen1')))
+  .replace("'__NEON_GROWTH_JADE_B64__'", JSON.stringify(growth('-jade')));
+for (const [name, source] of [['legacy LZ4', lz4], ['Neon transplant', neon]]) {
+  if (source.includes('</script')) throw new Error('script end tag inside ' + name);
+  new Function(source);
+}
 // Flash app for the device tab (our own code, source in flash/src)
 let flash = fs.readFileSync(__dirname + '/src/flash.js', 'utf8');
 {
@@ -96,7 +116,7 @@ let flash = fs.readFileSync(__dirname + '/src/flash.js', 'utf8');
 // every script must parse (a stray quote in a text broke the whole page once)
 {
   const vm = require('vm');
-  for (const [n, src] of [['core.js', core], ['app.js', app], ['emu.js', emu], ['doom.js', doom], ['feld.js', feld], ['six.js', six], ['flash.js', flash], ['saves.js', fs.readFileSync(__dirname + '/src/saves.js', 'utf8')]]) {
+  for (const [n, src] of [['core.js', core], ['settings.js', settings], ['home_menu.js', homeMenu], ['app.js', app], ['emu.js', emu], ['doom.js', doom], ['feld.js', feld], ['six.js', six], ['flash.js', flash], ['saves.js', fs.readFileSync(__dirname + '/src/saves.js', 'utf8')]]) {
     try { new vm.Script(src, { filename: n }); } catch (e) { throw new Error(n + ': ' + e.message); }
   }
 }
@@ -112,7 +132,7 @@ if (flash.includes('</script')) throw new Error('script end tag inside source');
 if (feld.includes('</script')) throw new Error('script end tag inside source');
 if (doom.includes('</script')) throw new Error('script end tag inside source');
 if (core.includes('</script') || app.includes('</script') || emu.includes('</script')) throw new Error('script end tag inside source');
-html = html.replace('__CORE__', () => core).replace('__EMU__', () => emu).replace('__DOOM__', () => doom).replace('__FELD__', () => feld).replace('__SIX__', () => six).replace('__FLASH__', () => flash).replace('__SAVES__', () => saves).replace('__VISIT__', () => visit).replace('__WOLF__', () => wolf).replace('__APP__', () => app).split('__VERSION__').join('v' + v);
+html = html.replace('__CORE__', () => core).replace('__SETTINGS__', () => settings).replace('__HOME_MENU__', () => homeMenu).replace('__LAB_RELEASE__', () => labRelease).replace('__EMU__', () => emu).replace('__DOOM__', () => doom).replace('__FELD__', () => feld).replace('__SIX__', () => six).replace('__LEGACY_LZ4__', () => lz4).replace('__NEON_TRANSPLANT__', () => neon).replace('__FLASH__', () => flash).replace('__SAVES__', () => saves).replace('__VISIT__', () => visit).replace('__WOLF__', () => wolf).replace('__APP__', () => app).split('__VERSION__').join('v' + v);
 fs.mkdirSync(__dirname + '/dist', { recursive: true });
 fs.writeFileSync(__dirname + '/dist/ParamixStudio.html', html);
 fs.writeFileSync(__dirname + '/dist/index.html', html);

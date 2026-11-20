@@ -2,12 +2,16 @@
 // node test/save_bridge_test.js <bridge-binary> <firmware.bin>
 const { spawn } = require('child_process');
 const fs = require('fs');
+const { tmpdir } = require('os');
+const { join } = require('path');
 const FL = require('../src/flash.js'), SV = require('../src/saves.js');
 const [bridge, fwFile] = process.argv.slice(2);
 const app = new Uint8Array(fs.readFileSync(__dirname + '/../flash/flashapp.bin'));
 let bad = 0; const ok = (c, m) => { console.log((c ? 'ok    ' : 'WRONG ') + m); if (!c) bad++; };
 (async () => {
-  const out = '/tmp/claude-0/bridge_save.bin';
+  const work = fs.mkdtempSync(join(tmpdir(), 'paramix-save-bridge-'));
+  process.once('exit', () => fs.rmSync(work, { recursive: true, force: true }));
+  const out = join(work, 'bridge_save.bin');
   const p = spawn(bridge, [fwFile, out], { stdio: ['pipe', 'pipe', 'inherit'] });
   const io = { onData: null, write: (d) => new Promise((r) => p.stdin.write(Buffer.from(d), r)) };
   p.stdout.on('data', (d) => io.onData && io.onData(new Uint8Array(d)));

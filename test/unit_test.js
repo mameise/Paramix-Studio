@@ -41,6 +41,31 @@ ok(Buffer.compare(Buffer.from(same.rom), Buffer.from(rom)) === 0, 'rebuild witho
 let rt = true;
 for (const e of ctx.entries) { const d = C.spriteDecode(e); const d2 = C.spriteDecode(C.spriteEncode(e, d.subs, {})); rt = rt && d2.subs.every((s, k) => C.sameImage(s, d.subs[k])); }
 ok(rt, 'decode/encode roundtrip is pixel exact');
+// An overlapping LZ4 match and equal base colours that differ in a variant.
+const stream = [0x16, 0xe4, 1, 0, 0x50, ...Array(5).fill(0xe4)];
+const neonTile = Buffer.alloc(48 + stream.length);
+neonTile.writeUInt32LE(neonTile.length, 0);
+neonTile.set([0x8b, 1, 1, 0, 8, 8, 0, 0, 1, 1, 0x11, 2, 0, 0, 24, 0, 40, 0], 4);
+[0, 0, 0xffff, 0xffff, 0x001f, 0x07e0, 0xf800, 0xffff].forEach((colour, i) => neonTile.writeUInt16LE(colour, 24 + 2 * i));
+neonTile.writeUInt32LE(8, 40);
+neonTile.writeUInt32LE(stream.length, 44);
+neonTile.set(stream.map(b => b ^ 0x53), 48);
+const neonDecoded = C.spriteDecode(neonTile);
+ok(neonDecoded.cells[0].every((v, i) => v === i % 4), 'Neon sprite decodes an XOR LZ4 block');
+const neonEncoded = C.spriteEncode(neonTile, neonDecoded.subs, { keepPalette: true });
+ok(C.spriteHeader(neonEncoded).flags === 0x8b &&
+  C.sameImage(C.spriteDecode(neonEncoded, 1).subs[0], C.spriteDecode(neonTile, 1).subs[0]), 'Neon sprite preserves LZ4 and alternative palettes');
+neonTile[50] ^= 1;
+let invalidLz4 = false;
+try { C.spriteDecode(neonTile); } catch (e) { invalidLz4 = /invalid sprite LZ4 match/.test(e.message); }
+ok(invalidLz4, 'invalid Neon sprite back-reference rejected');
+const neonRom = Buffer.from(rom);
+neonRom.writeUInt32LE(7, 0xD85000);
+neonRom.writeUInt32LE(0x99431742, 0xD85FF8);
+neonRom.writeUInt32LE(0x66BCE8BD, 0xD85FFC);
+ok(C.openRom(neonRom).edition === 'Neon Planets', 'native ID 7 is Studio edition 8 (Neon Planets)');
+neonRom[0xD85FFC] ^= 1;
+ok(C.editionIdOf(neonRom) !== 8, 'Neon edition ID requires a valid footer');
 // 3) character rules
 const g = ctx.groups[0];
 const red = img(64, 64, (x, y) => (x > 10 && x < 50 && y > 10) ? [250, 30, 40, 255] : (x === 10 ? [0, 0, 0, 255] : [0, 0, 0, 0]));
@@ -99,11 +124,20 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
   for (let k = 0; k < 3; k++) for (let h = 0; h < 4; h++) put32(0x300000 + k * 28 + 12 + 4 * h, 0x10001001 + k * 0x100 + h * 0x10);
   put32(0x111008, 0x1000); put32(0xD49000, 1);
   const fe = { feld: new Uint8Array(fs3.readFileSync(__dirname + '/../feld/feld.bin')), stub: new Uint8Array(fs3.readFileSync(__dirname + '/../feld/stub_feld_tpl.bin')), oldStub: new Uint8Array(fs3.readFileSync(__dirname + '/../emu/stub_tpl.bin')) };
-  const a = F.feldApply(r, { fields: true, bag: true }, [], fe, E), fa = F.feldFind(a, fe.stub);
+  const a = F.feldApply(r, { fields: true }, [], fe, E), fa = F.feldFind(a, fe.stub);
   ok(fa && fa.off === 0xB1000 && fa.slotOff === 0x830000 && fa.nslots === 3, 'field switch built in');
   const home = E.sceneTable(a).PSID_HOME;
   ok(((a[home + 12] | a[home + 13] << 8 | a[home + 14] << 16 | a[home + 15] << 24) >>> 0) === (xp(0xB0040) | 1), 'home screen hooked');
   ok(Buffer.compare(Buffer.from(F.feldStrip(a, fe, E)), Buffer.from(r)) === 0, 'field switch removed again');
+  // Large catalogs must not spill into the emulator's save region at C0000.
+  const large = new Uint8Array(0xF000).fill(0xFF); large.set(fe.feld);
+  const le = { ...fe, feld: large }, lr = r.slice(); lr[0xC0000] = 0x42;
+  const la = F.feldApply(lr, { fields: true, bag: true }, [], le, E), lf = F.feldFind(la, le.stub);
+  ok(lf.catOff === 0x830000 && lf.slotOff >= 0x831000 && la[0xC0000] === 0x42, 'large catalog reserved separately from code, emulator and saves');
+  ok(Buffer.from(F.feldStrip(la, le, E)).equals(Buffer.from(lr)), 'external catalog and full program removed without touching other data');
+  const occupied = lr.slice(); occupied[0x830000] = 0x42;
+  let collision = false; try { F.feldApply(occupied, { fields: true, bag: true }, [], le, E); } catch (e) { collision = /catalog/.test(e.message); }
+  ok(collision && occupied[0x830000] === 0x42, 'external catalog refuses occupied flash');
   const g = new Uint8Array(r); g[0xD49000] = 5; let err = ''; try { F.feldApply(g, { fields: true, bag: true }, [], fe, E); } catch (e) { err = e.message; }
   ok(F.feldId(g) === 0 && err, 'other editions refused');
 }).then(async () => {
@@ -234,18 +268,21 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
     put32(r, 0x111008, 0x1000); put32(r, 0xD49000, 1);
     const menu = { feld: new Uint8Array(fs4.readFileSync(__dirname + '/../feld/feld.bin')), stub: new Uint8Array(fs4.readFileSync(__dirname + '/../feld/stub_feld_tpl.bin')) };
     const rom = F.feldApply(r, { fields: true, bag: false }, [], menu, E), fi = F.feldFind(rom, menu.stub);
-    const m2 = new Uint8Array(rom), slot = fi.slotOff + fi.slotSize;          // device: Water stored in slot 2
-    put32(m2, slot, 0x544C5346); put32(m2, slot + 4, 2); put32(m2, slot + 8, 3); put32(m2, slot + 12, 0x2000); m2.fill(0x77, slot + 0x1000, slot + 0x3000);
+    const m2 = new Uint8Array(rom); // device: Water stored in slot 2
+    const page = new Uint8Array(4096).fill(0x77);
+    const saved = F.slotBuild(new Map([[0xD4A000,page],[0xD4B000,page]]), 1, 0xD4A000, 0xF00000);
+    F.slotPlace(m2,fi,1,saved,new Set());
     const io2 = fakeDevice(m2), d2 = (await FL.connect(io2, new Uint8Array(16), {})).dev;
     const k2 = FL.keepPlan(F, E, menu, {});
     let q = await d2.write(rom, { onlyChanged: true, keep: k2 }, null);
-    ok(q.written === 0 && m2[slot + 0x2000] === 0x77, 'flash: stored field kept (same layout)');
+    ok(q.written === 0 && F.feldSlots(m2,menu.stub).length === 1, 'flash: stored field kept (same layout)');
     // new ROM with the slots somewhere else
     const moved = new Uint8Array(rom); let ci = -1;
     for (let i = fi.off; i < fi.off + 0x8000; i += 4) if (moved[i] === 0x46 && moved[i + 1] === 0x45 && moved[i + 2] === 0x4C && moved[i + 3] === 0x44) { ci = i; break; }
     put32(moved, ci + 8, 0x900000);
     q = await d2.write(moved, { onlyChanged: true, keep: k2 }, null);
-    ok(m2[0x900000 + fi.slotSize + 0x2000] === 0x77 && m2[0x900000 + fi.slotSize + 4] === 2 && q.notes.some((n) => n.code === 'noteMoved'), 'flash: stored field moved to the new layout');
+    const movedSlot = await F.slotReadAsync(async (a,n) => m2.slice(a,a+n), F.feldFind(m2, menu.stub), 1);
+    ok(movedSlot && movedSlot.stream.length === saved.stream.length && movedSlot.stream.every((v,i) => v === saved.stream[i]) && movedSlot.field === 2 && q.notes.some((n) => n.code === 'noteMoved'), 'flash: stored field moved to the new layout');
   }
 }).then(() => {
   // 12) TamaEmu download content: route, add, list, remove (synthetic record)
