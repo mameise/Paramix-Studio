@@ -2335,9 +2335,9 @@ static void about_menu(void){
   ctext(40,"PARAMIX STUDIO",WHITE,1);
   ctext(60,"VERSION",GREY,1);
   ctext(74,PARAMIX_VERSION,GOLD,1);
-  ctext(85,"By mameise.",WHITE,1);
+  ctext(85,"By mameise",WHITE,1);
   ctext(95,"Extensions by",WHITE,1);
-  ctext(105,"x43x61x69.",WHITE,1);
+  ctext(105,"x43x61x69",WHITE,1);
   ctext(119,"B/C BACK",GREY,1);
   show(); wait_release();
   for(;;){ int k=input(); if(k==K_OK || k==K_BACK) return; }

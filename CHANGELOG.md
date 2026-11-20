@@ -2,6 +2,12 @@
 
 Versions are listed newest first.
 
+## 1.7.5-plus.40 (2026-11-20)
+
+- Support Neon Planet items, characters, missions and three save slots.
+- Import the 86 Neon Tama and localized Tama Files groups into six-field LZ4 ROMs.
+- Credit the original author and fork extensions in the on-device About screen.
+
 ## 1.7.5-plus.39 (2026-11-19)
 
 - Relock individual Tama Files and reset individual completed missions after confirmation.
