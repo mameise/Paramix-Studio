@@ -79,6 +79,16 @@ const added = N.transplant(rom, donor);
 rom = N.installGrowth(added.rom, added.rows);
 rom = F.feldApply(rom, { fields: true, tama: true }, saved, menu, E);
 
+{
+  assert(!N.growthUpdateNeeded(rom));
+  const old = rom.slice();
+  new DataView(old.buffer).setUint32(N.growthPage + 4, 1, true);
+  assert(N.growthUpdateNeeded(old));
+  const upgraded = N.upgradeGrowth(old);
+  assert(!N.growthUpdateNeeded(upgraded));
+  assert.equal(N.upgradeGrowth(upgraded), upgraded);
+  assert(Buffer.from(upgraded).equals(Buffer.from(rom)));
+}
 const config = F.feldFind(rom, menu.stub);
 assert(N.installed(rom));
 assert(config.flags & 0x100);

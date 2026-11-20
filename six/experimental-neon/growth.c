@@ -20,10 +20,6 @@ struct growth_data {
 /* Filled by the installer. Keep it externally linked so the compiler loads the ROM data. */
 extern const struct growth_data neon_growth_config;
 
-static u32 button_a(void) {
-  return (*(volatile const u32 *)0x40018000u & 0x200u) == 0;
-}
-
 static u32 teen_ordinal(u16 stock) {
   if (stock >= 3005 && stock <= 3016) return (stock - 3005) % 4;
   if (stock >= 3070 && stock <= 3073) return stock - 3070;
@@ -45,8 +41,12 @@ u16 neon_growth_pick(const u8 *settings, u16 stock, u32 care) {
   const struct growth_data *p = &neon_growth_config;
   const u16 previous = *(const u16 *)(settings + GROWTH_TAMA);
   const u32 stage = (settings[GROWTH_TAMA + 0x14] >> 2) & 7;
-  if (stage == 3 && previous == 1001 && button_a()) {
-    const u32 field = settings[GROWTH_FIELD];
+  if (stage == 3 && previous == 1001) {
+    u32 field = settings[GROWTH_FIELD];
+#ifdef GROWTH_JADE_SKY
+    /* The optional fourth field uses the live Water slot and the alternate-set byte. */
+    if (field == 1 && settings[0xf00] == 1 && *(const u32 *)0x100fe000u == 0x31584953u) field = 2;
+#endif
     if (field < PLANETS) return p->kids[field];
   }
   if (stage == 4) {
@@ -57,7 +57,8 @@ u16 neon_growth_pick(const u8 *settings, u16 stock, u32 care) {
     for (u32 i = 0; i < PLANETS; i++) {
       for (u32 j = 0; j < TEENS; j++) {
         if (p->teens[i][j] != previous) continue;
-        if (button_a() && p->counts[i]) return p->adults[i][roll(settings) % p->counts[i]];
+        const u32 draw = roll(settings);
+        if ((draw & 3u) == 0 && p->counts[i]) return p->adults[i][(draw >> 2) % p->counts[i]];
         return p->regular[i][4 * j + (care & 3)];
       }
     }

@@ -2,6 +2,14 @@
 
 Versions are listed newest first.
 
+## 1.7.5-plus.45 (2026-11-21)
+
+- Add optional in-game RELEASE for My Lab with localized prompts and compatible character sprites.
+- Manage the three native planet unlock flags in PLANET ACCESS.
+- Use field-based Neon growth in all six original Paradise editions, including existing imports.
+- Show the ten Lab games in every field of a supported six-field ROM.
+- Replay a decoded My Lab Special Food payload from the Studio Device panel.
+
 ## 1.7.5-plus.44 (2026-11-20)
 
 - Sweep all six fields in Clean Poop and include both groups in the native biofuel calculation.

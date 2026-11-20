@@ -306,6 +306,7 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <button class="tab" id="deviceTabUart" type="button" role="tab" aria-selected="true" aria-controls="deviceUart" data-t="devTitle"></button>
       <button class="tab" id="deviceTabPlaydate" type="button" role="tab" aria-selected="false" aria-controls="devicePlaydate" tabindex="-1" data-t="visTitle"></button>
       <button class="tab" id="deviceTabLab" type="button" role="tab" aria-selected="false" aria-controls="deviceLab" tabindex="-1" data-t="labSend"></button>
+      <button class="tab" id="deviceTabFood" type="button" role="tab" aria-selected="false" aria-controls="deviceFood" tabindex="-1" data-t="foodTitle"></button>
     </div>
     <section id="deviceUart" role="tabpanel" aria-labelledby="deviceTabUart">
     <p class="hint" data-t="devHint"></p>
@@ -484,6 +485,17 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       </section>
     </section>
     <section id="deviceLab" role="tabpanel" aria-labelledby="deviceTabLab" hidden></section>
+    <section id="deviceFood" role="tabpanel" aria-labelledby="deviceTabFood" hidden>
+      <p class="hint" id="foodHint" data-t="foodHint"></p>
+      <p class="hint" id="foodConnectionHint" hidden></p>
+      <div class="tools">
+        <button class="btn small" id="btnFoodImport" type="button" data-t="foodImport"></button>
+        <input id="foodImport" type="file" accept=".bin" hidden>
+        <span class="hint" id="foodFile" role="status"></span>
+        <button class="btn small primary" id="btnFoodSend" type="button" data-t="foodSend" aria-describedby="foodHint" disabled></button>
+      </div>
+      <p class="emustat" id="foodStat" role="status"></p>
+    </section>
   </section>
 
   <section class="start" id="start">
@@ -814,6 +826,12 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
         <label class="check"><input type="checkbox" id="sixPlanet" checked> <span data-t="sixPlanet"></span></label>
         <label class="check"><input type="checkbox" id="sixMenu" checked> <span data-t="sixMenu"></span></label>
       </div>
+      <div class="tools" id="labReleaseRow" hidden>
+        <label class="check"><input type="checkbox" id="labReleaseOn"> <span data-t="labReleaseOn"></span></label>
+        <button class="btn small" id="labReleasePick" data-t="neonDonorPick" hidden></button>
+        <input type="file" id="labReleaseFile" accept=".bin,.BIN" hidden>
+        <span class="hint" id="labReleaseStat"></span>
+      </div>
       <div class="tools" id="neonDonorRow" hidden>
         <button class="btn small" id="neonDonorPick" data-t="neonDonorPick"></button>
         <input type="file" id="neonDonorFile" accept=".bin,.BIN" hidden>
@@ -871,6 +889,7 @@ __SETTINGS__
 </script>
 <script>
 __HOME_MENU__
+__LAB_RELEASE__
 </script>
 <script>
 __FELD__

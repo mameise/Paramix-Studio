@@ -397,24 +397,51 @@ static void neon_missions_menu(void){
     }
   }
 }
-static const struct { const char *name; u8 min_level; } neon_planets[]={
-  {"COSMIC PLANET",0},{"NEW TAMA PLANET",4},{"TAMA PLANET",6}
-};
+#define NEON_PLANET_UNLOCK_OFF 0x89u
+#define NEON_PLANET_UNLOCK_MASK 7u
+static const char *const neon_planets[]={"COSMIC PLANET","NEW TAMA PLANET","TAMA PLANET"};
 #define NEON_PLANET_COUNT (sizeof(neon_planets)/sizeof(neon_planets[0]))
 
+static int neon_planet_unlocked(u32 planet){ return (g_set[NEON_PLANET_UNLOCK_OFF] & (1u<<planet))!=0; }
+
 static int neon_planet_row(u32 i,char *name,char *right,u16 *col){
-  const char *s=neon_planets[i].name; while((*name++=*s++)){}
-  right[0]=0;
-  *col=WHITE;
-  if(i==g_set[NEON_CURRENT_PLANET_OFF]){
-    s="HERE"; while((*right++=*s++)){}
-    *col=GOLD;
-  } else if((g_set[NEON_LEVEL_OFF]&15u)<neon_planets[i].min_level){
-    right[0]='L'; right[1]='V'; right[2]='.';
-    utoa_(neon_planets[i].min_level,right+3);
-    *col=GREY;
-  }
+  const char *s=neon_planets[i]; while((*name++=*s++)){}
+  int current=i==g_set[NEON_CURRENT_PLANET_OFF], unlocked=neon_planet_unlocked(i);
+  s=unlocked ? (current ? "HERE" : "OPEN") : "LOCKED";
+  while((*right++=*s++)){}
+  *col=current ? GOLD : unlocked ? WHITE : GREY;
   return 1;
+}
+
+static int neon_planet_access_row(u32 i,char *name,char *right,u16 *col){
+  if(i<NEON_PLANET_COUNT) return neon_planet_row(i,name,right,col);
+  const char *s="UNLOCK ALL"; while((*name++=*s++)){}
+  right[0]=0; *col=ORANGE;
+  return 1;
+}
+
+static void neon_planet_access_menu(void){
+  u32 sel=0;
+  for(;;){
+    int picked=progress_choose("PLANET ACCESS",NEON_PLANET_COUNT+1u,sel,neon_planet_access_row);
+    if(picked<0) return;
+    sel=(u32)picked;
+    if(sel==NEON_PLANET_COUNT){
+      if((g_set[NEON_PLANET_UNLOCK_OFF]&NEON_PLANET_UNLOCK_MASK)==NEON_PLANET_UNLOCK_MASK) continue;
+      if(!progress_reset_confirm("UNLOCK ALL?","ALL THREE PLANETS","")) continue;
+      g_set[NEON_PLANET_UNLOCK_OFF]|=NEON_PLANET_UNLOCK_MASK;
+      set_write("PLANETS UNLOCKED");
+      continue;
+    }
+    int unlocked=neon_planet_unlocked(sel);
+    if(unlocked && sel==g_set[NEON_CURRENT_PLANET_OFF]){
+      message("CURRENT PLANET","MOVE TAMA FIRST","");
+      continue;
+    }
+    if(!progress_reset_confirm(unlocked?"LOCK PLANET?":"UNLOCK PLANET?",neon_planets[sel],"")) continue;
+    g_set[NEON_PLANET_UNLOCK_OFF]^=(u8)(1u<<sel);
+    set_write(unlocked?"PLANET LOCKED":"PLANET UNLOCKED");
+  }
 }
 
 static void neon_planet_menu(void){
@@ -425,11 +452,11 @@ static void neon_planet_menu(void){
     if(picked<0 || (u32)picked==current) return;
     sel=(u32)picked;
     u32 level=g_set[NEON_LEVEL_OFF]&15u;
-    if(level<neon_planets[sel].min_level){
-      message("PLANET LOCKED",neon_planets[sel].min_level==4u?"NEEDS GALAXY LV.4":"NEEDS GALAXY LV.6","");
+    if(!neon_planet_unlocked(sel)){
+      message("PLANET LOCKED","USE PLANET ACCESS","");
       continue;
     }
-    if(!progress_reset_confirm("CHANGE PLANET?",neon_planets[sel].name,
+    if(!progress_reset_confirm("CHANGE PLANET?",neon_planets[sel],
                                level==4u?"GALAXY LV.4 TO LV.5":"MOVE CURRENT TAMA")) continue;
     g_set[NEON_CURRENT_PLANET_OFF]=(u8)sel;
     /* Match the native switch's three resets and the Lv.4 move milestone. */
@@ -441,7 +468,7 @@ static void neon_planet_menu(void){
 }
 
 static int neon_progress_root_row(u32 i,char *name,char *right,u16 *col){
-  static const char *const names[]={"GALAXY LEVEL","MISSIONS","TAMA FILE","CURRENT PLANET"};
+  static const char *const names[]={"GALAXY LEVEL","MISSIONS","TAMA FILE","CURRENT PLANET","PLANET ACCESS"};
   const char *s=names[i]; while((*name++=*s++)){}
   if(i==0u) utoa_(g_set[NEON_LEVEL_OFF]&15u,right);
   else right[0]=0;
@@ -451,13 +478,14 @@ static void neon_progress_menu(void){
   if(set_check_msg()) return;
   u32 sel=0;
   for(;;){
-    int action=progress_choose("PROGRESS",4u,sel,neon_progress_root_row);
+    int action=progress_choose("PROGRESS",5u,sel,neon_progress_root_row);
     if(action<0) return;
     sel=(u32)action;
     if(sel==0u) level_edit_at(NEON_LEVEL_OFF,"GALAXY LEVEL",1);
     else if(sel==1u) neon_missions_menu();
     else if(sel==2u) progress_files_menu();
-    else neon_planet_menu();
+    else if(sel==3u) neon_planet_menu();
+    else neon_planet_access_menu();
   }
 }
 #endif

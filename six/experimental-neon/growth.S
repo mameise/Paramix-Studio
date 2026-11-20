@@ -11,7 +11,7 @@
 .global neon_growth_header
 neon_growth_header:
   .word 0x5747524E             @ NRGW
-  .word 1
+  .word 2                      @ automatic field-based growth
   .word neon_growth_hook - neon_growth_header
   .word neon_growth_config - neon_growth_header
 

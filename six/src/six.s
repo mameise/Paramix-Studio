@@ -4,7 +4,7 @@
 @ (offset 0xF04) says which tables the field slots use: 0 = the original ones, 1 = the
 @ alternative ones (Land, Water, Sky on Tropical/Glacier, Sky in slot 1 on Jade Forest).
 @ Version 7: a second byte (0xF05), written only by the Paramix menu when it starts a field,
-@ picks the games of the lab: 0 = the firmware's own, 1 = Land/Water/Sky, 2 = Jade Forest.
+@ retains the starting game family for the care menu. Lab cards select their own variant.
 .syntax unified
 .thumb
 .text
@@ -341,43 +341,56 @@ six_fprev:
 .ltorg
 
 @ ---------------------------------------------------------------- games per start field (version 7)
-@ The Paramix menu writes the family byte (settings 0xF05) when it starts a field. In the scenes
-@ listed at gm_sc the lab games then use other pictures: every changed place in the firmware
-@ calls six_imm, which looks up the return address in the site list and puts the value of the
-@ family into the register (for "add rd, rn, #imm" the value is added to rn). The lab card list
-@ steps through the cards of the family (six_cnext, six_cprev).
+@ Lab cards carry the native slot (low three bits) and the resource variant
+@ (bit 3). Bit 7 of Paramix's own game-family byte tracks the selected variant
+@ through difficulty selection, play and results. Opening a fresh list clears it.
 .org 0x980
-w_gm:    .word 0                  @ 0x00 site list: return address, value 0, 1, 2, rd, rn (0xFF none), flags (bit 0: any scene), 20 bytes, ends with 0
-         .word 0                  @ 0x04 family byte (RAM)
+w_gm:    .word 0                  @ 0x00 site list: return address, value 0, 1, 2, rd, rn (0xFF none), flags (bit 0: care menu)
+         .word 0                  @ 0x04 game-family byte (RAM)
          .word 0                  @ 0x08 scene variable (RAM: u16 now, u16 next)
-gm_sc:   .space 12                @ 0x0C scenes where the family counts (bytes, 0 = end)
-gm_seq:  .space 16                @ 0x18 lab cards in order for family 1 and 2 (8 bytes each, 0xFF = end)
+gm_sc:   .space 12                 @ 0x0C Lab scenes where the selected variant applies
+gm_seq:  .space 10                 @ 0x18 ordered Lab cards
 .org 0x9B0
-  .word six_imm, six_cnext, six_cprev
+  .word six_imm, six_cnext, six_cprev, six_lab_open
 
-@ r0 = family in a listed scene, else 0. Uses r1-r3.
+@ r0 = selected Lab variant in a Lab scene, else 0. Uses r1-r3.
 gm_fam:
   push {r4,lr}
   ldr r3,=w_gm
   ldr r0,[r3,#4]
-  cbz r0,8f
   ldrb r0,[r0]
-  cmp r0,#3
-  bhs 8f
-  cbz r0,9f
+  lsrs r0,r0,#7
+  beq 9f
   ldr r1,[r3,#8]
   ldrh r2,[r1]
   ldrh r1,[r1,#2]
   adds r3,#0x0C
+  movs r12,#12
 1:ldrb r4,[r3],#1
-  cbz r4,8f
   cmp r4,r2
   beq 9f
   cmp r4,r1
   beq 9f
-  b 1b
-8:movs r0,#0
+  subs r12,#1
+  bne 1b
+  movs r0,#0
 9:pop {r4,pc}
+
+.thumb_func
+six_lab_open:
+  push {r1-r3}
+  ldr r1,=w_gm
+  ldr r2,[r1,#8]
+  ldrh r2,[r2]
+  cmp r2,#44
+  bne 1f
+  ldr r1,[r1,#4]
+  ldrb r2,[r1]
+  bic r2,r2,#0x80
+  strb r2,[r1]
+1:pop {r1-r3}
+  ldr r12,=0x1007BD19
+  bx r12                        @ displaced call in the Lab menu constructor
 
 @ Replaces a movw/mov.w/addw (bl) or a movw/movt pair (bl + nop). Keeps every other register and the flags.
 .thumb_func
@@ -400,6 +413,7 @@ six_imm:
   ldr r0,=w_gm
   ldr r0,[r0,#4]
   ldrb r0,[r0]
+  bic r0,r0,#0x80
   cmp r0,#3
   it hs
   movhs r0,#0
@@ -417,59 +431,51 @@ six_imm:
   pop {r0-r12}
   bx lr
 
-@ r2 = menu object. Replaces "ldrh.w r1,[r2,#126]" before the card number goes up (+1) or down (-1):
-@ r1 = next card - 1 or previous card + 1 in the order of the family (as before without a family).
-.macro CARD dir
-  push {r0,r2-r5,lr}
-  mrs r4,apsr
-  ldrh r5,[r2,#126]
-  bl gm_fam
-  mov r1,r5
-  cbz r0,9f
-  ldr r3,=gm_seq-8
-  add r3,r3,r0,lsl #3
-  movs r2,#0
-1:ldrb r0,[r3,r2]
-  cmp r0,#0xFF
-  beq 9f
-  cmp r0,r5
-  beq 2f
-  adds r2,#1
-  cmp r2,#8
-  blo 1b
-  b 9f
-.if \dir > 0
-2:adds r2,#1
-  ldrb r0,[r3,r2]
-  cmp r2,#8
-  it hs
-  movhs r0,#0xFF
-  cmp r0,#0xFF
-  it eq
-  ldrbeq r0,[r3]
-  subs r1,r0,#1
-.else
-2:cbnz r2,3f
-4:ldrb r0,[r3,r2]
-  cmp r0,#0xFF
-  beq 5f
-  adds r2,#1
-  cmp r2,#8
-  blo 4b
-5:
-3:subs r2,#1
-  ldrb r0,[r3,r2]
-  adds r1,r0,#1
-.endif
-9:msr APSR_nzcvq,r4
-  pop {r0,r2-r5,pc}
-.endm
+@ The native handler adds or subtracts one from our return value and stores
+@ the slot. The same ten-card order wraps in both directions.
 .thumb_func
 six_cnext:
-  CARD 1
+  push {r0,r2-r6,lr}
+  mrs r4,apsr
+  movs r6,#1
+  b gm_step
 .thumb_func
 six_cprev:
-  CARD -1
+  push {r0,r2-r6,lr}
+  mrs r4,apsr
+  movs r6,#1
+  rsbs r6,r6,#0
+gm_step:
+  ldrh r1,[r2,#126]
+  ldr r3,=w_gm
+  ldr r5,[r3,#4]
+  ldrb r0,[r5]
+  lsrs r0,r0,#7
+  orr r1,r1,r0,lsl #3
+  adds r3,#0x18
+  movs r2,#0
+1:ldrb r0,[r3,r2]
+  cmp r0,r1
+  beq 2f
+  adds r2,#1
+  cmp r2,#10
+  blo 1b
+  movs r2,#0
+2:adds r2,r2,r6
+  it mi
+  movmi r2,#9
+  cmp r2,#10
+  it eq
+  moveq r2,#0
+  ldrb r0,[r3,r2]
+  ldrb r1,[r5]
+  lsrs r2,r0,#3
+  bfi r1,r2,#7,#1
+  strb r1,[r5]
+  and r1,r0,#7
+  subs r1,r1,r6
+  msr APSR_nzcvq,r4
+  pop {r0,r2-r6,pc}
 .ltorg
 
 @ Clean Poop uses the same six-field unlock point as the expanded Fields menu.

@@ -7,7 +7,7 @@ fi
 case "$1" in /*) output=$1;; *) output="$(pwd)/$1";; esac
 case ${2:-gen3} in
     gen1) profile="-DGROWTH_TAMA=0x104 -DGROWTH_FIELD=0x1b3 -DGROWTH_SPECIES_SP=0x90 -DGROWTH_CARE_SP=0x20" ;;
-    jade) profile="-DGROWTH_TAMA=0x108 -DGROWTH_FIELD=0x1b7 -DGROWTH_SPECIES_SP=0xc0 -DGROWTH_CARE_SP=0x30" ;;
+    jade) profile="-DGROWTH_TAMA=0x108 -DGROWTH_FIELD=0x1b7 -DGROWTH_SPECIES_SP=0xc0 -DGROWTH_CARE_SP=0x30 -DGROWTH_JADE_SKY" ;;
     gen3) profile="" ;;
     *) echo "unknown growth profile: $2" >&2; exit 2 ;;
 esac

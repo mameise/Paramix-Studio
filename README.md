@@ -462,6 +462,16 @@ Click **Send to My Lab** in the Studio and select the adapter. The Studio report
 for the character before retrying. The source ROM and character file remain available after sending.
 
 The Studio sender follows a Capybara recording of the Neon Lab Invite transfer. Receipt, replacement in a full garden and persistence after reboot have been verified on a physical My Lab.
+### Release an adult from the Paradise connection menu
+
+Open a Paradise ROM and enable **Send to My Lab in game** in the firmware options. The option starts off. Choose a Neon Planets ROM as the source for the nine game languages. If you are also importing Neon content, Studio can reuse that source. Save the patched ROM with the `_my-lab` filename suffix.
+
+On Paradise, select **CONNECTION → RELEASE** while raising an adult. Confirm the release and connect to a My Lab waiting in **LAB INVITE**. Paradise starts a new egg when My Lab acknowledges the final packet. The firmware handles the three original connection layouts used by editions 1–6, including combined ROMs built on those layouts.
+
+### Send Special Food to Neon Planets
+
+Open **Device → Special Food** and load a decoded My Lab food payload (`.bin`). Attach the USB–UART adapter to Neon Planets and select **Wait for Paradise**. On the Paradise, open **CONNECTION → SPECIAL FOOD → GET FOOD**, then confirm the transfer. The selected food's planet must be unlocked. Accepting the transfer starts a new egg.
+
 
 ### Battery (1.6.9)
 Battery saving (1.6.9, switch `CLK_ECO`, `emu/src/emu/eco.h`): with the screen off T7Emu, V1Emu and V3Emu lower the
@@ -626,7 +636,10 @@ The menu itself, while the screen is dark, sleeps deeply until a key or the whee
 - Choose Neon Planets ROM to add 86 Tama and 59 items to Land, Water, Sky,
   Jade Forest, Tropical, or Glacier, including existing four- and six-field
   ROMs. The three Neon rosters appear in the native Tama Files. The imported
-  Tama can grow on the base ROM's playable fields. Use Items and Tamapoints
+  Tama evolve automatically according to the field where the baby grows into a kid.
+  Land and Tropical map to Cosmic Planet, Water and Glacier to New Tamagotchi
+  Planet, and Sky and Forest to Tamagotchi Planet. Open and save a ROM with an
+  older Neon import to update its growth routine. Use Items and Tamapoints
   to add the new items to your inventory. On the first import, Tropical and
   Glacier clear the two old placeholder counts.
 - If you also want six playable fields, enable All 6 fields and supply a Land,

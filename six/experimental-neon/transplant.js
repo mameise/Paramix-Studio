@@ -37,6 +37,7 @@ function growthKind(rom) {
 // Shared with zh patcher. The donor names still contain the stock Chinese codes.
 const NAME_STATE = GROWTH_PAGE + 0xFE0, NAME_MAGIC = 0x314E5A4E; // NZN1
 const FIELD_STATE = NAME_STATE + 16, FIELD_MAGIC = 0x31465A4E; // NZF1
+const GROWTH_VERSION = 2;
 const NATIVE_TEENS = 4, NATIVE_ADULTS = 16, MAX_ADULTS = 33;
 const GROWTH_CONFIG_SIZE = (3 + 3 * NATIVE_TEENS + 3 * NATIVE_ADULTS + 3 + 3 * MAX_ADULTS) * 2;
 const LAYER_INDEX_CODE = [0x00, 0x6C, 0x07, 0x9B, 0xB3, 0xF9, 0x00, 0x30, 0xBD, 0xF9, 0x1A, 0xC0];
@@ -537,11 +538,12 @@ function growthBranch(from, to) {
 }
 
 function growthHeader(code) {
+  const version = code && u32(code, 4);
   if (!code || code.length < 16 || code.length > 0x1000 ||
-      u32(code, 0) !== GROWTH_MAGIC || u32(code, 4) !== 1) return null;
+      u32(code, 0) !== GROWTH_MAGIC || (version !== 1 && version !== GROWTH_VERSION)) return null;
   const entry = u32(code, 8) & ~1, config = u32(code, 12);
   if (entry !== 16 || config < entry + 16 || config + GROWTH_CONFIG_SIZE > code.length) return null;
-  return { entry, config };
+  return { entry, config, version };
 }
 
 function installed(rom) {
@@ -569,6 +571,24 @@ function growthBinary(kind) {
   if (!code.startsWith('__')) return Uint8Array.from(atob(code), c => c.charCodeAt(0));
   const name = kind === 'gen3' ? 'growth' : 'growth-' + kind;
   return typeof require !== 'undefined' ? require('node:fs').readFileSync(__dirname + '/' + name + '.bin') : null;
+}
+
+function growthUpdateNeeded(rom) {
+  return installed(rom) && u32(rom, GROWTH_PAGE + 4) < GROWTH_VERSION;
+}
+
+function upgradeGrowth(rom) {
+  if (!growthUpdateNeeded(rom)) return rom;
+  const code = growthBinary(growthKind(rom)), fresh = growthHeader(code);
+  const old = growthHeader(rom.subarray(GROWTH_PAGE, ITEM_STATE));
+  if (fresh?.version !== GROWTH_VERSION || !old || code.length > ITEM_STATE - GROWTH_PAGE) {
+    throw new Error('Cannot update the Neon growth helper');
+  }
+  const config = rom.subarray(GROWTH_PAGE + old.config, GROWTH_PAGE + old.config + GROWTH_CONFIG_SIZE);
+  const out = new Uint8Array(rom);
+  out.set(code, GROWTH_PAGE);
+  out.set(config, GROWTH_PAGE + fresh.config);
+  return out;
 }
 
 function installGrowth(rom, rows, code) {
@@ -632,6 +652,6 @@ function installGrowth(rom, rows, code) {
   return out;
 }
 
-root.ParamixNeonTransplant = { transplant, installGrowth, installed, fixLayerIndices, needsPlanetNames, localizePlanetNames, transplantItems, itemsInstalled, clearPlaceholderCounts, clearItemSaveSlots, growthPage: GROWTH_PAGE };
+root.ParamixNeonTransplant = { transplant, installGrowth, installed, growthUpdateNeeded, upgradeGrowth, fixLayerIndices, needsPlanetNames, localizePlanetNames, transplantItems, itemsInstalled, clearPlaceholderCounts, clearItemSaveSlots, growthPage: GROWTH_PAGE };
 if (typeof module !== 'undefined') module.exports = root.ParamixNeonTransplant;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -391,7 +391,9 @@ function importer(src, dst, entries) {
  */
 const SIX_GAMES = true;
 const G_SCENES = [44, 45, 46, 47, 48, 49, 50, 51, 92, 95, 96, 97];   // lab card list (44, 45..51 back from game k), result, games
-const G_SEQ = [[0, 1, 2, 3, 6, 5], [0, 1, 2, 3, 4, 5]];
+// Seven Tropical/Glacier games, plus the three distinct Land variants.
+const G_SEQ = [0, 1, 2, 3, 4, 5, 6, 0xA, 0xB, 0xE];
+const G_OPEN = 0x1001FEBA, G_OPEN_ORIG = '5bf02dff', G_ALL = 0x100;
 const G_NAV = [[0x1002FFE4, 1], [0x1003003A, 2]];       // ldrh.w r1,[r2,#126] -> six_cnext / six_cprev
 const G_NAV_ORIG = 'b2f87e10';
 const G_SITES = [
@@ -495,7 +497,7 @@ const G_TABLES = {
   bg03: { addr: 0x10091CC4, n: 5, w: 2, f1: [[0,'p',1402],[1,'p',1402],[2,'p',1402],[3,'p',1402],[4,'p',1402]], f2: [[0,'p',1402],[1,'p',1402],[2,'p',1402],[3,'p',1402],[4,'p',1402]] },
   play: { addr: 0x10094140, n: 24, w: 2, f1: [[0,'=',809],[2,'=',101],[12,'=',811],[14,'=',103],[18,'=',812],[20,'=',104]] },
 };
-const P_GM = 0x980, P_GM_FN = 0x9B0;
+const P_GM = 0x980, P_GM_FN = 0x9B0, P_GM_END = 0xB00;
 
 /* movw / mov.w / addw / add.w with an immediate: kind w or a, rd, rn, value */
 function immDec(b, o) {
@@ -676,6 +678,7 @@ function sixInfo(rom) {
   return { version, kind: version >= 3 && u32(rom, SIX_OFF + 28) === 1 ? 'jade' : 'gen3', flagOff: u32(rom, SIX_OFF + 12),
     sprites: u32(rom, SIX_OFF + 16), comps: u32(rom, SIX_OFF + 20), anims: version >= 2 ? u32(rom, SIX_OFF + 24) : 0,
     planet: version >= 5 && (u32(rom, SIX_OFF + 32) & 1) === 1, fieldMenu: version >= 6 && (u32(rom, SIX_OFF + 32) & 2) === 2,
+    allLabGames: version >= 7 && !!(u32(rom, SIX_OFF + 32) & G_ALL),
     games: version >= 7 && (u32(rom, SIX_OFF + 32) & 4) === 4, dna: version >= 7 && (u32(rom, SIX_OFF + 32) & 8) === 8, hunt: version >= 7 && (u32(rom, SIX_OFF + 32) & 16) === 16, food: version >= 7 && (u32(rom, SIX_OFF + 32) & 64) === 64, gamesRest: version >= 7 ? u32(rom, SIX_OFF + 36) : 0 };
 }
 // Replace the complete adult-only branch in existing v7 helpers. All entry
@@ -754,6 +757,7 @@ function sixStrip(rom) {
     const r = info.gamesRest, n = u32(out, r);
     for (let k = 0; k < n && k < 4096; k++) { const o = r + 4 + 16 * k, xip = u32(out, o), len = u32(out, o + 4); out.set(out.slice(o + 8, o + 8 + len), xip - 0x10000000 + 0x11000); }
   }
+  if (info.allLabGames) put(f(G_OPEN - 0x10000000), G_OPEN_ORIG);
   out.fill(0xFF, SIX_OFF, SIX_OFF + 0x1000);
   if (u32(out, B_OFF) === B_MAGIC) out.fill(0xFF, B_OFF, 0x1000000);
   if (info.kind === 'jade') return out;
@@ -832,16 +836,54 @@ function install(out, kind, blob, alt, counts, planet, fieldMenu, games) {
   out.set(page, SIX_OFF);
   return out;
 }
+function gameHook(at, page, entry) {
+  return branch(at, u32(page, P_GM_FN + 4 * entry) & ~1, true);
+}
+function gamesConfigure(out, page) {
+  const open = G_OPEN - 0x10000000 + 0x11000;
+  if (hex(out, open, 4) !== G_OPEN_ORIG) throw new Error('Lab menu opening routine changed');
+  page.set(G_SCENES, P_GM + 0x0C);
+  page.fill(0, P_GM + 0x18, P_GM + 0x28);
+  page.set(G_SEQ, P_GM + 0x18);
+  w32(page, 32, u32(page, 32) | G_ALL);
+  out.set(gameHook(G_OPEN, page, 3), open);
+}
 function gamesInstall(out, page, K, games) {
-  const g = (k) => u32(page, P_GM_FN + 4 * k) & ~1, fo = (x) => x - 0x10000000 + 0x11000;
+  const fo = xip => xip - 0x10000000 + 0x11000;
   w32(page, P_GM, games.list); w32(page, P_GM + 4, K.flag + 1); w32(page, P_GM + 8, 0x18001CB4);
-  page.fill(0, P_GM + 0x0C, P_GM + 0x18); G_SCENES.forEach((v, i) => { page[P_GM + 0x0C + i] = v; });
-  page.fill(0xFF, P_GM + 0x18, P_GM + 0x28); G_SEQ.forEach((q, fam) => q.forEach((v, i) => { page[P_GM + 0x18 + 8 * fam + i] = v; }));
+  gamesConfigure(out, page);
   for (const [xip, len] of games.patches) {
-    const b = new Uint8Array(len); b.set(branch(xip, g(0), true)); if (len === 8) { w16(b, 4, 0xBF00); w16(b, 6, 0xBF00); }
+    const b = new Uint8Array(len); b.set(gameHook(xip, page, 0)); if (len === 8) w16(b, 4, 0xBF00);
     out.set(b, fo(xip));
   }
-  for (const [xip, k] of G_NAV) { if (hex(out, fo(xip), 4) !== G_NAV_ORIG) throw new Error('game place changed ' + xip.toString(16)); out.set(branch(xip, g(k), true), fo(xip)); }
+  for (const [xip, entry] of G_NAV) {
+    if (hex(out, fo(xip), 4) !== G_NAV_ORIG) throw new Error('game place changed ' + xip.toString(16));
+    out.set(gameHook(xip, page, entry), fo(xip));
+  }
+}
+function sixLabGamesUpdateNeeded(rom) {
+  const info = sixInfo(rom);
+  return !!(info?.kind === 'gen3' && info.version === SIX_VERSION && info.games && !info.allLabGames);
+}
+function sixLabGamesUpdate(rom, blob) {
+  if (!sixLabGamesUpdateNeeded(rom)) return rom;
+  if (!blob || blob.length < P_GM_END || blob.length > 0x1000 || u32(blob, 0) !== SIX_MAGIC || u32(blob, 4) !== SIX_VERSION ||
+      (u32(blob, P_GM_FN + 12) & ~1) < SIX_XIP + P_GM_FN || (u32(blob, P_GM_FN + 12) & ~1) >= SIX_XIP + P_GM_END)
+    throw new Error('Lab game helper missing');
+  const oldPage = rom.subarray(SIX_OFF, SIX_OFF + 0x1000);
+  const page = new Uint8Array(oldPage);
+  page.set(blob.subarray(P_GM_FN, P_GM_END), P_GM_FN);
+  const out = new Uint8Array(rom);
+  const assetHooks = [...G_SITES, ...G_TABS].map(([at]) => [Number(at), 0]);
+  for (const [xip, entry] of [...assetHooks, ...G_NAV]) {
+    const at = xip - 0x10000000 + 0x11000;
+    if (!gameHook(xip, oldPage, entry).every((byte, i) => rom[at + i] === byte))
+      throw new Error('Lab game hook changed ' + xip.toString(16));
+    out.set(gameHook(xip, page, entry), at);
+  }
+  gamesConfigure(out, page);
+  out.set(page, SIX_OFF);
+  return out;
 }
 /* DNA per field: can this ROM (with six fields of version 7 or new) get it? */
 function dnaCan(rom, K) {
@@ -959,7 +1001,7 @@ function sixApply(rom, land, blob, opts = {}) {
   const wantDna = SIX_DNA && opts.dna !== false && !!(KINDS[have ? have.kind : kindOf(rom)] || {}).dna;
   const wantFood = SIX_FOOD && opts.dna !== false;
 
-  if (have && have.version >= SIX_VERSION && have.planet === planet && have.fieldMenu === fieldMenu && have.games === wantGames) { let r = sixDna(rom, blob, wantDna); if (wantFood) r = sixFood(r, blob); return sixFieldsUpdate(sixHunt(r), blob); }
+  if (have && have.version >= SIX_VERSION && have.planet === planet && have.fieldMenu === fieldMenu && have.games === wantGames) { let r = sixDna(rom, blob, wantDna); if (wantFood) r = sixFood(r, blob); return sixLabGamesUpdate(sixFieldsUpdate(sixHunt(r), blob), blob); }
   if (have) rom = sixStrip(rom);
   const kind = kindOf(rom);
   if (kind && fieldMenu && !fmCan(rom, KINDS[kind])) fieldMenu = false;
@@ -1338,6 +1380,6 @@ function sixBookStrip(rom, stubOff) {
   sites.forEach(([off, orig]) => rom.set(bookBytes(orig), off));
 }
 
-root.ParamixSix = { VERSION: SIX_VERSION, DNA: SIX_DNA, HUNT: SIX_HUNT, sixHunt, sixFieldsUpdate, sixFieldsUpdateNeeded, sixDna, sixDnaCan, sixApply, sixStrip, sixFix, sixCan, sixSource, sixInfo, sixNeedsSource, sixBookApply, sixBookStrip, kindOf, embedded, FLAG_OFF, SIX_OFF, packGroup, reduceOne, mapCells };
+root.ParamixSix = { VERSION: SIX_VERSION, DNA: SIX_DNA, HUNT: SIX_HUNT, sixHunt, sixLabGamesUpdate, sixLabGamesUpdateNeeded, sixFieldsUpdate, sixFieldsUpdateNeeded, sixDna, sixDnaCan, sixApply, sixStrip, sixFix, sixCan, sixSource, sixInfo, sixNeedsSource, sixBookApply, sixBookStrip, kindOf, embedded, FLAG_OFF, SIX_OFF, packGroup, reduceOne, mapCells };
 if (typeof module !== 'undefined') module.exports = root.ParamixSix;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -9,6 +9,7 @@ const F = window.ParamixFeld;
 const S6 = window.ParamixSix;
 const LZ = window.ParamixLegacyLz4;
 const NT = window.ParamixNeonTransplant;
+const LR = window.ParamixLabRelease;
 const $ = (id) => document.getElementById(id);
 
 // New/legacy ROMs start unchecked; retain an actually installed shortcut.
@@ -26,6 +27,7 @@ const T = {
   de: {
     neonBagUnavailable: 'Das Inventarformat dieser Neon-Planets-Firmware ist unbekannt.',
     paraClear: 'Aktiven ROM-Spielstand löschen', paraClearAsk: 'Den aktiven Paradise-Spielstand im geladenen ROM löschen?', paraClearDone: 'Aktiver Spielstand gelöscht. Speichere das ROM als neue Datei.', paraClearPending: 'Schliesse zuerst die Spielstand-Wiederherstellung im Paramix-Menü ab.',
+    labReleaseOn: 'Send to My Lab im Spiel', labReleaseHint: 'Unter CONNECTION erscheint RELEASE. Wähle ein Neon-Planets-ROM für die Spieltexte.', labReleaseInstalled: 'RELEASE ist bereits installiert.', labReleaseUpgrade: 'RELEASE wird beim Export aktualisiert.', labReleaseFail: 'Lab Invite konnte nicht hinzugefügt werden: {e}',
     neonDonorPick: 'Neon-Planets-ROM wählen', neonDonorHint: 'Ergänzt 86 Tama und 59 Items aus Neon Planets.', neonDonorReady: 'Neon-Quelle: {name}', neonDonorBad: 'Wähle ein unterstütztes Neon-Planets-ROM.', neonDonorFail: 'Neon-Inhalte konnten nicht eingebaut werden: {e}', neonDonorOn: 'Neon-Inhalte', neonItemsHint: 'Ergänzt 59 Items aus Neon Planets.', neonLocalizeHint: 'Übernimmt die originalen Planetennamen in allen Sprachen.',
     appsOnlyOn: 'Programmmenü', appsOnlyHint: 'Paramix neben dem normalen Neon-Planets-Spiel öffnen. Enthält Programme und das Flash-Werkzeug.', neonSaves: 'Drei Neon-Spielstände', neonSaveFields: 'Neue Spielstände starten mit der Original-Einrichtung. Das Spiel schaltet Felder mit dem Fortschritt frei.', neonSaveFull: 'Für einen Neon-Spielstand im Menü ist eine vollständige .tamasave-Datei erforderlich.',
     neonTamaOn: 'Tama im Programmmenü (Pflege, Aussehen, Alter)', petPoints: 'Tamapoints', petMission: 'Mission', petMissionAction: 'Abschluss', petMissionComplete: 'Als erledigt markieren', petMissionReset: 'Abschluss zurücksetzen',
@@ -99,6 +101,12 @@ const T = {
     labRun: 'Charakter wird an My Lab übertragen…', labWait: 'Charakter übertragen. Warte auf das Ende der Verbindung…',
     labDone: 'Übertragung bestätigt. Prüfe, ob das Tama im Garten von My Lab angekommen ist.',
     labError: 'My Lab: {e}. Prüfe den Garten vor einem erneuten Versuch.',
+    foodTitle: 'Spezialfutter', foodImport: 'My-Lab-Futterdatei öffnen…', foodSend: 'Auf Paradise warten',
+    foodHint: 'Eine dekodierte My-Lab-Futterdatei laden und den USB-UART-Adapter an Neon Planets anschließen. Hier die Verbindung starten, dann mit einem erwachsenen Tama VERBINDUNG → SPEZIALFUTTER → FUTTER HOLEN öffnen. Beim Annehmen wird ein neues Ei gestartet.',
+    foodReady: 'Warte auf die Anfrage von Paradise…', foodRun: 'Paradise hat eine Verbindung hergestellt…',
+    foodConfirm: 'Futterdaten gesendet. Bestätige die Annahme auf dem Paradise.',
+    foodDone: 'Paradise hat die Übertragung bestätigt.', foodDeclined: 'Paradise hat die Annahme abgebrochen.',
+    foodFormat: 'Öffne eine dekodierte My-Lab-Futterdatei (.bin) mit vollständigen Futterdaten.',
     visHint: 'Den USB-UART-Adapter an das Paradise im normalen Spiel anschließen. Hier das Modell wählen, „Playdate starten“ drücken und den Adapter auswählen. Am Paradise im Planetenmenü VERBINDUNG → PLAYDATE öffnen und B drücken. Zum Zurücksenden des empfangenen Charakters ist keine Datei nötig.',
     visWait: 'Bereit als {ed}. Am Paradise PLAYDATE wählen und B drücken.', visRun: 'Verbunden, Daten werden getauscht…', visPlay: 'Die beiden spielen…',
     visDone: 'Besuch fertig ({ed}). Für den nächsten wieder B am Paradise.', visErr: 'Abgebrochen: {e}. Am Paradise nochmals B.', visBadKey: 'Das Paradise versteht die Daten nicht.',
@@ -122,7 +130,7 @@ const T = {
     cleanOn: 'Ohne Paradise (Clean ROM)', cleanClock: 'Uhr beim Start stellen', cleanClockHint: 'Fehlt die Uhr (neue Batterien), fragt das Menü beim Einschalten danach. Ohne: Die Uhr stellst du im Menü unter SETTINGS oder in jedem Emulator selbst.', emuClockOff: 'Geht nur mit "Uhr beim Start stellen" (Tab Menü).', emuSess: 'Spielstand beim Verlassen merken', emuSessHint: 'Beim nächsten Start geht es genau dort weiter. Ohne: Das Spiel startet neu und lädt seinen eigenen Spielstand, wie das echte Gerät.', ruleClean: 'Ohne Paradise: alle Programme kommen ins Menü, fast der ganze Speicher ist für sie da.', cleanHint: 'Kein Paradise mehr auf dem Gerät, nur das Menü mit deinen Programmen. Fast die ganzen 16 MB sind frei.', cleanUse: 'Nach dem Einschalten kommt gleich das Menü. Beim ersten Start stellst du die Uhr, später unter SETTINGS. Zurück aus einem Programm wie gewohnt.', cleanWarn: 'Das Paradise und sein Spielstand gehen beim Schreiben verloren. Mach vorher eine Sicherung.', cleanNoDoom: 'DOOM geht noch nicht ohne Paradise. Bitte DOOM entfernen.', doomOne: 'DOOM geht nur einmal ins Menü.', cleanSure: 'Auf dem Gerät ist das Paradise. Es wird gelöscht, mit seinem Spielstand. Hast du eine Sicherung des Geräts? Weiter?', cleanLoaded: 'ROM ohne Paradise ({ed}) geladen: {n} Programme.',
     launchOn: 'Nur Startgerät für Programme', launchHint: 'Vom Paradise bleibt nur die Einrichtung (Sprache, Uhr, Weiter oder Neu). Danach kommt immer das Menü mit deinen Emulatoren und DOOM. Alle Bilder des Spiels fallen weg, das gibt etwa 5 MB mehr Platz.', launchUse: 'Nach dem Einschalten und dem Stellen der Uhr kommt das Menü. Rad wählt, B startet. Zurück aus einem Programm wie gewohnt, dann kommt wieder das Menü.', launchOld: 'Dieses ROM ist ein Startgerät. Für ein normales Paradise das Original-ROM laden.', launchNeed: 'Ein Startgerät braucht mindestens ein Programm (Emulator oder DOOM).', launchSix: 'Startgerät geht nicht mit eingebauten sechs Feldern. Bitte das Original-ROM laden.', planLaunch: 'Startgerät',
     tabFeld: 'Menü', feldOn: 'Mehrere Spielstände (mit Feldwahl)', bagOn: 'Items und Tamapoints', tamaOn: 'Tama ändern (Stufe, Pflege, Figur)', paramixShortcut: 'PARAMIX am Ende des Spielmenüs hinzufügen', paramixShortcutHint: 'Optional. A + C auf dem Startbildschirm funktioniert weiterhin.', gplayOn: 'Spielzeit gibt Tamapoints', gplayHint: 'DOOM, Wolfenstein, Game Boy, Master System, Pokémon mini und Arduboy: 10 Tamapoints pro Minute Spielzeit, beim Zurückkehren ins Paradise.', saveSlot: 'Spielstand {n}',
-    sixOn: 'Alle 6 Felder', sixPick: 'Land-, Water- oder Sky-ROM wählen', sixHint: 'Holt Land, Water und Sky zu Tropical und Glacier dazu. Die Feldbilder kommen aus deinem eigenen Land-, Water- oder Sky-ROM. Die Lab-Spiele richten sich nach dem Feld, mit dem der Tama im Menü startet.',
+    sixOn: 'Alle 6 Felder', sixPick: 'Land-, Water- oder Sky-ROM wählen', sixHint: 'Holt Land, Water und Sky zu Tropical und Glacier dazu. Die Feldbilder kommen aus deinem eigenen Land-, Water- oder Sky-ROM. Alle zehn Lab-Spiele sind in jedem Feld verfügbar.',
     sixNeed: 'Für alle 6 Felder fehlt noch ein Land-, Water- oder Sky-ROM.', sixOk: 'Feldbilder aus {n} übernommen.', sixBad: '{n} ist kein Land-, Water- oder Sky-ROM.', sixIn: 'Alle 6 Felder sind eingebaut.', sixOff: 'Beim Speichern kommen Land, Water und Sky wieder raus. Mehrere Spielstände gehen weiterhin.', sixOffJ: 'Beim Speichern kommt Sky wieder raus. Mehrere Spielstände gehen weiterhin.', sixOffField: 'Das Gerät ist gerade auf {f}. Erst im Menü auf {s} wechseln.', sixOffSlots: 'Die im Menü gespeicherten Spielstände werden dabei gelöscht. Weiter?', sixFail: 'Felder nicht eingebaut: {e}', sixNoFw: 'Die Firmware dieses ROMs ist verändert, weitere Felder gehen hier nicht.', planSix: 'Mehr Felder', sixOnJ: 'Sky als 4. Feld', sixHintJ: 'Jade Forest hat die Sky-Bilder schon dabei.', sixInJ: 'Sky ist als 4. Feld eingebaut.', sixOld: 'Alle 6 Felder sind eingebaut, aber in einer älteren Version. Wähl dein Land-, Water- oder Sky-ROM, dann wird beim Speichern alles nachgerüstet.', sixOldJ: 'Sky ist eingebaut und wird beim Speichern auf den neuen Stand gebracht.', sixPlanet: 'Planet passend zum Feld', sixMenu: 'Spielmenü Felder: alle Felder ab Stufe 4', sixPlanetNeed: 'Zum Ändern dieser Einstellung braucht es nochmals dein Land-, Water- oder Sky-ROM.', sixApp: 'DOOM und Emulator passen nicht dazu',
     exitKey: 'Zurück aus Programmen', exitHint: 'Wie man aus allen Programmen (Emulatoren und Spiele) zum Paradise oder ins Menü zurückkommt.', exit0: 'Rad lange drücken', exit1: 'Rad und A halten', exit2: 'Rad und C halten', exit3: 'Rad 5 s drücken', feldHint: 'Kleines Menü im ROM: zwischen Spielständen wechseln (neuer Spielstand auf einem Feld nach Wahl), Items in die Tasche legen, Tamapoints setzen, Tama ändern.',
     feldUse: 'Öffnen: auf dem Heimbildschirm A und C zusammen halten. Rad wählt, B bestätigt, C zurück.',
@@ -186,6 +194,7 @@ const T = {
   en: {
     neonBagUnavailable: 'This Neon Planets firmware uses an unrecognized item save layout.',
     paraClear: 'Clear active ROM save', paraClearAsk: 'Clear the active Paradise save in the loaded ROM?', paraClearDone: 'Active save cleared. Save the ROM as a new file.', paraClearPending: 'Finish recovering the saved game in the Paramix menu first.',
+    labReleaseOn: 'Send to My Lab in game', labReleaseHint: 'Adds RELEASE under CONNECTION. Choose a Neon Planets ROM for the in-game text.', labReleaseInstalled: 'RELEASE is already installed.', labReleaseUpgrade: 'RELEASE will be updated on export.', labReleaseFail: 'Could not add Lab Invite: {e}',
     neonDonorPick: 'Choose Neon Planets ROM', neonDonorHint: 'Add 86 Tama and 59 items from Neon Planets.', neonDonorReady: 'Neon source: {name}', neonDonorBad: 'Choose a supported Neon Planets ROM.', neonDonorFail: 'Could not add Neon content: {e}', neonDonorOn: 'Neon content', neonItemsHint: 'Add 59 items from Neon Planets.', neonLocalizeHint: 'Update Tama Files with the original planet names in all languages.',
     appsOnlyOn: 'Programs menu', appsOnlyHint: 'Open Paramix alongside the Neon Planets game to use programs and the Flash Tool.', neonSaves: 'Three Neon save slots', neonSaveFields: 'New saves use the game’s setup. The game unlocks fields with progress.', neonSaveFull: 'Writing a Neon menu slot requires a complete .tamasave backup.',
     neonTamaOn: 'Tama in Programs menu (care, appearance, age)', petPoints: 'Tamapoints', petMission: 'Mission', petMissionAction: 'Completion', petMissionComplete: 'Mark complete', petMissionReset: 'Reset completion',
@@ -259,6 +268,12 @@ const T = {
     labRun: 'Sending the character to My Lab…', labWait: 'Character sent. Waiting for the connection to finish…',
     labDone: 'Transfer acknowledged. Check the My Lab garden for the Tama.',
     labError: 'My Lab: {e}. Check the garden before trying again.',
+    foodTitle: 'Special Food', foodImport: 'Load My Lab Food File…', foodSend: 'Wait for Paradise',
+    foodHint: 'Load a decoded My Lab food file and attach the USB-UART adapter to Neon Planets. Start here, then select CONNECTION → SPECIAL FOOD → GET FOOD with an adult Tama. Accepting the transfer starts a new egg.',
+    foodReady: 'Waiting for Paradise to request food…', foodRun: 'Paradise connected…',
+    foodConfirm: 'Food data sent. Confirm on Paradise.',
+    foodDone: 'Paradise confirmed the transfer.', foodDeclined: 'Paradise cancelled the transfer.',
+    foodFormat: 'Open a decoded My Lab food file (.bin) containing complete food data.',
     visHint: 'Attach the USB-UART adapter to the Paradise while the game is running. Choose the model here, click Start Playdate and select the adapter. On the Paradise, open the planet menu, choose CONNECTION → PLAYDATE and press B. Return received character works without loading a file.',
     visWait: 'Ready as {ed}. On the Paradise choose PLAYDATE and press B.', visRun: 'Connected, exchanging data…', visPlay: 'The two are playing…',
     visDone: 'Visit done ({ed}). For the next one press B on the Paradise again.', visErr: 'Stopped: {e}. Press B on the Paradise again.', visBadKey: 'The Paradise does not understand the data.',
@@ -272,7 +287,7 @@ const T = {
     cleanOn: 'Without the Paradise (clean ROM)', cleanClock: 'Set the clock at the start', cleanClockHint: 'When the clock is missing (new batteries), the menu asks for it when switched on. Without: set the clock in the menu under SETTINGS or in each emulator itself.', emuClockOff: 'Only with "Set the clock at the start" (tab Menu).', emuSess: 'Remember where you left off', emuSessHint: 'The next start continues right there. Without: the game starts anew and loads its own save, as the real device does.', ruleClean: 'Without the Paradise: all programs go to the menu, almost the whole flash is theirs.', cleanHint: 'No Paradise on the device any more, only the menu with your programs. Almost the whole 16 MB is free.', cleanUse: 'After switching on the menu comes up right away. On the first start you set the clock, later under SETTINGS. Leave a program as usual.', cleanWarn: 'The Paradise and its save are lost when writing. Make a backup first.', cleanNoDoom: 'DOOM does not work without the Paradise yet. Please remove DOOM.', doomOne: 'DOOM goes into the menu only once.', cleanSure: 'The device has the Paradise on it. It is deleted, with its save. Do you have a backup of the device? Go on?', cleanLoaded: 'ROM without the Paradise ({ed}) loaded: {n} programs.',
     launchOn: 'Start device for programs only', launchHint: 'Only the setup of the Paradise stays (language, clock, continue or new). After it the menu with your emulators and DOOM always comes up. All pictures of the game go, which gives about 5 MB more room.', launchUse: 'After switching on and setting the clock the menu comes up. Wheel selects, B starts. Leave a program as usual, then the menu comes up again.', launchOld: 'This ROM is a start device. Load the original ROM for a normal Paradise.', launchNeed: 'A start device needs at least one program (emulator or DOOM).', launchSix: 'A start device does not go with six fields built in. Please load the original ROM.', planLaunch: 'Start device',
     tabFeld: 'Menu', feldOn: 'Several saves (with field choice)', bagOn: 'Items and Tamapoints', tamaOn: 'Change Tama (level, care, character)', paramixShortcut: 'Add PARAMIX at the end of the game menu', paramixShortcutHint: 'Optional. A + C on the home screen remains available.', gplayOn: 'Play time earns Tamapoints', gplayHint: 'DOOM, Wolfenstein, Game Boy, Master System, Pokémon mini and Arduboy: 10 Tamapoints per minute of play, when going back to the Paradise.', saveSlot: 'Save {n}',
-    sixOn: 'All 6 fields', sixPick: 'Choose Land, Water or Sky ROM', sixHint: 'Adds Land, Water and Sky to Tropical and Glacier. The field pictures come from your own Land, Water or Sky ROM. The lab games follow the field the Tama starts with in the menu.',
+    sixOn: 'All 6 fields', sixPick: 'Choose Land, Water or Sky ROM', sixHint: 'Adds Land, Water and Sky to Tropical and Glacier. The field pictures come from your own Land, Water or Sky ROM. All ten Lab games are available in every field.',
     sixNeed: 'All 6 fields still need a Land, Water or Sky ROM.', sixOk: 'Field pictures taken from {n}.', sixBad: '{n} is not a Land, Water or Sky ROM.', sixIn: 'All 6 fields are built in.', sixOff: 'Saving takes Land, Water and Sky out again. Several saves keep working.', sixOffJ: 'Saving takes Sky out again. Several saves keep working.', sixOffField: 'The device is on {f} now. First switch to {s} in the menu.', sixOffSlots: 'The saves stored in the menu are deleted. Continue?', sixFail: 'Fields not built in: {e}', sixNoFw: 'The firmware of this ROM is changed, more fields do not work here.', planSix: 'More fields', sixOnJ: 'Sky as 4th field', sixHintJ: 'Jade Forest already has the Sky pictures.', sixInJ: 'Sky is built in as the 4th field.', sixOld: 'All 6 fields are built in, but an older version. Choose your Land, Water or Sky ROM and everything is updated when you save.', sixOldJ: 'Sky is built in and is updated when you save.', sixPlanet: 'Planet to match the field', sixMenu: 'Game menu Fields: all fields from level 4', sixPlanetNeed: 'Changing this setting needs your Land, Water or Sky ROM again.', sixApp: 'DOOM and the emulator do not fit with it',
     exitKey: 'Back from programs', exitHint: 'How to get from all programs (emulators and games) back to the Paradise or the menu.', exit0: 'Hold the wheel', exit1: 'Hold wheel and A', exit2: 'Hold wheel and C', exit3: 'Hold the wheel 5 s', feldHint: 'Small menu in the ROM: switch between saves (a new save on a field of your choice), put items in the bag, set Tamapoints, change the Tama.',
     feldUse: 'Open: hold A and C together on the home screen. Wheel selects, B confirms, C goes back.',
@@ -512,7 +527,7 @@ async function inflateRaw(bytes) {
   return new Uint8Array(out);
 }
 const pad4 = (n) => String(n).padStart(4, '0');
-const baseName = () => state.name.replace(/\.[^.]+$/, '').replace(/(_paramix|_emu|_t7|_t18|_doom_E\d|_felder|_fields|_4fields|_6fields|_neon-tama|_neon-items|_items|_start|_clean)+$/, '');
+const baseName = () => state.name.replace(/\.[^.]+$/, '').replace(/(_paramix|_emu|_t7|_t18|_doom_E\d|_felder|_fields|_4fields|_6fields|_neon-tama|_neon-items|_my-lab|_items|_start|_clean)+$/, '');
 
 // ------------------------------------------------------------- loading
 async function loadRom(file) {
@@ -533,6 +548,7 @@ async function loadRom(file) {
   state.neonDonor = null;
   state.paraCleared = false;
   state.emu = null; state.t7save = null; state.t7saveX = null; state.saveIn = null; state.emuRemove = false; state.doom = null; state.doomKeys = null; state.six = null; state.sixName = ''; state.sixWant = false; state.sixOff = false; state.petDirty = false; state.texts = new Map(); state.eyeShift = new Map(); state.mouthShift = new Map(); state.poseAdj = new Map(); state.poseCache = null; face.g = -1; state.dlcT = 'main'; state.figT = 'main'; state.dlcOpen = false; state.mainGuest = null; state.emuPack = (() => { const c = romEmuCfg(buf); return !!(c && c.version >= 5 && c.lzOff) && (!E.PACK_ASK || E.lzCount(buf, c.lzOff) > E.PACK_FEW); })();   // PACK_ASK: the 2 or 3 blocks every main TamaEmu packs do not mean "Pack the firmware" state.t18Main = null; state.t18Dirty = false; state.t18Pics = E.t18PicsRead(buf); state.t18PicsDirty = false; state.itemT = 'main'; state.progOpen = new Set(); state.mainPick = null; state.mainDirty = false; state.roomFree = null; state.paraMainTaken = false;
+  state.labRelease = false; state.labDonor = null;
   { const si = S6.sixInfo(buf); state.sixPlanet = si && si.version >= 5 ? si.planet : true; state.sixMenu = si && si.version >= 6 ? si.fieldMenu : true; }
   { const l = stubList(buf); const g = E.autoGet(buf, l); state.emuAuto = g === null ? E.autoGetOld(buf, l) : g; }
   { const c = E.emuClockGet(buf); state.emuClock = c === null ? true : c; }
@@ -2593,6 +2609,15 @@ function renderFeld() {
   // six fields (Tropical/Glacier): row visible there only
   const si = S6.sixInfo(rom), sixIn = !!si, sixOld = !!si && si.version < S6.VERSION, sixCan = !!S6.kindOf(rom), jade = S6.kindOf(rom) === 'jade';
   const neonBuilt = !!NT?.installed?.(rom);
+  const labUpgrade = LR.needsUpgrade(rom);
+  const labInstalled = labUpgrade || LR.installed(rom);
+  $('labReleaseRow').hidden = la || !!state.clean || !(labInstalled || LR.supported(rom));
+  $('labReleaseOn').checked = labInstalled || !!state.labRelease;
+  $('labReleaseOn').disabled = labInstalled;
+  $('labReleasePick').hidden = labInstalled || !state.labRelease;
+  const labDonor = state.labDonor || state.neonDonor;
+  $('labReleaseStat').textContent = labUpgrade ? t('labReleaseUpgrade') : labInstalled ? t('labReleaseInstalled') :
+    labDonor && state.labRelease ? t('neonDonorReady', { name: labDonor.name }) : t('labReleaseHint');
   const neonItems = !!NT?.itemsInstalled(rom);
   $('neonDonorRow').hidden = !NT || !LZ || !ed || neon || la || !!state.clean ||
     (neonBuilt && neonItems && !NT.needsPlanetNames(rom));
@@ -2678,6 +2703,16 @@ $('fileSix').onchange = async (e) => {
   state.six = buf; state.sixName = f.name; state.sixWant = true; state.feld = true;
   toast(t('sixOk', { n: f.name }));
   renderFeld(); renderNames();
+};
+$('labReleaseOn').onchange = (e) => { state.labRelease = e.target.checked; renderFeld(); };
+$('labReleasePick').onclick = () => $('labReleaseFile').click();
+$('labReleaseFile').onchange = async (e) => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  const rom = new Uint8Array(await file.arrayBuffer());
+  if (rom.length !== 0x1000000 || C.editionIdOf(rom) !== 7) { toast(t('neonDonorBad'), true); return; }
+  state.labDonor = { rom, name: file.name };
+  renderFeld();
 };
 $('neonDonorPick').onclick = () => $('neonDonorFile').click();
 $('neonDonorFile').onchange = async (e) => {
@@ -2798,9 +2833,17 @@ async function composeClean() {
 async function composeRom() {
   if (CLEAN_ROM && state.clean) return composeClean();
   const keysDirty = !state.doom && doomInstalled() && state.doomKeys && D.doomKeysGet(state.ctx.rom) && JSON.stringify(state.doomKeys) !== JSON.stringify(D.doomKeysGet(state.ctx.rom));
-  const si0 = S6.sixInfo(state.ctx.rom), sixUp = (!!si0 && (si0.version < S6.VERSION || !sixSame(si0)) && !S6.sixNeedsSource(state.ctx.rom)) || sixDnaUp(si0) || S6.sixFieldsUpdateNeeded(state.ctx.rom);
+  const si0 = S6.sixInfo(state.ctx.rom), sixUp = (!!si0 && (si0.version < S6.VERSION || !sixSame(si0)) && !S6.sixNeedsSource(state.ctx.rom)) || sixDnaUp(si0) || S6.sixFieldsUpdateNeeded(state.ctx.rom) || S6.sixLabGamesUpdateNeeded(state.ctx.rom);
   const emuUp = emuUpPending();
-  if (!state.changed.size && !state.t7save && !state.emu && !state.emuRemove && !state.doom && !keysDirty && !emuUp && !emuAutoDirty() && !state.six && !state.neonDonor && !sixUp && !(state.sixWant && !S6.sixInfo(state.ctx.rom)) && state.appsOnly === state.appsOnlyInit && state.feld === state.feldInit && state.bag === state.bagInit && state.tama === state.tamaInit && state.paramixShortcut === state.paramixShortcutInit && !!state.gplay === !!state.gplayInit && state.saves === state.savesInit && state.launch === state.launchInit && (state.exitKey || 0) === (state.exitKeyInit || 0) && !state.feldStale && !state.extrasDirty && !state.mainDirty && !state.extrasUp && !state.t7saveX && !state.saveIn && !state.sixOff && !state.petDirty && !state.t18Dirty && !state.t18PicsDirty && !(state.texts && state.texts.size) && !(state.eyeShift && state.eyeShift.size) && !(state.mouthShift && state.mouthShift.size) && !(state.poseAdj && state.poseAdj.size)) return { rom: state.ctx.rom, name: state.paraCleared ? baseName() + '_save-cleared.bin' : state.name, res: null, same: !state.paraCleared };
+  const growthUp = NT?.growthUpdateNeeded(state.ctx.rom);
+  if (!state.changed.size && !state.t7save && !state.emu && !state.emuRemove && !state.doom && !keysDirty && !emuUp && !emuAutoDirty() && !state.six && !state.neonDonor && !state.labRelease && !sixUp && !growthUp && !(state.sixWant && !S6.sixInfo(state.ctx.rom)) && state.appsOnly === state.appsOnlyInit && state.feld === state.feldInit && state.bag === state.bagInit && state.tama === state.tamaInit && state.paramixShortcut === state.paramixShortcutInit && !!state.gplay === !!state.gplayInit && state.saves === state.savesInit && state.launch === state.launchInit && (state.exitKey || 0) === (state.exitKeyInit || 0) && !state.feldStale && !state.extrasDirty && !state.mainDirty && !state.extrasUp && !state.t7saveX && !state.saveIn && !state.sixOff && !state.petDirty && !state.t18Dirty && !state.t18PicsDirty && !(state.texts && state.texts.size) && !(state.eyeShift && state.eyeShift.size) && !(state.mouthShift && state.mouthShift.size) && !(state.poseAdj && state.poseAdj.size)) {
+    try {
+      const rom = LR.upgrade(state.ctx.rom);
+      const name = state.paraCleared ? baseName() + '_save-cleared.bin' :
+        rom === state.ctx.rom ? state.name : baseName() + '_release-fixed.bin';
+      return { rom, name, res: null, same: !state.paraCleared && rom === state.ctx.rom };
+    } catch (e) { toast(t('labReleaseFail', { e: em(e) }), true); return null; }
+  }
   const fe = F.embedded(); let feldSaved;
   try { feldSaved = fe ? F.feldSlots(state.ctx.rom, fe.stub) : []; }
   catch (e) { toast(t('feldFail', { e: em(e) }), true); return null; }
@@ -2895,6 +2938,8 @@ async function composeRom() {
   }
   if (S6.DNA && S6.sixInfo(rom)) rom = S6.sixDna(rom, S6.embedded(), true);
   if (S6.HUNT && S6.sixInfo(rom)) rom = S6.sixHunt(rom);   // 1.7.3 test23: egg hunt per field
+  try { rom = S6.sixLabGamesUpdate(rom, S6.embedded()); }
+  catch (e) { toast(t('sixFail', { e: em(e) }), true); return null; }
   if (S6.sixInfo(rom)) rom = S6.sixFix(rom);   // the archive may have moved: rain pictures point to 0xF00000
   if (state.neonDonor) {
     try {
@@ -2913,6 +2958,20 @@ async function composeRom() {
         if (C.editionIdOf(rom) >= 5) feldSaved = NT.clearItemSaveSlots(feldSaved);
       }
     } catch (e) { toast(t('neonDonorFail', { e: em(e) }), true); return null; }
+  }
+  if (NT?.growthUpdateNeeded(rom)) {
+    try { rom = NT.upgradeGrowth(rom); }
+    catch (e) { toast(t('neonDonorFail', { e: em(e) }), true); return null; }
+  }
+  let labLabel = null;
+  if (state.labRelease && !state.launch && !state.clean) {
+    const donor = state.labDonor || state.neonDonor;
+    // Grow the archive before placing programs, the catalog and save slots.
+    try {
+      const prepared = LR.prepare(rom, donor?.rom);
+      rom = prepared.rom;
+      labLabel = prepared.label;
+    } catch (e) { toast(t('labReleaseFail', { e: em(e) }), true); return null; }
   }
   // more emulators (1.6.0): the old blocks go, the list is placed again from the top of the emulator area
   let apps = [], appsLow = 0;
@@ -2963,7 +3022,12 @@ async function composeRom() {
     if (a) rom = a;
   }
   if (EXIT_KEY && (state.exitKey || exitGet(rom))) rom = exitSet(rom, state.exitKey || 0);
-  const name = baseName() + (state.changed.size ? '_paramix' : '') + (state.emu ? (state.emu.v1 ? '_v1' : state.emu.t7 ? '_t7' : state.emu.t18 ? '_t18' : '_emu') : '') + (state.doom ? '_doom_E' + $('doomEp').value : '') + (S6.sixInfo(rom) ? (S6.kindOf(rom) === 'jade' ? '_4fields' : '_6fields') : state.feld ? '_fields' : '') + (NT?.installed?.(rom) ? '_neon-tama' : '') + (NT?.itemsInstalled?.(rom) ? '_neon-items' : '') + (state.bag ? '_items' : '') + (state.launch ? '_start' : '') + '.bin';
+  if (labLabel !== null || LR.needsUpgrade(rom)) {
+    // A blank save-pool page is already allocated once the menu is built.
+    try { rom = labLabel === null ? LR.upgrade(rom) : LR.install(rom, labLabel); }
+    catch (e) { toast(t('labReleaseFail', { e: em(e) }), true); return null; }
+  }
+  const name = baseName() + (state.changed.size ? '_paramix' : '') + (state.emu ? (state.emu.v1 ? '_v1' : state.emu.t7 ? '_t7' : state.emu.t18 ? '_t18' : '_emu') : '') + (state.doom ? '_doom_E' + $('doomEp').value : '') + (S6.sixInfo(rom) ? (S6.kindOf(rom) === 'jade' ? '_4fields' : '_6fields') : state.feld ? '_fields' : '') + (NT?.installed?.(rom) ? '_neon-tama' : '') + (NT?.itemsInstalled?.(rom) ? '_neon-items' : '') + (state.bag ? '_items' : '') + (LR.installed(rom) ? '_my-lab' : '') + (state.launch ? '_start' : '') + '.bin';
   return { rom, name, res, fresh };
 }
 $('btnSave').onclick = () => busy(async () => {
@@ -2996,7 +3060,7 @@ function showDeviceTab(tab) {
     item.tabIndex = selected ? 0 : -1;
     $(item.getAttribute('aria-controls')).hidden = !selected;
   }
-  if (panel.id !== 'deviceUart') {
+  if (panel.id === 'devicePlaydate' || panel.id === 'deviceLab') {
     const lab = panel.id === 'deviceLab';
     panel.prepend($('visitBox'));
     $('playdateActions').hidden = lab;
@@ -3073,7 +3137,7 @@ const VIS = window.ParamixVisit;
 const VS = {
   io: null, mode: null, opening: false, v: null, peer: null, chunks: [], bytes: 0,
   ghosts: [], baseVisitor: null, visitor: null, romContext: null, romVisitors: new Map(),
-  romPalette: null, eyeChoices: new Map(),
+  romPalette: null, eyeChoices: new Map(), food: null,
 };
 const VIS_CAPTURE_LIMIT = 4 * 1024 * 1024;
 const VIS_SCREENSHOT = 0x1b000;
@@ -3655,27 +3719,33 @@ $('btnVisCapture').onclick = () => {
   download(new Blob(VS.chunks, { type: 'application/octet-stream' }), 'playdate-incoming-' + date + '.bin');
 };
 function visKey() { return window.ParamixVisit.parseKey(FL.linkKey); }
-function visStat(m, mode = 'playdate') { $(mode === 'lab' ? 'labStat' : 'visStat').textContent = m; }
+const VIS_MODES = {
+  playdate: ['visStat', 'visTitle'], lab: ['labStat', 'labSend'], food: ['foodStat', 'foodTitle'],
+};
+function visStat(m, mode = 'playdate') { $(VIS_MODES[mode][0]).textContent = m; }
 function visEdName() { const e = $('visEd').value; const x = VIS_ED.find((a) => a[0] === e); return x ? x[1] : e; }
 function visRender() {
   const locked = VS.opening || !!VS.io;
-  const playdate = VS.mode === 'playdate', lab = VS.mode === 'lab';
+  const playdate = VS.mode === 'playdate', lab = VS.mode === 'lab', food = VS.mode === 'food';
   const uartBusy = dv.opening || dv.run || !!dv.io;
   const activeTab = deviceTabs.find(tab => tab.getAttribute('aria-selected') === 'true');
-  const activeMode = activeTab.id === 'deviceTabLab' ? 'lab' : 'playdate';
+  const activeMode = { deviceTabPlaydate: 'playdate', deviceTabLab: 'lab', deviceTabFood: 'food' }[activeTab.id];
   const otherMode = VS.mode && VS.mode !== activeMode;
-  const hint = $('visConnectionHint'), uartHint = $('uartConnectionHint');
+  const hint = $(activeMode === 'food' ? 'foodConnectionHint' : 'visConnectionHint'), uartHint = $('uartConnectionHint');
   hint.hidden = !(uartBusy || otherMode);
-  hint.textContent = hint.hidden ? '' : t('visConnectionHint', { tab: t(uartBusy ? 'devTitle' : lab ? 'labSend' : 'visTitle') });
+  hint.textContent = hint.hidden ? '' : t('visConnectionHint', { tab: t(uartBusy ? 'devTitle' : VIS_MODES[VS.mode][1]) });
   uartHint.hidden = !VS.io;
-  uartHint.textContent = uartHint.hidden ? '' : t('visConnectionHint', { tab: t(lab ? 'labSend' : 'visTitle') });
+  uartHint.textContent = uartHint.hidden ? '' : t('visConnectionHint', { tab: t(VIS_MODES[VS.mode][1]) });
   $('btnConn').disabled = !navigator.serial || !hasFlashApp || dv.run || dv.opening || locked;
   $('btnVis').textContent = t(playdate ? 'visStop' : 'visStart');
-  $('btnVis').disabled = !navigator.serial || uartBusy || VS.opening || lab || (!VS.io && !!$('visGhost').value && !VS.visitor);
+  $('btnVis').disabled = !navigator.serial || uartBusy || VS.opening || lab || food || (!VS.io && !!$('visGhost').value && !VS.visitor);
   $('btnLabRelease').textContent = t(lab ? 'visStop' : 'labSend');
-  $('btnLabRelease').disabled = !navigator.serial || uartBusy || VS.opening || playdate ||
+  $('btnLabRelease').disabled = !navigator.serial || uartBusy || VS.opening || playdate || food ||
     (!lab && (!VS.visitor || visView(VS.visitor.bytes).getUint16(0xfc, true) !== 5));
-  $('visEd').disabled = lab || VS.opening;
+  $('btnFoodSend').textContent = t(food ? 'visStop' : 'foodSend');
+  $('btnFoodSend').disabled = !navigator.serial || uartBusy || VS.opening || playdate || lab || !VS.food;
+  $('btnFoodImport').disabled = locked;
+  $('visEd').disabled = lab || food || VS.opening;
   $('btnVisCapture').disabled = !VS.bytes;
   $('visGhost').disabled = locked;
   $('btnVisGhostImport').disabled = locked;
@@ -3776,6 +3846,27 @@ async function visOpen(mode) {
   };
   visRender();
   if (mode === 'playdate') { visArm(); return; }
+  if (mode === 'food') {
+    try {
+      VS.v = VIS.createSpecialFood({
+        payload: VS.food, core: C, key: visKey(), send: bytes => io.write(bytes),
+        log(event, info) {
+          if (VS.io !== io) return;
+          if (event === 'start') visStat(t('foodRun'), mode);
+          if (event === 'sent') visStat(t('foodConfirm'), mode);
+          if (event === 'done' || event === 'error') {
+            const message = event === 'error' ? t('visErr', { e: info.text }) : t(info.result === 1 ? 'foodDone' : 'foodDeclined');
+            visClose().then(() => visStat(message, mode));
+          }
+        },
+      });
+      visStat(t('foodReady'), mode);
+    } catch (e) {
+      await visClose();
+      visStat(t('visErr', { e: e.message }), mode);
+    }
+    return;
+  }
   try {
     VS.v = VIS.createLabRelease({
       ghost, core: C, key: visKey(), send: bytes => io.write(bytes),
@@ -3797,6 +3888,25 @@ async function visOpen(mode) {
 }
 $('btnVis').onclick = () => visOpen('playdate');
 $('btnLabRelease').onclick = () => visOpen('lab');
+$('btnFoodSend').onclick = () => visOpen('food');
+$('btnFoodImport').onclick = () => $('foodImport').click();
+$('foodImport').onchange = async () => {
+  const input = $('foodImport'), file = input.files[0];
+  input.value = '';
+  if (!file || VS.io || VS.opening) return;
+  VS.food = null;
+  $('foodFile').textContent = '';
+  visRender();
+  try {
+    if (file.size !== VIS.SPECIAL_FOOD_PAYLOAD) throw new Error();
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    VIS.checkSpecialFood(bytes, C);
+    VS.food = bytes;
+    $('foodFile').textContent = file.name;
+    visStat('', 'food');
+  } catch (_) { visStat(t('foodFormat'), 'food'); }
+  visRender();
+};
 const PL_HINT = true;
 $('btnConn').onclick = async () => {
   if (VS.opening || VS.io || dv.opening || dv.run) return;

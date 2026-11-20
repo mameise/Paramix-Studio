@@ -206,7 +206,7 @@ static void neon_progress_tests(void){
   assert(sl_r32(g_set+0xC0)==12345u);
 
   u8 before[PAGE], expected[PAGE];
-  g_set[0x88]=0x44; g_set[0x89]=7;
+  g_set[0x88]=0x44; g_set[0x89]=0x83;
   sl_w32(g_set+0x118,4152u|(4152u<<16));
   g_set[0x12C]=5u<<2;
   memset(g_set+0x162,0xAB,6);
@@ -214,11 +214,11 @@ static void neon_progress_tests(void){
   u8 *old_page=host_flash+NEON_SET_FIRST+neon_set_slot*PAGE;
   memcpy(old_page,g_set,PAGE);
   memcpy(before,g_set,PAGE);
-  neon_progress_keys("pbbc"); /* Select the planet already in use. */
-  neon_progress_keys("pbpbccc"); /* Planet 2 is locked at Lv.4. */
-  neon_progress_keys("pbnbccc"); /* Cancel a move to planet 1. */
+  neon_progress_keys("ppbbc"); /* Select the planet already in use. */
+  neon_progress_keys("ppbpbccc"); /* Planet 2 is locked by its own flag. */
+  neon_progress_keys("ppbnbccc"); /* Cancel a move to planet 1. */
   assert(!set_load() && !memcmp(g_set,before,PAGE));
-  neon_progress_keys("pbnbbcc");
+  neon_progress_keys("ppbnbbcc");
   memcpy(expected,before,PAGE);
   expected[0x88]=0x45;
   expected[0x207]=1;
@@ -226,6 +226,13 @@ static void neon_progress_tests(void){
   sl_w32(expected+NEON_SET_GENERATION,39);
   stamp(expected);
   assert(!set_load() && !memcmp(g_set,expected,PAGE) && !memcmp(old_page,before,PAGE));
+  neon_progress_keys("pbbbccc"); /* Lock Cosmic Planet while on planet 1. */
+  assert(!set_load() && neon_set_generation(g_set)==40u && g_set[0x89]==0x82u);
+  neon_progress_keys("pbnbccc"); /* The active planet cannot be locked. */
+  assert(!set_load() && neon_set_generation(g_set)==40u && g_set[0x89]==0x82u);
+  neon_progress_keys("pbpbbccc"); /* Unlock all planets. */
+  assert(!set_load() && neon_set_generation(g_set)==41u && g_set[0x89]==0x87u);
+  assert(g_set[0x88]==0x45u && g_set[0x207]==1u);
 }
 int main(int argc,char **argv){
   assert(argc==2); g_dir=argv[1]; host_flash=malloc(0x1000000); assert(host_flash);

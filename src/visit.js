@@ -23,6 +23,9 @@
   const ED = { land: 1, water: 2, sky: 3, jade: 4, tropics: 5, glacier: 6, neon: 7, 'my-lab': 254 };
   const GHOST_SIZE = 0x20000;
   const PACKET_SIZE = GHOST_SIZE + 0x14;
+  const SPECIAL_FOOD_AREA = 0x4000;
+  const SPECIAL_FOOD_REQUEST = 0x1b008;
+  const SPECIAL_FOOD_PAYLOAD = 0x1f002;
   const enc = (s) => new TextEncoder().encode(s);
 
   function crc16(d) {
@@ -75,9 +78,26 @@
     return createSession(opts, buildLabRelease(opts.ghost, opts.core));
   }
 
-  function createSession(opts, release) {
+  function checkSpecialFood(bytes, core) {
+    if (bytes.length !== SPECIAL_FOOD_PAYLOAD || u32(bytes, 0) !== 0x32435241) {
+      throw new Error('Expected a decoded My Lab Special Food payload with food data');
+    }
+    const length = u32(bytes, 8), end = 16 + length;
+    if (u32(bytes, 12) !== 3 || end > SPECIAL_FOOD_AREA || end < 64 ||
+        core.arc2Checksum(bytes, 0, length) !== u32(bytes, 4) ||
+        core.arc2Parse(bytes, 0).ents.some(e => e.offset < 64 || e.offset + e.clen > end)) {
+      throw new Error('Invalid Special Food archive');
+    }
+  }
+
+  function createSpecialFood(opts) {
+    checkSpecialFood(opts.payload, opts.core);
+    return createSession(opts, null, opts.payload.slice());
+  }
+
+  function createSession(opts, release, specialFood) {
     const ed = typeof opts.edition === 'number' ? opts.edition : ED[String(opts.edition).toLowerCase()];
-    if (!release && !ed) throw new Error('unknown edition');
+    if (!release && !specialFood && !ed) throw new Error('unknown edition');
     if (!release && opts.ghost && opts.ghost.length !== GHOST_SIZE) throw new Error('invalid ghost size');
     const key = opts.key, log = opts.log || (() => {});
     const st = { phase: 'wait', sid: 0, got: 0, stopped: false, result: null };
@@ -85,7 +105,7 @@
     let need = 0;                     // > 0: a chunk of this size is expected
     let rx = null;                    // packet coming in
     let tx = null;                    // packet going out
-    let echo = null, heartbeat = null, cooldown = null, queue = Promise.resolve();
+    let echo = null, heartbeat = null, cooldown = null, foodTimeout = null, queue = Promise.resolve();
     const out = (s) => opts.send(typeof s === 'string' ? enc(s) : s);
     const line = (s) => out(s + '\r\n');
 
@@ -151,6 +171,31 @@
     async function packet(d, type) {
       st.got++;
       if (release) return;
+      if (specialFood) {
+        if (st.phase === 'wait' && type === 0x35 && d.length === 2) {
+          st.phase = 'food-request';
+          foodTimeout = setTimeout(() => fail(new Error('Paradise did not send a Special Food request')), 20000);
+          return;
+        }
+        if (st.phase === 'food-request' && type === 0x25 && d.length === SPECIAL_FOOD_REQUEST) {
+          clearTimeout(foodTimeout);
+          st.phase = 'send';
+          await releaseDelay(150);
+          await sendPacket(specialFood, 0x25);
+          st.phase = 'food-confirm';
+          log('sent', {});
+          idle(true);
+          foodTimeout = setTimeout(() => fail(new Error('Paradise did not confirm the Special Food transfer')), 45000);
+          return;
+        }
+        if (st.phase === 'food-confirm' && type === 0x25 && d.length === 2) {
+          st.result = u16(d, 0);
+          finish();
+          return;
+        }
+        if (st.phase !== 'done' && st.phase !== 'error') throw new Error('Unexpected packet. Open Special Food → Get Food on Paradise.');
+        return;
+      }
       if (type & 0x10) { log('packet', { kind: 'session' }); return; }
       if (d.length === PACKET_SIZE) {
         log('packet', { kind: 'data', ed: u32(d, GHOST_SIZE) >>> 16, playdate: d });
@@ -171,9 +216,10 @@
       }
       log('packet', { kind: 'other', n: d.length });
     }
-    function finish() { if (st.phase === 'done') return; st.phase = 'done'; idle(false); log('done', { result: st.result }); }
+    function finish() { if (st.phase === 'done') return; st.phase = 'done'; clearTimeout(foodTimeout); idle(false); log('done', { result: st.result }); }
     function fail(e) {
       if (st.stopped || st.phase === 'error' || st.phase === 'done') return;
+      clearTimeout(foodTimeout);
       idle(false);
       st.phase = 'error';
       cancelPacket(e);
@@ -294,8 +340,9 @@
         return queue;
       },
       async stop() {
-        const notify = release && st.phase !== 'wait' && st.phase !== 'done' && st.phase !== 'error';
+        const notify = (release || specialFood) && st.phase !== 'wait' && st.phase !== 'done' && st.phase !== 'error';
         st.stopped = true;
+        clearTimeout(foodTimeout);
         idle(false);
         const error = new Error('session stopped');
         cancelPacket(error);
@@ -571,6 +618,14 @@
       throw new Error('overlapping Lab Invite sprite ranges');
     const out = new Uint8Array(GHOST_SIZE);
     out.set(ghost.subarray(0, GHOST_SPRITES));
+    // Shared effects live in the receiver's archive. Translate the sender's
+    // indices to the same effects in Neon, leaving the six bundled layers alone.
+    for (let at = GHOST_COMPOSITES; at < GHOST_SPRITES; at += 22) {
+      if (u16(out, at) < 6 || !u16(out, at + 6)) continue;
+      const type = u16(out, at + 20);
+      if (type === 16) w16(out, at, 222);
+      if (type === 17) w16(out, at, at < GHOST_COMPOSITES + 30 * 110 ? 224 : 223);
+    }
     let offset = GHOST_SPRITES;
     for (const [index, part] of parts.entries()) {
       if (!part) continue;
@@ -670,7 +725,8 @@
   }
 
   const api = {
-    ED, GHOST_SIZE, PACKET_SIZE, createVisitor, createLabRelease, buildLabRelease, parseKey, crypt, crc16,
+    ED, GHOST_SIZE, PACKET_SIZE, SPECIAL_FOOD_PAYLOAD, createVisitor, createLabRelease, buildLabRelease,
+    checkSpecialFood, createSpecialFood, parseKey, crypt, crc16,
     collectRomVisitors, buildRomGhost, writeRomGhostPlanet, setPlanetNameAndChecksum,
     PLAYDATE_FIELDS, playdateFields, writePlaydateFields,
     ghostAppearanceOptions, romEyes, editGhostAppearance,

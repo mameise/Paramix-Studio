@@ -52,7 +52,11 @@ ok(tgt(0x1BEAC) && tgt(0x20ED2) && tgt(0x20FBC) && tgt(0x20D62), 'branches into 
 ok(info.fieldMenu && tgt(0x11000 + 0x265E2) && tgt(0x11000 + 0x41690) && tgt(0x11000 + 0x416B8) && tgt(0x11000 + 0x414EC) && six[0x11000 + 0x41496 + 2] === 0x53, 'game field menu hooked');
 { const nm = S.sixApply(six, land, blob, { fieldMenu: false }), ni = S.sixInfo(nm);
   ok(ni && !ni.fieldMenu && nm[0x11000 + 0x41690] === 0x90 && nm[0x11000 + 0x41496 + 2] === 0x4F, 'switch off: game field menu as before'); }
-ok(info.games && tgt(0x11000 + 0x50B1E) && tgt(0x11000 + 0x2FFE4) && tgt(0x11000 + 0x83938), 'lab games per start field hooked');
+ok(info.games && info.allLabGames && tgt(0x11000 + 0x50B1E) && tgt(0x11000 + 0x2FFE4) && tgt(0x11000 + 0x83938),
+  'all Lab games are hooked');
+ok(six.subarray(S.SIX_OFF + 0x998, S.SIX_OFF + 0x9A2).join() === '0,1,2,3,4,5,6,10,11,14',
+  'Lab list contains the seven base games and the three distinct Land cards');
+ok(!S.sixLabGamesUpdateNeeded(six) && S.sixLabGamesUpdate(six, blob) === six, 'Lab list upgrade is idempotent');
 { const ng = S.sixApply(six, land, blob, { games: false }), gi = S.sixInfo(ng);
   ok(gi && !gi.games && Buffer.compare(Buffer.from(ng.subarray(0x11000 + 0x50B1E, 0x11000 + 0x50B22)), Buffer.from(base.subarray(0x11000 + 0x50B1E, 0x11000 + 0x50B22))) === 0 && ng[0x11000 + 0x2FFE4] === 0xB2 && ng[0x11000 + 0x2FFE5] === 0xF8, 'switch off: lab games as before'); }
 ok(u32(six, 0xF00000) === 0x42584953, 'rain pictures in region B');
