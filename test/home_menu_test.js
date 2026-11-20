@@ -15,7 +15,7 @@ function fixture(i){
  b.set(words(s.original),s.table);b.set(join(mov(1,s.state&65535),mov(1,s.state>>>16,true)),s.stateSite);b.set(ptr(1,s.table),s.ptr);b.set([3,0x21],s.ptr+10);b.set(join(Uint8Array.of(s.date,0x20),branch(s.next+2,s.scene)),s.next);b.set(branch(s.select,s.scene),s.select);
  const sprite=new Uint8Array(24);w32(sprite,0,24);const str=Uint8Array.of(1,0,3,0,5,0,62,1,0,0);
  b.set(C.arc2Build([new Uint8Array(80),C.packJoin([sprite]),C.arc2Build(Array(9).fill(str))]),0x111000);
- for(const[stub,entry]of[[0xB6000,0xB8000],[0xB7000,0xB9000]]){b.set([0x72,0xB6,1,0x4C],stub+0x20);w32(b,stub+0x28,alias(entry));const c=entry+0x140;for(const[o,v]of[[0,0x444C4546],[4,9],[16,0],[28,0xD29000],[32,stub],[272,0],[276,0],[392,0],[500,0],[600,0]])w32(b,c+o,v);}
+ for(const[stub,entry]of[[0xB6000,0xB8000],[0xB7000,0xB9000]]){b.set([0x72,0xB6,1,0x4C],stub+0x20);w32(b,stub+0x28,alias(entry));const c=entry+0x140;for(const[o,v]of[[0,0x444C4546],[4,9],[16,0],[28,0xD29000],[32,stub],[36,0],[272,0],[276,0],[392,0],[500,0],[600,0]])w32(b,c+o,v);}
  return b;
 }
 for(let i=0;i<3;i++){

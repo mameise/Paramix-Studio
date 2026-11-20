@@ -17,7 +17,7 @@ function fixture(i){
   b.set(C.arc2Build([new Uint8Array(80),C.packJoin([sprite]),C.arc2Build(Array(9).fill(str))]),0x111000);
   for(const[stub,entry]of[[0xB6000,0xB8000],[0xB7000,0xB9000]]){
     b.set([0x72,0xB6,1,0x4C],stub+0x20);w32(b,stub+0x28,0x10000000+entry-0x11000);
-    const c=entry+0x140;w32(b,c,0x444C4546);w32(b,c+4,9);w32(b,c+16,0);w32(b,c+28,0xD29000);w32(b,c+32,stub);w32(b,c+272,0);w32(b,c+276,0);w32(b,c+392,0);w32(b,c+500,0);w32(b,c+600,0);
+    const c=entry+0x140;w32(b,c,0x444C4546);w32(b,c+4,9);w32(b,c+16,0);w32(b,c+28,0xD29000);w32(b,c+32,stub);w32(b,c+36,0);w32(b,c+272,0);w32(b,c+276,0);w32(b,c+392,0);w32(b,c+500,0);w32(b,c+600,0);
   }return b;
 }
 function languageV1(b,i,base){
