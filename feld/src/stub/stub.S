@@ -275,6 +275,17 @@ check:
 lcheck:
   push {r0-r3, r12, lr}
   ldr r0, =0x60EFE000      @ settings block, uncached flash
+#ifdef RING_CHECK
+@ 1.7.6 RING_CHECK: Neon Planets keeps its settings in a ring of 5 pages; the Studio puts the first page's uncached
+@ address into lring (0 = the block above, as before). Any valid page of the ring counts as a save.
+  movs r3, #1
+  ldr r1, lring
+  cbz r1, 7f
+  mov r0, r1
+  movs r3, #5
+7:
+#endif
+8:
   ldrh r1, [r0, #0]
   ldrh r2, [r0, #2]
   mvns r2, r2
@@ -296,9 +307,21 @@ lcheck:
   ldr.w r4, feld_src
   b realstart
 1:
+#ifdef RING_CHECK
+  subs r3, #1
+  beq 9f
+  add r0, r0, #0x1000
+  b 8b
+9:
+#endif
   pop {r0-r3, r12, lr}
   bx r12
   .ltorg
+#ifdef RING_CHECK
+  .align 2
+lring:
+  .word RING
+#endif
 #endif
 
 @ Restart like the firmware itself (routine at flash 0x110568): first switch the

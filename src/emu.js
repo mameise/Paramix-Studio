@@ -70,6 +70,19 @@ function idFirmware(g) {
   outer: for (let i = 0; i + t.length <= g.length; i++) { for (let j = 0; j < t.length; j++) if (g[i + j] !== t[j]) continue outer; return true; }
   return false;
 }
+/* 1.7.6 DETECT_TAG (User: a Japanese P's showed as iD L): another version of a firmware has another reset vector. Its
+ * download names tell the family: "DL_iDN" P's, "DL_T4U" 4U, "DL_iDL" iD L (UTF-16, a few hundred
+ * times; P's and 4U+ hold one iD L name too). Only when the vector is not known. */
+const DETECT_TAG = true, tagCache = new WeakMap();
+function tagDev(g) { if (!tagCache.has(g)) tagCache.set(g, tagDev0(g)); return tagCache.get(g); }
+function tagDev0(g) {
+  const cnt = (s) => { const t = []; for (const c of s) t.push(c.charCodeAt(0), 0); t.pop(); let n = 0;
+    outer: for (let i = 0; i + t.length <= g.length; i++) { if (g[i] !== t[0]) continue; for (let j = 1; j < t.length; j++) if (g[i + j] !== t[j]) continue outer; n++; } return n; };
+  const ps = cnt('DL_iDN'), u4 = cnt('DL_T4U'), idl = cnt('DL_iDL');
+  if (ps > 8 && ps > idl && ps >= u4) return 'ps';
+  if (u4 > 8 && u4 > idl) return '4u';
+  return null;
+}
 /** Which firmware is this? Returns 'pc' or 'idl', or throws an error. */
 function emuDetect(g) {
   if (g.length >= 0x100 && g.length <= 0x400000) {
@@ -78,7 +91,7 @@ function emuDetect(g) {
   }
   if (g.length > 0x400000 && g.length <= 0x800000) {
     const v = u32(g, 0x400000);
-    if (v >= 0x2000000 && v < 0x2800000) return RESET_VEC[v] || 'idl';
+    if (v >= 0x2000000 && v < 0x2800000) return RESET_VEC[v] || (DETECT_TAG && tagDev(g)) || 'idl';
   }
   throw new Error('firmware not recognised (expected a 4 MB or 8 MB image of a colour Tamagotchi)');
 }
@@ -156,7 +169,11 @@ const BIG_LZ = true;
  * user switches on "Pack the firmware" (Bernd: packing only by choice) */
 const PACK_ASK = true;
 /** BIG_LZ: does this firmware only fit packed? */
-function tamaNeedsLz(g, dev) { if (!BIG_LZ) return false; try { packGuest(g, dev, { sparse: true }); return false; } catch (e) { try { packGuest(g, dev, { lz: true }); return true; } catch (e2) { return false; } } }
+/* 1.7.6 MENU_ROOM: a TamaEmu in the menu (start device, Clean ROM) is placed anywhere in the flash and the emulator reads
+ * every block through the uncached window: the 5 MB of the main program's fixed area (BIG_OFF..BIG_END, beside the
+ * Paradise firmware) do not apply there. Up to the whole 8 MB plus spare pages, as long as the flash has room. */
+const MENU_ROOM = true, MENU_ROOM_LEN = 0x800000 + SPARE_MIN + 0x80000;
+function tamaNeedsLz(g, dev, room) { if (!BIG_LZ) return false; try { packGuest(g, dev, { sparse: true, room }); return false; } catch (e) { try { packGuest(g, dev, { lz: true, room }); return true; } catch (e2) { return false; } } }
 const MAIN_LZ = true;   // 1.7.2 test13: also for the main TamaEmu (emuPatch)
 const LZ_WARM = {   // read in the device simulation (besides HOT): stay whole
   idl: [0x00, 0x08, 0x09, 0x0b, 0x0c, 0x0d, 0x0e, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x25, 0x40, 0x41, 0x44, 0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x5b],
@@ -268,7 +285,7 @@ function packGuest(fw, dev, opts = {}) {
   // blocks then go into spare pages (8 KB parts behind the packed firmware, as the device keeps written empty
   // blocks); the device reads them from there.
   const parts = (b) => { const r = []; for (let k = 0; k < 8; k++) if (!isFF(g, (b << 16) + (k << 13), 0x2000)) r.push((b << 3) + k); return r; };
-  const room = BIG_END - BIG_OFF, PG_RES = 4;
+  const room = (MENU_ROOM && opts.room) || BIG_END - BIG_OFF, PG_RES = 4;
   const need = (nb, np) => np ? ((((nb << 16) + 0x1FFF) & ~0x1FFF) + 0x2000 + ((np + PG_RES) << 13)) : (nb << 16) + SPARE_MIN;
   let paged = [], lzb = [];
   const lzBig = BIG_LZ && GUEST_LZ && opts.lz && !opts.lzOnly && !!LZ_WARM[dev] && need(used.length, 0) > room;
@@ -300,10 +317,10 @@ function packGuest(fw, dev, opts = {}) {
   const blob = new Uint8Array(order.length << 16);
   order.forEach((b, idx) => { map[b] = idx; blob.set(g.subarray(b << 16, (b + 1) << 16), idx << 16); });
   const pages = [].concat(...paged.map((c) => c.p.map((v) => ({ v, data: g.subarray(v << 13, (v + 1) << 13) }))));
-  if (BIG_OFF + blob.length + SPARE_MIN > BIG_END) throw new Error('firmware too big: ' + order.length + ' blocks');
+  if (blob.length + SPARE_MIN > room) throw new Error('firmware too big: ' + order.length + ' blocks');
   if (lzb.length) {   // GUEST_LZ: the packed cold blocks behind the others
     const z = lzPack(g, lzb), all = new Uint8Array(blob.length + z.length); all.set(blob); all.set(z, blob.length);
-    if (BIG_OFF + all.length + SPARE_MIN > BIG_END) throw new Error('firmware too big: ' + (order.length + lzb.length) + ' blocks');
+    if (all.length + SPARE_MIN > room) throw new Error('firmware too big: ' + (order.length + lzb.length) + ' blocks');
     return { map, blob: all, lzOff: blob.length, lzBlocks: lzb.length, blocks: order.length, big: !!opts.lzOnly && GUEST_OFF + all.length + SPARE_MIN > GUEST_END, pages };
   }
   return { map, blob, blocks: order.length, big: pages.length > 0 || GUEST_OFF + blob.length + SPARE_MIN > GUEST_END, pages };
@@ -508,6 +525,13 @@ function emuRemove(rom) {
  * block, routed by (type [0x4E], category [0x50], flag [0x51]) into a store;
  * it goes into the first fully erased slot, existing slots are never overwritten.
  */
+/* 1.7.6 PS_DL2: all P's downloads of tamaplanet (letters, stamp cards, recipes, iD L and 4U items for the P's).
+ * The P's firmware takes only records made for it: byte 0xFF = 2 (P's) or 3 (iD L for P's); iD L files (1) it refuses. */
+var PS_DL2 = true;
+const PS_STAMP = [0xE000, 0xE4E4], PS_STAMP_AT = 0x4B, PS_STAMP_ON = 0x0C;   // the two copies of the P's save in its flash
+/* The one-record stores whose save byte the firmware sets when it receives one (measured the same way): P's stamp card,
+ * iD L happy mail (one save copy at 0xE000, byte +0x4A = 3). */
+const SAVE_FLAG = { ps: { kind: 11, at: PS_STAMP, off: PS_STAMP_AT, on: PS_STAMP_ON, len: 0x4E4 }, idl: { kind: 12, at: [0xE000], off: 0x4A, on: 0x03, len: 0x400 } };
 const IDL_STORES = [
   { kind: 0, base: 0x590000, size: 0x0800, n: 20, label: 'Meals' },
   { kind: 1, base: 0x5A0000, size: 0x0800, n: 20, label: 'Snacks' },
@@ -518,7 +542,11 @@ const IDL_STORES = [
   { kind: 6, base: 0x780000, size: 0x2000, n: 10, label: 'Wallpapers' },
   { kind: 7, base: 0x7A0000, size: 0x8000, n: 2, label: 'Games' },
   { kind: 8, base: 0x7B0000, size: 0x8000, n: 2, label: 'Destinations' },
-];
+].concat(PS_DL2 ? [
+  // 1.7.6 PS_DL2: measured on the iD L firmware like on the P's: letters 20 slots of 0x800, happy mail one record
+  { kind: 9, base: 0x7C0000, size: 0x0800, n: 20, label: 'Letters' },
+  { kind: 12, base: 0x7D0000, size: 0x10000, n: 1, label: 'Happy mail', one: true },
+] : []);
 const IDL_ROUTE = [
   [0x81, 0x02, 0x01, 0], [0x81, 0x0C, 0x02, 1], [0x81, 0x0D, 0x02, 1], [0x81, 0x1F, 0x00, 6],
   [0x81, 0x29, 0x00, 5], [0x81, 0x29, 0x02, 5], [0x81, 0x2A, 0x01, 4], [0x81, 0x33, 0x00, 2],
@@ -535,7 +563,12 @@ const PS_STORES = [
   { kind: 7, base: 0x710000, size: 0x8000, n: 2, label: 'Games' },
   { kind: 8, base: 0x720000, size: 0x8000, n: 2, label: 'Destinations' },
   { kind: 10, base: 0x750000, size: 0x8000, n: 4, label: 'VDP recipes' },
-];
+].concat(typeof PS_DL2 === 'undefined' || PS_DL2 ? [
+  // 1.7.6 PS_DL2: measured by sending the tamaplanet files to the P's firmware over emulated IR (DOWNLOAD):
+  // letters 20 slots of 0x800, the stamp card one record (a new one replaces it, the save then gets +0x4B = 0x0C)
+  { kind: 9, base: 0x730000, size: 0x0800, n: 20, label: 'Letters' },
+  { kind: 11, base: 0x740000, size: 0x10000, n: 1, label: 'Stamp card', one: true },
+] : []);
 const PS_ROUTE = [[0x81, 0x02, 0], [0x81, 0x0D, 1], [0x81, 0x33, 2], [0x81, 0x34, 3], [0x81, 0x35, 3], [0x81, 0x2A, 4], [0x81, 0x1F, 6], [0x81, 0x29, 10], [0x94, 0x47, 8]];
 const FOURU_STORES = [
   { kind: 15, base: 0x5A0000, size: 0x2000, n: 4, label: 'Decorations' },
@@ -585,7 +618,15 @@ function dlcSlots(g) {
 function dlcRoute(r, dev = 'idl') {
   const t = r[0x4E], c = r[0x50], f = r[0x51], stores = DLC_DEV[dev] || IDL_STORES;
   let kind = -1;
-  if (dev === 'ps') {
+  if (dev === 'ps' && PS_DL2) {
+    if (r.length > 0x200 && r[0xFF] !== 2 && r[0xFF] !== 3) kind = -1;   // not made for the P's: its firmware refuses it
+    else if (t === 0x94 && c === 0x5B) kind = f === 0x01 ? 7 : 8;
+    else if (t === 0x81 && c === 0x01) kind = f === 0x01 ? 0 : 1;   // 4U for P's: meal / snack
+    else if (t === 0x81 && c === 0x0C) kind = 1;                     // iD L for P's bakery: snack
+    else if (t === 0x81 && c === 0x51) kind = 9;                     // letter
+    else if (t === 0x81 && c === 0x52) kind = f === 0x03 ? 11 : -1;  // stamp card (the happy mail 0x02 is refused)
+    else { const m = PS_ROUTE.find((x) => x[0] === t && x[1] === c); if (m) kind = m[2]; }   // recipes share the store of the VDP recipes
+  } else if (dev === 'ps') {
     if (t === 0x94 && c === 0x5B) kind = f === 0x01 ? 7 : 8;
     else if (t === 0x81 && c === 0x29 && dlcAscii(r).startsWith('idn_rec')) kind = -1;   // recipe: store not known
     else { const m = PS_ROUTE.find((x) => x[0] === t && x[1] === c); if (m) kind = m[2]; }
@@ -596,6 +637,11 @@ function dlcRoute(r, dev = 'idl') {
     else { const m = FOURU_ROUTE.find((x) => x[0] === t && x[1] === c && x[2] === f); if (m) kind = m[3]; }
   } else {
     const m = IDL_ROUTE.find((x) => x[0] === t && x[1] === c && x[2] === f); if (m) kind = m[3];
+    if (PS_DL2 && dev === 'idl') {
+      if (t === 0x81 && c === 0x51) kind = 9;                      // letter
+      else if (t === 0x81 && c === 0x52 && f === 0x02) kind = 12;  // happy mail
+      if (r.length > 0x200 && r[0xFF] !== 1 && r[0xFF] !== 3) kind = -1;   // the iD L takes its own and the iD L for P's, not the P's
+    }
   }
   return kind < 0 ? null : stores.find((k) => k.kind === kind) || null;
 }
@@ -615,8 +661,14 @@ function dlcRecord(d, dev = 'idl') {
   if (decl >= 0x60 && decl <= b.length && ok(decl)) len = decl;
   else for (let s = 0; s <= 16; s++) { const n = b.length - s; if (n >= Math.max(0x60, decl) && ok(n)) { len = n; break; } }
   if (!len) throw new Error('content checksum does not match');
-  const r = b.slice(0, len);
+  let r = b.slice(0, len);
+  // 1.7.6 PS_DL2: the P's stores everything it received from TAMAGO on (some files have 1 or 2 bytes behind the record),
+  // written in halfwords: an odd end gets a 0 byte. The same here, so the store holds what the device itself would hold.
+  if (PS_DL2 && dev === 'ps' && b.length > len && b.length - len <= 16) { r = new Uint8Array(b.length + (b.length & 1)); r.set(b); }
   const st = dlcRoute(r, dev);
+  if (!st && PS_DL2 && dev === 'ps' && r.length > 0x200 && r[0xFF] === 1) throw new Error('made for the iD L, the P\'s does not take it');
+  if (!st && PS_DL2 && dev === 'ps' && r[0x4E] === 0x81 && r[0x50] === 0x52) throw new Error('the P\'s does not take this letter');
+  if (!st && PS_DL2 && dev === 'idl' && r.length > 0x200 && r[0xFF] === 2) throw new Error('made for the P\'s, the iD L does not take it');
   if (!st) throw new Error('this content fits no store of this firmware');
   if (r.length > st.size) throw new Error('content too big for its store');
   return r;
@@ -628,6 +680,11 @@ function dlcAdd(g, rec) {
   const st = dlcRoute(rec, dev); if (!st) throw new Error('no matching store');
   const out = grow(g);
   for (let i = 0; i < st.n; i++) { const o = st.base + i * st.size; if (isTamago(out, o) && out.subarray(o, o + rec.length).every((v, k) => v === rec[k])) throw new Error('already added'); }
+  if (st.one) {   // 1.7.6 PS_DL2: the stamp card: a new one replaces the old one, the save marks it
+    out.fill(0xFF, st.base, st.base + st.size); out.set(rec, st.base);
+    if (SAVE_FLAG[dev] && SAVE_FLAG[dev].kind === st.kind) saveFlag(out, dev, SAVE_FLAG[dev].on);
+    return { guest: out, store: st, slot: 0, stamp: true };
+  }
   for (let i = 0; i < st.n; i++) {
     const o = st.base + i * st.size;
     if (isTamago(out, o)) continue;
@@ -637,13 +694,48 @@ function dlcAdd(g, rec) {
   }
   throw new Error(st.label + ': all slots used, remove one first');
 }
+/** 1.7.6 DLC_KEEP: the item stores of a firmware as [start, end) ranges of the guest flash. */
+function dlcAreas(dev) { return (DLC_DEV[dev] || []).map((k) => [k.base, k.base + k.n * k.size]); }
 /** Empty one slot. Returns the new firmware. */
 function dlcFree(g, kind, slot) {
   const dev = dlcDev(g) || 'idl';
   const st = DLC_DEV[dev].find((k) => k.kind === kind); if (!st || slot < 0 || slot >= st.n) throw new Error('no such slot');
   const out = grow(g); const o = st.base + slot * st.size;
   out.fill(0xFF, o, o + st.size);
+  if (PS_DL2 && SAVE_FLAG[dev] && SAVE_FLAG[dev].kind === kind) saveFlag(out, dev, 0);   // no card (mail) any more
   return out;
+}
+/** 1.7.6 PS_DL2: the P's save (both copies in its flash) says whether a stamp card is there. Only with a save. */
+function saveFlag(g, dev, v) {
+  const F = SAVE_FLAG[dev]; if (!F) return;
+  for (const a of F.at) if (g.length > a + 0x60 && !(g[a] === 0xFF && g[a + 1] === 0xFF)) g[a + F.off] = v;
+}
+function saveFlagGet(g, dev) { const F = SAVE_FLAG[dev]; if (!F) return -1; const a = F.at[0]; return g.length > a + 0x60 && !(g[a] === 0xFF && g[a + 1] === 0xFF) ? g[a + F.off] : -1; }
+const psStamp = (g, v) => saveFlag(g, 'ps', v), psStampGet = (g) => saveFlagGet(g, 'ps');
+/** 1.7.6 PS_DL2: the TamaEmu run state (emu/src/emu/state.c: header at saveOff, PackBits of Emu and the screen from
+ * saveOff + 0x1000) keeps the P's save in its RAM and writes it back over the flash. The stamp byte goes in there too:
+ * the RAM copy is found as the place that matches the flash save best. Returns false if there is no run state. */
+function psSessStamp(img, saveOff, save, v, dev = 'ps') {
+  const FL_ = SAVE_FLAG[dev]; if (!FL_) return false;
+  const u = (o) => (img[o] | (img[o + 1] << 8) | (img[o + 2] << 16) | (img[o + 3] << 24)) >>> 0;
+  if (u(saveOff) !== 0x53584D50 || u(saveOff + 4) !== 3) return false;
+  const bytes = u(saveOff + 16), secs = u(saveOff + 20); if (bytes > 0x4F000) return false;
+  const src = img.subarray(saveOff + 0x1000, saveOff + 0x1000 + bytes), raw = [];
+  for (let i = 0; i < src.length;) { const c = src[i++]; if (c & 0x80) { const n = c - 0x80 + 3, b = src[i++]; for (let k = 0; k < n; k++) raw.push(b); } else { for (let k = 0; k <= c; k++) raw.push(src[i++]); } }
+  const GRAM = 128 * 128 * 2, el = raw.length - GRAM; if (el < 0x2000) return false;
+  const emu = Uint8Array.from(raw.slice(0, el)), L = Math.min(FL_.len, save.length);
+  let best = -1, bs = 0;
+  for (let o = 0; o + L <= emu.length; o += 4) { if (emu[o] !== save[0]) continue; let n = 0; for (let k = 0; k < L; k += 2) if (emu[o + k] === save[k]) n++; if (n > bs) { bs = n; best = o; } }
+  if (best < 0 || bs < (L >> 1) * 0.8) return false;
+  if (emu[best + FL_.off] === v) return true;
+  emu[best + FL_.off] = v;
+  const enc = (p, out) => { let i = 0; while (i < p.length) { let r = 1; while (i + r < p.length && r < 130 && p[i + r] === p[i]) r++; if (r >= 3) { out.push(0x80 + r - 3, p[i]); i += r; continue; } const s0 = i; let l = 0; while (i < p.length && l < 128) { let q = 1; while (i + q < p.length && q < 3 && p[i + q] === p[i]) q++; if (q >= 3) break; i++; l++; } out.push(l - 1); for (let k = 0; k < l; k++) out.push(p[s0 + k]); } };
+  const out = []; enc(emu, out); enc(raw.slice(el), out);
+  const ns = Math.ceil(out.length / 0x1000); if (ns > 0x4F) return false;
+  img.fill(0xFF, saveOff + 0x1000, saveOff + 0x1000 + Math.max(secs, ns) * 0x1000); img.set(out, saveOff + 0x1000);
+  const w = (o, x) => { img[o] = x & 255; img[o + 1] = (x >>> 8) & 255; img[o + 2] = (x >>> 16) & 255; img[o + 3] = (x >>> 24) & 255; };
+  w(saveOff + 16, out.length); w(saveOff + 20, ns); w(saveOff + 24, (u(saveOff) ^ u(saveOff + 4) ^ u(saveOff + 8) ^ u(saveOff + 12) ^ out.length ^ ns) >>> 0);
+  return true;
 }
 /** Put a game into a given slot (replaces what is there). Returns the new firmware. */
 function dlcPut(g, rec, slot) {
@@ -900,14 +992,19 @@ function v1Detect(r) {
 const V1_NAMES = { 0x1A03E02A: 'TAMA P1', 0xF0A58E57: 'TAMA P2', 0xD1BF093B: 'ANGEL', 0x02E0C792: 'GENJIN', 0x4E0B9922: 'MORINO',
   0x5E1091E3: 'TAMAOTCH', 0x0809B7FA: 'UMINO', 0xDFEA1952: 'YASASHII', 0x58200E73: 'DIGIMON V1', 0x55DF2A89: 'DIGIMON V2', 0xD32D442C: 'DIGIMON V3',
   0xEF932FA1: 'TAMA P1 EN' };   // test31: the English P1 (tama.bin), same program as the Japanese one apart from its texts   // 1.6.9 test24: Digimon V3
+/* 1.7.6 V1_MOTHRA: Mosuratchi (Mothra). Lights one segment per menu icon like Umino (found on the PC: pressing A
+ * through the menu lights 8, 17, 18, 19, 39, 38, 37, then 28 = call). With the P1 table only the first icon and the
+ * call showed. Its keys come by interrupt (V1Emu V1_KMASK_ALL), its clock is set from the Paradise (V1_CLK12). */
+const V1_MOTHRA = true;
+if (V1_MOTHRA) V1_NAMES[0x9EBAAAF8] = 'MOTHRA';
 /* V1Emu settings block (at 0x140 of its image): ROM, save (session 4 KB, device settings 4 KB), flags, name, icons */
 /* 1.6.8: toys whose LCD sits the other way round (checked on the host with every known ROM: Digimon V1/V2 and Yasashii) */
 /* 1.7.2 test28: these light each menu icon with one segment (V1Emu flag bit 8, core hw.c thw_iconseg) */
-const V1_ICONSEG = ['UMINO', 'GENJIN', 'TAMAOTCH'];
+const V1_ICONSEG = ['UMINO', 'GENJIN', 'TAMAOTCH'].concat(V1_MOTHRA ? ['MOTHRA'] : []);
 function v1Turned(rom) { const n = v1Name(rom); return n.startsWith('DIGIMON') || n === 'YASASHII'; }
 function v1CfgWrite(a, c, rom, romOff, saveOff, flags) {
   w32(a, c + 4, 1); w32(a, c + 8, romOff); w32(a, c + 12, rom.length); w32(a, c + 16, saveOff);
-  w32(a, c + 20, (flags & (3 | NOSESS)) | (v1Clock(rom) ? 8 : 0) | 16 | (v1Turned(rom) ? 32 : 0) | (v1Name(rom).startsWith('DIGIMON') ? 64 : 0) | (v1Name(rom) === 'YASASHII' ? 128 : 0) | (V1_ICONSEG.includes(v1Name(rom)) ? 256 : 0));   // bit 7 (test31): Yasashii, segment n is column n   // bit 6: Digimon (clock at RAM 0x1A, 12 h, set with B and C; own icon segments, keys by interrupt, one-shot beeps)   // bit 1 clock, bit 3: V1Emu knows the toy's clock, bit 4: bit 1 is meant, bit 5: LCD turned (Digimon)
+  w32(a, c + 20, (flags & (3 | NOSESS)) | (v1Clock(rom) ? 8 : 0) | 16 | (v1Turned(rom) ? 32 : 0) | (v1Name(rom).startsWith('DIGIMON') ? 64 : 0) | (v1Name(rom) === 'YASASHII' ? 128 : 0) | (V1_ICONSEG.includes(v1Name(rom)) ? 256 : 0) | (V1_MOTHRA && v1Name(rom) === 'MOTHRA' ? 512 : 0));   // 1.7.6 bit 9: Mothra's clock (12 h at 0x1A, set with B, A, C)   // bit 7 (test31): Yasashii, segment n is column n   // bit 6: Digimon (clock at RAM 0x1A, 12 h, set with B and C; own icon segments, keys by interrupt, one-shot beeps)   // bit 1 clock, bit 3: V1Emu knows the toy's clock, bit 4: bit 1 is meant, bit 5: LCD turned (Digimon)
   const nm = v1Name(rom); a.fill(0, c + 24, c + 40); for (let i = 0; i < nm.length && i < 15; i++) a[c + 24 + i] = nm.charCodeAt(i);
   // a turned LCD lights place 7 - i for the toy's icon i: the P set goes in reversed then (Yasashii)
   v1IconsWrite(a, c, rom);
@@ -952,6 +1049,7 @@ function v1Upgrade(rom, app) {
     if (r) v1IconsWrite(a, 0x140, r);
     if (r && v1Name(r) === 'YASASHII') w32(a, 0x140 + 20, u32(a, 0x140 + 20) | 128);   // test31: segment = column
     if (r && V1_ICONSEG.includes(v1Name(r))) w32(a, 0x140 + 20, u32(a, 0x140 + 20) | 256);   // 1.7.2 test28: one segment per menu icon
+    if (r && V1_MOTHRA && v1Name(r) === 'MOTHRA') w32(a, 0x140 + 20, u32(a, 0x140 + 20) | 512);   // 1.7.6: Mothra's clock
     if (r) { const nm = v1Name(r); a.fill(0, 0x140 + 24, 0x140 + 40); for (let i = 0; i < nm.length && i < 15; i++) a[0x140 + 24 + i] = nm.charCodeAt(i); if (v1Clock(r)) w32(a, 0x140 + 20, u32(a, 0x140 + 20) | 8); } }   // test31: a newly known ROM (tama.bin) gets its name and clock
   let same = true; for (let i = 0; i < APP_MAX && same; i++) if ((i < 0x13C || i > 0x13F) && rom[APP_OFF + i] !== (i < a.length ? a[i] : 0)) same = false;   // test24: 0x13C the way back (Studio)
   if (same) return null;
@@ -971,8 +1069,10 @@ if (V1_ICONS_MORE) Object.assign(V1_ICONS, {
   GENJIN: [[0x0000,0x0000,0x2000,0x7800,0x4F80,0x0CFE,0x1214,0x3210,0x2330,0x3F30,0x3F30,0x0030,0x0078,0x0000,0x0000,0x0000],[0x0000,0x0000,0x0000,0x3000,0x3300,0x77F0,0x07F0,0x0FF0,0x1FC6,0x1FDE,0x01CC,0x0008,0x0000,0x0000,0x0000,0x0000],[0x0000,0x0000,0x0000,0x0220,0x3260,0x3840,0x3808,0x7F00,0x27E4,0x00FE,0x2018,0x041C,0x0080,0x0000,0x0000,0x0000],[0x0000,0x0100,0x0300,0x0700,0x07E0,0x07F0,0x01F0,0x0FF0,0x1FC0,0x1F80,0x0FFC,0x03FE,0x7FFE,0x7FFE,0x183C,0x0000],[0x0000,0x0000,0x0200,0x0218,0x0000,0x73C0,0x0462,0x0526,0x0520,0x2560,0x60C8,0x000C,0x0440,0x0440,0x0000,0x0000],[0x0000,0x0000,0x1930,0x3FFC,0x15A8,0x1C38,0x1C38,0x0000,0x6006,0x07E0,0x4FF6,0x0C30,0x07E0,0x0000,0x0000,0x0000],[0x0000,0x0000,0x0098,0x3FE4,0x2180,0x1C3C,0x1400,0x0000,0x4E76,0x0FF8,0x4E7A,0x0C30,0x07E0,0x0000,0x0000,0x0000],[0x0000,0x0000,0x0038,0x0D70,0x0DE0,0x07C0,0x0388,0x19BE,0x3DBE,0x7CE2,0x0CC2,0x06C0,0x0080,0x0000,0x0000,0x0000]],
   MORINO: [[0x0000,0x0000,0x0000,0x07E0,0x1818,0x6184,0x4182,0x4002,0x54A6,0x34B4,0x2004,0x33C8,0x1C38,0x0000,0x0000,0x0000],[0x0000,0x0338,0x0370,0x01F0,0x0100,0x1FFC,0x3FCC,0x7F98,0x7FC8,0x7FC8,0x7F90,0x7F90,0x3FF8,0x1FF8,0x0E70,0x0000],[0x0000,0x0000,0x0000,0x03C0,0x0660,0x0C20,0x0820,0x7870,0x0FFC,0x3FC2,0x600C,0x6078,0x3FC0,0x0000,0x0000,0x0000],[0x0000,0x001C,0x0032,0x0062,0x0042,0x1FC4,0x303C,0x6F98,0x7A30,0x6FA0,0x3060,0x3060,0x6060,0x3FC0,0x0000,0x0000],[0x0000,0x0380,0x1CE0,0x781C,0x7F0E,0x41F6,0x4E64,0x4264,0x6644,0x604C,0x6448,0x70D8,0x3EE0,0x03C0,0x0000,0x0000],[0x0000,0x0000,0x01FC,0x07FE,0x0E7C,0x1E78,0x1818,0x3818,0x3E30,0x3E70,0x3FE0,0x7FC0,0x6600,0x0000,0x0000,0x0000],[0x0000,0x0000,0x0400,0x2E00,0x1300,0x2190,0x60D4,0x2192,0x1312,0x2E12,0x0432,0x00E2,0x008C,0x0078,0x0000,0x0000],[0x0000,0x0000,0x0700,0x7400,0x6F00,0x3F82,0x3FDA,0x7F8E,0x7F7E,0x7F7E,0x3F8A,0x3F82,0x0F00,0x0000,0x0000,0x0000]],
   UMINO: [[0x0000,0x07E0,0x0FF0,0x1818,0x324C,0x6016,0x6806,0x6606,0x6206,0x63E6,0x67E6,0x33CC,0x1818,0x0FF0,0x07E0,0x0000],[0x0000,0x0000,0x3C00,0x6E00,0x4700,0x651C,0x39B6,0x0FB6,0x0536,0x0512,0x07BE,0x04CC,0x065C,0x03F0,0x0000,0x0000],[0x0000,0x0000,0x0F00,0x31E0,0x233C,0x6636,0x6E42,0x7ACE,0x6BF2,0x6BC2,0x2ED2,0x24C4,0x1EF8,0x03E0,0x0000,0x0000],[0x0000,0x001C,0x0032,0x0062,0x0042,0x1FC4,0x303C,0x6F98,0x7A30,0x6FB0,0x3060,0x3060,0x6060,0x3FC0,0x0000,0x0000],[0x0000,0x1100,0x3FC0,0x2C64,0x6064,0x4332,0x5DA2,0x29C0,0x20E4,0x6060,0x6020,0x2060,0x3180,0x0F00,0x0000,0x0000],[0x0000,0x07C0,0x0C60,0x0FE0,0x0820,0x0FC0,0x0D60,0x1910,0x1110,0x17D0,0x1390,0x1110,0x1830,0x1FF0,0x07C0,0x0000],[0x0000,0x0000,0x0400,0x2E00,0x1300,0x2190,0x60DC,0x2192,0x1112,0x2E12,0x0432,0x00E2,0x0084,0x0078,0x0000,0x0000],[0x0000,0x0000,0x0018,0x0390,0x07C6,0x0F80,0x0F80,0x7F86,0x7FF0,0x3FF0,0x3FE0,0x3380,0x1000,0x0000,0x0000,0x0000]] });
+if (V1_ICONS_MORE && V1_MOTHRA) V1_ICONS.MOTHRA = [[0x0000,0x07E0,0x0C38,0x110C,0x2124,0x6526,0x5602,0x5812,0x4902,0x6106,0x2184,0x3188,0x1830,0x07E0,0x0000,0x0000],[0x0000,0x0000,0x0F00,0x1986,0x108E,0x129C,0x1E98,0x0C80,0x00B0,0x79F8,0x7DD8,0x3EC0,0x1EC0,0x0660,0x0000,0x0000],[0x0000,0x0000,0x0000,0x381C,0x4836,0x0000,0x03E0,0x0180,0x0E70,0x1E78,0x1E78,0x0E70,0x0000,0x0000,0x0000,0x0000],[0x0000,0x0080,0x0180,0x0300,0x07C0,0x07E0,0x0780,0x0E00,0x07E0,0x0070,0x0E18,0x3F18,0x3038,0x3DF0,0x1FC0,0x0000],[0x0000,0x0000,0x0004,0x0006,0x0012,0x3F1A,0x7E7E,0x7CF6,0x7856,0x7C56,0x7F86,0x3F84,0x1F00,0x0000,0x0000,0x0000],[0x0000,0x0000,0x0810,0x1C38,0x1E78,0x1C38,0x1818,0x3E7C,0x3A5C,0x7C3E,0x3E7C,0x1428,0x1428,0x1428,0x0000,0x0000],[0x0000,0x0100,0x0520,0x17E8,0x1FF0,0x3C34,0x181C,0x1818,0x781E,0x1838,0x3E78,0x07F4,0x0BD0,0x0240,0x0240,0x0000],[0x0000,0x0000,0x1110,0x1924,0x6D6C,0x3118,0x0100,0x3FFC,0x0380,0x1198,0x358C,0x6DA2,0x0DB0,0x0910,0x0000,0x0000]];   // 1.7.6: after the device's icons (BrickEmuPy), in menu order
 /* 1.6.8: toys whose clock V1Emu sets (RAM nibble 0x10, see v1/src/app/main.c) */
 const V1_CLOCK = ['TAMA P1', 'TAMA P1 EN', 'TAMA P2', 'ANGEL', 'MORINO', 'DIGIMON V1', 'DIGIMON V2', 'DIGIMON V3', 'TAMA V3'];   // 1.6.9: V3Emu (V3_CLOCK)
+if (V1_MOTHRA) V1_CLOCK.push('MOTHRA');   // 1.7.6: clock from the Paradise (main.c V1_CLK12)
 function v1Clock(r) { return V1_CLOCK.includes(v1Name(r)); }
 function v1Name(r) { if (v3Detect(r)) return 'TAMA V3'; let h = 2166136261; for (const x of r) h = Math.imul(h ^ x, 16777619) >>> 0; return V1_NAMES[h] || (r.length === 0x3000 ? 'TAMA 46' : 'TAMA 48'); }
 function t7Embedded() { if (T7_APP_B64.startsWith('__')) return null; const a = b64(T7_APP_B64); if (!T7X_APP_B64.startsWith('__')) a.x = b64(T7X_APP_B64); return a; }
@@ -1222,11 +1322,15 @@ function freeT18(out) {
   out.fill(0xFF, SAVE_OFF, SAVE_END);
 }
 /** ID page of the edition (0xD49000, Tropical/Glacier 0xD29000): the Paradise's save follows it */
-function idPageOf(rom) { if (CLEAN) return 0xFF0000; const k = u32(rom, 0xD29000), v = u32(rom, 0xD49000); return (k === 5 || k === 6) ? 0xD29000 : v >= 1 && v <= 6 ? 0xD49000 : 0xD29000; }   // 1.7.3 test11: Tropical/Glacier first
+/* 1.7.6 NEON_APPS: Neon Planets (ID page 0xD85000, ID 7 with its own footer): programs in the menu between the end of its
+ * pictures and its ID page (up to 0xD80000), not only up to 0xD40000 */
+const DOOM_LAUNCH = true, NEON_HI = true, NEON_APPS = true, NEON_ID = 0xD85000, NEON_TOP = 0xD80000;
+function neonRom(rom) { if (!NEON_APPS || !rom || rom.length < NEON_ID + 0x1000 || u32(rom, NEON_ID) !== 7) return false; const k = u32(rom, NEON_ID + 0xFF8); return ((k + 7) >>> 0) === 0x99431749 && u32(rom, NEON_ID + 0xFFC) === (~k >>> 0); }
+function idPageOf(rom) { if (CLEAN) return 0xFF0000; if (neonRom(rom)) return NEON_ID; const k = u32(rom, 0xD29000), v = u32(rom, 0xD49000); return (k === 5 || k === 6) ? 0xD29000 : v >= 1 && v <= 6 ? 0xD49000 : 0xD29000; }   // 1.7.3 test11: Tropical/Glacier first
 /** Free 64 KB blocks for the firmware: empty, behind the character data. */
 function t18Free(rom, launch) {
   const from = CLEAN ? 0x10000 : Math.max(launch ? 0x200000 : 0x830000, (assetEnd(rom) + 0xFFFF) & ~0xFFFF), list = [];   // launcher ROM (1.6.8): all room behind the setup pictures
-  const areas = CLEAN ? [[from, 0xFF0000]] : launch ? [[from, Math.min(0xD40000, idPageOf(rom))], T18_AREAS[1]] : T18_AREAS;
+  const areas = CLEAN ? [[from, 0xFF0000]] : launch ? [[from, neonRom(rom) ? NEON_TOP : Math.min(0xD40000, idPageOf(rom))], T18_AREAS[1]] : T18_AREAS;
   for (const [a, e] of areas) for (let o = Math.max(a, a < 0xF00000 ? from : a); o < e; o += 0x10000) if (isFF(rom, o, 0x10000)) list.push(o >>> 16);
   return list.sort((x, y) => y - x);   // from the top down: the bottom stays free for the field saves
 }
@@ -1301,6 +1405,10 @@ function t18Patch(rom, fw, app, stubTpl, opts = {}) {
  * 0x0F0000 and the choice byte 0x21E070 = 0 (8 = built-in room). Tamapoints u16 at 0x21E020.
  */
 const T18I_PART = 0x5E0000, T18I_CNT = 0x21E053, T18I_PTS = 0x21E020, T18I_WP = 0x0F0000, T18I_WPLEN = 0x4000, T18I_WPSEL = 0x21E070;
+/** 1.7.6 T18_DL: games and destinations (MyMeets/WebMeets, e.g. Magic Hut): two slots of 64 KB at 0x130000 and 0x140000
+ * (flash 0x710000/0x720000). The firmware lists a slot when its first word is not 0xFFFFFFFF (0x2012EABE) and shows it at
+ * the end of TRAVEL TO OTHER TOWN; visiting copies it to 0x7F0000 and runs it (0x2012EC86). Measured on Fairy (ref). */
+const T18_DL = true, T18I_DL = [0x130000, 0x140000], T18I_DLLEN = 0x10000;
 const T18I_AREAS = [
   { key: 'food', base: 0x050000, step: 0x800, n: 22, idx0: 0, arts: ['meal', 'snack'], basic: [0, 1] },
   { key: 'item', base: 0x0A0000, step: 0x2000, n: 24, idx0: 53, arts: ['item'], basic: [0] },
@@ -1314,6 +1422,7 @@ function t18iArt(z) {
     case 0x81023400: case 0x81023500: return 'acc';
     case 0x81071F00: return 'room';
   }
+  if (T18_DL && (z >>> 24) === 0x94) return ((z >>> 8) & 0xFF) === 0x5B ? 'game' : 'place';   // 1.7.6 T18_DL: downloaded games and destinations
   if ((z >>> 16) === 0x8101) return (z & 0xFF) === 1 ? 'meal' : 'snack';   // derived, not measured (Android T18Emu)
   return '';
 }
@@ -1341,7 +1450,7 @@ function t18iRecord(b) {
   let file = ''; for (let i = 0; i < 20; i++) { const c = b[52 + i]; if (!c) break; if (c >= 32 && c < 127) file += String.fromCharCode(c); }
   let name = '', unk = 0;
   for (let i = 0; i < 12; i++) { const v = be16(b, 94 + 2 * i); if (!v) break; const n = v & 0xFF;
-    name += n >= 0xE0 && n <= 0xF9 ? String.fromCharCode(65 + n - 0xE0) : n >= 0xC6 && n <= 0xCF ? String.fromCharCode(48 + n - 0xC6) : n === 0x6C ? ' ' : (unk++, '?'); }
+    name += n >= 0xE0 && n <= 0xF9 ? String.fromCharCode(65 + n - 0xE0) : n >= 0xC6 && n <= 0xCF ? String.fromCharCode(48 + n - 0xC6) : n === 0x6C ? ' ' : n === 0x63 && T18_DL ? '\u2605' : (unk++, '?'); }
   name = name.trim();
   const readable = name.length > 0 && unk * 2 <= name.length;
   const z = ((be16(b, 78) << 16) | be16(b, 80)) >>> 0;
@@ -1354,11 +1463,17 @@ function t18iScan(b) {
   const out = [];
   for (let a = 0; a + 0x60 <= b.length; a++) {
     if (b[a] !== 0x54 || b[a + 1] !== 0x41 || b[a + 2] !== 0x4D || b[a + 3] !== 0x41 || b[a + 4] !== 0x47 || b[a + 5] !== 0x4F || b[a + 6] !== 0) continue;
-    if (b[a + 0x4E] !== 0x81) continue;
-    const len = (b[a + 0x48] << 24 | b[a + 0x49] << 16 | b[a + 0x4A] << 8 | b[a + 0x4B]) >>> 0;
+    const dl = T18_DL && b[a + 0x4E] === 0x94;
+    if (b[a + 0x4E] !== 0x81 && !dl) continue;
+    let len = (b[a + 0x48] << 24 | b[a + 0x49] << 16 | b[a + 0x4A] << 8 | b[a + 0x4B]) >>> 0;
     if (len < 0x60 || len > 0x1F000 || a + len > b.length) continue;
     let sum = 0; for (let i = a; i < a + len - 2; i++) sum = (sum + b[i]) & 0xFFFF;
-    if (sum !== be16(b, a + len - 2)) continue;
+    if (sum !== be16(b, a + len - 2)) {
+      if (!dl || len > T18I_DLLEN - 2) continue;
+      // games and destinations: the sum may sit behind the length (Magic Hut), or not match at all (potion); the code starts at 0xB0
+      const e = be16(b, a + 0xB0); if (e < 0x200 || e >= len) continue;
+      if (a + len + 2 <= b.length) len += 2;
+    }
     const r = t18iRecord(b.slice(a, a + len)); if (r) { out.push(r); a += len - 1; }
   }
   return out;
@@ -1379,6 +1494,10 @@ function t18Items(fw) {
     }
     return { key: A.key, slots, free: slots.filter((x) => !x.rec && !x.basic).length };
   });
+  if (T18_DL) {
+    const slots = T18I_DL.map((b, n) => { const o = T18I_PART + b; const rec = fw[o] === 0x54 ? t18iRecord(fw.slice(o, o + T18I_DLLEN)) : null; return { n, rec, count: 0, basic: false }; });
+    areas.push({ key: 'dl', slots, free: slots.filter((x) => !x.rec).length, noCount: true });
+  }
   const wo = T18I_PART + T18I_WP;
   const room = fw[wo] === 0x54 && fw[T18I_PART + T18I_WPSEL] === 0 ? t18iRecord(fw.slice(wo, wo + T18I_WPLEN)) : null;
   return { areas, room, points: fw[T18I_PART + T18I_PTS] | (fw[T18I_PART + T18I_PTS + 1] << 8), save: t18iHasSave(fw) };
@@ -1391,6 +1510,15 @@ function t18ItemAdd(fw, rec, count = 1) {
     const o = T18I_PART + T18I_WP; fw.fill(0xFF, o, o + T18I_WPLEN); fw.set(rec.bytes, o); fw[T18I_PART + T18I_WPSEL] = 0;
     return { area: 'room', slot: 0 };
   }
+  if (T18_DL && (rec.art === 'place' || rec.art === 'game')) {
+    if (rec.bytes.length > T18I_DLLEN) throw new Error('record too large');
+    const cat = (o) => be16(fw, o + 0x5A), at = T18I_DL.map((b) => T18I_PART + b);
+    let n = at.findIndex((o) => fw[o] === 0x54 && cat(o) === rec.cat);   // the same one again: replace it
+    if (n < 0) n = at.findIndex((o) => fw[o] !== 0x54 && fw[o] === 0xFF);
+    if (n < 0) throw new Error('full');
+    fw.fill(0xFF, at[n], at[n] + T18I_DLLEN); fw.set(rec.bytes, at[n]);
+    return { area: 'dl', slot: n };
+  }
   const A = T18I_AREAS.find((x) => x.arts.includes(rec.art)); if (!A) throw new Error('unknown kind');
   if (rec.bytes.length > A.step) throw new Error('record too large');
   const it = t18Items(fw).areas.find((x) => x.key === A.key);
@@ -1398,7 +1526,7 @@ function t18ItemAdd(fw, rec, count = 1) {
   const o = T18I_PART + A.base + s.n * A.step; fw.fill(0xFF, o, o + A.step); fw.set(rec.bytes, o); t18iSetCount(fw, A.idx0 + s.n, count || 1);
   return { area: A.key, slot: s.n };
 }
-function t18ItemDel(fw, key, n) { const A = T18I_AREAS.find((x) => x.key === key); const o = T18I_PART + A.base + n * A.step; fw.fill(0xFF, o, o + A.step); t18iSetCount(fw, A.idx0 + n, 0); }
+function t18ItemDel(fw, key, n) { if (T18_DL && key === 'dl') { const o = T18I_PART + T18I_DL[n]; fw.fill(0xFF, o, o + T18I_DLLEN); return; } const A = T18I_AREAS.find((x) => x.key === key); const o = T18I_PART + A.base + n * A.step; fw.fill(0xFF, o, o + A.step); t18iSetCount(fw, A.idx0 + n, 0); }
 function t18ItemCount(fw, key, n, c) { const A = T18I_AREAS.find((x) => x.key === key); if (fw[T18I_PART + A.base + n * A.step] === 0x54) t18iSetCount(fw, A.idx0 + n, c); }
 function t18RoomReset(fw) { const o = T18I_PART + T18I_WP; fw.fill(0xFF, o, o + T18I_WPLEN); fw[T18I_PART + T18I_WPSEL] = 8; }
 function t18Points(fw, v) { v = Math.max(0, Math.min(65535, v | 0)); fw[T18I_PART + T18I_PTS] = v & 0xFF; fw[T18I_PART + T18I_PTS + 1] = v >> 8; }
@@ -1627,7 +1755,7 @@ function extraSize(x, txs) {
     // 1.7.2 SIZE_CACHE: packing takes up to half a second; the firmware arrays are new ones whenever they change
     const ck = (txs || 0) + ':' + x.dev + (x.pack ? ':z' : ''), hit = SIZE_CACHE && sizeCache.get(x.guest); if (hit && hit[ck] !== undefined) return hit[ck];
     // TAMA_RAW (test18): the size as it goes in when there is room (unpacked)
-    let n = 0; try { const pk = packGuest(x.guest, x.dev, { sparse: true, lz: GUEST_LZ && (PACK_OPT ? !!x.pack || (!PACK_ASK && tamaNeedsLz(x.guest, x.dev)) : !TAMA_RAW) }); n = ((pk.blob.length + txSpare(pk, txs) + 0xFFFF) & ~0xFFFF) + 0x10000 + TX_STATE; } catch (e) { n = 0; }
+    let n = 0; try { const pk = packGuest(x.guest, x.dev, { sparse: true, lz: GUEST_LZ && (PACK_OPT ? !!x.pack || (!PACK_ASK && tamaNeedsLz(x.guest, x.dev, MENU_ROOM ? MENU_ROOM_LEN : undefined)) : !TAMA_RAW), room: MENU_ROOM ? MENU_ROOM_LEN : undefined }); n = ((pk.blob.length + txSpare(pk, txs) + 0xFFFF) & ~0xFFFF) + 0x10000 + TX_STATE; } catch (e) { n = 0; }
     if (SIZE_CACHE && x.guest) { const m = hit || {}; m[ck] = n; sizeCache.set(x.guest, m); }
     return n;
   }
@@ -1675,13 +1803,15 @@ function appsPlace0(rom, extras, app, opts = {}) {
   let top = GUEST_END;
   // launcher ROM (1.6.8): anywhere free between the setup pictures and 0xD40000, from the top down
   const floor = opts.clean ? 0x10000 : opts.launch ? Math.max(0x200000, (assetEnd(out) + 0xFFFF) & ~0xFFFF) : GUEST_OFF;
-  const ceil = opts.clean ? 0xFF0000 : opts.launch ? Math.min(GUEST_END, idPageOf(out)) : GUEST_END;   // never into the Paradise's save (Tropical/Glacier: from 0xD29000)
-  if (opts.launch) top = ceil;
+  const neon = !opts.clean && neonRom(out);
+  const ceil = opts.clean ? 0xFF0000 : neon ? NEON_TOP : opts.launch ? Math.min(GUEST_END, idPageOf(out)) : GUEST_END;   // never into the Paradise's save (Tropical/Glacier: from 0xD29000)
+  if (opts.launch || neon) top = ceil;
   const fits = (at, size) => at >= floor && at + size <= ceil && isFF(out, at, size) && !res.some(([a, b]) => a < at + size && b > at);
-  const find = (size, align) => { let at = ((APPS_PACK && opts.launch ? ceil : top) - size) & ~(align - 1); if (opts.launch || align > 0x10000) while (at >= floor && !fits(at, size)) at -= align; return fits(at, size) ? at : -1; };
+  const find = (size, align) => { let at = ((APPS_PACK && opts.launch ? ceil : top) - size) & ~(align - 1); if (opts.launch || (NEON_HI && neon) || align > 0x10000) while (at >= floor && !fits(at, size)) at -= align; return fits(at, size) ? at : -1; };
   // start device (1.6.8): the Paradise never writes behind its save (0xF00000..0xFFFFFF); without T18Emu (it takes that
   // MB itself) programs that fit go there first
-  const hiOk = !!opts.launch && !opts.clean && !extras.some((x) => extraKind(x) === 't18') && u32(out, APP_OFF + 0x140) !== T18_MAGIC;
+  // NEON_HI: Neon Planets has no field saves, the MB behind its save is free for programs also without a start device
+  const hiOk = (!!opts.launch || (NEON_HI && neon)) && !opts.clean && !extras.some((x) => extraKind(x) === 't18') && u32(out, APP_OFF + 0x140) !== T18_MAGIC;
   const hiEnd = RESCUE_RES && !opts.noResv ? RESCUE_BLK << 16 : 0x1000000;   // test13: the rescue start's block stays free
   const fitsHi = (at, size) => at >= 0xF00000 && at + size <= hiEnd && isFF(out, at, size) && !res.some(([a, b]) => a < at + size && b > at);
   const findHi = (size, align) => { if (!hiOk) return -1; let at = (hiEnd - size) & ~(align - 1); while (at >= 0xF00000 && !fitsHi(at, size)) at -= align; return fitsHi(at, size) ? at : -1; };
@@ -1834,7 +1964,8 @@ function appsPlace0(rom, extras, app, opts = {}) {
     } else if (k === 'doom') {
       // 1.7.2 test3 DOOM_FREE: anywhere. The program part runs at XIP 0x100A0000 (the window follows it: code at 0x0A0000 or
       // above), the packed flash pointers reach two 4 MB windows (WAD and level data inside 8 MB from a 4 MB boundary)
-      if (!opts.clean) throw new Error('DOOM goes into the menu only without the Paradise');
+      // 1.7.6 DOOM_LAUNCH: also in a start device whose firmware leaves no room at 0x0A0000 (Tropical/Glacier, Neon Planets)
+      if (!opts.clean && !(DOOM_LAUNCH && opts.launch)) throw new Error('DOOM goes into the menu only without the Paradise');
       const dm = apps.doom; if (!dm || !dm.app || !dm.xip) throw new Error('DOOM program missing');
       if (!x.mcu) throw new Error('DOOM: WAD not converted');
       const lk = dLinks.get(x), xm = lk ? Object.assign({}, x, { mcu: lk.mcu }) : x;   // DOOM_LINK
@@ -1872,7 +2003,9 @@ function appsPlace0(rom, extras, app, opts = {}) {
       const a = new Uint8Array(0x10000); a.set(dm.app);
       const c = pdmcAt(a, 0); if (c < 0 || u32(a, c + 4) < 2) throw new Error('settings block missing in DOOM');
       const code = at + 0x10000, save = code + page(dm.xip.length), region = rg, cmo = save + DOOM_SAVE, cmap = DOOM_CMAP && u32(a, c + 4) >= 3 ? doomCmap(x.mcu) : null;
-      if (cmap) w32(a, c + 76, cmo);
+      // 1.7.6 DOOM_CMAP_AT: cmap_off is the 19th word of the settings block (c + 72, after run_dbl at 68); c + 76 lay behind
+      // the block, on the first instruction of the program (para_mailbox): DOOM in the menu hung or drew wrongly
+      if (cmap) w32(a, c + (DOOM_CMAP_AT ? 72 : 76), cmo);
       w32(a, c + 8, w + 4); w32(a, c + 12, xm.mcu.length); w32(a, c + 16, region); w32(a, c + 20, RG); w32(a, c + 24, save); w32(a, c + 28, code);
       if (x.keys) for (const [kk, o] of Object.entries(DOOM_KEY_AT)) if (x.keys[kk] !== undefined) w32(a, c + o, typeof x.keys[kk] === 'boolean' ? (x.keys[kk] ? 1 : 0) : x.keys[kk]);
       out.fill(0xFF, at, at + parts.prog); out.set(a, at); out.set(dm.xip, code);
@@ -1937,10 +2070,11 @@ function appsPlace0(rom, extras, app, opts = {}) {
       res.push([at, at + size]); if (!pl.hi) top = Math.min(top, at);
     } else if (k === 'tama') {
       if (!apps.tama) throw new Error('TamaEmu missing');
-      if (PACK_ASK && PACK_OPT && !x.pack && GUEST_LZ && tamaLzCan(apps.tama) && tamaNeedsLz(x.guest, x.dev)) throw Object.assign(new Error(extraName(x) + ' only fits packed'), { needPack: true, prog: extraName(x) });
-      const lzCan = GUEST_LZ && tamaLzCan(apps.tama) && (PACK_OPT ? !!x.pack || (!PACK_ASK && tamaNeedsLz(x.guest, x.dev)) : !opts.tamaRaw);
+      const mroom = MENU_ROOM ? MENU_ROOM_LEN : undefined;
+      if (PACK_ASK && PACK_OPT && !x.pack && GUEST_LZ && tamaLzCan(apps.tama) && tamaNeedsLz(x.guest, x.dev, mroom)) throw Object.assign(new Error(extraName(x) + ' only fits packed'), { needPack: true, prog: extraName(x) });
+      const lzCan = GUEST_LZ && tamaLzCan(apps.tama) && (PACK_OPT ? !!x.pack || (!PACK_ASK && tamaNeedsLz(x.guest, x.dev, mroom)) : !opts.tamaRaw);
       const memo = SIZE_CACHE && !x.lzAll && !x.lzExtra ? (sizeCache.get(x.guest) || {}) : null, mk = 'pk:' + x.dev + ':' + lzCan;   // SIZE_CACHE: trial builds pack only once
-      const pk = (memo && memo[mk]) || packGuest(x.guest, x.dev, { sparse: true, lz: lzCan, lzAll: !!x.lzAll, lzExtra: x.lzExtra }), { map, blob, pages } = pk;
+      const pk = (memo && memo[mk]) || packGuest(x.guest, x.dev, { sparse: true, lz: lzCan, lzAll: !!x.lzAll, lzExtra: x.lzExtra, room: mroom }), { map, blob, pages } = pk;
       if (memo && !memo[mk]) { memo[mk] = pk; sizeCache.set(x.guest, memo); }
       const gLen = (blob.length + txSpare(pk, opts.txSpare) + 0xFFFF) & ~0xFFFF, size = gLen + 0x10000 + TX_STATE;   // test25: opts.txSpare (less room for spare pages when tight, as the main TamaEmu)
       const pl = place(size, 0x40000), gOff = pl.at;
@@ -2030,7 +2164,7 @@ function appsPlace0(rom, extras, app, opts = {}) {
 /** Settings of an extra program at off: { kind, ... } or null */
 /* 1.7.2 test3 DOOM_FREE: DOOM as a program of the menu in a ROM without the Paradise. Its settings block (PDMC) holds
  * the places of the WAD, the level data, the save and the program part; nothing is fixed any more. */
-const PDMC = 0x434D4450, DOOM_REGION = 0xA8000, DOOM_SAVE = 0x2000;
+const PDMC = 0x434D4450, DOOM_REGION = 0xA8000, DOOM_SAVE = 0x2000, DOOM_CMAP_AT = true;
 /* 1.7.3 test15 DOOM_PKREG: the DOOM program takes its packed-pointer windows from the level data, not from the WAD: the WAD
  * may be anywhere and bigger than 8 MB (a whole DOOM.WAD as one entry). That needs more level data room: the lists of
  * the whole WAD come first in it (x.region, set by the Studio). */
@@ -2251,6 +2385,8 @@ function t18Wall(rom, counter, date) {
 
 const EMU_APP_B64 = '__EMU_APP_B64__', EMU_STUB_B64 = '__EMU_STUB_B64__';
 /* MAIN_LZ: packing of the main TamaEmu as emuPatch does it (for room and hints in the Studio) */
+/* 1.7.6 SAVE_PACK_ASK: does this firmware (with its save) fit as the main program only packed? */
+function mainNeedsPack(g, dev, app) { try { mainPick(g, dev, app || (embedded() || {}).app, false); return false; } catch (e) { return !!(e && e.needPack); } }
 function packMain(g, dev, app, pack) {
   let pk; try { pk = mainPick(g, dev, app || (embedded() || {}).app, pack); } catch (e) { pk = packGuest(g, dev, { lz: true }); }
   return Object.assign({}, pk, { big: pk.big || GUEST_OFF + pk.blob.length + SPARE_MIN > GUEST_END });
@@ -2288,6 +2424,6 @@ function embedded() {
   return { app: b64(EMU_APP_B64), stub: b64(EMU_STUB_B64) };
 }
 
-root.ParamixEmu = { PACK_OPT, PACK_ASK, PACK_FEW, lzCount, appsPacked, doomLinks, doomUnlink, DOOM_LINK, packMain, lzEnc, lzDec, lzPack, lzUnpack, tamaLzCan, GUEST_LZ, doomCfg, doomParts, gbTrim, gbUntrim, hiFree, t7Outdated, wolfSod, wolfSodEmbedded, smsEmbedded, smsDetect, smsGameGear, smsTitle, SMS_MAGIC, SMS_KEYS_DEFAULT, abEmbedded, abHex, abTitle, AB_MAGIC, AB_KEYS_DEFAULT, AB_SAVE, AB_MAX, pmEmbedded, pmDetect, pmTooBig, pmBiosDetect, pmTitle, PM_MAGIC, PM_KEYS_DEFAULT, PM_SAVE, PM_BIOS_AT, wolfEmbedded, wolfInfo, wolfPackOk, WOLF_MAGIC, WOLF_KEYS_DEFAULT, gbEmbedded, gbcEmbedded, gbIsColor, gbDetect, gbColorOnly, gbTitle, GB_MAGIC, GB_KEYS_DEFAULT, emuOptGet, emuOptSet, emuSessGet, emuSessSet, v1Embedded, v3Embedded, v3Detect, v1Detect, v1Name, v1Clock, v1Patch, v1FromRom, v1Upgrade, V1_MAGIC, installApp, dlcStores, dlcRoute, dlcAdd, dlcFree, dlcSlots, dlcRecord, dlcPut, dlcName, emuDetect, sceneTable, packGuest, emuPatch, emuUpgrade, emuRemove, t7Embedded, t7Detect, t7Kind, appsPlace, appsRead, appsClear, appReserved, extraKind, extraName, extraSize, extraCfg, t7XName, T7X_SAVE, APPX_MAX, t7FigDetect, t7FigData, t7FigName, t7Cfg, t7FromRom, t7Room, t7Patch, t7Upgrade, t7Wall, T7_MAGIC, t18Embedded, t18Detect, t18FromRom, t18Items, t18ItemAdd, t18ItemDel, t18ItemCount, t18RoomReset, t18Points, t18iScan, t18RomWriteGuest, T18_ADULTS, t18AdultFind, t18PicMake, t18PicsWrite, t18PicsRead, t18PicRgba, t18Addrs, t18Cfg, t18Free, t18Low, t18Patch, t18Upgrade, t18Wall, t18ClockGet, t18ClockSet, emuClockGet, emuClockSet, tamaName, emuNfcGet, emuNfcSet, T18_MAGIC, T18_XIP_OFF, T18_SAVE_LEN, OPT_LV, autoGet, autoGetOld, autoSet, STUB_OFF, installedOrigs, embedded, DEVICES, GUEST_OFF, BIG_OFF };
+root.ParamixEmu = { MENU_ROOM, MENU_ROOM_LEN, PACK_OPT, PACK_ASK, PACK_FEW, DETECT_TAG, tamaNeedsLz, mainNeedsPack, lzCount, appsPacked, doomLinks, doomUnlink, DOOM_LINK, packMain, lzEnc, lzDec, lzPack, lzUnpack, tamaLzCan, GUEST_LZ, doomCfg, doomParts, gbTrim, gbUntrim, hiFree, t7Outdated, wolfSod, wolfSodEmbedded, smsEmbedded, smsDetect, smsGameGear, smsTitle, SMS_MAGIC, SMS_KEYS_DEFAULT, abEmbedded, abHex, abTitle, AB_MAGIC, AB_KEYS_DEFAULT, AB_SAVE, AB_MAX, pmEmbedded, pmDetect, pmTooBig, pmBiosDetect, pmTitle, PM_MAGIC, PM_KEYS_DEFAULT, PM_SAVE, PM_BIOS_AT, wolfEmbedded, wolfInfo, wolfPackOk, WOLF_MAGIC, WOLF_KEYS_DEFAULT, gbEmbedded, gbcEmbedded, gbIsColor, gbDetect, gbColorOnly, gbTitle, GB_MAGIC, GB_KEYS_DEFAULT, emuOptGet, emuOptSet, emuSessGet, emuSessSet, v1Embedded, v3Embedded, v3Detect, v1Detect, v1Name, v1Clock, v1Patch, v1FromRom, v1Upgrade, V1_MAGIC, installApp, dlcStores, dlcAreas, psStamp, psStampGet, psSessStamp, PS_STAMP, saveFlag, saveFlagGet, SAVE_FLAG, dlcRoute, dlcAdd, dlcFree, dlcSlots, dlcRecord, dlcPut, dlcName, emuDetect, sceneTable, packGuest, emuPatch, emuUpgrade, emuRemove, t7Embedded, t7Detect, t7Kind, appsPlace, appsRead, appsClear, appReserved, neonRom, extraKind, extraName, extraSize, extraCfg, t7XName, T7X_SAVE, APPX_MAX, t7FigDetect, t7FigData, t7FigName, t7Cfg, t7FromRom, t7Room, t7Patch, t7Upgrade, t7Wall, T7_MAGIC, t18Embedded, t18Detect, t18FromRom, t18Items, t18ItemAdd, t18ItemDel, t18ItemCount, t18RoomReset, t18Points, t18iScan, t18RomWriteGuest, T18_ADULTS, t18AdultFind, t18PicMake, t18PicsWrite, t18PicsRead, t18PicRgba, t18Addrs, t18Cfg, t18Free, t18Low, t18Patch, t18Upgrade, t18Wall, t18ClockGet, t18ClockSet, emuClockGet, emuClockSet, tamaName, emuNfcGet, emuNfcSet, T18_MAGIC, T18_XIP_OFF, T18_SAVE_LEN, OPT_LV, autoGet, autoGetOld, autoSet, STUB_OFF, installedOrigs, embedded, DEVICES, GUEST_OFF, BIG_OFF };
 if (typeof module !== 'undefined') module.exports = root.ParamixEmu;
 })(typeof window !== 'undefined' ? window : globalThis);

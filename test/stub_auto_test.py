@@ -36,7 +36,8 @@ def run(code, gpio, marker, secs=5, shpr=0, table=False, rs=0):
     u.emu_start((BASE + 0x40) | 1, 0, count=400)
     return (where[0] if where else None), struct.unpack('<I', u.mem_read(0x20000FFC, 4))[0], u.reg_read(UC_ARM_REG_SP), u.mem_read(0xE000ED1A, 1)[0]
 L, R, IDLE, BHELD, CHELD = 0x4C584D50, 0x52584D50, 0xFFFFFFFF, 0xFFFFFFFF & ~(1 << 11), 0xFFFFFFFF & ~(1 << 10)
-for name, tpl, rs in (('emu', '../emu/stub_tpl.bin', 0x1009F1A8), ('menu', '../feld/stub_feld_tpl.bin', 0x1009F1F0)):
+# 1.7.6 RING_CHECK: the menu stub's restart moved from +0x1F0 to +0x208 (ring check in lcheck)
+for name, tpl, rs in (('emu', '../emu/stub_tpl.bin', 0x1009F1A8), ('menu', '../feld/stub_feld_tpl.bin', 0x1009F208)):
     t = os.path.join(here, tpl)
     w, m, sp, f = run(stub(t, 1), IDLE, 0x12345678, secs=5)
     ok(w == BASE and m == R and f, name + ': power-on (clock new): emulator')

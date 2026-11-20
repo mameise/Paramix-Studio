@@ -13,7 +13,7 @@ screen). Texts on the device are English, the font and graphics are our own.
 - **Field switch:** the save of the active field is packed (LZSS per 4 KB page)
   into its own slot, the save of the chosen field is restored (or the factory
   settings pages 0xEFE000/0xEFF000 are written for a fresh field), then the
-  device restarts. The settings pages are written last, so an interrupted switch
+  menu offers to stay or restart. The settings pages are written last, so an interrupted switch
   is detected and the menu offers to restore the old save.
 - The active field lives in the settings block (byte 439 on Land/Water/Sky, 443
   on Jade Forest, 499 on Tropical/Glacier), not in the ID page. Every edition has
@@ -31,6 +31,79 @@ screen). Texts on the device are English, the font and graphics are our own.
   and its CRC-16/ARC. The item catalog is built by the Studio from the user's
   own ROM (28 bytes per entry); pictures are drawn straight from the ROM's image
   table.
+- **Batch items (local modification):** in ITEMS, `+ ADD ALL MISSING` restores
+  zero-count items and adds absent IDs from the ROM's editable catalog, leaving
+  owned counts alone. `= SET OWNED COUNTS` sets every owned, non-fixed item's
+  count to the chosen value (1 to 15), leaving zero-count items alone. Both show
+  the number of entries to change and ask for confirmation. Changes are held in
+  RAM until leaving ITEMS and accepting SAVE CHANGES. Capacity is checked before
+  adding anything; a full bag never causes a partial batch. Fixed catalog entries
+  are excluded. Run `node test/feld_bulk_test.js` from the repository root for
+  synthetic-save host tests, including UI navigation and mirrored save CRCs.
+
+## Menu extensions (1.7.5-menu7)
+
+The menu supports batch inventory edits, independent save copies, slot cleanup,
+and direct save-copy transfer between compatible Paradise devices. After saving,
+EXIT MENU? defaults to NO, allowing more changes without restarting. B on NO or
+C returns to the parent menu; YES + B exits. The normal Paradise menu home exits
+on C and labels this C EXIT. The program-only launcher keeps its launcher behavior.
+
+SAVES caches availability, field and character metadata on entry, refreshing
+only after a successful copy, clear or reception. Scrolling and cancelling
+options do not read/decompress every saved game. Input handlers wait for an
+actual event instead of repeatedly repainting and consuming physical B/C presses.
+
+Save-link transitions repaint the whole screen, preventing confirmation text
+from remaining behind a progress bar. ROM checking and save preparation show
+percentages; waiting shows elapsed seconds and an animated indicator. The
+receiver shows PEER FOUND, then READING SAVE INFO and RECEIVING SAVE. Byte-based
+transfer progress is followed by verification, slot commit and link completion.
+Receiver repaints happen before ACK while the sender waits, and idle animation
+runs outside frame parsing.
+
+- SAVES always shows slot number, ACTIVE/SAVED/EMPTY, field and character.
+  B opens slot options. Empty slots default to NO COPY - NEW GAME, or can
+  copy an existing slot (the active one uses the current live progress).
+  Choose the target field afterwards. Source slots are unchanged. Copies use
+  independent shared-pool pages and publish their header last; capacity is
+  checked for both the copy and the subsequent backup of the live save.
+- Existing slots offer LOAD / RESUME, CLEAR THIS SLOT and SEND TO TAMA.
+  Clear defaults to CANCEL. Active slots cannot be cleared. Clearing erases
+  only the header, never an entire physical slot region, because pool pages
+  may belong to other saves. New copies retain the source character and
+  progression; cross-field evolution/field-specific progress needs real-device
+  validation, especially with six-field ROMs.
+- TAMAPOINTS offers SET MAX: 99999 (first and selected by default), followed by
+  EDIT AMOUNT. Saving the maximum still requires confirmation.
+- ADD ITEM hides x15 entries by default; SHOW MAX ITEMS can display them again.
+  Item lists, count editors and batch count editors wrap in both directions.
+  New/batch counts wrap 1..15; owned count editing wraps 0..15 (0 = remove).
+- Empty slots offer RECEIVE FROM TAMA. Both devices must run a menu with the
+  same save-link protocol. Connect at the top, start SEND and RECEIVE, then
+  approve the incoming source slot/field. Reception stores a copy and leaves
+  the current live save untouched. Select the received slot to load it.
+  Matching asset-archive CRC and layout/field signatures are required; this
+  intentionally refuses different game resources or save layouts. No ROM or
+  emulator programs are sent. The imported header records the two devices'
+  clock-counter origins so loading/copying rebases the save's clock without
+  changing the receiver's hardware counter or its other slots.
+- The experimental UART save-link uses 460800 8N1, a distinct PMS1 framing
+  magic, protocol 1, 128-byte payloads, session/sequence IDs, CRC32, ACK/retry,
+  bounded waits and C cancellation. Only empty, inactive slots may receive.
+  Page addresses, ordering, lengths, decompression, settings CRCs and aggregate
+  packed checksum are validated before header publication. Interrupted imports
+  leave an invalid target header and reusable pool pages. A lost final ACK may
+  mean the receiver has a complete copy even if the sender reports failure;
+  inspect the receiving slot before retrying.
+
+Validation: `node test/feld_bulk_test.js`, `node test/feld_menu_test.js`,
+`node test/feld_slot_clock_test.js`, `node test/unit_test.js`, and both ARM builds. Menu tests use synthetic data
+with ASan/UBSan and two separate socket-connected processes, including dropped
+ACK, duplicate frames, incompatible resources, disconnect, and different clock
+counters. Physical two-device UART save transfer has been tested and confirmed
+working. Cross-field gameplay compatibility requires separate validation.
+No device is flashed by these commands.
 
 Settings block of the program (372 bytes at program + 0x140, version 4): slots,
 ID page (footer, constant), fields (ID, name, colour), factory settings per

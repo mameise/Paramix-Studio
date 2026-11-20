@@ -26,9 +26,10 @@ const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 
 function w32(b, o, v) { b[o] = v & 255; b[o + 1] = (v >>> 8) & 255; b[o + 2] = (v >>> 16) & 255; b[o + 3] = (v >>> 24) & 255; }
 
 /** Edition 5/6 (Tropical, Glacier) keep their ID page lower. */
-function idPage(edition) { return edition === 5 || edition === 6 ? 0xD29000 : 0xD49000; }
+function idPage(edition) { return edition === 8 ? 0xD85000 : edition === 5 || edition === 6 || edition === 7 ? 0xD29000 : 0xD49000; }   // 8: Neon Planets (1.7.6)   // 7: Tropical/Glacier with ID 4 (1.7.6)
 function region(edition) { return [idPage(edition) + PAGE, REGION_END]; }
-function family(edition) { return edition === 5 || edition === 6 ? 'gen3' : edition === 4 ? 'jade' : 'gen1'; }
+const SAVE_FAMILY = true;
+function family(edition) { return edition === 8 ? 'neon' : edition === 5 || edition === 6 || edition === 7 ? 'gen3' : edition === 4 ? 'jade' : 'gen1'; }
 
 /* Settings block: CRC-16/ARC over bytes 4..4095 at 0, its inverse at 2. */
 function crc16arc(d, from, to) {
@@ -39,6 +40,20 @@ function crc16arc(d, from, to) {
 function settingsOk(p) { const c = crc16arc(p, 4, PAGE); return u16(p, 0) === c && u16(p, 2) === (~c & 0xFFFF); }
 
 // ---------------------------------------------------------------- Paradise
+/* 1.7.6 NEON_SAVE: Neon Planets keeps its settings block in a ring of 5 pages behind its ID page (0xD86000..0xD8A000),
+ * the newest valid page (highest number at +0xAD0) counts. The other Paradise editions: 0xEFE000 and its copy 0xEFF000. */
+const NEON_SAVE = true, RING_N = 5, RING_SEQ = 0xAD0;
+function setAddrs(edition) { if (NEON_SAVE && family(edition) === 'neon') { const r = []; for (let i = 0; i < RING_N; i++) r.push(idPage(edition) + PAGE * (i + 1)); return r; } return [SET_A, SET_B]; }
+/** The valid settings block of a save: { at, p } (Neon: the newest page of the ring) or null. */
+function setOf(pages, edition) {
+  let best = null;
+  for (const a of setAddrs(edition)) {
+    const p = pages.get(a); if (!p || p.length !== PAGE || !settingsOk(p)) continue;
+    if (!best) { best = { at: a, p }; if (!(NEON_SAVE && family(edition) === 'neon')) break; continue; }
+    if (((u32(p, RING_SEQ) - u32(best.p, RING_SEQ)) | 0) > 0) best = { at: a, p };
+  }
+  return best;
+}
 /** Pages of the save region from a 16 MB image (all of them, empty ones too). */
 function paraFromImage(img, edition) {
   const [a, b] = region(edition), pages = new Map();
@@ -113,19 +128,22 @@ function paraDecode(b) {
  */
 function paraCheck(save, edition) {
   const errors = [], warnings = [], [a, b] = region(edition), pages = new Map();
-  if (save.edition && save.edition !== edition) errors.push({ code: 'saveOtherEd', p: { s: save.edition, d: edition } });
+  // 1.7.6 SAVE_FAMILY: the field switch changes the ID (Land/Water/Sky, Tropical/Glacier and their Forest/Sky): a save
+  // of the same firmware fits, before a save from Tropical was refused on the device once it had switched to Glacier
+  if (save.edition && (SAVE_FAMILY ? family(save.edition) !== family(edition) : save.edition !== edition)) errors.push({ code: 'saveOtherEd', p: { s: save.edition, d: edition } });
   let outside = 0;
   for (const [p, d] of save.pages) {
     if (p < a || p >= b || d.length !== PAGE) { outside++; continue; }
     pages.set(p, d);
   }
   if (outside) warnings.push({ code: 'saveOutside', p: { n: outside } });
-  const sa = pages.get(SET_A), sb = pages.get(SET_B);
-  const set = sa && settingsOk(sa) ? sa : sb && settingsOk(sb) ? sb : null;
+  const so = setOf(pages, edition), set = so ? so.p : null;
   if (!set) errors.push({ code: 'saveNoSettings' });
-  else if ((u16(set, 12) === 0x016D) !== (family(edition) === 'gen3')) errors.push({ code: 'saveFamily' });
+  else if ((u16(set, 12) === 0x016D) !== (family(edition) === 'gen3' || family(edition) === 'neon')) errors.push({ code: 'saveFamily' });
   let complete = true;
   for (let p = a; p < b; p += PAGE) if (!pages.has(p)) { complete = false; break; }
+  // NEON_SAVE: ring pages the save lacks are erased on the device, so an older page there cannot win over the save
+  if (NEON_SAVE && family(edition) === 'neon' && set) for (const r of setAddrs(edition)) if (!pages.has(r)) pages.set(r, new Uint8Array(PAGE).fill(0xFF));
   if (!complete) warnings.push({ code: 'saveIncomplete' });
   return { errors, warnings, pages, complete };
 }
@@ -138,11 +156,11 @@ function paraClock(save, now = Math.floor(Date.now() / 1000)) {
 // ---------------------------------------------------------------- change a Paradise save (1.6.8)
 // The pet in the settings block: +4/+6 character, +0x10 sickness, +0x18 bits 2..4 stage, +0x1C hunger 0..6,
 // +0x1D happiness 0..20. Planet level: low nibble = level, high nibble = level already celebrated.
-const PET = { gen1: { tama: 0x104, level: 0x7C }, jade: { tama: 0x108, level: 0x7C }, gen3: { tama: 0x114, level: 0x88 } };
-function paraSettings(save) { for (const a of [SET_A, SET_B]) { const p = save.pages.get(a); if (p && p.length === PAGE && settingsOk(p)) return p; } return null; }
+const PET = { gen1: { tama: 0x104, level: 0x7C }, jade: { tama: 0x108, level: 0x7C }, gen3: { tama: 0x114, level: 0x88 }, neon: { tama: 0x114, level: 0x88 } };
+function paraSettings(save, edition) { const so = setOf(save.pages, edition || save.edition); return so ? so.p : null; }
 /** What the save says about the pet: { level, id, stage, hunger, happy, sick } or null. */
 function paraPet(save, edition) {
-  const p = paraSettings(save), o = PET[family(edition)]; if (!p || !o) return null;
+  const p = paraSettings(save, edition), o = PET[family(edition)]; if (!p || !o) return null;
   const t = o.tama;
   return { level: p[o.level] & 15, id: u16(p, t + 4), stage: (p[t + 0x18] >> 2) & 7, hunger: p[t + 0x1C], happy: p[t + 0x1D], sick: p[t + 0x10] };
 }
@@ -152,7 +170,7 @@ function paraPet(save, edition) {
  */
 const TAMA_ANY = true;
 function paraPetSet(save, edition, ch) {
-  const p0 = paraSettings(save), o = PET[family(edition)];
+  const so = setOf(save.pages, edition), p0 = so ? so.p : null, o = PET[family(edition)], sets = setAddrs(edition);
   if (!p0 || !o) throw new Error('the save has no settings block');
   const t = o.tama, p = p0.slice(), pages = new Map(save.pages);
   const old = u16(p, t + 4);
@@ -162,7 +180,7 @@ function paraPetSet(save, edition, ch) {
     if (ch.stage) p[t + 0x18] = (p[t + 0x18] & ~0x1C) | ((ch.stage & 7) << 2);
     let found = 0;
     if (old && old !== ch.id) for (const [a, d] of save.pages) {
-      if (a === SET_A || a === SET_B || d.length !== PAGE) continue;
+      if (sets.includes(a) || d.length !== PAGE) continue;
       // 1.7.2 TAMA_ANY: a bred Tama's file was not found (GitHub): small number at +8, character at +0x0C or +0x0E
       if (TAMA_ANY ? (u32(d, 8) === 0 || u32(d, 8) > 255 || (u16(d, 14) !== old && u16(d, 12) !== old)) : (u32(d, 8) !== 1 || u16(d, 14) !== old)) continue;
       const n = d.slice(); found++;
@@ -175,7 +193,8 @@ function paraPetSet(save, edition, ch) {
   }
   if (ch.care) { p[t + 0x1C] = 6; p[t + 0x1D] = 20; p[t + 0x10] = 0; }
   const c = crc16arc(p, 4, PAGE); p[0] = c & 255; p[1] = c >> 8; p[2] = ~c & 255; p[3] = (~c >> 8) & 255;
-  pages.set(SET_A, p); pages.set(SET_B, p.slice());
+  if (NEON_SAVE && family(edition) === 'neon') pages.set(so.at, p);   // the newest page of the ring, in place
+  else { pages.set(SET_A, p); pages.set(SET_B, p.slice()); }
   return Object.assign({}, save, { pages });
 }
 
@@ -300,6 +319,6 @@ function t7SaveIn(img, save, base = 0xC0000) {
   return out;
 }
 
-root.ParamixSaves = { paraPet, paraPetSet, paraWrite, t7SaveOut, t7SaveIn, t7SaveCheck, T7_EE, idPage, region, family, settingsOk, crc16arc, paraFromImage, paraEncode, paraDecode, paraCheck, paraClock, emuCfg, emuGuestAsync, lzGoneApply, KINDS };
+root.ParamixSaves = { setOf, setAddrs, paraSettings, paraPet, paraPetSet, paraWrite, t7SaveOut, t7SaveIn, t7SaveCheck, T7_EE, idPage, region, family, settingsOk, crc16arc, paraFromImage, paraEncode, paraDecode, paraCheck, paraClock, emuCfg, emuGuestAsync, lzGoneApply, KINDS };
 if (typeof module !== 'undefined') module.exports = root.ParamixSaves;
 })(typeof window !== 'undefined' ? window : globalThis);

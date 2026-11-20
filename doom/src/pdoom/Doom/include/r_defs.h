@@ -419,6 +419,22 @@ static inline subsector_t* getSubSectorPtr(unsigned short shortPointer)
 {
     return (subsector_t*) getLongPtr(shortPointer);
 }
+#if defined(PDM_SSFLASH) && defined(PDM_SSIDX)
+/* Paramix 1.7.6 PDM_SSIDX: with PDM_SSFLASH the subsectors lie in flash, a 16 bit RAM pointer cannot reach them: the
+ * thing keeps the number of its subsector (+1, 0 = none). Before, every thing pointed into the RAM at random: the level
+ * loaded, then the picture was wrong and DOOM hung (DOOM in the menu since 1.7.3) */
+extern subsector_t *g_ss_base;
+static inline subsector_t* getMobjSubsector(mobj_t *pmobj)
+{
+    unsigned short n = pmobj->subsector_sptr;
+    return n ? g_ss_base + (n - 1) : 0;
+}
+static inline subsector_t* setMobjSubesctor(mobj_t *pmobj, subsector_t *ss)
+{
+    pmobj->subsector_sptr = ss ? (unsigned short) (ss - g_ss_base + 1) : 0;
+    return ss;
+}
+#else
 static inline subsector_t* getMobjSubsector(mobj_t *pmobj)
 {
     return getSubSectorPtr(pmobj->subsector_sptr);
@@ -428,6 +444,7 @@ static inline subsector_t* setMobjSubesctor(mobj_t *pmobj, subsector_t *ss)
     pmobj->subsector_sptr = getShortPtr(ss);
     return ss;
 }
+#endif
 
 //
 // OTHER TYPES

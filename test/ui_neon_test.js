@@ -1,0 +1,41 @@
+// 1.7.6 NEON_APPS: Neon Planets: programs go into the menu (between its pictures and its ID page), the planets stay the
+// game's own. node test/ui_neon_test.js <neon.bin> <p2.bin> <tama-go.bin> <out_dir>
+const { chromium } = require('playwright');
+const fs = require('fs'), path = require('path');
+const C = require('../src/core.js'); globalThis.ParamixCore = C;
+const E = require('../src/emu.js'), F = require('../src/feld.js');
+(async () => {
+  const [rom, p2, go, out] = process.argv.slice(2);
+  fs.mkdirSync(out, { recursive: true });
+  const fe = { stub: new Uint8Array(fs.readFileSync(__dirname + '/../feld/stub_feld_tpl.bin')) }, raw = new Uint8Array(fs.readFileSync(rom));
+  let bad = 0; const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) bad++; };
+  const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
+  const errors = []; p.on('pageerror', (e) => errors.push(e.message));
+  await p.addInitScript(() => { try { localStorage.setItem('paramix-lang', 'de'); } catch (e) {} });
+  await p.goto('file://' + path.resolve(__dirname, '../dist/ParamixStudio.html'));
+  await p.setInputFiles('#fileRom', rom); await p.waitForSelector('#work.on', { timeout: 60000 });
+  await p.click('.tab[data-tab="feld"]');
+  const fs1 = await p.evaluate(() => document.getElementById('feldStat') ? document.getElementById('feldStat').innerText : '');
+  console.log('Menü:', fs1.replace(/\n/g, ' | '));
+  for (const id of ['bagOn', 'tamaOn']) if (await p.$('#' + id) && !(await p.isChecked('#' + id)) && !(await p.isDisabled('#' + id))) await p.click('#' + id);
+  await p.click('.tab[data-tab="emu"]');
+  await p.setInputFiles('#fileEmu', p2); await p.waitForTimeout(800);
+  await p.setInputFiles('#fileEmu', go); await p.waitForTimeout(800);
+  const rows = await p.evaluate(() => [...document.querySelectorAll('#appsList .prow')].map((r) => r.querySelector('.pname').textContent));
+  console.log('Liste:', rows, await p.evaluate(() => document.getElementById('toast').textContent));
+  ok(rows.includes('TAMA P2') && rows.includes('TAMA-GO'), 'both in the list');
+  const dlp = p.waitForEvent('download', { timeout: 300000 }); await p.click('#btnSave');
+  const dl = await dlp; const r1 = out + '/' + dl.suggestedFilename(); await dl.saveAs(r1);
+  const img = new Uint8Array(fs.readFileSync(r1));
+  const same = (a, z) => Buffer.from(img.subarray(a, z)).equals(Buffer.from(raw.subarray(a, z)));
+  ok(same(0, 0xA7880) && same(0xA78A0, 0xB8000), 'game code unchanged apart from the menu hook');
+  ok(Buffer.from(img.subarray(0xD85000, 0xF00000)).equals(Buffer.from(raw.subarray(0xD85000, 0xF00000))), 'ID page and save unchanged');
+  const ff = F.feldFind(img, fe.stub); ok(ff && (ff.flags & 128), 'menu with the settings ring');
+  const fa = F.feldApps(img, fe.stub); console.log('menu:', fa.apps.map((a) => a.name + '@' + a.src.toString(16)).join(', '));
+  ok(fa.apps.some((a) => (a.src & 0xFFFFFF) >= 0xF00000), 'NEON_HI: programs also behind the save');
+  ok(fa.apps.some((a) => a.name === 'TAMA P2') && fa.apps.some((a) => a.name === 'TAMA-GO'), 'both in the menu');
+  ok(C.openRom(img).editionId === 8, 'still Neon Planets');
+  ok(!errors.length, 'no page errors ' + errors.join('; '));
+  await b.close();
+  console.log(bad ? 'FAIL ' + bad : 'all good'); process.exit(bad ? 1 : 0);
+})();

@@ -13,4 +13,15 @@ for (const [f, [nm, clk, dir7]] of Object.entries(want)) {
   ok(E.v1Name(r) === nm && name === nm, f + ' name ' + name);
   ok((fl & 8) === clk && (fl & 128) === dir7, f + ' flags ' + fl.toString(2));
 }
+// 1.7.6 V1_MOTHRA: Mosuratchi lights one segment per icon (flag 256) and gets its own icons
+{ const p = dir + '/TamagotchiMothra.bin';
+  if (fs.existsSync(p)) {
+    const r = new Uint8Array(fs.readFileSync(p)); const a = E.v1Patch(land, r, app, stub, {}); const o = a.rom || a;
+    const dv = new DataView(o.buffer, o.byteOffset), fl = dv.getUint32(0xA0000 + 0x140 + 20, true);
+    ok(E.v1Name(r) === 'MOTHRA' && (fl & 256) && (fl & 512) && (fl & 8), 'Mothra name, icon segments and clock ' + fl.toString(2));
+    const ic = o.slice(0xA0000 + 0x140 + 44, 0xA0000 + 0x140 + 44 + 256), um = E.v1Patch(land, new Uint8Array(fs.readFileSync(dir + '/TamagotchiUmino.bin')), app, stub, {});
+    const icu = (um.rom || um).slice(0xA0000 + 0x140 + 44, 0xA0000 + 0x140 + 44 + 256);
+    ok(dv.getUint32(0xA0000 + 0x140 + 40, true) === 1 && ic.some((v) => v) && !ic.every((v, i) => v === icu[i]), 'Mothra has its own icons');
+  } else console.log('skip Mothra');
+}
 console.log(bad ? 'FAILED ' + bad : 'all good');

@@ -2,6 +2,41 @@
 
 Versions are listed newest first.
 
+## 1.7.6 (2026-11-20)
+
+New:
+- Neon Planets: Paramix menu with items, Tamapoints and Tama. Programs start from the menu, DOOM and colour Tamas in a start device.
+- Neon Planets: saves are kept when writing, can be exported and imported, and the Tama can be changed in the Save tab.
+- Neon Planets: own characters and Digimon for its planets Cosmic, New Tama and Tama.
+- Start device of Tropical/Glacier: DOOM goes into the menu.
+- Field switch (Tropical, Glacier): Forest and Sky are their own home. Outside toys are placed there, and their special characters can come.
+- Menu: ITEMS adds all missing items at once and sets the count of all owned items.
+- Menu: TAMAPOINTS has SET MAX.
+- Menu: SAVES shows field and character of each slot. A slot can be copied, cleared or sent to another Paradise.
+- Menu: after saving, it asks whether to leave or keep editing.
+- Save tab: "Clear slot" empties a save slot of the menu on the device.
+- T18Emu: downloaded games and destinations (MyMeets/WebMeets files such as Magic Hut) can be added like items.
+- TamaEmu P's: all P's downloads work, also letters, stamp cards, recipes and the iD L and 4U items made for the P's.
+- TamaEmu iD L: letters and Happy Mail can be added.
+- V1Emu: the Mothra Tamagotchi takes the time of the Paradise.
+- Thanks to ZW Cai for the new menu functions (items at once, SET MAX, SAVES, leave or keep editing).
+
+Fixes:
+- Neon Planets is recognised (it showed as Tropical/Glacier).
+- T18Emu: a Playdate between two Paradise no longer makes the emulator restart.
+- T18Emu: the connection to MixingMeets also works with a short "Screen off after" time.
+- TamaEmu: other versions of the P's and 4U firmware are recognised (they showed as iD L).
+- TamaEmu: FULL CARE works with the P's firmware of January 2013.
+- TamaEmu: adding download items keeps the pet's save and the items it already has.
+- TamaEmu in the menu: big saves fit without packing. If a save only fits packed, the Studio says what to do.
+- DOOM in the menu: levels show the right picture, and DOOM no longer hangs after loading a level.
+- DOOM: the save and load menu fits the screen and shows the level of each save.
+- MixingMeets: Select Tamagotchi also works before the Tama waits, and the bridge says what to choose on the Tama.
+- Paradise saves: a save goes back onto the device after a field switch.
+- All 6 fields: the WALKING game shows its landscape on Land, Water and Sky again. Older ROMs with six fields need your Land, Water or Sky ROM once more when saving.
+- V1Emu: the Mothra Tamagotchi shows its own menu icons in the right order. Open and save your ROM once.
+- V1Emu: Mothra and Genjintchi react to every key press.
+
 ## 1.7.5 (2026-11-12)
 
 Fixes:

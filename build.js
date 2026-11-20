@@ -76,6 +76,7 @@ let feld = fs.readFileSync(__dirname + '/src/feld.js', 'utf8');
   for (const f of ['feld.bin', 'stub_feld_tpl.bin']) if (!fs.existsSync(__dirname + '/feld/' + f)) throw new Error('feld/' + f + ' fehlt');
   feld = feld.replace('__FELD_B64__', d('feld.bin')).replace('__FELD_STUB_B64__', d('stub_feld_tpl.bin'));
   if (fs.existsSync(__dirname + '/feld/feldc.bin')) feld = feld.replace('__FELDC_B64__', d('feldc.bin'));   // 1.7.2 CLEAN_ROM: menu for ROMs without the Paradise
+  if (fs.existsSync(__dirname + '/feld/feld_s.bin')) feld = feld.replace('__FELDS_B64__', d('feld_s.bin')).replace('__FELDCS_B64__', d('feldc_s.bin'));   // 1.7.6 FELD_BIG: the 1.7.5 menu where the big one does not fit
 }
 // Six fields: helper page (source in six/src)
 let six = fs.readFileSync(__dirname + '/src/six.js', 'utf8');

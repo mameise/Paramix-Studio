@@ -20,9 +20,25 @@ static uint32_t g_t[3600 / 4];
 #define NPOOL 12
 #endif
 #endif
+#ifdef T18_POOL_STEAL
+/* 1.7.6: as on the device (src/app/main.c): 48 more pages from the translator's first table half */
+uint8_t t18_pool[NPOOL + 48][T18_HOLE_PG] __attribute__((aligned(4)));
+#define g_pool t18_pool
+static int g_pool_n, g_pool_ext, g_steals;
+void t18_jit_steal(int on);
+static uint8_t *hole_new(void) { if (g_pool_n >= NPOOL + g_pool_ext) return 0; uint8_t *p = g_pool[g_pool_n++]; memset(p, 0, T18_HOLE_PG); return p; }
+static void hole_free(void) { g_pool_n = 0; if (g_pool_ext) { g_pool_ext = 0; t18_jit_steal(0); } }
+#define pool_watch() do { if (g_pool_n + 12 >= NPOOL && !g_pool_ext) { t18_jit_steal(1); g_pool_ext = 48; g_steals++; } } while (0)
+#define RUN_STEP 4000u
+#else
 static uint8_t g_pool[NPOOL][T18_HOLE_PG] __attribute__((aligned(4))); static int g_pool_n;
 static uint8_t *hole_new(void) { if (g_pool_n >= NPOOL) return 0; uint8_t *p = g_pool[g_pool_n++]; memset(p, 0, T18_HOLE_PG); return p; }
 static void hole_free(void) { g_pool_n = 0; }
+#define pool_watch() ((void)0)
+#ifndef RUN_STEP
+#define RUN_STEP 50000u
+#endif
+#endif
 #ifdef T18_PRAM_WR
 /* as on the Paradise: from the flash window, interrupts off (m3run.py checks where PRAM writes come from) */
 __attribute__((section(".xiptext"), noinline, used)) void t18_pram_w16(uint16_t *p, uint32_t v)
@@ -80,13 +96,16 @@ int main(void)
         switch (g_mb[0]) {
         case 1:
 #ifdef T18_CLOCK_AFTER
-            for (uint32_t us = g_mb[1]; us; ) { uint32_t k = us > 50000u ? 50000u : us; tg18_run_us(T, k); us -= k;
+            for (uint32_t us = g_mb[1]; us; ) { uint32_t k = us > RUN_STEP ? RUN_STEP : us; tg18_run_us(T, k); us -= k; pool_watch();
                 if (g_pend && ++g_pend > 11) { g_pend = 0; tg18_set_time(T, g_tm[0], g_tm[1], g_tm[2], g_tm[3], g_tm[4], g_tm[5]); } }
 #else
             tg18_run_us(T, g_mb[1]);
 #endif
             break;
         case 2: tg18_set_buttons(T, (int)g_mb[1]); break;
+#ifdef T18_POOL_STEAL
+        case 8: if (!g_pool_ext) { t18_jit_steal(1); g_pool_ext = 48; g_steals++; } break;   /* test: take the table half now */
+#endif
         case 4: {
 #ifdef T18_JIT
             extern uint32_t t18_jit_stat[8], t18_interp[2];
@@ -96,14 +115,18 @@ int main(void)
             g_mb[7] = t18_interp[0]; g_mb[10] = t18_interp[1];
 #endif
             break; }
-        case 3: { arm7_t *c = tg18_cpu(T); g_mb[2] = (uint32_t)c->cycles; g_mb[3] = (uint32_t)(c->cycles >> 32); g_mb[4] = c->r[15]; { uint32_t h = 2166136261u; for (uint32_t o = 0; o < T18_SRAM_SIZE; o += 256) h = fnv(t18_sram_rp(o), 256, h); g_mb[5] = h; } g_mb[7] = (uint32_t)t18_oom | (uint32_t)g_pool_n << 8; break; }
+        case 3: { arm7_t *c = tg18_cpu(T); g_mb[2] = (uint32_t)c->cycles; g_mb[3] = (uint32_t)(c->cycles >> 32); g_mb[4] = c->r[15]; { uint32_t h = 2166136261u; for (uint32_t o = 0; o < T18_SRAM_SIZE; o += 64) h = fnv(t18_sram_rp(o), 64, h);   /* 1.7.6: pages of 64 bytes (T18_HOLE_IX) */ g_mb[5] = h; } g_mb[7] = (uint32_t)t18_oom | (uint32_t)g_pool_n << 8;
+#ifdef T18_POOL_STEAL
+            g_mb[7] |= (uint32_t)g_steals << 20 | (uint32_t)(g_pool_ext != 0) << 1;
+#endif
+            break; }
 #ifdef T18_JIT_VERIFY
         case 6: { extern int t18_verify_on; t18_verify_on = 1; break; }
 #endif
         case 7: {                    /* load state + SRAM put by the driver at 0x61000000 - 0x40000 (g_mb[1] = state length) */
             const uint8_t *b = (const uint8_t *)0x60FC0000u; uint32_t n = g_mb[1];
             g_mb[2] = (uint32_t)tg18_load_state(T, b, n);
-            for (uint32_t q = 0; q < T18_SRAM_SIZE; q += 4) t18_sram_wr(q, *(const uint32_t *)(b + n + q), 4);
+            for (uint32_t q = 0; q < T18_SRAM_SIZE; q += 4) { if (!(q & 63u)) pool_watch(); t18_sram_wr(q, *(const uint32_t *)(b + n + q), 4); }
             break; }
         case 5: tg18_set_time(T, (int)g_mb[1], (int)g_mb[2], (int)g_mb[3], (int)g_mb[4], (int)g_mb[5], (int)g_mb[6]);
 #ifdef T18_CLOCK_AFTER

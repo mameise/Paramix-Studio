@@ -436,6 +436,16 @@ static void M_DrawSaveGames(void)
             M_WriteText(LoadDef.x + 240 / 2, 27 + SAVESLOT_SPACING * (i - 4), savegamestrings[i], scaleX);
         }
     }
+    #elif defined(PDM_SAVEMENU)
+    /* 1.7.6: the rows were placed for the 240x160 GBA screen without scaling: on 128x128 they ran out at the bottom
+     * and did not line up with the skull (drawn scaled from 320x200). Now one text row per slot in the middle of the
+     * skull's row, no border (it is wider than the screen); the text says the level (or EMPTY). */
+    for (int i = 0 ; i < load_end ; i++)
+    {
+        const int y = ((currentMenu->y + LINEHEIGHT * i + 4) * SCREENHEIGHT) / 200 - 3;
+        const int x = (currentMenu->x * SCREENWIDTH) / 320;
+        M_WriteText(x, y, savegamestrings[i][0] ? savegamestrings[i] : "EMPTY");
+    }
     #else
     for (int i = 0 ; i < load_end ; i++)
     {
@@ -534,7 +544,11 @@ const static menu_t SaveDef =
 //
 void M_ReadSaveStrings(void)
 {
-
+#ifdef PDM_SAVEMENU
+    /* 1.7.6: they were only read after saving: after a restart the load menu showed nothing */
+    void G_UpdateSaveGameStrings();
+    G_UpdateSaveGameStrings();
+#endif
 }
 
 //

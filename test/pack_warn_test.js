@@ -26,7 +26,12 @@ for (const pack of [false, true]) {
   let used = 0; for (let b = 0; b < 128; b++) if (!ff(b << 16)) used++;
   let x = 7; for (let b = 1; b < 128 && used < 92; b++) if (ff(b << 16)) { for (let i = 0; i < 0x10000; i++) { x = (Math.imul(x, 1103515245) + 12345) >>> 0; g[(b << 16) + i] = x >>> 24; } used++; }
   let msg = '', need = false; try { E.appsPlace(base, [{ kind: 'tama', guest: g, dev, pack: false }], progs, { launch: true, dlApp: rd(S + 'flash/flashapp.bin') }); } catch (e) { msg = e.message; need = !!e.needPack; }
-  ok(need, 'menu, long save (' + used + ' blocks) without pack: ' + msg);
+  // 1.7.6 MENU_ROOM: in the menu the 5 MB of the main program's area do not apply: it goes in unpacked
+  if (E.MENU_ROOM) { let r1 = null; try { r1 = E.appsPlace(base, [{ kind: 'tama', guest: g, dev, pack: false }], progs, { launch: true, dlApp: rd(S + 'flash/flashapp.bin') }); } catch (e) { msg = e.message; }
+    ok(!!r1 && !need, 'menu, long save (' + used + ' blocks) without pack: placed unpacked ' + msg);
+    const rom = r1 && F.feldApply(r1.rom, { launch: true, apps: r1.list, dl: r1.dl }, [], fe, E);
+    ok(rom && E.appsPacked(rom, F.feldApps(rom, fe.stub).apps).length === 0, 'menu, long save unpacked: no warning'); }
+  else ok(need, 'menu, long save (' + used + ' blocks) without pack: ' + msg);
   let r2 = null; try { r2 = E.appsPlace(base, [{ kind: 'tama', guest: g, dev, pack: true }], progs, { launch: true, dlApp: rd(S + 'flash/flashapp.bin') }); } catch (e) { console.log(e.message); }
   ok(!!r2, 'menu, long save with pack: placed'); }
 console.log(bad ? bad + ' failed' : 'all good'); process.exit(bad ? 1 : 0);

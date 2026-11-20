@@ -255,10 +255,29 @@ extern uint32_t __stack_bottom;
 #define NPOOL 12
 #endif
 #endif
+#ifdef T18_POOL_STEAL
+/* 1.7.6: two T18 connected (play date) need up to 125 pages, more than the 93. Behind them lie the 48 pages of the
+ * translator's first table half (t18jit.c); when the pool is nearly full they come to it (pool_watch, between the
+ * runs of the game), back when the hole is emptied. Normal play stays below 93: nothing changes there.
+ * hole_new and hole_free run seldom (a page is made once): in the flash window, the PRAM is for translated code. */
+_Static_assert(T18_POOL_STEAL == NPOOL, "T18_POOL_STEAL = NPOOL");
+#define NSTEAL 48u
+#define POOL_RES 12u                       /* pages left when the half is taken (the game runs 4 ms between two looks) */
+uint8_t t18_pool[NPOOL + NSTEAL][T18_HOLE_PG] __attribute__((aligned(4)));
+#define g_pool t18_pool
+static uint16_t g_pool_n, g_pool_ext;    /* 16 bit: the hole had 4 bytes left */
+void t18_jit_steal(int on);
+COLD static uint8_t *hole_new(void) { if (g_pool_n >= NPOOL + g_pool_ext) return 0; uint8_t *p = g_pool[g_pool_n++]; memset(p, 0, T18_HOLE_PG); return p; }
+COLD static void hole_free(void) { g_pool_n = 0; if (g_pool_ext) { g_pool_ext = 0; t18_jit_steal(0); } }
+COLD static void pool_steal(void) { t18_jit_steal(1); g_pool_ext = NSTEAL; }
+#define pool_watch() do { if (g_pool_n + POOL_RES >= NPOOL && !g_pool_ext) pool_steal(); } while (0)
+#else
 static uint8_t g_pool[NPOOL][T18_HOLE_PG] __attribute__((aligned(4)));
 static uint32_t g_pool_n;
 static uint8_t *hole_new(void) { if (g_pool_n >= NPOOL) return 0; uint8_t *p = g_pool[g_pool_n++]; memset(p, 0, T18_HOLE_PG); return p; }
 static void hole_free(void) { g_pool_n = 0; }
+#define pool_watch() ((void)0)
+#endif
 
 /* ---- the code buffer in the PRAM: written from the flash window with interrupts off ---- */
 /* T18_PRAM_WR_SRAM (on): the writer runs from the SRAM, as the copy loop of TamaEmu (proven on the device).
@@ -1302,7 +1321,7 @@ COLD static int session_load(uint32_t *saved_rtc)
     uint32_t at = SAVE + T18_SESS_SEC + 0x1000u + o;
     if (!t18_hole_n(o, 0x1000u)) { flash_read(at, t18_sram + o, 0x1000u); continue; }
     const volatile uint8_t *q = XIP_PTR(at);
-    for (uint32_t i = 0; i < 0x1000u; i++) t18_sram_wr(o + i, q[i], 1);
+    for (uint32_t i = 0; i < 0x1000u; i++) { if (!(i & 63u)) pool_watch(); t18_sram_wr(o + i, q[i], 1); }   /* 1.7.6: a session from a play date */
   }
   c_release();
   for (uint32_t i = 0; i < 0x1000u; i++) c_buf[i] = p[i];
@@ -1636,6 +1655,11 @@ LXIP static void lk_poll(uint32_t now)
       break;
     }
   }
+#ifdef T18_LINK_PEND
+  /* 1.7.6: while a write waits for the game (pend), the pings behind it stay unread in the ring: the 4 s ran out when
+   * the game took longer (reported: "fail" at "now getting married"). Waiting bytes count as the page being there. */
+  if (k->pend && k->rh != k->rt) k->last_rx = now ? now : 1u;
+#endif
   if (k->conn && now - k->last_rx > 4000u) { k->conn = 0; tg18_ble_connect(T, 0); }   /* the page went away */
   if (now - k->hello >= 1000u) { k->hello = now; uint8_t f = (uint8_t)((tg18_ble_ready(T) ? 1u : 0u) | (k->conn ? 2u : 0u)); lk_tx('H', &f, 1); }
 }
@@ -1728,6 +1752,9 @@ static void main_loop(int restored)
 #endif
 #ifdef T18_LINK
       && !(LK->last_rx && now - LK->last_rx < 30000u)
+#ifdef T18_LINK_AWAKE
+      && !tg18_ble_ready(T)   /* 1.7.6: the Tama waits for the app: full clock, else the UART's baud rate is off */
+#endif
 #endif
 #ifdef T18_GROW
       && g_grow == -2
@@ -1761,6 +1788,9 @@ static void main_loop(int restored)
     eco_poll(now, bl == 0 && !b && !g_hw_tone_hz
 #ifdef T18_LINK
       && !(LK->last_rx && now - LK->last_rx < 30000u)
+#ifdef T18_LINK_AWAKE
+      && !tg18_ble_ready(T)   /* 1.7.6: the Tama waits for the app: full clock, else the UART's baud rate is off */
+#endif
 #endif
       , (int)(now - emu_ms), CORE_HZ);
 #endif
@@ -1837,7 +1867,7 @@ static void main_loop(int restored)
         /* 1.7.4 test5 (Bernd: after the settings the picture was split): the game stood still in the middle of a fill,
          * half of it new, half old. That fill is finished first (at most 1 s of game time; the time in the menu is
          * dropped anyway), then the whole picture goes out. */
-        for (uint32_t k = 0; t18_hle_busy() && k < 250u; k++) { tg18_run_us(T, 4000u); emu_ms += 4u; }
+        for (uint32_t k = 0; t18_hle_busy() && k < 250u; k++) { tg18_run_us(T, 4000u); emu_ms += 4u; pool_watch(); }
 #endif
         present(1); }
       wheel_ms = 0; }
@@ -2017,6 +2047,7 @@ static void main_loop(int restored)
 #endif
     while ((int32_t)(cu - emu_ms) >= 4 && g_ms - t0 < 40u) {
       tg18_run_us(T, 4000);
+      pool_watch();
 #ifdef T18_LINK
       lk_poll(g_ms);
 #endif
