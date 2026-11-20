@@ -1,4 +1,6 @@
 // node test/neon_transplant_test.js NEON.bin BASE.bin [LAND_WATER_OR_SKY.bin]
+// node test/neon_transplant_test.js --standalone NEON.bin BASE.bin [MORE_BASES.bin ...]
+// node test/neon_transplant_test.js --items-only NEON.bin BASE.bin [MORE_BASES.bin ...]
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -6,12 +8,64 @@ const C = require('../src/core.js'), E = require('../src/emu.js'), F = require('
 const S = require('../src/six.js'), L = require('../six/experimental-lz4/patch.js');
 const N = require('../six/experimental-neon/transplant.js');
 const SV = require('../src/saves.js'), FL = require('../src/flash.js');
-const [donorPath, basePath, fieldPath] = process.argv.slice(2);
-if (!donorPath || !basePath) throw new Error('Provide a Neon ROM and a Tropical or Glacier ROM.');
+const args = process.argv.slice(2);
+const itemsOnly = args[0] === '--items-only', standalone = args[0] === '--standalone';
+if (itemsOnly || standalone) args.shift();
+const [donorPath, basePath, fieldPath] = args;
+if (!donorPath || !basePath) throw new Error('Provide a Neon ROM and at least one base ROM.');
 
 const read = file => new Uint8Array(fs.readFileSync(file));
 const binary = file => read(path.join(__dirname, '..', file));
 const menu = { feld: binary('feld/feld.bin'), stub: binary('feld/stub_feld_tpl.bin') };
+if (itemsOnly) {
+  const donor = read(donorPath);
+  for (const image of args.slice(1)) {
+    const original = read(image), result = N.transplantItems(original, donor);
+    const edition = C.editionIdOf(original);
+    assert(N.itemsInstalled(result.rom));
+    assert.equal(C.editionIdOf(result.rom), edition);
+    assert.equal(itemRows(C.openRom(result.rom)).size, [0, 305, 305, 305, 333, 400, 400][edition]);
+    checkItemAssets(result, donor);
+    const installed = F.feldApply(result.rom, { bag: true }, [], menu, E);
+    assert(F.feldFind(installed, menu.stub).flags & F.F_BAG);
+    const catalog = new Map(F.itemCatalog(installed).map(row => [row.id, row]));
+    assert(result.ids.every(id => catalog.get(id)?.at && catalog.get(id)?.name));
+    console.log('Edition ' + edition + ': verified all 59 items and the Paramix catalog.');
+  }
+  return;
+}
+if (standalone) {
+  const donor = read(donorPath);
+  for (const image of args.slice(1)) {
+    const original = read(image), edition = C.editionIdOf(original);
+    const base = F.feldStrip(original, menu, E);
+    let rom = edition >= 4 && !L.isInstalled(base) ? L.patch(base, L.embedded(base), null, true, menu.stub).rom : base;
+    const added = N.transplant(rom, donor);
+    rom = N.installGrowth(added.rom, added.rows);
+    const items = N.transplantItems(rom, donor);
+    checkItemAssets(items, donor);
+    const installed = F.feldApply(items.rom, { fields: true, bag: true, tama: true }, [], menu, E);
+    const config = F.feldFind(installed, menu.stub);
+    assert(config.flags & 0x100);
+    assert.equal(installed[config.stubOff + 0x304], edition >= 5 ? 3 : 4);
+    assert.equal(F.fieldNames(installed).length, 3);
+    assert.equal(config.nslots, 3);
+    assert.equal(C.editionIdOf(installed), edition);
+    const catalog = F.characters(installed);
+    const preview = config.catOff + 12 + 40 * config.catN;
+    const words = new DataView(installed.buffer);
+    assert.equal(words.getUint32(preview, true), 0x56525054);
+    const previewIds = new Set(Array.from({ length: words.getUint32(preview + 12, true) },
+      (_, i) => words.getUint16(preview + 24 + 72 * i, true)));
+    assert.deepEqual([6, 7, 8].map(field => catalog.filter(row => row.field === field).length), [24, 38, 24]);
+    assert(added.rows.every(c => previewIds.has(c.id)));
+    const stripped = F.feldStrip(installed, menu, E);
+    assert(N.installed(stripped) && N.itemsInstalled(stripped));
+    assert.equal(F.feldFind(stripped, menu.stub), null);
+    console.log('Edition ' + edition + ': verified 86 characters, 59 items, native Tama Files and three save slots.');
+  }
+  return;
+}
 const original = read(basePath);
 const saved = F.feldSlots(original, menu.stub);
 let rom = F.feldStrip(original, menu, E);
@@ -70,6 +124,25 @@ function itemRows(ctx) {
   }));
 }
 
+function checkItemAssets(result, donor) {
+  const source = C.textTablesOf(donor).tabs;
+  const src = C.openRom(donor), dest = C.openRom(result.rom);
+  const from = itemRows(src), to = itemRows(dest);
+  const itemText = C.textTablesOf(result.rom).tabs;
+  for (const id of result.ids) {
+    const a = from.get(id), b = to.get(id);
+    assert.deepEqual(b.subarray(20), a.subarray(20));
+    for (const [i, language] of itemText.entries()) {
+      assert.deepEqual(C.txtWords(language, b.readUInt16LE(2) + 1), C.txtWords(source[i], a.readUInt16LE(2) + 1));
+    }
+    for (const at of [4, 6]) {
+      const index = a.readUInt16LE(at), mapped = b.readUInt16LE(at);
+      if (index) assert.deepEqual(C.spriteDecode(dest.entries[mapped], 0, true).cells, C.spriteDecode(src.entries[index], 0, true).cells);
+      else assert.equal(mapped, 0);
+    }
+  }
+}
+
 function itemSettings() {
   const page = Buffer.alloc(4096);
   for (const [i, id] of [5086, 6052, 5050].entries()) page.writeUInt16LE(id, 0x270 + 2 * i);
@@ -89,23 +162,9 @@ async function checkItems() {
   assert(N.itemsInstalled(result.rom));
   assert.equal(result.ids.length, 59);
   assert(result.ids.includes(5086) && result.ids.includes(6052));
-  const src = C.openRom(donor), dest = C.openRom(result.rom);
-  const from = itemRows(src), to = itemRows(dest);
-  const itemText = C.textTablesOf(result.rom).tabs;
-  assert.equal(to.size, 400);
+  assert.equal(itemRows(C.openRom(result.rom)).size, 400);
   assert.throws(() => N.transplantItems(result.rom, donor), /manifest/);
-  for (const id of result.ids) {
-    const a = from.get(id), b = to.get(id);
-    assert.deepEqual(b.subarray(20), a.subarray(20));
-    for (const [i, language] of itemText.entries()) {
-      assert.deepEqual(C.txtWords(language, b.readUInt16LE(2) + 1), C.txtWords(source[i], a.readUInt16LE(2) + 1));
-    }
-    for (const at of [4, 6]) {
-      const index = a.readUInt16LE(at), mapped = b.readUInt16LE(at);
-      if (index) assert.deepEqual(C.spriteDecode(dest.entries[mapped], 0, true).cells, C.spriteDecode(src.entries[index], 0, true).cells);
-      else assert.equal(mapped, 0);
-    }
-  }
+  checkItemAssets(result, donor);
   const archive = { ...F.slotBuild(new Map([[0xEFE000, settings]]), 0, 0, 0x1000000), index: 0 };
   const updated = N.clearItemSaveSlots([archive]);
   const cleared = (page) => {

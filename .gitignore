@@ -15,7 +15,13 @@
 !six/six.bin
 !six/book.bin
 !six/experimental-lz4/helper.bin
+!six/experimental-lz4/helper-gen1.bin
+!six/experimental-lz4/helper-jade.bin
+!six/book-gen1.bin
+!six/book-jade.bin
 !six/experimental-neon/growth.bin
+!six/experimental-neon/growth-gen1.bin
+!six/experimental-neon/growth-jade.bin
 !t7/t7.bin
 !t7/t7x.bin
 !t18/t18.bin

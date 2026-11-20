@@ -712,16 +712,18 @@ function packedItemTable(d, count) {
   const pack = base + u32(d, base + 20), size = u32(d, base + 28);
   if (u32(d, base + 16) || pack < base + 64 || pack + size > assetEnd(d) || pack + size > d.length) return [-1, 0];
   const start = 2 * u32(d, pack + 40), end = 2 * u32(d, pack + 44);
-  if (start < 48 || end > size || end - start !== count * SATZ) return [-1, 0];
+  if (!count || start < 48 || end > size || end - start !== count * SATZ) return [-1, 0];
   return [pack + start, count];
 }
 /** Catalog: [{ id, fixed, pic, sum, name }] ascending, only groups 5 to 8. */
 function itemCatalog(d) {
   const bt = bildTabelle(d);
   if (bt < 0) return [];
-  const neon = edition(d)?.id === 7;
+  const editionId = edition(d)?.id;
+  const neon = editionId === 7;
   const imported = u32(d, 0x107FD0) === 0x31495A4E;
-  const [it, n] = neon || imported ? packedItemTable(d, neon ? 406 : 400) : itemTabelle(d, u32(d, bt) / 4);
+  const importedCount = [0, 305, 305, 305, 333, 400, 400][editionId];
+  const [it, n] = neon || imported ? packedItemTable(d, neon ? 406 : importedCount) : itemTabelle(d, u32(d, bt) / 4);
   if (it < 0 || n < 100) return [];
   const tt = textTabelle(d);
   const out = [];
@@ -818,10 +820,15 @@ function charCatalog(d, P, withPreview = false) {
   if (!C) return [];
   let ctx; try { ctx = C.openRom(d); } catch (e) { return []; }
   const tt = textTabelle(d), out = [], previews = withPreview ? characterPreviewData(d, C, ctx) : new Map();
+  const nt = root.ParamixNeonTransplant || (typeof require !== 'undefined'
+    ? require('../six/experimental-neon/transplant.js') : null);
+  const imported = nt?.installed(d);
+  const gen3Book = P.name === 'gen3' && imported;
   for (const c of C.charTable(ctx.files[0])) {
     if (c.id < 1001 || c.id > 4999 || c.stage < 2 || c.stage > 5 || (c.stage !== 2 && !C.FIELD_NAMES[c.field])) continue;
     const nm = (tt >= 0 ? zeichenkette(d, tt, c.name) : '') || ('NO. ' + c.id);
-    const fi = P.name === 'neon' || (P.six && c.field >= 7 && c.field <= 9) ? c.field - 1
+    const fi = P.name === 'neon' || (imported && c.field >= 7) ? c.field - 1
+      : gen3Book && c.field > 0 ? [0, 3, 4, 5, 2, 0, 1][c.field]
       : P.names.indexOf(TYPE_NAMES[c.field]);
     out.push({ id: c.id, fixed: 2, pic: 0, sum: (c.stage & 255) | ((fi + 1) << 8), at: null, name: nm.replace(/\s+/g, ' '), preview: previews.get(c.id) });
   }
@@ -1024,7 +1031,7 @@ function feldApply(rom, opts, saved, emb, E) {
   const legacyLz = root.ParamixLegacyLz4 || (typeof require !== 'undefined' ? require('../six/experimental-lz4/patch.js') : null);
   const lz4Page = legacyLz?.isInstalled(out) ? legacyLz.helperPage : CODE_END;
   const neonGrowth = root.ParamixNeonTransplant || (typeof require !== 'undefined' ? require('../six/experimental-neon/transplant.js') : null);
-  const neonGrowthPage = neonGrowth?.installed(out) ? neonGrowth.growthPage : CODE_END;
+  const neonGrowthPage = neonGrowth && (neonGrowth.installed(out) || neonGrowth.itemsInstalled(out)) ? neonGrowth.growthPage : CODE_END;
   const languagePages = languagePatchPages(out), codeEnd = Math.min(CODE_END, lz4Page, neonGrowthPage, ...languagePages, shortcutPage === null ? CODE_END : shortcutPage);
   if (feldFind(out, emb.stub)) throw new Error('the menu is already built in');
   const ed = edition(out);
@@ -1047,7 +1054,7 @@ function feldApply(rom, opts, saved, emb, E) {
   const book9 = !launch && !!neonGrowth?.installed(out);
   if (book9) neonGrowth.fixLayerIndices(out);
   const gplay = GPLAY && !!opts.gplay && !launch && !opts.clean; const fields = !!opts.fields && !launch, bag = !!opts.bag && !launch, tama = !!opts.tama && v6 && !launch, saves = fields && v6 && opts.saves !== false;
-  if (!fields && !bag && !tama && !gplay && !launch && !appsOnly) throw new Error('nothing chosen');
+  if (!fields && !bag && !tama && !gplay && !launch && !appsOnly && !book9) throw new Error('nothing chosen');
   if (launch && (u32(emb.stub, LAUNCH_ENTRY) !== 0x4C01B672 || (u32(emb.stub, LCHECK_ENTRY) & 0xF800) !== 0xF000)) throw new Error('launcher template does not fit');   // cpsid i; ldr r4, feld_src / b.w lcheck
   const tab = E.sceneTable(out);
   if (!tab.PSID_HOME) throw new Error('home screen not found');

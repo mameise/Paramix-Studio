@@ -2352,6 +2352,13 @@ static void about_menu(void){
 /* ---------------------------------------------------------------- Main menu */
 #include "neon_saves.h"
 
+static void game_progress_menu(void){
+#ifndef FELD_CLEAN
+  if(g_cfg.flags & F_NEON_EDIT){ neon_progress_menu(); return; }
+#endif
+  progress_menu();
+}
+
 static void main_menu(void){
   int fields = (g_cfg.flags & F_FIELDS) && g_cur>=0 && g_cfg.nfields>=2u;
   u32 kinds[8], n=0;                   /* 0 field, 1 items, 2 points, 3 program, 4 Tama, 5 flash, 6 About, 7 Progress */
@@ -2359,7 +2366,7 @@ static void main_menu(void){
   if(g_cfg.flags & F_BAG) kinds[n++]=1;
   if(g_cfg.flags & (F_BAG|F_NEON_EDIT)) kinds[n++]=2;
   if(tama_ok()) kinds[n++]=4;
-  if(tama_ok() || progress_book9() || (g_cfg.flags & F_NEON_EDIT)) kinds[n++]=7;
+  if(tama_ok() || progress_neon_start() || (g_cfg.flags & F_NEON_EDIT)) kinds[n++]=7;
   if(g_napp) kinds[n++]=3;
   u32 sel = g_napp ? n-1u : 0u;       /* keep the installed program selected */
   if(!(g_cfg.flags & F_LAUNCH)) kinds[n++]=5;
@@ -2405,7 +2412,7 @@ static void main_menu(void){
       }
       if(k==K_BACK) leave();
       if(k==K_OK){
-        switch(kinds[sel]){ case 0: if(g_cfg.flags & F_NEON_SAVES) neon_saves_menu(); else if(saves_mode()) saves_menu(0,0); else field_menu(0,0); break; case 1: items_menu(); break; case 2: points_menu(); break; case 4: tama_menu(); break; case 7: if(g_cfg.flags & F_NEON_EDIT) neon_progress_menu(); else progress_menu(); break; case 5: flash_tool_menu(); break; case 6: about_menu(); break; default: if(g_napp>1u) apps_menu(0); else start_app_i(0); }
+        switch(kinds[sel]){ case 0: if(g_cfg.flags & F_NEON_SAVES) neon_saves_menu(); else if(saves_mode()) saves_menu(0,0); else field_menu(0,0); break; case 1: items_menu(); break; case 2: points_menu(); break; case 4: tama_menu(); break; case 7: game_progress_menu(); break; case 5: flash_tool_menu(); break; case 6: about_menu(); break; default: if(g_napp>1u) apps_menu(0); else start_app_i(0); }
         break;
       }
     }
@@ -2489,7 +2496,7 @@ static void run(void){
     while(!g_napp) message("NO PROGRAMS","IN THIS ROM","");
     apps_menu(1);
   }
-  if((g_cfg.flags & (F_BAG|F_TAMA)) || progress_book9()) main_menu();
+  if((g_cfg.flags & (F_BAG|F_TAMA)) || progress_neon_start()) main_menu();
   if(fields){ if(saves_mode()) saves_menu(1,1); else field_menu(1,1); }
   if(g_napp>1u) apps_menu(1);
   if(g_napp) start_app_i(0);

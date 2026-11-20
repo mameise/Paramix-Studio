@@ -204,6 +204,28 @@ static void neon_progress_tests(void){
   assert(sl_r32(g_set+0xF8)==0x3FFFFEu);
   assert(sl_r32(g_set+0xFC)==0x3FFFEEu && sl_r32(g_set+0x100)==0x3FFFEEu);
   assert(sl_r32(g_set+0xC0)==12345u);
+
+  u8 before[PAGE], expected[PAGE];
+  g_set[0x88]=0x44; g_set[0x89]=7;
+  sl_w32(g_set+0x118,4152u|(4152u<<16));
+  g_set[0x12C]=5u<<2;
+  memset(g_set+0x162,0xAB,6);
+  stamp(g_set);
+  u8 *old_page=host_flash+NEON_SET_FIRST+neon_set_slot*PAGE;
+  memcpy(old_page,g_set,PAGE);
+  memcpy(before,g_set,PAGE);
+  neon_progress_keys("pbbc"); /* Select the planet already in use. */
+  neon_progress_keys("pbpbccc"); /* Planet 2 is locked at Lv.4. */
+  neon_progress_keys("pbnbccc"); /* Cancel a move to planet 1. */
+  assert(!set_load() && !memcmp(g_set,before,PAGE));
+  neon_progress_keys("pbnbbcc");
+  memcpy(expected,before,PAGE);
+  expected[0x88]=0x45;
+  expected[0x207]=1;
+  memset(expected+0x162,0,6);
+  sl_w32(expected+NEON_SET_GENERATION,39);
+  stamp(expected);
+  assert(!set_load() && !memcmp(g_set,expected,PAGE) && !memcmp(old_page,before,PAGE));
 }
 int main(int argc,char **argv){
   assert(argc==2); g_dir=argv[1]; host_flash=malloc(0x1000000); assert(host_flash);

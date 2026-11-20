@@ -5,7 +5,6 @@
 const C = root.ParamixCore || require('../../src/core');
 const F = root.ParamixFeld || require('../../src/feld');
 const Six = root.ParamixSix || require('../../src/six');
-const HELPER_B64 = '__LEGACY_LZ4_B64__';
 
 const read32 = (b, i) => (b[i] | b[i + 1] << 8 | b[i + 2] << 16 | b[i + 3] << 24) >>> 0;
 const put16 = (b, i, n) => { b[i] = n & 255; b[i + 1] = n >>> 8 & 255; };
@@ -23,10 +22,26 @@ const PROGRAM = 0x108000;
 const PAGE = 0x1000;
 const VERSION_OFFSET = 0x3C;
 const VERSION = Uint8Array.of(80, 76, 90, 50); // PLZ2
-const SIGNATURES = [
-  [0x8C9F4, '2de9f04182b0b1f1c04f0446', PROGRAM],
-  [0x8CA22, '45f61852c1f6000210680b78', PROGRAM + 0x40],
-];
+const OLDER_ENTRY = 'f0b581b00d46b1f1c04f0446';
+const OLDER_DISPATCH = '45f65841c1f600012a780868';
+const PROFILES = {
+  gen1: { code: '__LEGACY_LZ4_GEN1_B64__', first: 0xB083B5F0, profileId: 1, sites: [
+    [0x7B284, OLDER_ENTRY, PROGRAM],
+    [0x7B2B4, OLDER_DISPATCH, PROGRAM + 0x40],
+  ] },
+  jade: { code: '__LEGACY_LZ4_JADE_B64__', first: 0xB083B5F0, profileId: 2, sites: [
+    [0x7F11C, OLDER_ENTRY, PROGRAM],
+    [0x7F14C, OLDER_DISPATCH, PROGRAM + 0x40],
+  ] },
+  gen3: { code: '__LEGACY_LZ4_B64__', first: 0x41F0E92D, sites: [
+    [0x8C9F4, '2de9f04182b0b1f1c04f0446', PROGRAM],
+    [0x8CA22, '45f61852c1f6000210680b78', PROGRAM + 0x40],
+  ] },
+};
+function codecKind(rom) {
+  const kind = F.familyOf(C.editionIdOf(rom));
+  return PROFILES[kind] ? kind : null;
+}
 
 function branch(from, to) {
   const offset = (to - from - 4) >>> 0;
@@ -40,39 +55,44 @@ function branch(from, to) {
 }
 
 function isInstalled(rom) {
-  return SIGNATURES.every(([at, , dst]) => same(rom.subarray(at, at + 4), branch(at, dst))) &&
-    read32(rom, PROGRAM) === 0x41F0E92D;
+  const profile = PROFILES[codecKind(rom)];
+  return !!profile && profile.sites.every(([at, , dst]) => same(rom.subarray(at, at + 4), branch(at, dst))) &&
+    read32(rom, PROGRAM) === profile.first &&
+    (!profile.profileId || read32(rom, PROGRAM + 0x38) === profile.profileId);
 }
 
-function checkHelper(helper) {
+function checkHelper(helper, profile) {
   const tag = C.LEGACY_LZ4_TAG;
-  if (!helper || helper.length < 0x60 || helper.length > PAGE || read32(helper, 0) !== 0x41F0E92D ||
+  if (!helper || helper.length < 0x60 || helper.length > PAGE || !profile || read32(helper, 0) !== profile.first ||
+      (profile.profileId && read32(helper, 0x38) !== profile.profileId) ||
       !same(helper.subarray(VERSION_OFFSET, VERSION_OFFSET + VERSION.length), VERSION) ||
       !helper.some((_, i) => same(helper.subarray(i, i + tag.length), tag))) {
-    throw new Error('expected the current compiled Tropical LZ4 helper');
+    throw new Error('expected the compiled LZ4 helper for this firmware');
   }
 }
 
 function checkFirmware(rom, helper, stub) {
-  if (rom.length !== 0x1000000 || ![5, 6].includes(C.editionIdOf(rom)) || Six.sixInfo(rom)?.kind !== 'gen3') {
-    throw new Error('expected a 16 MiB Tropical or Glacier six-field ROM');
+  const profile = PROFILES[codecKind(rom)];
+  if (rom.length !== 0x1000000 || !profile) {
+    throw new Error('expected a 16 MiB original Paradise ROM');
   }
-  for (const [at, signature] of SIGNATURES) {
+  for (const [at, signature] of profile.sites) {
     if (!same(rom.subarray(at, at + signature.length / 2), hex(signature))) {
       throw new Error('native byte-RLE routine does not match the known firmware');
     }
   }
-  checkHelper(helper);
+  checkHelper(helper, profile);
   const menu = stub && F.feldFind(rom, stub);
   const reserved = menu ? [...F.slotRanges(menu), [menu.off, menu.off + 0x10000], [menu.stubOff, menu.stubOff + PAGE]] : [];
   if (F.languagePatchPages(rom).includes(PROGRAM) || reserved.some(([a, b]) => PROGRAM < b && PROGRAM + PAGE > a) ||
       !rom.subarray(PROGRAM, PROGRAM + PAGE).every(byte => byte === 255)) {
     throw new Error('decoder page is occupied or reserved');
   }
+  return profile;
 }
 
 function refresh(rom, helper) {
-  checkHelper(helper);
+  checkHelper(helper, PROFILES[codecKind(rom)]);
   if (!isInstalled(rom)) throw new Error('legacy LZ4 hook is missing');
   if (same(rom.subarray(PROGRAM, PROGRAM + helper.length), helper)) return rom;
   if (!rom.subarray(PROGRAM + 0x400, PROGRAM + PAGE).every(byte => byte === 255))
@@ -83,8 +103,13 @@ function refresh(rom, helper) {
   return out;
 }
 
-function embedded() {
-  return HELPER_B64.startsWith('__') ? null : Uint8Array.from(atob(HELPER_B64), ch => ch.charCodeAt(0));
+function embedded(rom) {
+  const kind = rom ? codecKind(rom) : 'gen3';
+  const code = PROFILES[kind]?.code;
+  if (!code) return null;
+  if (!code.startsWith('__')) return Uint8Array.from(atob(code), ch => ch.charCodeAt(0));
+  const file = kind === 'gen3' ? 'helper' : 'helper-' + kind;
+  return typeof require === 'undefined' ? null : require('node:fs').readFileSync(__dirname + '/' + file + '.bin');
 }
 
 function wrapSprite(entry, compact = false) {
@@ -160,7 +185,7 @@ function wrapSprite(entry, compact = false) {
 }
 
 function patch(rom, helper, indices, compact = false, stub) {
-  checkFirmware(rom, helper, stub);
+  const profile = checkFirmware(rom, helper, stub);
   C.verifyRom(rom, []);
   const archive = C.arc2Parse(rom, C.ASSET_BASE);
   const pack = C.ASSET_BASE + archive.ents[1].offset;
@@ -190,7 +215,7 @@ function patch(rom, helper, indices, compact = false, stub) {
     put32(image, C.ASSET_BASE + 4, C.arc2Checksum(image, C.ASSET_BASE, archive.length));
   }
   image.set(helper, PROGRAM);
-  for (const [site, , destination] of SIGNATURES) image.set(branch(site, destination), site);
+  for (const [site, , destination] of profile.sites) image.set(branch(site, destination), site);
   C.verifyRom(image, changed.map(item => item.sprite));
   return { rom: image, changed, reclaimed, entries };
 }

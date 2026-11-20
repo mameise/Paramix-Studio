@@ -623,13 +623,17 @@ The menu itself, while the screen is dark, sleeps deeply until a key or the whee
   the tick you keep the three own fields and still have several saves; on a
   ROM that already has them, untick it to take the extra fields out again
   (the device must be on one of the own fields).
-- Choose Neon Planets ROM: add 86 Tama and 59 items to a Tropical or Glacier
-  six-field ROM. You can supply Tropical or Glacier plus a Land, Water or Sky ROM,
-  or open an existing six-field ROM. The nine groups appear in Tama Files.
-  The six playable fields can raise the imported Tama and use the new items.
-  Use Items and Tamapoints to add the items to your inventory. The first import
-  clears the old placeholder counts for Sparkle Fruit and Andromeda Cotton Candy.
-- Game menu Fields: all fields from level 4 in the game's own field menu.
+- Choose Neon Planets ROM to add 86 Tama and 59 items to Land, Water, Sky,
+  Jade Forest, Tropical, or Glacier, including existing four- and six-field
+  ROMs. The three Neon rosters appear in the native Tama Files. The imported
+  Tama can grow on the base ROM's playable fields. Use Items and Tamapoints
+  to add the new items to your inventory. On the first import, Tropical and
+  Glacier clear the two old placeholder counts.
+- If you also want six playable fields, enable All 6 fields and supply a Land,
+  Water, or Sky ROM when starting from a single Tropical or Glacier ROM.
+- Game menu Fields: all fields from planet level 4 in the game's own field
+  menu. On six-field ROMs, this includes adults. Existing six-field ROMs with
+  this menu enabled can get the update by opening and saving them in Studio.
 - Sky as 4th field (Jade Forest): tick "Sky as 4th field". Jade Forest
   already has everything of Sky, no second ROM is needed.
 - Planet to match the field: on by default. Land, Water and Sky then show

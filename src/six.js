@@ -678,6 +678,46 @@ function sixInfo(rom) {
     planet: version >= 5 && (u32(rom, SIX_OFF + 32) & 1) === 1, fieldMenu: version >= 6 && (u32(rom, SIX_OFF + 32) & 2) === 2,
     games: version >= 7 && (u32(rom, SIX_OFF + 32) & 4) === 4, dna: version >= 7 && (u32(rom, SIX_OFF + 32) & 8) === 8, hunt: version >= 7 && (u32(rom, SIX_OFF + 32) & 16) === 16, food: version >= 7 && (u32(rom, SIX_OFF + 32) & 64) === 64, gamesRest: version >= 7 ? u32(rom, SIX_OFF + 36) : 0 };
 }
+// Replace the complete adult-only branch in existing v7 helpers. All entry
+// points, configuration and appended graphics stay at their original addresses.
+const ADULT_FIELDS_AT = SIX_OFF + 0x862;
+const ADULT_FIELDS_OLD = 'ea7db25cd20708d000202070012060700220a0700327084628e0';
+const ADULT_FIELDS_NEW = 'eb7df25c22f00102f25406e000bf00bf00bf00bf00bf00bf00bf';
+const P_CLEAN_LIST = 0xB00, CLEAN_LIST_END = 0xB40, P_CLEAN = 0xF60, CLEAN_FLAG = 128;
+const CLEAN_SITES = [
+  [0x38886, 'eef7a7ff', P_CLEAN_LIST],
+  [0x560A6, '91f92810', P_CLEAN],
+  [0x56056, '2bf09df8', 0xF70],
+  [0x2196A, '07f0b5ff', 0xFB0],
+];
+function sixAdultUpdateNeeded(rom) {
+  return hex(rom, ADULT_FIELDS_AT, ADULT_FIELDS_OLD.length / 2) === ADULT_FIELDS_OLD;
+}
+function sixCleanUpdateNeeded(rom) {
+  return CLEAN_SITES.every(([at, orig]) => hex(rom, at, orig.length / 2) === orig) &&
+    rom.subarray(SIX_OFF + P_CLEAN_LIST, SIX_OFF + CLEAN_LIST_END).every(byte => byte === 0) &&
+    rom.subarray(SIX_OFF + P_CLEAN, SIX_OFF + 0x1000).every(byte => byte === 0xFF);
+}
+function sixFieldsUpdateNeeded(rom) {
+  const info = sixInfo(rom);
+  return info?.kind === 'gen3' && info.fieldMenu && info.version === SIX_VERSION && info.dna &&
+    (sixAdultUpdateNeeded(rom) || sixCleanUpdateNeeded(rom));
+}
+function sixFieldsUpdate(rom, blob) {
+  if (!sixFieldsUpdateNeeded(rom)) return rom;
+  const adult = sixAdultUpdateNeeded(rom);
+  const clean = blob && blob.length > 0xFB0 && sixCleanUpdateNeeded(rom);
+  if (!adult && !clean) return rom;
+  const out = new Uint8Array(rom);
+  if (adult) out.set(bookBytes(ADULT_FIELDS_NEW), ADULT_FIELDS_AT);
+  if (clean) {
+    out.set(blob.subarray(P_CLEAN_LIST, CLEAN_LIST_END), SIX_OFF + P_CLEAN_LIST);
+    out.set(blob.subarray(P_CLEAN), SIX_OFF + P_CLEAN);
+    for (const [at, , target] of CLEAN_SITES) out.set(branch(XIP(at), SIX_XIP + target, true), at);
+    w32(out, SIX_OFF + 32, u32(out, SIX_OFF + 32) | CLEAN_FLAG);
+  }
+  return out;
+}
 const movPairBytes = (r, t) => concat([movEnc(r, t & 0xFFFF), movEnc(r, t >>> 16, true)]);
 /** Can this ROM get more fields? (Tropical/Glacier: Land, Water, Sky; Jade Forest: Sky) */
 function sixCan(rom) {
@@ -756,6 +796,7 @@ function fmInstall(out, page, K) {
 function install(out, kind, blob, alt, counts, planet, fieldMenu, games) {
   const K = KINDS[kind], f = (o) => 0x11000 + o, sites = (planet ? K.sites.concat(K.planet.sites) : K.sites).concat(...EXTRAS.filter((X) => alt[X.name]).map((X) => X.sites[kind]));
   const page = new Uint8Array(0x1000).fill(0xFF); page.set(blob.subarray(0, Math.min(blob.length, P_DNA)));
+  page.fill(0, P_CLEAN_LIST, CLEAN_LIST_END);
   w32(page, 8, K.flag); w32(page, 12, FLAG_OFF);
   w32(page, 16, counts[0]); w32(page, 20, counts[1]); w32(page, 24, counts[2]); w32(page, 28, K.id); w32(page, 32, (planet ? 1 : 0) | (fieldMenu ? 2 : 0) | (games ? 4 : 0) | EXTRAS.reduce((m, X) => m | (alt[X.name] ? X.bit : 0), 0)); w32(page, 36, games ? games.rest : 0);
   // background table and child list
@@ -825,7 +866,7 @@ function sixFood(rom, blob) {
 /* Food part alone (Jade Forest): the code of the DNA part, only the values the food code reads. */
 function foodInstall(out, K, blob) {
   const F = K.food, page = out.subarray(SIX_OFF, SIX_OFF + 0x1000);
-  page.fill(0xFF, P_DNA, DNA_END); page.set(blob.subarray(P_DNA), P_DNA); page.fill(0, P_DNA, P_DNA + 0x40);
+  page.fill(0xFF, P_DNA, DNA_END); page.set(blob.subarray(P_DNA, P_CLEAN), P_DNA); page.fill(0, P_DNA, P_DNA + 0x40);
   w32(page, P_DNA, F.ram); w16(page, P_DNA + 6, F.field); page[P_DNA + 15] = F.slots;
   w16(page, P_DNA + 0x34, F.hist); F.kinds.forEach((v, i) => { page[P_DNA + 0x36 + i] = v; });
   w32(page, 32, u32(page, 32) | 64);
@@ -849,7 +890,7 @@ function dnaInstall(out, K, blob, fieldMenu) {
   const D = K.dna, fo = (x) => x - 0x10000000 + 0x11000;
   if (!blob || blob.length <= P_DNA_FN) throw new Error('six fields program missing');
   const page = out.subarray(SIX_OFF, SIX_OFF + 0x1000);
-  page.fill(0xFF, P_DNA, DNA_END); page.set(blob.subarray(P_DNA), P_DNA);
+  page.fill(0xFF, P_DNA, DNA_END); page.set(blob.subarray(P_DNA, P_CLEAN), P_DNA);
   w32(page, P_DNA, D.base); w16(page, P_DNA + 4, D.cnt); w16(page, P_DNA + 6, D.field); w16(page, P_DNA + 8, D.stash); w16(page, P_DNA + 10, D.mark);
   w16(page, P_DNA + 12, D.bits); page[P_DNA + 14] = D.mask; page[P_DNA + 15] = D.slots;
   page.fill(0, P_DNA + 0x10, P_DNA + 0x28); D.regions.forEach(([o, n], i) => { w16(page, P_DNA + 0x10 + 4 * i, o); w16(page, P_DNA + 0x12 + 4 * i, n); });
@@ -869,7 +910,11 @@ function dnaStrip(out, K, info) {
   const fn = (k) => u32(page, P_FN + 4 * k) & ~1;
   out.set(branch(XIP(0x11000 + K.child.at), fn(FN_CHILD), true), 0x11000 + K.child.at);
   if (info.fieldMenu) out.set(branch(0x10000000 + K.fm.set, u32(page, P_FM_FN + 8) & ~1, true), 0x11000 + K.fm.set);
-  w32(page, 32, u32(page, 32) & ~8); page.fill(0xFF, P_DNA, DNA_END);
+  if (u32(page, 32) & CLEAN_FLAG) {
+    for (const [at, orig] of CLEAN_SITES) out.set(bookBytes(orig), at);
+    page.fill(0, P_CLEAN_LIST, CLEAN_LIST_END);
+  }
+  w32(page, 32, u32(page, 32) & ~(8 | CLEAN_FLAG)); page.fill(0xFF, P_DNA, DNA_END);
 }
 /**
  * DNA per field on or off for a ROM that has six fields already (no Land ROM needed). Returns the ROM
@@ -877,14 +922,21 @@ function dnaStrip(out, K, info) {
  */
 function sixDna(rom, blob, on) {
   const info = sixInfo(rom);
-  if (info && info.version >= 7 && on && (info.dna || !KINDS[info.kind].dna)) return sixFood(rom, blob);
+  if (info && info.version >= 7 && on && (info.dna || !KINDS[info.kind].dna)) return sixFieldsUpdate(sixFood(rom, blob), blob);
   if (info && info.food && !on) { const o = new Uint8Array(rom); foodStrip(o, KINDS[info.kind]); return o; }
   if (!info || info.version < 7 || !!info.dna === !!on) return rom;
   const K = KINDS[info.kind], out = new Uint8Array(rom);
-  if (!on) { dnaStrip(out, K, info); return out; }
+  if (!on) {
+    dnaStrip(out, K, info);
+    if (info.kind === 'gen3' && info.fieldMenu &&
+        hex(out, ADULT_FIELDS_AT, ADULT_FIELDS_NEW.length / 2) === ADULT_FIELDS_NEW) {
+      out.set(bookBytes(ADULT_FIELDS_OLD), ADULT_FIELDS_AT);
+    }
+    return out;
+  }
   if (!SIX_DNA || !K.dna || !blob || u32(blob, P_DNA_FN) === 0 || !dnaCan(rom, K)) return rom;
   dnaInstall(out, K, blob, info.fieldMenu);
-  return out;
+  return sixFieldsUpdate(out, blob);
 }
 /** Can this ROM get DNA per field? */
 function sixDnaCan(rom) { const i = sixInfo(rom), k = i ? i.kind : kindOf(rom); return SIX_DNA && !!k && !!KINDS[k].dna; }
@@ -907,7 +959,7 @@ function sixApply(rom, land, blob, opts = {}) {
   const wantDna = SIX_DNA && opts.dna !== false && !!(KINDS[have ? have.kind : kindOf(rom)] || {}).dna;
   const wantFood = SIX_FOOD && opts.dna !== false;
 
-  if (have && have.version >= SIX_VERSION && have.planet === planet && have.fieldMenu === fieldMenu && have.games === wantGames) { let r = sixDna(rom, blob, wantDna); if (wantFood) r = sixFood(r, blob); return sixHunt(r); }
+  if (have && have.version >= SIX_VERSION && have.planet === planet && have.fieldMenu === fieldMenu && have.games === wantGames) { let r = sixDna(rom, blob, wantDna); if (wantFood) r = sixFood(r, blob); return sixFieldsUpdate(sixHunt(r), blob); }
   if (have) rom = sixStrip(rom);
   const kind = kindOf(rom);
   if (kind && fieldMenu && !fmCan(rom, KINDS[kind])) fieldMenu = false;
@@ -929,6 +981,7 @@ function sixApply(rom, land, blob, opts = {}) {
     alt.pl0 = rows(rom, 0x100811DA, 11, 1, {}); alt.pl1 = SKY_PLANET; alt.pl2 = rows(rom, 0x100811F0, 11, 1, {});
     for (const X of EXTRAS) if (X.on() && opts[X.name] !== false && extraCan(rom, 'jade', X)) alt[X.name] = X.tab(rom, 'jade');
     const outJ = install(new Uint8Array(rom), 'jade', blob, alt, [0, 0, 0], planet, fieldMenu);
+    if (fieldMenu) outJ.set(bookBytes(ADULT_FIELDS_OLD), ADULT_FIELDS_AT);
     if (dnaOk) dnaInstall(outJ, KINDS.jade, blob, fieldMenu);
     else if (wantFood) return sixFood(outJ, blob);
     return outJ;
@@ -1020,13 +1073,14 @@ function sixApply(rom, land, blob, opts = {}) {
   for (const X of EXTRAS) if (X.on() && opts[X.name] !== false && extraCan(trop, 'gen3', X)) alt[X.name] = X.tab(trop, 'gen3');
   install(out, 'gen3', blob, alt, [nspr0, ncomp0, nanim0], planet, fieldMenu, games);
   if (dnaOk) dnaInstall(out, KINDS.gen3, blob, fieldMenu);
+  else if (fieldMenu) out.set(bookBytes(ADULT_FIELDS_OLD), ADULT_FIELDS_AT);
   // region B: rain cells
   for (let i = B_OFF; i < B_END; i++) if (trop[i] !== 0xFF) throw new Error('area 0xF00000 is in use');
   const bh = new Uint8Array(bHead); w32(bh, 0, B_MAGIC); w32(bh, 4, bList.length);
   bList.forEach((x, k) => { const o = 8 + k * 260; w32(bh, o, x.id); x.rel.forEach((r, t) => w32(bh, o + 4 + 4 * t, r < 0 ? 0xFFFFFFFF : r)); });
   out.set(bh, B_OFF); out.set(concat(bData), B_OFF + bHead);
   if (games) out.set(games.bytes, gBase);
-  return sixFix(out);
+  return sixFix(sixFieldsUpdate(out, blob));
 }
 /** Points the rain pictures at their cells in region B again (call after every archive rebuild). */
 function sixFix(rom) {
@@ -1075,6 +1129,59 @@ const BOOK_SITES = [
   [0x70160, '06d0', 'hex', '06e0'], // all six areas can now show their special character
   [0x16b88, '40f2ec40', 'hex', '40f2f040'], // allocate a pointer for the page arrow
 ];
+const LEGACY_BOOKS = {
+  gen1: { code: '__BOOK_GEN1_B64__', fields: [1, 2, 3], sites: [
+    [0x155e4, '80b584b0', 'jump', 0],
+    [0x15570, '80b584b0', 'jump', 1],
+    [0x156f4, '80b584b0', 'jump', 2],
+    [0x15658, '80b584b0', 'jump', 3],
+    [0x628f6, '01f22321', 'call', 6],
+    [0x7e4a8, '45f25652c5f2555280fb023202ebd27202eb4202801a', 'call', 7],
+    [0x7e4e4, '4af2bc70c1f20700', 'r0', 8],
+    [0x7e582, '4af2bc70c1f20700', 'r0', 8],
+    [0x62aa2, '0068806a', 'call', 9],
+    [0x62aa6, 'd0f82801', 'to', 0x62afc],
+    [0x7e4d0, 'b1f72aff', 'call', 10],
+    [0x7e56e, 'b1f7dbfe', 'call', 10],
+    [0x61a9e, '4af29c21c1f20701', 'r1', 11],
+    [0x61c4a, 'd0f8ec02', 'call', 12],
+    [0x61c4e, '0f9040b1', 'to', 0x61cd2],
+    [0x7e54e, '0220', 'hex', '0520'],
+    [0x62940, '1320', 'hex', '7fe0'],
+    [0x64876, '06d0', 'hex', '06e0'],
+    [0x15a78, '4ff44370', 'movw', 0x310],
+    [0x645c8, '13201190', 'jump', 14],
+  ] },
+  jade: { code: '__BOOK_JADE_B64__', fields: [1, 2, 4], sites: [
+    [0x156d0, '80b586b0', 'jump', 0],
+    [0x1562c, '80b586b0', 'jump', 1],
+    [0x15808, '80b586b0', 'jump', 2],
+    [0x15774, '80b586b0', 'jump', 3],
+    [0x65bc2, '01f22521', 'call', 6],
+    [0x82374, '45f25652c5f2555280fb023202ebd27202eb4202801a', 'call', 7],
+    [0x823b0, '4ff65810c1f20700', 'r0', 8],
+    [0x8244e, '4ff65810c1f20700', 'r0', 8],
+    [0x65d74, '0068806a', 'call', 9],
+    [0x65d78, 'd0f82801', 'to', 0x65dce],
+    [0x8239c, 'aff766f9', 'call', 10],
+    [0x8243a, 'aff717f9', 'call', 10],
+    [0x64df2, '4ff63071c1f20701', 'r1', 11],
+    [0x64f1a, 'd0f87c03', 'call', 12],
+    [0x64f1e, '0f9040b1', 'to', 0x64fa2],
+    [0x8241a, '0220', 'hex', '0520'],
+    [0x65c0c, '1820', 'hex', '82e0'],
+    [0x67b98, '06d0', 'hex', '06e0'],
+    [0x15b84, '4ff46770', 'movw', 0x3a0],
+    [0x678e4, '18201190', 'jump', 14],
+  ] },
+};
+const LEGACY_BOOK_VERSION = 4;
+function legacyBookKind(rom) {
+  const id = C.editionIdOf(rom);
+  if (id >= 1 && id <= 3) return 'gen1';
+  if (id === 4) return 'jade';
+  return null;
+}
 const bookBytes = (s) => Uint8Array.from(s.match(/../g), (x) => parseInt(x, 16));
 function bookSites(version) {
   if (version === 1) return BOOK_SITES.slice(0, -1);
@@ -1086,6 +1193,7 @@ function bookSites(version) {
 function bookReplacement(page, at, site) {
   const [off, orig, type, key] = site;
   if (type === 'hex') return bookBytes(key);
+  if (type === 'movw') return movEnc(0, key);
   if (type === 'to') return branch(XIP(off), XIP(key), false);
   const target = XIP(at) + u32(page, 8 + 4 * key);
   if (type === 'r0' || type === 'r1') return movPairBytes(type === 'r0' ? 0 : 1, target);
@@ -1112,22 +1220,27 @@ function bookPlanetNames(english) {
 
 function bookCharacters(rom) {
   const info = sixInfo(rom);
-  if (!info || info.kind !== 'gen3' || info.version !== SIX_VERSION || kindOf(rom) !== 'gen3' ||
-      info.flagOff !== FLAG_OFF || u32(rom, B_OFF) !== B_MAGIC || u32(rom, B_OFF + 4) !== 9) return null;
-  const pack = C.ASSET_BASE + u32(rom, C.ASSET_BASE + 36), data = B_OFF + 8 + 9 * 260;
-  const sprites = new Set();
-  for (let k = 0; k < 9; k++) {
-    const off = B_OFF + 8 + k * 260, id = u32(rom, off);
-    if (id < info.sprites || id > 4096 || sprites.has(id) || pack + id * 4 + 4 > rom.length) return null;
-    sprites.add(id);
-    const h = pack + u32(rom, pack + 4 * id), pix = h + u16(rom, h + 20);
-    if (h < pack || pix < h || pix + 64 * 8 > B_OFF) return null;
-    for (let t = 0; t < 64; t++) {
-      const rel = u32(rom, off + 4 + 4 * t);
-      const size = u32(rom, pix + t * 8 + 4);
-      if (rel !== 0xffffffff && (!size || size > B_END - data - rel)) return null;
+  const nt = root.ParamixNeonTransplant || (typeof require !== 'undefined'
+    ? require('../six/experimental-neon/transplant.js') : null);
+  if (kindOf(rom) !== 'gen3') return null;
+  if (info) {
+    if (info.kind !== 'gen3' || info.version !== SIX_VERSION || info.flagOff !== FLAG_OFF ||
+        u32(rom, B_OFF) !== B_MAGIC || u32(rom, B_OFF + 4) !== 9) return null;
+    const pack = C.ASSET_BASE + u32(rom, C.ASSET_BASE + 36), data = B_OFF + 8 + 9 * 260;
+    const sprites = new Set();
+    for (let k = 0; k < 9; k++) {
+      const off = B_OFF + 8 + k * 260, id = u32(rom, off);
+      if (id < info.sprites || id > 4096 || sprites.has(id) || pack + id * 4 + 4 > rom.length) return null;
+      sprites.add(id);
+      const h = pack + u32(rom, pack + 4 * id), pix = h + u16(rom, h + 20);
+      if (h < pack || pix < h || pix + 64 * 8 > B_OFF) return null;
+      for (let t = 0; t < 64; t++) {
+        const rel = u32(rom, off + 4 + 4 * t);
+        const size = u32(rom, pix + t * 8 + 4);
+        if (rel !== 0xffffffff && (!size || size > B_END - data - rel)) return null;
+      }
     }
-  }
+  } else if (!nt?.installed(rom)) return null;
   const chars = C.charTable(C.arc2Files(rom, C.ASSET_BASE)[0]);
   const added = [];
   for (let field = 1; field <= 6; field++) {
@@ -1142,12 +1255,18 @@ function bookCharacters(rom) {
     }
   }
   if (new Set(added).size !== 66) return null;
+  const data = neonBookCharacters(rom, chars);
+  if (!data) return info && !chars.some(c => c.field >= 7 && c.field <= 9) ? { ids: added, names: [] } : null;
+  const ids = added.concat(data.ids);
+  return new Set(ids).size === ids.length ? { ids, names: data.names } : null;
+}
+
+function neonBookCharacters(rom, chars) {
   const neon = BOOK_NEON_COUNTS.map((_, k) => chars.filter((c) =>
     c.id > 1000 && c.id < 9000 && c.field === 7 + k && c.stage >= 3 && c.stage <= 5)
     .map((c) => c.id).sort((a, b) => a - b));
-  if (!neon.some((ids) => ids.length)) return { ids: added, names: [] };
   if (neon.some((ids, k) => ids.length !== BOOK_NEON_COUNTS[k])) return null;
-  const ids = added.concat(...neon);
+  const ids = neon.flat();
   if (new Set(ids).size !== ids.length) return null;
   const texts = C.arc2Files(rom, C.ASSET_BASE)[2];
   const english = C.arc2Files(texts, 0)[1];
@@ -1160,23 +1279,44 @@ function bookCharacters(rom) {
   return names.length ? { ids, names } : null;
 }
 
+function legacyBookCharacters(rom, profile) {
+  const nt = root.ParamixNeonTransplant || (typeof require !== 'undefined'
+    ? require('../six/experimental-neon/transplant.js') : null);
+  if (!nt?.installed(rom)) return null;
+  const chars = C.charTable(C.arc2Files(rom, C.ASSET_BASE)[0]);
+  const rosters = profile.fields.map(field =>
+    chars.filter(c => c.field === field && c.stage >= 3 && c.stage <= 5 && c.id < 9000)
+      .map(c => c.id).sort((a, b) => a - b));
+  if (rosters.some(ids => ids.length !== 22 || new Set(ids).size !== 22)) return null;
+  const neon = neonBookCharacters(rom, chars);
+  return neon && { ...neon, rosters: rosters.flat() };
+}
+
 function sixBookApply(rom, stubOff) {
-  const at = stubOff + BOOK_AT;
+  const at = stubOff + BOOK_AT, kind = legacyBookKind(rom), legacy = LEGACY_BOOKS[kind];
   let data;
-  try { data = bookCharacters(rom); } catch (_) { return false; }
+  try { data = legacy ? legacyBookCharacters(rom, legacy) : bookCharacters(rom); } catch (_) { return false; }
   if (!data) return false;
-  const { ids, names } = data, version = names.length ? BOOK_VERSION : 2, sites = bookSites(version);
+  const { ids, names, rosters } = data;
+  const version = legacy ? LEGACY_BOOK_VERSION : names.length ? BOOK_VERSION : 2;
+  const sites = legacy ? legacy.sites : bookSites(version);
   if (sites.some(([off, orig]) => hex(rom, off, orig.length / 2) !== orig)) return false;
-  const page = BOOK_B64.startsWith('__')
-    ? (typeof require === 'undefined' ? null : require('node:fs').readFileSync(__dirname + '/../six/book.bin'))
-    : b64(BOOK_B64);
+  const code = legacy ? legacy.code : BOOK_B64;
+  const file = legacy ? 'book-' + kind : 'book';
+  const page = code.startsWith('__')
+    ? (typeof require === 'undefined' ? null : require('node:fs').readFileSync(__dirname + '/../six/' + file + '.bin'))
+    : b64(code);
   if (!page) return false;
   const idsAt = u32(page, 60), countAt = u32(page, 68), namesAt = u32(page, 72);
-  if (u32(page, 0) !== BOOK_MAGIC || u32(page, 4) !== BOOK_VERSION || idsAt + 2 * ids.length > page.length ||
-      countAt >= page.length || namesAt + 2 * names.length > page.length ||
+  const rostersAt = legacy ? u32(page, 76) : 0;
+  if (u32(page, 0) !== BOOK_MAGIC || u32(page, 4) !== (legacy ? LEGACY_BOOK_VERSION : BOOK_VERSION) ||
+      idsAt + 2 * ids.length > page.length || countAt >= page.length ||
+      namesAt + 2 * names.length > page.length ||
+      (legacy && rostersAt + 2 * rosters.length > page.length) ||
       at + page.length > stubOff + 0x1000 || !rom.subarray(at, at + page.length).every((b) => b === 255)) return false;
   w32(page, 4, version);
-  page[countAt] = names.length ? 9 : 6;
+  page[countAt] = legacy ? 6 : names.length ? 9 : 6;
+  if (rosters) rosters.forEach((id, i) => w16(page, rostersAt + 2 * i, id));
   ids.forEach((id, i) => w16(page, idsAt + 2 * i, id));
   names.forEach((id, i) => w16(page, namesAt + 2 * i, id));
   rom.set(page, at);
@@ -1189,14 +1329,15 @@ function sixBookStrip(rom, stubOff) {
   if (u32(rom, at) !== BOOK_MAGIC) return;
   const page = rom.subarray(at, stubOff + 0x1000);
   const version = u32(page, 4);
-  const sites = bookSites(version);
-  if ((version < 1 || version > BOOK_VERSION) || sites.some((site) => {
+  const legacy = version === LEGACY_BOOK_VERSION ? LEGACY_BOOKS[legacyBookKind(rom)] : null;
+  const sites = legacy ? legacy.sites : bookSites(version);
+  if ((!legacy && (version < 1 || version > BOOK_VERSION)) || sites.some((site) => {
     const b = bookReplacement(page, at, site);
     return hex(rom, site[0], b.length) !== hex(b, 0, b.length);
   })) throw new Error('the native Tama File patch has changed');
   sites.forEach(([off, orig]) => rom.set(bookBytes(orig), off));
 }
 
-root.ParamixSix = { VERSION: SIX_VERSION, DNA: SIX_DNA, HUNT: SIX_HUNT, sixHunt, sixDna, sixDnaCan, sixApply, sixStrip, sixFix, sixCan, sixSource, sixInfo, sixNeedsSource, sixBookApply, sixBookStrip, kindOf, embedded, FLAG_OFF, SIX_OFF, packGroup, reduceOne, mapCells };
+root.ParamixSix = { VERSION: SIX_VERSION, DNA: SIX_DNA, HUNT: SIX_HUNT, sixHunt, sixFieldsUpdate, sixFieldsUpdateNeeded, sixDna, sixDnaCan, sixApply, sixStrip, sixFix, sixCan, sixSource, sixInfo, sixNeedsSource, sixBookApply, sixBookStrip, kindOf, embedded, FLAG_OFF, SIX_OFF, packGroup, reduceOne, mapCells };
 if (typeof module !== 'undefined') module.exports = root.ParamixSix;
 })(typeof window !== 'undefined' ? window : globalThis);

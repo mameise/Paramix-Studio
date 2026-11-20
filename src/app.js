@@ -26,7 +26,7 @@ const T = {
   de: {
     neonBagUnavailable: 'Das Inventarformat dieser Neon-Planets-Firmware ist unbekannt.',
     paraClear: 'Aktiven ROM-Spielstand löschen', paraClearAsk: 'Den aktiven Paradise-Spielstand im geladenen ROM löschen?', paraClearDone: 'Aktiver Spielstand gelöscht. Speichere das ROM als neue Datei.', paraClearPending: 'Schliesse zuerst die Spielstand-Wiederherstellung im Paramix-Menü ab.',
-    neonDonorPick: 'Neon-Planets-ROM wählen', neonDonorHint: 'Ergänzt 86 Tama und 59 Items aus Neon Planets.', neonDonorReady: 'Neon-Quelle: {name}', neonDonorBad: 'Wähle ein unterstütztes Neon-Planets-ROM.', neonDonorNeedsSix: 'Wähle zusätzlich ein Land-, Water- oder Sky-ROM.', neonDonorFail: 'Neon-Inhalte konnten nicht eingebaut werden: {e}', neonDonorOn: 'Neon-Inhalte', neonItemsHint: 'Ergänzt 59 Items aus Neon Planets.', neonLocalizeHint: 'Übernimmt die originalen Planetennamen in allen Sprachen.',
+    neonDonorPick: 'Neon-Planets-ROM wählen', neonDonorHint: 'Ergänzt 86 Tama und 59 Items aus Neon Planets.', neonDonorReady: 'Neon-Quelle: {name}', neonDonorBad: 'Wähle ein unterstütztes Neon-Planets-ROM.', neonDonorFail: 'Neon-Inhalte konnten nicht eingebaut werden: {e}', neonDonorOn: 'Neon-Inhalte', neonItemsHint: 'Ergänzt 59 Items aus Neon Planets.', neonLocalizeHint: 'Übernimmt die originalen Planetennamen in allen Sprachen.',
     appsOnlyOn: 'Programmmenü', appsOnlyHint: 'Paramix neben dem normalen Neon-Planets-Spiel öffnen. Enthält Programme und das Flash-Werkzeug.', neonSaves: 'Drei Neon-Spielstände', neonSaveFields: 'Neue Spielstände starten mit der Original-Einrichtung. Das Spiel schaltet Felder mit dem Fortschritt frei.', neonSaveFull: 'Für einen Neon-Spielstand im Menü ist eine vollständige .tamasave-Datei erforderlich.',
     neonTamaOn: 'Tama im Programmmenü (Pflege, Aussehen, Alter)', petPoints: 'Tamapoints', petMission: 'Mission', petMissionAction: 'Abschluss', petMissionComplete: 'Als erledigt markieren', petMissionReset: 'Abschluss zurücksetzen',
     open: 'ROM öffnen', save: 'Neues ROM speichern',
@@ -186,7 +186,7 @@ const T = {
   en: {
     neonBagUnavailable: 'This Neon Planets firmware uses an unrecognized item save layout.',
     paraClear: 'Clear active ROM save', paraClearAsk: 'Clear the active Paradise save in the loaded ROM?', paraClearDone: 'Active save cleared. Save the ROM as a new file.', paraClearPending: 'Finish recovering the saved game in the Paramix menu first.',
-    neonDonorPick: 'Choose Neon Planets ROM', neonDonorHint: 'Add 86 Tama and 59 items from Neon Planets to the six-field game.', neonDonorReady: 'Neon source: {name}', neonDonorBad: 'Choose a supported Neon Planets ROM.', neonDonorNeedsSix: 'Choose a Land, Water or Sky ROM as well.', neonDonorFail: 'Could not add Neon content: {e}', neonDonorOn: 'Neon content', neonItemsHint: 'Add 59 items from Neon Planets.', neonLocalizeHint: 'Update Tama Files with the original planet names in all languages.',
+    neonDonorPick: 'Choose Neon Planets ROM', neonDonorHint: 'Add 86 Tama and 59 items from Neon Planets.', neonDonorReady: 'Neon source: {name}', neonDonorBad: 'Choose a supported Neon Planets ROM.', neonDonorFail: 'Could not add Neon content: {e}', neonDonorOn: 'Neon content', neonItemsHint: 'Add 59 items from Neon Planets.', neonLocalizeHint: 'Update Tama Files with the original planet names in all languages.',
     appsOnlyOn: 'Programs menu', appsOnlyHint: 'Open Paramix alongside the Neon Planets game to use programs and the Flash Tool.', neonSaves: 'Three Neon save slots', neonSaveFields: 'New saves use the game’s setup. The game unlocks fields with progress.', neonSaveFull: 'Writing a Neon menu slot requires a complete .tamasave backup.',
     neonTamaOn: 'Tama in Programs menu (care, appearance, age)', petPoints: 'Tamapoints', petMission: 'Mission', petMissionAction: 'Completion', petMissionComplete: 'Mark complete', petMissionReset: 'Reset completion',
     open: 'Open ROM', save: 'Save new ROM',
@@ -471,7 +471,8 @@ const entry = (i) => state.changed.get(i) || (state.launch && state.launchMap &&
  * itself, and almost the whole flash is for programs */
 const CLEAN_ROM = true;
 const neonRom = () => state.ctx && state.ctx.editionId === 7 && !state.ctx.clean;
-const menuWanted = () => !!(state.appsOnly || state.feld || state.bag || state.tama || state.gplay || state.launch);
+const menuWanted = () => !!(state.appsOnly || state.feld || state.bag || state.tama || state.gplay || state.launch ||
+  (!state.clean && state.ctx && (state.neonDonor || NT?.installed(state.ctx.rom))));
 /* launcher ROM (1.6.8): the small images, computed once per ROM */
 function launchMapGet() { if (!state.launchMap) state.launchMap = C.launcherChanges(state.ctx); return state.launchMap; }
 function decode(i) {
@@ -2569,7 +2570,7 @@ function renderFeld() {
   $('appsOnlyRow').hidden = !neon; $('appsOnlyOn').checked = !!state.appsOnly; $('appsOnlyOn').disabled = !fe || !!state.feld;
   $('launchOn').checked = la; $('launchOn').disabled = !fe || !ed || neon || !!state.ctx.clean || (state.launchInit && C.isLauncher(state.ctx)) || !!S6.sixInfo(rom); $('launchOn').parentNode.title = S6.sixInfo(rom) ? t('launchSix') : '';
   $('cleanRow').hidden = !CLEAN_ROM || !la; $('cleanClockRow').hidden = !state.clean; $('cleanClock').checked = state.cleanClock !== false; $('cleanOn').checked = !!state.clean; $('cleanOn').disabled = !fe || !ed || !!state.ctx.clean || !FL.embedded() || !cleanCan();
-  box.checked = !!state.feld && can && !la; box.disabled = !fe || !can || la || !!state.neonDonor;
+  box.checked = !!state.feld && can && !la; box.disabled = !fe || !can || la;
   if (neon) box.disabled = box.disabled || !SV.neonSaveLayout(rom);
   const fieldLabel = box.parentNode.querySelector('[data-t]');
   fieldLabel.dataset.t = neon ? 'neonSaves' : 'feldOn';
@@ -2592,14 +2593,16 @@ function renderFeld() {
   // six fields (Tropical/Glacier): row visible there only
   const si = S6.sixInfo(rom), sixIn = !!si, sixOld = !!si && si.version < S6.VERSION, sixCan = !!S6.kindOf(rom), jade = S6.kindOf(rom) === 'jade';
   const neonBuilt = !!NT?.installed?.(rom);
-  $('neonDonorRow').hidden = !NT?.installGrowth || !LZ || !sixCan || jade || la || !!state.clean || (neonBuilt && NT.itemsInstalled(rom) && !NT.needsPlanetNames(rom));
-  $('neonDonorStat').textContent = state.neonDonor
-    ? t('neonDonorReady', { name: state.neonDonor.name }) + (!sixIn && !state.six ? ' ' + t('neonDonorNeedsSix') : '')
-    : t(!neonBuilt ? 'neonDonorHint' : NT.itemsInstalled(rom) ? 'neonLocalizeHint' : 'neonItemsHint');
+  const neonItems = !!NT?.itemsInstalled(rom);
+  $('neonDonorRow').hidden = !NT || !LZ || !ed || neon || la || !!state.clean ||
+    (neonBuilt && neonItems && !NT.needsPlanetNames(rom));
+  const neonHint = !neonBuilt ? 'neonDonorHint' : neonItems ? 'neonLocalizeHint' : 'neonItemsHint';
+  $('neonDonorStat').textContent = (state.neonDonor
+    ? t('neonDonorReady', { name: state.neonDonor.name }) : t(neonHint));
   $('sixRow').hidden = !sixCan || la;
   for (const [id, k] of [['sixOnTxt', jade ? 'sixOnJ' : 'sixOn'], ['sixHintTxt', jade ? 'sixHintJ' : 'sixHint']]) { $(id).dataset.t = k; $(id).textContent = t(k); }
   $('sixOn').checked = (sixIn && !state.sixOff) || !!state.six || !!state.sixWant; $('sixOn').disabled = !fe || !S6.embedded() || neonBuilt;
-  if (neonBuilt) box.disabled = true;
+  if (neonBuilt && state.feldInit) box.disabled = true;
   $('btnSix').hidden = jade || neonBuilt || (sixIn && !sixOld && sixSame(si));
   $('sixPlanetRow').hidden = !sixCan || la || !((sixIn && !state.sixOff) || state.six || state.sixWant);
   $('sixPlanet').checked = state.sixPlanet !== false; $('sixPlanet').disabled = !fe || !S6.embedded() || neonBuilt;
@@ -2683,7 +2686,10 @@ $('neonDonorFile').onchange = async (e) => {
   const buf = new Uint8Array(await file.arrayBuffer());
   if (buf.length !== 0x1000000 || C.editionIdOf(buf) !== 7) { toast(t('neonDonorBad'), true); return; }
   state.neonDonor = { rom: buf, name: file.name };
-  state.sixOff = false; state.sixWant = true; state.feld = true; state.bag = true;
+  if (S6.kindOf(state.ctx.rom) === 'gen3' && (state.six || state.sixWant || S6.sixInfo(state.ctx.rom))) {
+    state.sixOff = false; state.sixWant = true; state.feld = true;
+  }
+  state.bag = true;
   renderFeld(); renderNames();
 };
 $('bagOn').onchange = (e) => {
@@ -2792,7 +2798,7 @@ async function composeClean() {
 async function composeRom() {
   if (CLEAN_ROM && state.clean) return composeClean();
   const keysDirty = !state.doom && doomInstalled() && state.doomKeys && D.doomKeysGet(state.ctx.rom) && JSON.stringify(state.doomKeys) !== JSON.stringify(D.doomKeysGet(state.ctx.rom));
-  const si0 = S6.sixInfo(state.ctx.rom), sixUp = (!!si0 && (si0.version < S6.VERSION || !sixSame(si0)) && !S6.sixNeedsSource(state.ctx.rom)) || sixDnaUp(si0);
+  const si0 = S6.sixInfo(state.ctx.rom), sixUp = (!!si0 && (si0.version < S6.VERSION || !sixSame(si0)) && !S6.sixNeedsSource(state.ctx.rom)) || sixDnaUp(si0) || S6.sixFieldsUpdateNeeded(state.ctx.rom);
   const emuUp = emuUpPending();
   if (!state.changed.size && !state.t7save && !state.emu && !state.emuRemove && !state.doom && !keysDirty && !emuUp && !emuAutoDirty() && !state.six && !state.neonDonor && !sixUp && !(state.sixWant && !S6.sixInfo(state.ctx.rom)) && state.appsOnly === state.appsOnlyInit && state.feld === state.feldInit && state.bag === state.bagInit && state.tama === state.tamaInit && state.paramixShortcut === state.paramixShortcutInit && !!state.gplay === !!state.gplayInit && state.saves === state.savesInit && state.launch === state.launchInit && (state.exitKey || 0) === (state.exitKeyInit || 0) && !state.feldStale && !state.extrasDirty && !state.mainDirty && !state.extrasUp && !state.t7saveX && !state.saveIn && !state.sixOff && !state.petDirty && !state.t18Dirty && !state.t18PicsDirty && !(state.texts && state.texts.size) && !(state.eyeShift && state.eyeShift.size) && !(state.mouthShift && state.mouthShift.size) && !(state.poseAdj && state.poseAdj.size)) return { rom: state.ctx.rom, name: state.paraCleared ? baseName() + '_save-cleared.bin' : state.name, res: null, same: !state.paraCleared };
   const fe = F.embedded(); let feldSaved;
@@ -2895,14 +2901,16 @@ async function composeRom() {
       if (NT.installed(rom)) {
         if (NT.needsPlanetNames(rom)) rom = NT.localizePlanetNames(rom, state.neonDonor.rom);
       } else {
-        const helper = LZ.embedded();
-        rom = LZ.isInstalled(rom) ? LZ.refresh(rom, helper) : LZ.patch(rom, helper, null, true, fe?.stub).rom;
+        if (C.editionIdOf(rom) >= 4 || LZ.isInstalled(rom)) {
+          const helper = LZ.embedded(rom);
+          rom = LZ.isInstalled(rom) ? LZ.refresh(rom, helper) : LZ.patch(rom, helper, null, true, fe?.stub).rom;
+        }
         const added = NT.transplant(rom, state.neonDonor.rom);
         rom = NT.installGrowth(added.rom, added.rows);
       }
       if (!NT.itemsInstalled(rom)) {
         rom = NT.transplantItems(rom, state.neonDonor.rom).rom;
-        feldSaved = NT.clearItemSaveSlots(feldSaved);
+        if (C.editionIdOf(rom) >= 5) feldSaved = NT.clearItemSaveSlots(feldSaved);
       }
     } catch (e) { toast(t('neonDonorFail', { e: em(e) }), true); return null; }
   }
@@ -2937,10 +2945,10 @@ async function composeRom() {
     try { rom = F.feldApply(rom, { fields: state.feld, bag: state.bag, tama: !neonRom() && state.tama, neonTama: neonRom() && state.tama, appsOnly: state.appsOnly, paramixShortcut: state.paramixShortcut, gplay: state.gplay && !state.clean, saves: state.saves, launch: !!state.launch, apps, name0, appsLow, dl, mainSrc: mainSrcOf(), auto: !!state.emuAuto, fieldNames: fieldTexts(rom).map((x) => x.name) }, feldSaved, { feld: fe.feld, stub: fe.stub }, E); }
     catch (e) { toast(t('feldFail', { e: em(e) }), true); return null; }
   }
-  if (state.neonDonor) {
+  if (state.neonDonor && NT.installed(rom)) {
     const menu = fe && F.feldFind(rom, fe.stub);
-    if (!menu || !(menu.flags & 0x100) || rd32(rom, menu.stubOff + 0x304) !== 3) {
-      toast(t('neonDonorFail', { e: 'nine-group Tama Files could not be installed' }), true); return null;
+    if (!menu || !(menu.flags & 0x100) || ![3, 4].includes(rd32(rom, menu.stubOff + 0x304))) {
+      toast(t('neonDonorFail', { e: 'native Tama Files could not be installed' }), true); return null;
     }
   }
   // autostart of the emulator (the stubs above were written with it off), clock switch (1.5.1)

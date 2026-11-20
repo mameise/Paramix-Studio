@@ -1,3 +1,8 @@
+#ifndef GROWTH_TAMA
+#define GROWTH_TAMA 0x114
+#define GROWTH_FIELD 0x1ef
+#endif
+
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
@@ -38,10 +43,10 @@ static u32 roll(const u8 *settings) {
 
 u16 neon_growth_pick(const u8 *settings, u16 stock, u32 care) {
   const struct growth_data *p = &neon_growth_config;
-  const u16 previous = *(const u16 *)(settings + 0x114);
-  const u32 stage = (settings[0x128] >> 2) & 7;
+  const u16 previous = *(const u16 *)(settings + GROWTH_TAMA);
+  const u32 stage = (settings[GROWTH_TAMA + 0x14] >> 2) & 7;
   if (stage == 3 && previous == 1001 && button_a()) {
-    const u32 field = settings[0x1EF];
+    const u32 field = settings[GROWTH_FIELD];
     if (field < PLANETS) return p->kids[field];
   }
   if (stage == 4) {

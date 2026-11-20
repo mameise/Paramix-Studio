@@ -8,17 +8,14 @@
 .section .text
 .global _start
 
-.equ SCENE,              0x180141d8
-.equ SAVE,               0x18000be8
+#include "book_profiles.inc"
+
 .equ BOOK_PRIMARY,       SAVE + 0xf80 - 4
 .equ BOOK_VIEWED,        SAVE + 0xf8c - 4
 .equ NEON_PRIMARY,       SAVE + 0xf98 - 4
 .equ NEON_VIEWED,        SAVE + 0xfb0 - 4
 .equ NATIVE_PRIMARY,     SAVE + 0x90
 .equ NATIVE_VIEWED,      SAVE + 0xa0
-.equ FIELD,              0x4cc
-.equ PAGE_ARROW,         0x4ec  /* extra word at the end of the native scene */
-.equ ARROW_SPRITE,       89     /* original UI arrows: up and down frames */
 
 .macro callGame addr
   ldr r12, =\addr
@@ -33,13 +30,20 @@
 /* Header offsets live here so the Studio can install the branches. */
 _start:
   .ascii "BK06"
+#if BOOK_PLATFORM
+  .word 4
+#else
   .word 3
+#endif
   .word getPrimary - _start, getViewed - _start, setPrimary - _start, setViewed - _start
   .word eligible - _start, mapField - _start, selectorWidget - _start
   .word wrapNext - _start, cursorTable - _start, initSelector - _start, moved - _start
   .word detailSprites - _start, detailTitle - _start, extraIds - _start
   .word listExtra - _start, fieldCount - _start
   .word neonNames - _start
+#if BOOK_PLATFORM
+  .word nativeRosters - _start
+#endif
 
 /* Find the slot and bit for an added character. The IDs are populated from the
  * ROM's own character table in bit order, independently of the field row shown.
@@ -48,12 +52,16 @@ _start:
 extraFlag:
   adr r1, extraIds
   movs r2, #0
+#if BOOK_PLATFORM
+  mov r12, #86
+#else
   adr r3, fieldCount
   ldrb r3, [r3]
   cmp r3, #9
   ite eq
   moveq r12, #152
   movne r12, #66
+#endif
 1:
   ldrh r3, [r1], #2
   cmp r0, r3
@@ -64,6 +72,7 @@ extraFlag:
   movs r1, #0
   bx lr
 4:
+#if !BOOK_PLATFORM
   cmp r2, #66
   bhs 5f
   movs r3, #22
@@ -72,6 +81,7 @@ extraFlag:
   b 8f
 5:
   subs r2, #66
+#endif
   movs r3, #3
   cmp r2, #24
   blo 7f
@@ -96,8 +106,13 @@ extraFlag:
 .macro flagEntry name, addr, storage, neon, op
 \name:
   push {r4, lr}
+#if BOOK_PLATFORM == 1
+  mov r4,r1
+#endif
   bl extraFlag
+#if BOOK_PLATFORM != 1
   pop {r4, lr}
+#endif
   cbz r1, 2f
   cmp r2, #3
   ite lo
@@ -106,7 +121,14 @@ extraFlag:
   add.w r3, r3, r2, lsl #2
   ldr r2, [r3]
 .ifc \op,set
+#if BOOK_PLATFORM == 1
+  cmp r4, #0
+  ite eq
+  biceq r2, r1
+  orrne r2, r1
+#else
   orrs r2, r1
+#endif
   str r2, [r3]
 .else
   tst r2, r1
@@ -119,18 +141,26 @@ extraFlag:
   movne r0, #0
 .endif
 .endif
+#if BOOK_PLATFORM == 1
+  pop {r4, pc}
+#else
   bx lr
+#endif
 2:
+#if BOOK_PLATFORM == 1
+  mov r1,r4
+  pop {r4,lr}
+#endif
   push {r7, lr}
-  sub sp, #0x18
+  sub sp, #STOCK_FLAG_STACK
   ldr r12, =\addr
   bx r12
 .endm
 
-flagEntry getPrimary, 0x100056d9, BOOK_PRIMARY, NEON_PRIMARY, primary
-flagEntry getViewed,  0x10005635, BOOK_VIEWED, NEON_VIEWED, viewed
-flagEntry setPrimary, 0x10005811, BOOK_PRIMARY, NEON_PRIMARY, set
-flagEntry setViewed,  0x1000577d, BOOK_VIEWED, NEON_VIEWED, set
+flagEntry getPrimary, GET_PRIMARY, BOOK_PRIMARY, NEON_PRIMARY, primary
+flagEntry getViewed,  GET_VIEWED, BOOK_VIEWED, NEON_VIEWED, viewed
+flagEntry setPrimary, SET_PRIMARY, BOOK_PRIMARY, NEON_PRIMARY, set
+flagEntry setViewed,  SET_VIEWED, BOOK_VIEWED, NEON_VIEWED, set
 
 eligible:
   push {r4, lr}
@@ -164,7 +194,7 @@ selectorWidget:
   cmp r1, #3
   it hs
   subhs r1, #3
-  addw r1, r1, #0x236
+  addw r1, r1, #WIDGET_BASE
   bx lr
 
 /* r1 points at the game's scene pointer and is retained by the caller. */
@@ -178,7 +208,7 @@ wrapNext:
 
 moved:
   push {r4, lr}
-  callGame 0x10023f21
+  callGame MOVED
   pop {r4, lr}
   b refresh
 
@@ -195,7 +225,7 @@ initSelector:
   movs r2, #118
   movs r3, #116
   /* Create a scene-owned sprite. */
-  callGame 0x1006f7ad
+  callGame CREATE_SPRITE
   str r0, [r4, #PAGE_ARROW]
   add sp, #16
   pop {r4, lr}
@@ -214,11 +244,13 @@ refresh:
   ldr r7, =NATIVE_VIEWED
   cmp r0, #3
   blo 1f
+#if !BOOK_PLATFORM
   adds r5, #6
   ldr r6, =BOOK_PRIMARY
   ldr r7, =BOOK_VIEWED
   cmp r0, #6
   blo 1f
+#endif
   movs r9, #1
   adr r5, neonNames
   ldr r6, =NEON_PRIMARY
@@ -227,7 +259,7 @@ refresh:
   movs r8, #0
 2:
   ldrh r0, [r5], #2
-  callGame 0x10065e81
+  callGame GAME_TEXT
   cmp r9, #0
   beq 7f
   mov r1, r8
@@ -236,7 +268,15 @@ refresh:
   add.w r1, r4, r8, lsl #2
   ldr r1, [r1, #0x28]
   ldr r1, [r1, #0x128]
-  str r0, [r1]                   /* native text setter 0x10064f94 */
+  str r0, [r1]
+#if BOOK_PLATFORM
+  cmp r9, #0
+  bne 9f
+  mov r0, r8
+  bl nativeNew
+  b 6f
+9:
+#endif
   ldr r0, [r6], #4
   ldr r1, [r7], #4
   bics r0, r1
@@ -262,7 +302,7 @@ refresh:
   add.w r0, r4, r8, lsl #2
   ldr r0, [r0, #0x44]
   adds r0, #0x9c
-  callGame 0x100668e5
+  callGame SET_VISIBLE
   adds r8, #1
   cmp r8, #3
   blo 2b
@@ -280,16 +320,42 @@ refresh:
   movs r1, #ARROW_SPRITE
   mov r2, r6
   movs r3, #0
-  callGame 0x1000996d
+  callGame SET_SPRITE
   add.w r0, r5, #0x38
   movs r1, #13
   cmp r6, #0
   it ne
   movne r1, #116
   lsls r1, #16
-  callGame 0x10066abd
+  callGame SET_POSITION
 3:
   pop {r4-r10, pc}
+
+#if BOOK_PLATFORM
+/* Native rows may use either character suffixes or roster indexes for
+ * progress. Their original accessors interpret those bits. */
+nativeNew:
+  push {r4-r6, lr}
+  adr r4, nativeRosters
+  movs r1, #44
+  mla r4, r0, r1, r4
+  movs r5, #22
+1:
+  ldrh r6, [r4], #2
+  mov r0, r6
+  bl getPrimary
+  cbz r0, 2f
+  mov r0, r6
+  bl getViewed
+  cmp r0, #0
+  bne 3f
+2:
+  subs r5, #1
+  bne 1b
+3:
+  cmp r0, #0
+  pop {r4-r6, pc}
+#endif
 
 detailTitle:
   push {r4, lr}
@@ -298,10 +364,15 @@ detailTitle:
   ldr r4, [r4, #0x128]
   cmp r2, #3
   bhs 1f
-  addw r0, r2, #262
-  callGame 0x10065e81
+  addw r0, r2, #DETAIL_TITLE
+  callGame GAME_TEXT
   b 2f
 1:
+#if BOOK_PLATFORM
+  subs r2, #3
+  adr r0, neonInitials
+  b 4f
+#else
   cmp r2, #6
   blo 3f
   subs r2, #6
@@ -310,6 +381,7 @@ detailTitle:
 3:
   subs r2, #3
   adr r0, extraInitials
+#endif
 4:
   add.w r0, r0, r2, lsl #2
 2:
@@ -345,12 +417,16 @@ fitNeonCaption:
 listExtra:
   loadScene r1
   ldr r2, [r1, #FIELD]
+#if BOOK_PLATFORM
+  subs r2, #3
+#else
   subs r2, #6
+#endif
   cmp r2, #2
   bls 1f
-  movs r0, #0x20
+  movs r0, #STOCK_SCAN
   str r0, [sp, #0x44]
-  ldr r12, =0x1005eeb1
+  ldr r12, =STOCK_SCAN_BODY
   bx r12
 1:
   push {r4-r8, lr}
@@ -359,13 +435,17 @@ listExtra:
   adds r2, #1
   ldrb r6, [r0, r2]
   subs r6, r3
+#if BOOK_PLATFORM
+  adr r5, extraIds
+#else
   adr r5, extraIds + 132
+#endif
   add.w r5, r5, r3, lsl #1
   add.w r4, r1, #0x54
   movs r7, #0
 2:
   ldrh r0, [r5], #2
-  callGame 0x10023e11
+  callGame FIND_CHARACTER
   cbz r0, 3f
   ldrh r1, [r0, #0]
   ldrh r2, [r0, #2]
@@ -381,7 +461,7 @@ listExtra:
   mov r0, r7
   pop {r4-r8, lr}
   strh.w r0, [sp, #0x4e]
-  ldr r12, =0x1005ef5d
+  ldr r12, =STOCK_LIST_READY
   bx r12
 
 .align 2
@@ -399,10 +479,31 @@ fieldCount: .byte 6
  * added rows, where the native language table supplies the actual field names.
  */
 .align 2
-cursorTable: .hword 0x236, 0x237, 0x238, 0x236, 0x237, 0x238, 0x236, 0x237, 0x238
-detailSprites: .hword 196, 198, 197, 199, 147, 186, 196, 198, 197, 199, 147, 186, 196, 198, 197, 199, 147, 186
+cursorTable:
+  .rept 3
+  .hword WIDGET_BASE, WIDGET_BASE + 1, WIDGET_BASE + 2
+  .endr
+detailSprites:
+#if BOOK_PLATFORM == 1
+  .rept 2
+  .hword 569, 570, 571
+  .endr
+#elif BOOK_PLATFORM == 2
+  .rept 2
+  .hword 140, 179, 141, 180, 143, 182
+  .endr
+#else
+  .rept 3
+  .hword 196, 198, 197, 199, 147, 186
+  .endr
+#endif
 extraInitials: .hword 329,0, 340,0, 336,0 /* L W S */
 neonInitials: .hword 320,0, 331,0, 337,0  /* C N T */
 .align 2
+#if BOOK_PLATFORM
+extraIds: .space 2 * (24 + 38 + 24)
+nativeRosters: .space 2 * 3 * 22
+#else
 extraIds: .space 2 * (3 * 22 + 24 + 38 + 24)
+#endif
 .ltorg

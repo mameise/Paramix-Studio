@@ -4,6 +4,8 @@
 // node test/flash_bridge_test.js <bridge-binary> <firmware.bin>
 const { spawn } = require('child_process');
 const fs = require('fs');
+const { tmpdir } = require('os');
+const { join } = require('path');
 const FL = require('../src/flash.js'), F = require('../src/feld.js'), E = require('../src/emu.js');
 const [bridge, fwFile] = process.argv.slice(2);
 const app = new Uint8Array(fs.readFileSync(__dirname + '/../flash/flashapp.bin'));
@@ -17,7 +19,9 @@ function start(file, out) {
 }
 (async () => {
   const base = new Uint8Array(fs.readFileSync(fwFile));
-  const out = '/tmp/claude-0/bridge_flash.bin';
+  const work = fs.mkdtempSync(join(tmpdir(), 'paramix-flash-bridge-'));
+  process.once('exit', () => fs.rmSync(work, { recursive: true, force: true }));
+  const out = join(work, 'bridge_flash.bin');
   const b = start(fwFile, out);
   await new Promise((r) => setTimeout(r, 15000));   // let the device reach the download screen
   const t0 = Date.now();

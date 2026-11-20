@@ -196,20 +196,16 @@ six_fbuild:
   blt 8f
   ldr r1,[r5,#4]
   ldrsb r1,[r1]               @ field slot
-  ldrb r2,[r5,#0x17]
-  ldrb r2,[r6,r2]
-  lsls r2,r2,#31
-  beq 2f
-  @ adult: slots 0..2 of the current set
-  movs r0,#0
-  strb r0,[r4]
-  movs r0,#1
-  strb r0,[r4,#1]
-  movs r0,#2
-  strb r0,[r4,#2]
-  movs r7,#3
-  mov r0,r1
-  b 6f
+  @ The vanilla Fields scene also uses bit 0 to block an adult from
+  @ confirming a move. It is local to the menu object, not the Tama's stage.
+  ldrb r3,[r5,#0x17]
+  ldrb r2,[r6,r3]
+  bic r2,r2,#1
+  strb r2,[r6,r3]
+  b 2f
+  .rept 7                      @ keep the addresses used by installed helpers
+  nop
+  .endr
 2:ldr r2,=_start
   ldr r2,[r2,#8]
   ldrsb r2,[r2]               @ current set
@@ -475,6 +471,33 @@ six_cnext:
 six_cprev:
   CARD -1
 .ltorg
+
+@ Clean Poop uses the same six-field unlock point as the expanded Fields menu.
+@ Keep the three physical slots in the native list, starting at the current
+@ slot. Below level 4, use the game's original unlock rules.
+.org 0xB00
+.thumb_func
+clean_field_list:
+  ldr r1,=0x18000BE8
+  ldrb r2,[r1,#0x84]
+  and r2,r2,#15
+  cmp r2,#4
+  blo 1f
+  movs r2,#0
+  strb r2,[r0]
+  movs r2,#1
+  strb r2,[r0,#1]
+  movs r2,#2
+  strb r2,[r0,#2]
+  movs r2,#3
+  strb r2,[r0,#3]
+  ldrb r1,[r1,#0x1EF]
+  strb r1,[r0,#4]
+  bx lr
+1:ldr r3,=0x100167D9
+  bx r3
+.ltorg
+.org 0xB40
 
 @ ---------------------------------------------------------------- DNA per field (option bit 3)
 @ The firmware keeps a DNA history of 12 entries: the field slot the Tama lived in, one entry per
@@ -869,4 +892,59 @@ dna_swap:
   strb r5,[r3]
   strb r12,[r1]
 9:pop {r0-r6,pc}
+.ltorg
+
+@ Clean Poop cycles through the native three-entry list twice. The list and
+@ its wraparound stay intact. Only the comparison against the total changes.
+.org 0xF60
+.thumb_func
+clean_field_count:
+  ldrsb r1,[r1,#0x28]
+  cmp r1,#3
+  it eq
+  moveq r1,#6
+  bx lr
+
+.org 0xF70
+.thumb_func
+clean_field_draw:
+  push {r4-r6,lr}
+  ldr r2,=0x18014188
+  ldr r2,[r2]
+  ldr r6,[r2,#0x2C]           @ completed fields
+  ldr r4,=_start
+  ldr r4,[r4,#8]              @ address of the active field set
+  ldrb r5,[r4]
+  cmp r6,#3
+  blo 1f
+  eor r2,r5,#1
+  strb r2,[r4]                @ use the other set only when selecting the background
+1:ldr r3,=0x10070195           @ native field background and flush animation
+  blx r3
+  strb r5,[r4]
+  pop {r4-r6,pc}
+.ltorg
+
+.org 0xFB0
+.thumb_func
+clean_field_population:
+  push {r4,lr}
+  mov r4,r0
+  ldr r3,=0x100188D9           @ native population for this slot
+  blx r3
+  ldr r1,=0x18000BE8
+  ldrb r2,[r1,#0x84]
+  and r2,r2,#15
+  cmp r2,#4
+  blo 2f
+  ldrb r2,[r1,#0xF0B]
+  cmp r2,#0x5A
+  bne 2f
+  add.w r1,r1,r4,lsl #2
+  ldrb r1,[r1,#0xF61]         @ corresponding inactive slot population bitmask
+1:lsrs r1,r1,#1
+  adc r0,r0,#0
+  cmp r1,#0
+  bne 1b
+2:pop {r4,pc}
 .ltorg

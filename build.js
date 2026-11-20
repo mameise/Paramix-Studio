@@ -87,14 +87,19 @@ let feld = fs.readFileSync(__dirname + '/src/feld.js', 'utf8');
 let six = fs.readFileSync(__dirname + '/src/six.js', 'utf8');
 {
   const binary = (name) => fs.readFileSync(__dirname + '/six/' + name + '.bin').toString('base64');
-  six = six.replace('__SIX_B64__', binary('six')).replace('__BOOK_B64__', binary('book'));
+  six = six.replace('__SIX_B64__', binary('six')).replace('__BOOK_B64__', binary('book'))
+    .replace('__BOOK_GEN1_B64__', binary('book-gen1')).replace('__BOOK_JADE_B64__', binary('book-jade'));
 }
 if (six.includes('</script')) throw new Error('script end tag inside source');
 const lz4 = fs.readFileSync(__dirname + '/six/experimental-lz4/patch.js', 'utf8')
-  .replace("'__LEGACY_LZ4_B64__'", JSON.stringify(fs.readFileSync(__dirname + '/six/experimental-lz4/helper.bin').toString('base64')));
-const growth = __dirname + '/six/experimental-neon/growth.bin';
+  .replace("'__LEGACY_LZ4_B64__'", JSON.stringify(fs.readFileSync(__dirname + '/six/experimental-lz4/helper.bin').toString('base64')))
+  .replace("'__LEGACY_LZ4_GEN1_B64__'", JSON.stringify(fs.readFileSync(__dirname + '/six/experimental-lz4/helper-gen1.bin').toString('base64')))
+  .replace("'__LEGACY_LZ4_JADE_B64__'", JSON.stringify(fs.readFileSync(__dirname + '/six/experimental-lz4/helper-jade.bin').toString('base64')));
+const growth = (suffix = '') => fs.readFileSync(__dirname + '/six/experimental-neon/growth' + suffix + '.bin').toString('base64');
 const neon = fs.readFileSync(__dirname + '/six/experimental-neon/transplant.js', 'utf8')
-  .replace("'__NEON_GROWTH_B64__'", JSON.stringify(fs.readFileSync(growth).toString('base64')));
+  .replace("'__NEON_GROWTH_B64__'", JSON.stringify(growth()))
+  .replace("'__NEON_GROWTH_GEN1_B64__'", JSON.stringify(growth('-gen1')))
+  .replace("'__NEON_GROWTH_JADE_B64__'", JSON.stringify(growth('-jade')));
 for (const [name, source] of [['legacy LZ4', lz4], ['Neon transplant', neon]]) {
   if (source.includes('</script')) throw new Error('script end tag inside ' + name);
   new Function(source);

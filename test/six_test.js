@@ -27,6 +27,25 @@ ok(ctx.entries.length >= info.sprites + 12, (ctx.entries.length - info.sprites) 
   ok(Buffer.compare(Buffer.from(st.subarray(0x11000, 0x111000)), Buffer.from(base.subarray(0x11000, 0x111000))) === 0, 'strip: firmware and helper page as before');
   ok(cs.entries.length === cb.entries.length && Buffer.compare(Buffer.from(cs.files[0]), Buffer.from(cb.files[0])) === 0, 'strip: data pack and picture count as before'); }
 ok(S.sixApply(six, land, blob) === six, 'second run changes nothing');
+{
+  const old = six.slice();
+  old.set(Buffer.from('ea7db25cd20708d000202070012060700220a0700327084628e0', 'hex'), S.SIX_OFF + 0x862);
+  ok(S.sixFieldsUpdateNeeded(old) && !S.sixFieldsUpdateNeeded(six), 'recognizes the old adult Fields limit');
+  ok(Buffer.compare(Buffer.from(S.sixApply(old, null, blob)), Buffer.from(six)) === 0,
+    'existing six-field ROM upgrades without re-importing its donor');
+}
+{
+  const old = six.slice(), sites = [0x38886, 0x560A6, 0x56056, 0x2196A];
+  old[S.SIX_OFF + 32] &= ~128;
+  old.fill(0, S.SIX_OFF + 0xB00, S.SIX_OFF + 0xB40);
+  old.fill(0xFF, S.SIX_OFF + 0xF60, S.SIX_OFF + 0x1000);
+  for (const at of sites) old.set(base.subarray(at, at + 4), at);
+  ok(S.sixFieldsUpdateNeeded(old) && !S.sixFieldsUpdateNeeded(six), 'recognizes the three-field cleaning loop');
+  ok(Buffer.from(S.sixDna(old, blob, true)).equals(Buffer.from(six)),
+    'existing six-field ROM upgrades the cleaning loop without a donor');
+  const disabled = S.sixDna(six, blob, false);
+  ok(sites.every(at => u32(disabled, at) === u32(base, at)), 'disabling per-field saves restores native cleaning');
+}
 // firmware patches point into the helper page
 const tgt = (o) => { const h1 = six[o] | six[o + 1] << 8, h2 = six[o + 2] | six[o + 3] << 8; return h1 >> 11 === 0x1E && (h2 >> 14) >= 2; };
 ok(tgt(0x1BEAC) && tgt(0x20ED2) && tgt(0x20FBC) && tgt(0x20D62), 'branches into the helper');

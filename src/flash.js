@@ -810,7 +810,7 @@ function keepPlan(F, E, menu, opts = {}) {
     // there); the menu's clock stays when the device is clean too
     const clean = !!(F.isClean && F.isClean(img)), dclean = !!(F.isClean && F.isClean(view)), mainOk = !clean && !dclean;
     const neon = root.ParamixNeonTransplant;
-    const importNeonItems = mainOk && neon?.itemsInstalled(img) && !neon.itemsInstalled(view);
+    const importNeonItems = mainOk && ed.profile.name === 'gen3' && neon?.itemsInstalled(img) && !neon.itemsInstalled(view);
     // six fields keep pictures from 0xF00000; a start device (1.6.8) may have programs there (the Paradise never writes there)
     const launchImg = !!(menu && F.isLaunch && F.isLaunch(img, menu.stub));
     const ranges = mainOk ? [[ed.profile.idPage + (sameFam ? 0 : SECTOR), (F.isSix && F.isSix(img)) || launchImg ? 0xF00000 : FLASH_SIZE]] : [];

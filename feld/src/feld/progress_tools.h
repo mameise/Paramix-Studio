@@ -10,32 +10,45 @@
 
 static int progress_neon_book(void){ return (g_cfg.flags&F_NEON_EDIT)!=0; }
 
-static int progress_book9(void){
+static u32 progress_neon_start(void){
 #ifndef FELD_CLEAN
-  return (g_cfg.flags&F_BOOK6) && rd32(g_cfg.stub_off+0x304u)==3u;
-#else
-  return 0;
+  if(g_cfg.flags&F_BOOK6){
+    u32 version=rd32(g_cfg.stub_off+0x304u);
+    if(version==3u) return 6u;
+    if(version==4u) return 3u;
+  }
 #endif
+  return 0;
+}
+static int progress_imported(u32 field){
+  u32 start=progress_neon_start();
+  return start && field>=start;
 }
 static u32 progress_count(u32 field){
   if(progress_neon_book()) return field==0u?22u:21u;
-  if(progress_book9() && field>=6u) return field==7u?38u:24u;
+  if(progress_imported(field)) return field==progress_neon_start()+1u?38u:24u;
   return BOOK_FILE_COUNT;
 }
 static const char *progress_field_name(u32 field){
-  if(progress_book9() && field>=6u){
+  u32 start=progress_neon_start();
+  if(start && field>=start){
     static const char *const names[]={"COSMIC","NEW TAMA","TAMA PLANET"};
-    return names[field-6u];
+    return names[field-start];
+  }
+  if(start==6u && nfields()<6u && field>=3u){
+    static const char *const names[]={"LAND","WATER","SKY"};
+    return names[field-3u];
   }
   return fname(field);
 }
 static u16 progress_field_color(u32 field){
-  return (progress_book9() && field>=6u)?PROGRESS_COLOR:fcol(field);
+  return (progress_imported(field) || field>=nfields())?PROGRESS_COLOR:fcol(field);
 }
 
 static u32 progress_fields(void){
   if(progress_neon_book()) return 3u;
-  if(progress_book9()) return 9u;
+  u32 start=progress_neon_start();
+  if(start) return start+3u;
   u32 n=nfields();
   return (g_cfg.flags&F_BOOK6) || n<3u ? n : 3u;
 }
@@ -52,15 +65,16 @@ static void progress_chars(u32 field){
     }
     return;
   }
+  u32 tag=progress_imported(field)?7u+field-progress_neon_start():field+1u;
   for(u32 i=0;i<g_cfg.cat_n && g_chrn<256u;i++){
     u32 a=g_cfg.cat_off+8u+28u*i;
-    if(fl(a+2u)[0]==2u && fl(a+6u)[0]>=3u && fl(a+7u)[0]==field+1u)
+    if(fl(a+2u)[0]==2u && fl(a+6u)[0]>=3u && fl(a+7u)[0]==tag)
       g_chr[g_chrn++]=(u16)i;
   }
 }
 static u32 progress_flag(u32 field,u32 index,u32 id){
   if(progress_neon_book()) return (NEON_BOOK_UNLOCKED+4u*field)*8u+index;
-  if(progress_book9() && field>=6u) return (BOOK_NEON_OFF+8u*(field-6u))*8u+index;
+  if(progress_imported(field)) return (BOOK_NEON_OFF+8u*(field-progress_neon_start()))*8u+index;
   u32 bit=id%1000u, off=0x88u;
   if(g_cfg.tama_off!=0x104u){
     bit=index;
@@ -178,7 +192,7 @@ static void progress_files_menu(void){
       if(progress_confirm(name,1)){ progress_bit(bit,1); set_write("TAMA FILE SAVED"); }
     } else if(progress_reset_confirm("LOCK TAMA FILE?",name,"HIDE THIS ENTRY")){
       u32 viewed=bit+8u*(progress_neon_book()?NEON_BOOK_VIEWED-NEON_BOOK_UNLOCKED:
-                         progress_book9() && region>=6u?24u:region>=3u?12u:16u);
+                         progress_imported(region)?24u:region>=3u?12u:16u);
       progress_clear_bit(bit); progress_clear_bit(viewed);
       set_write("TAMA FILE LOCKED");
     }
@@ -297,6 +311,7 @@ static void progress_menu(void){
   }
 }
 
+#ifndef FELD_CLEAN
 /* Offsets within the CRC-prefixed Neon save, in firmware mission order.
  * Negative widths describe the number of bytes in a discovery bitset. */
 static const struct { u8 offset; signed char width; } neon_mission_records[]={
@@ -310,6 +325,7 @@ _Static_assert(sizeof(neon_mission_records)/sizeof(neon_mission_records[0])==MIS
 #define NEON_MISSION_COMPLETE_OFF 0xF8u
 #define NEON_MISSION_VIEWED_OFF 0xFCu
 #define NEON_MISSION_CLAIMED_OFF 0x100u
+#define NEON_CURRENT_PLANET_OFF 0x207u
 
 static void neon_mission_set(u32 i,int complete){
   u32 target=i==MISSION_EARNED?99999u:missions[i].target;
@@ -381,8 +397,51 @@ static void neon_missions_menu(void){
     }
   }
 }
+static const struct { const char *name; u8 min_level; } neon_planets[]={
+  {"COSMIC PLANET",0},{"NEW TAMA PLANET",4},{"TAMA PLANET",6}
+};
+#define NEON_PLANET_COUNT (sizeof(neon_planets)/sizeof(neon_planets[0]))
+
+static int neon_planet_row(u32 i,char *name,char *right,u16 *col){
+  const char *s=neon_planets[i].name; while((*name++=*s++)){}
+  right[0]=0;
+  *col=WHITE;
+  if(i==g_set[NEON_CURRENT_PLANET_OFF]){
+    s="HERE"; while((*right++=*s++)){}
+    *col=GOLD;
+  } else if((g_set[NEON_LEVEL_OFF]&15u)<neon_planets[i].min_level){
+    right[0]='L'; right[1]='V'; right[2]='.';
+    utoa_(neon_planets[i].min_level,right+3);
+    *col=GREY;
+  }
+  return 1;
+}
+
+static void neon_planet_menu(void){
+  u32 current=g_set[NEON_CURRENT_PLANET_OFF];
+  u32 sel=current<NEON_PLANET_COUNT?current:0u;
+  for(;;){
+    int picked=progress_choose("CURRENT PLANET",NEON_PLANET_COUNT,sel,neon_planet_row);
+    if(picked<0 || (u32)picked==current) return;
+    sel=(u32)picked;
+    u32 level=g_set[NEON_LEVEL_OFF]&15u;
+    if(level<neon_planets[sel].min_level){
+      message("PLANET LOCKED",neon_planets[sel].min_level==4u?"NEEDS GALAXY LV.4":"NEEDS GALAXY LV.6","");
+      continue;
+    }
+    if(!progress_reset_confirm("CHANGE PLANET?",neon_planets[sel].name,
+                               level==4u?"GALAXY LV.4 TO LV.5":"MOVE CURRENT TAMA")) continue;
+    g_set[NEON_CURRENT_PLANET_OFF]=(u8)sel;
+    /* Match the native switch's three resets and the Lv.4 move milestone. */
+    for(u32 off=0x162u;off<0x168u;off++) g_set[off]=0;
+    if(level==4u) g_set[NEON_LEVEL_OFF]=0x45u;
+    set_write("PLANET CHANGED");
+    return;
+  }
+}
+
 static int neon_progress_root_row(u32 i,char *name,char *right,u16 *col){
-  static const char *const names[]={"GALAXY LEVEL","MISSIONS","TAMA FILE"};
+  static const char *const names[]={"GALAXY LEVEL","MISSIONS","TAMA FILE","CURRENT PLANET"};
   const char *s=names[i]; while((*name++=*s++)){}
   if(i==0u) utoa_(g_set[NEON_LEVEL_OFF]&15u,right);
   else right[0]=0;
@@ -392,11 +451,13 @@ static void neon_progress_menu(void){
   if(set_check_msg()) return;
   u32 sel=0;
   for(;;){
-    int action=progress_choose("PROGRESS",3u,sel,neon_progress_root_row);
+    int action=progress_choose("PROGRESS",4u,sel,neon_progress_root_row);
     if(action<0) return;
     sel=(u32)action;
     if(sel==0u) level_edit_at(NEON_LEVEL_OFF,"GALAXY LEVEL",1);
     else if(sel==1u) neon_missions_menu();
-    else progress_files_menu();
+    else if(sel==2u) progress_files_menu();
+    else neon_planet_menu();
   }
 }
+#endif

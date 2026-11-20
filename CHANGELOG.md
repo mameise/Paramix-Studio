@@ -2,6 +2,17 @@
 
 Versions are listed newest first.
 
+## 1.7.5-plus.44 (2026-11-20)
+
+- Sweep all six fields in Clean Poop and include both groups in the native biofuel calculation.
+- Add CURRENT PLANET to the Neon Planets progress menu.
+
+## 1.7.5-plus.43 (2026-11-20)
+
+- Import 86 Neon Planets Tama, three native Tama Files groups and 59 items into all six original Paradise editions.
+- Support the imported rosters in the on-device progress menu and keep the save slots of single- and multi-field games.
+- Let adults move among the six fields in a six-field game and preserve each field's decorations.
+
 ## 1.7.5-plus.42 (2026-11-20)
 
 - Add a My Lab sender for adult characters selected from a loaded ROM or imported from a ghost or Playdate file.
