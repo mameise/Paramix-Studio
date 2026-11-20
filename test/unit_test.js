@@ -124,7 +124,7 @@ C.zipRead(z, async (b) => new Uint8Array(zlib.inflateRawSync(b))).then(files => 
   for (let k = 0; k < 3; k++) for (let h = 0; h < 4; h++) put32(0x300000 + k * 28 + 12 + 4 * h, 0x10001001 + k * 0x100 + h * 0x10);
   put32(0x111008, 0x1000); put32(0xD49000, 1);
   const fe = { feld: new Uint8Array(fs3.readFileSync(__dirname + '/../feld/feld.bin')), stub: new Uint8Array(fs3.readFileSync(__dirname + '/../feld/stub_feld_tpl.bin')), oldStub: new Uint8Array(fs3.readFileSync(__dirname + '/../emu/stub_tpl.bin')) };
-  const a = F.feldApply(r, { fields: true, bag: true }, [], fe, E), fa = F.feldFind(a, fe.stub);
+  const a = F.feldApply(r, { fields: true }, [], fe, E), fa = F.feldFind(a, fe.stub);
   ok(fa && fa.off === 0xB1000 && fa.slotOff === 0x830000 && fa.nslots === 3, 'field switch built in');
   const home = E.sceneTable(a).PSID_HOME;
   ok(((a[home + 12] | a[home + 13] << 8 | a[home + 14] << 16 | a[home + 15] << 24) >>> 0) === (xp(0xB0040) | 1), 'home screen hooked');

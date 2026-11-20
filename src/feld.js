@@ -927,8 +927,10 @@ function feldStrip(rom, emb, E) {
   launchRestore(out, f.stubOff);   // start device: scene handlers back, trampolines gone (before the menu area is erased)
   const prev = f.stubOff === STUB_OFF ? E.installedOrigs(out, tab) : [0, 1, 2, 3].map((k) => u32(out, f.stubOff + 0x94 + 4 * k));
   // Program and catalog
-  let end = f.off + ((f.flags & F_APPS) ? u32(rom, f.off + 0x140 + 620) : f.version >= 2 ? 0x8000 : 0x4000);
-  if (f.flags & F_APPS && (end <= f.off || end > f.off + 0x10000 || end > 0x110000 || end % 0x1000)) throw new Error('invalid launcher program size');
+  const size = f.version >= 11 || (f.flags & F_APPS) ? u32(rom, f.off + 0x140 + 620) : 0;
+  const validSize = size > 0 && size <= 0x10000 && size % 0x1000 === 0 && f.off + size <= 0x110000;
+  if ((f.flags & F_APPS) && !validSize) throw new Error('invalid launcher program size');
+  let end = f.off + (validSize ? size : f.version >= 2 ? 0x8000 : 0x4000);
   if (f.catOff > f.off && u32(rom, f.catOff) === CAT_MAGIC) {
     let ce = f.catOff + 8 + (f.version >= 3 ? 28 : 24) * f.catN;
     if (u32(rom, ce) === EXT_MAGIC) ce += 4 + 12 * f.catN;
@@ -1135,7 +1137,7 @@ function feldApply(rom, opts, saved, emb, E) {
   w32(f, ci + 20, P.idPage + 0x1000); w32(f, ci + 24, P.six || neonSaves ? 0xF00000 : 0x1000000);
   w32(f, ci + 28, P.idPage);   // ID page (1.2.2 to 1.2.11 lost this line: Tropical/Glacier wrote the ID to 0xD49000)
   w32(f, ci + 32, stubOff); w32(f, ci + 36, (fields ? F_FIELDS : 0) | (bag ? F_BAG : 0) | (tama ? F_TAMA : 0) | (saves ? F_SAVES : 0) | (launch ? F_LAUNCH : 0) | (gplay ? F_GPLAY : 0) | (appsOnly ? F_APPS : 0) | (neonEdit ? F_NEON_EDIT : 0) | (neonTama ? F_NEON_TAMA : 0) | (opts.paramixShortcut === false ? F_NO_SHORTCUT : 0));
-  if (appsOnly) w32(f, ci + 620, fsz);
+  if (appsOnly || u32(f, ci + 4) >= 11) w32(f, ci + 620, fsz);
   if (neonSaves) w32(f, ci + 36, u32(f, ci + 36) | F_NEON_SAVES | F_SAVES);
   w32(f, ci + 40, P.c); w16(f, ci + 44, P.h[0]); w16(f, ci + 46, P.h[1]);
   // 1.6.8: a field renamed in the Studio (text table) shows its new name in the menu too
