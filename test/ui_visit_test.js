@@ -1,5 +1,5 @@
-// Device panel: "Simulate a visit" in the browser against a scripted Paradise (random data).
-// node test/ui_visit_test.js <out-dir>
+// Device panel: "Simulate a Playdate" in the browser against a scripted Paradise (random data).
+// node test/ui_visit_test.js <out-dir> [Paradise ROM] [Playdate .bin with a planet screenshot]
 const { chromium } = require('playwright');
 const fs = require('fs'), path = require('path');
 const V = require('../src/visit.js');
@@ -44,15 +44,37 @@ const enc = (s) => new TextEncoder().encode(s);
   }
   let ok = true; const fail = (m) => { ok = false; console.log('FAIL', m); };
   await page.goto('file://' + path.resolve(__dirname, '../dist/ParamixStudio.html'));
-  await page.click('[data-lang="de"]').catch(() => {});
   await page.click('#btnDevice');
+  await page.click('[data-lang="en"]');
+  if (!(await page.locator('#deviceUart').isVisible()) || await page.locator('#btnVis').isVisible() || await page.locator('#btnLabRelease').isVisible())
+    fail('UART is the only open tab by default');
+  await page.click('#deviceTabPlaydate');
+  if (await page.locator('#btnConn').isVisible() || !(await page.locator('#btnVis').isVisible()) || await page.locator('#btnLabRelease').isVisible())
+    fail('Playdate shows only its own controls');
+  if (!(await page.textContent('#visSourceHint')).includes('Open ROM') ||
+      (await page.textContent('#btnVisGhostImport')) !== 'Load Character File…' ||
+      (await page.textContent('#visCharacterLabel')) !== 'Visitor')
+    fail('shared character source instructions');
+  if (!(await page.textContent('#visHint')).includes('CONNECTION → PLAYDATE')) fail('Playdate instructions');
+  await page.press('#deviceTabPlaydate', 'ArrowRight');
+  if (!(await page.locator('#deviceLab').isVisible()) || await page.locator('#btnVis').isVisible() ||
+      !(await page.locator('#btnLabRelease').isVisible()) || !(await page.locator('#btnLabRelease').isDisabled()) ||
+      (await page.textContent('#visCharacterLabel')) !== 'Tama to Send' ||
+      (await page.textContent('#visDefault')) !== 'Choose an adult Tama' ||
+      !(await page.textContent('#labHint')).includes('CONNECTION → LAB INVITE'))
+    fail('My Lab has its own controls and instructions');
+  await page.click('#deviceTabPlaydate');
+  await page.click('[data-lang="de"]');
   if (!(await page.locator('#visPeer').isHidden())) fail('received character panel before data');
   if ((await page.$$eval('#visEd option', (o) => o.length)) !== 8) fail('eight editions');
-  if ((await page.textContent('#visEd option[value="neon"]')) !== 'Neon Planet') fail('Neon Planet option');
+  if ((await page.textContent('#visEd option[value="neon"]')) !== 'Neon Planets') fail('Neon Planets option');
   await page.selectOption('#visEd', 'my-lab');
   await page.click('#btnVis');
   await page.waitForFunction(() => /My Lab/.test(document.getElementById('visStat').textContent));
   if ((await page.textContent('#btnVis')) !== 'Beenden') fail('button Beenden');
+  await page.click('#deviceTabUart');
+  if (!(await page.locator('#btnConn').isDisabled())) fail('Playdate keeps the UART while another tab is visible');
+  await page.click('#deviceTabPlaydate');
   await page.screenshot({ path: out + '/visit_1.png' });
   await packet(0x11, new Uint8Array([9, 9]));
   const mine = new Uint8Array(0x20014); for (let i = 0; i < mine.length; i++) mine[i] = (i * 13) & 255;
@@ -92,7 +114,7 @@ const enc = (s) => new TextEncoder().encode(s);
   await page.waitForFunction(() => /fertig/.test(document.getElementById('visStat').textContent));
   await page.screenshot({ path: out + '/visit_2.png' });
   await page.click('#btnVis');
-  if ((await page.textContent('#btnVis')) !== 'Starten') fail('button Starten after stop');
+  if ((await page.textContent('#btnVis')) !== 'Playdate starten') fail('Playdate start button after stop');
   await page.setInputFiles('#visGhostImport', out + '/received.bin');
   await page.locator('#visVisitor').waitFor({ state: 'visible' });
   if (!(await page.locator('#visGhostImportStatus').isVisible()) ||
@@ -102,8 +124,54 @@ const enc = (s) => new TextEncoder().encode(s);
   const [visitorExport] = await Promise.all([page.waitForEvent('download'), page.click('#btnVisVisitorExport')]);
   await visitorExport.saveAs(out + '/visitor.bin');
   if (!fs.readFileSync(out + '/visitor.bin').equals(Buffer.from(mine))) fail('unmodified visitor export contents');
+  const selectedVisitor = await page.inputValue('#visGhost');
+  await page.click('#deviceTabLab');
+  if ((await page.inputValue('#visGhost')) !== selectedVisitor || !(await page.locator('#visVisitor').isVisible()) ||
+      await page.locator('#visPeer').isVisible())
+    fail('My Lab preserves the loaded visitor and hides Playdate receipt');
+  await page.click('#deviceTabPlaydate');
   await page.selectOption('#visGhost', '');
   if (!(await page.locator('#visVisitor').isHidden())) fail('mirror choice hides imported visitor');
+  const [, , , realRom, screenshotFile] = process.argv;
+  if (realRom && screenshotFile) {
+    await page.click('[data-lang="en"]');
+    await page.setInputFiles('#visGhostImport', screenshotFile);
+    await page.locator('#visVisitorPlanet').waitFor({ state: 'visible' });
+    if (!(await page.textContent('#visVisitorParameters')).includes('Planet screenshot size'))
+      fail('a valid imported screenshot shows its details');
+    const sample = fs.readFileSync(screenshotFile);
+    const sampleUid = sample.readUInt32LE(V.GHOST_SIZE + 4);
+    if (Number(await page.inputValue('#visDeviceUidInput')) !== sampleUid) fail('Playdate field is loaded from the import');
+    await page.setInputFiles('#fileRom', realRom);
+    await page.waitForFunction(() => document.querySelector('#visRomVisitors').children.length > 0);
+    const romVisitor = await page.locator('#visRomVisitors option').first().getAttribute('value');
+    await page.selectOption('#visGhost', romVisitor);
+    await page.locator('#visVisitorCharacter').waitFor({ state: 'visible' });
+    if (!(await page.locator('#visVisitorPlanet').isHidden()) ||
+        (await page.textContent('#visVisitorParameters')).includes('Planet screenshot'))
+      fail('a ROM visitor shows only its character preview and details');
+    const selectedPlanet = await page.locator('#visPlanetChoice option').nth(1).getAttribute('value');
+    await page.selectOption('#visPlanetChoice', selectedPlanet);
+    await page.locator('#visVisitorPlanet').waitFor({ state: 'visible' });
+    await page.fill('#visDeviceUidInput', '0x4A1F6148');
+    await page.fill('#visFriendshipInput', '42');
+    const [edited] = await Promise.all([page.waitForEvent('download'), page.click('#btnVisVisitorExport')]);
+    const bytes = fs.readFileSync(await edited.path()), start = 0x1b000;
+    const size = bytes.readUInt32LE(start + 12), checksum = bytes.readUInt32LE(start);
+    let sum = 0;
+    for (let at = start + 0x200; at < start + size; at += 4) sum = (sum + bytes.readUInt32LE(at)) >>> 0;
+    if (bytes.length !== V.PACKET_SIZE || bytes.readUInt32LE(V.GHOST_SIZE + 4) !== 0x4A1F6148 ||
+        bytes.readUInt16LE(V.GHOST_SIZE + 12) !== 42) fail('custom fields survive export');
+    if (!size || size % 4096 || sum !== checksum || bytes.readUInt32LE(start + 4) !== (~checksum >>> 0))
+      fail('ROM screenshot size and checksum match the exported image');
+    const { TXT_ENC } = require('../src/core');
+    const planetName = Array.from('PARAMIX', c => TXT_ENC[c]);
+    for (let slot = 0; slot < 9; slot++) {
+      const at = start + 16 + 26 * slot;
+      if (!planetName.every((code, index) => bytes.readUInt16LE(at + 2 * index) === code) ||
+          bytes.readUInt16LE(at + 2 * planetName.length) !== 0) fail('fixed PARAMIX planet name in slot ' + slot);
+    }
+  }
   if (errors.length) fail('page errors ' + errors.join(' | '));
   await browser.close();
   console.log(ok ? 'all good' : 'FAIL');

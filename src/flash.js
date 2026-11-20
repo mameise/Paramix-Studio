@@ -50,7 +50,7 @@ const LV = (() => { const o = new Uint8Array(LV_A.length + LV_B.length); let s =
 const LINK_KEY = String.fromCharCode(...LV.subarray(0, 32)), PDLO_TOKEN = String.fromCharCode(...LV.subarray(32, 40));
 const PDLO_XOR = (LV[40] | LV[41] << 8 | LV[42] << 16 | LV[43] << 24) >>> 0;
 const IMAGE_SIZE = 0x10000, CHUNK = 0x1000;
-const EDITIONS = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier', 7: 'Neon Planet' };
+const EDITIONS = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier', 7: 'Neon Planets' };
 
 // ------------------------------------------------------------------ messages
 // English texts; every error and note carries .code and .p so the page can show
@@ -422,7 +422,7 @@ class Paradise {
     const p = r.payload; if (p.length !== 44) throw fe('hello');
     this.info = { edition: p[8], wave: p[9], maxBlock: p[10] | (p[11] << 8), jedec: u32(p, 24), capacity: u32(p, 32), flashError: u32(p, 36), resetControl: !!(u32(p, 40) & 1) };
     // The flash app always reports 1 (Land). The real edition is the ID page in the flash
-    // (0xD49000, Tropical/Glacier 0xD29000, Neon Planet 0xD85000).
+    // (0xD49000, Tropical/Glacier 0xD29000, Neon Planets 0xD85000).
     try {
       // 1.7.3 test11: Tropical/Glacier first, with the page's footer (C minus ID, inverse): a Glacier was taken for Land
       // (its save data at 0xD49000 can begin with 1..6)

@@ -2,15 +2,24 @@
 
 Versions are listed newest first.
 
+## 1.7.5-plus.42 (2026-11-20)
+
+- Add a My Lab sender for adult characters selected from a loaded ROM or imported from a ghost or Playdate file.
+- Accept My Lab acknowledgments with NUL padding during the serial handshake.
+- Give UART tools, Playdate and Send to My Lab separate tabs in Device.
+- Edit Playdate fields and choose a planet image from the loaded ROM.
+- Unlock or relock native Neon Planets Tama Files from the on-device Progress menu.
+- Display Edition 7 as Neon Planets.
+
 ## 1.7.5-plus.41 (2026-11-20)
 
-- Import all 59 Neon Planet items into six-field LZ4 ROMs and include them in Items and Tamapoints.
+- Import all 59 Neon Planets items into six-field LZ4 ROMs and include them in Items and Tamapoints.
 - Reset the two replaced placeholder item counts when migrating active and stored saves.
 - Show MAX and explain per-item limits in the Neon batch inventory editor.
 
 ## 1.7.5-plus.40 (2026-11-20)
 
-- Support Neon Planet items, characters, missions and three save slots.
+- Support Neon Planets items, characters, missions and three save slots.
 - Import the 86 Neon Tama and localized Tama Files groups into six-field LZ4 ROMs.
 - Credit the original author and fork extensions in the on-device About screen.
 

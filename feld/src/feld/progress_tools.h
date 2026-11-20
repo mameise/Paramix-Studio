@@ -4,6 +4,11 @@
 #define BOOK_EXTRA_OFF 0xF80u
 #define BOOK_FILE_COUNT 22u
 #define BOOK_NEON_OFF 0xF98u
+#define NEON_BOOK_ROSTERS 0xB0A28u
+#define NEON_BOOK_UNLOCKED 0x94u
+#define NEON_BOOK_VIEWED 0xA4u
+
+static int progress_neon_book(void){ return (g_cfg.flags&F_NEON_EDIT)!=0; }
 
 static int progress_book9(void){
 #ifndef FELD_CLEAN
@@ -13,6 +18,7 @@ static int progress_book9(void){
 #endif
 }
 static u32 progress_count(u32 field){
+  if(progress_neon_book()) return field==0u?22u:21u;
   if(progress_book9() && field>=6u) return field==7u?38u:24u;
   return BOOK_FILE_COUNT;
 }
@@ -28,12 +34,24 @@ static u16 progress_field_color(u32 field){
 }
 
 static u32 progress_fields(void){
+  if(progress_neon_book()) return 3u;
   if(progress_book9()) return 9u;
   u32 n=nfields();
   return (g_cfg.flags&F_BOOK6) || n<3u ? n : 3u;
 }
 static void progress_chars(u32 field){
   g_chrn=0;
+  if(progress_neon_book()){
+    const u32 entry=NEON_BOOK_ROSTERS+8u*field, count=progress_count(field);
+    u32 roster=rd32(entry)-0x10000000u+XIP_DEC;
+    if(rd32(entry+4u)!=count || roster<XIP_DEC || roster>NEON_BOOK_ROSTERS-2u*count) return;
+    for(u32 i=0;i<count;i++){
+      int k=cat_find(rd16(roster+2u*i));
+      if(k<0 || fl(g_cfg.cat_off+8u+28u*(u32)k+7u)[0]!=field+7u){ g_chrn=0; return; }
+      g_chr[g_chrn++]=(u16)k;
+    }
+    return;
+  }
   for(u32 i=0;i<g_cfg.cat_n && g_chrn<256u;i++){
     u32 a=g_cfg.cat_off+8u+28u*i;
     if(fl(a+2u)[0]==2u && fl(a+6u)[0]>=3u && fl(a+7u)[0]==field+1u)
@@ -41,6 +59,7 @@ static void progress_chars(u32 field){
   }
 }
 static u32 progress_flag(u32 field,u32 index,u32 id){
+  if(progress_neon_book()) return (NEON_BOOK_UNLOCKED+4u*field)*8u+index;
   if(progress_book9() && field>=6u) return (BOOK_NEON_OFF+8u*(field-6u))*8u+index;
   u32 bit=id%1000u, off=0x88u;
   if(g_cfg.tama_off!=0x104u){
@@ -121,7 +140,7 @@ static int progress_reset_confirm(const char *title,const char *name,const char 
   return yes_no();
 }
 static void progress_files_menu(void){
-  if(!t_layout()){ message("TAMA SAVE FORMAT","NOT SUPPORTED",""); return; }
+  if(!progress_neon_book() && !t_layout()){ message("TAMA SAVE FORMAT","NOT SUPPORTED",""); return; }
   u32 nf=progress_fields(), nr=0;
   for(u32 i=0;i<nf;i++){
     progress_chars(i);
@@ -158,7 +177,8 @@ static void progress_files_menu(void){
     if(progress_bit(bit,0)){
       if(progress_confirm(name,1)){ progress_bit(bit,1); set_write("TAMA FILE SAVED"); }
     } else if(progress_reset_confirm("LOCK TAMA FILE?",name,"HIDE THIS ENTRY")){
-      u32 viewed=bit+8u*((progress_book9() && region>=6u)?24u:region>=3u?12u:16u);
+      u32 viewed=bit+8u*(progress_neon_book()?NEON_BOOK_VIEWED-NEON_BOOK_UNLOCKED:
+                         progress_book9() && region>=6u?24u:region>=3u?12u:16u);
       progress_clear_bit(bit); progress_clear_bit(viewed);
       set_write("TAMA FILE LOCKED");
     }
@@ -362,7 +382,8 @@ static void neon_missions_menu(void){
   }
 }
 static int neon_progress_root_row(u32 i,char *name,char *right,u16 *col){
-  const char *s=i==0u?"GALAXY LEVEL":"MISSIONS"; while((*name++=*s++)){}
+  static const char *const names[]={"GALAXY LEVEL","MISSIONS","TAMA FILE"};
+  const char *s=names[i]; while((*name++=*s++)){}
   if(i==0u) utoa_(g_set[NEON_LEVEL_OFF]&15u,right);
   else right[0]=0;
   *col=i==0u?GOLD:WHITE; return 1;
@@ -371,10 +392,11 @@ static void neon_progress_menu(void){
   if(set_check_msg()) return;
   u32 sel=0;
   for(;;){
-    int action=progress_choose("PROGRESS",2u,sel,neon_progress_root_row);
+    int action=progress_choose("PROGRESS",3u,sel,neon_progress_root_row);
     if(action<0) return;
     sel=(u32)action;
     if(sel==0u) level_edit_at(NEON_LEVEL_OFF,"GALAXY LEVEL",1);
-    else neon_missions_menu();
+    else if(sel==1u) neon_missions_menu();
+    else progress_files_menu();
   }
 }

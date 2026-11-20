@@ -160,6 +160,10 @@ img, canvas { image-rendering: pixelated; }
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line); }
 .device { margin-bottom: 12px; }
 .device .tools { margin: 8px 0; }
+.device-tabs { padding: 0; border-bottom: 2px solid var(--line); }
+.device-tabs .tab[aria-selected="true"] { box-shadow: inset 0 -3px var(--sky); }
+.device [role="tabpanel"] { padding-top: 8px; }
+#visGhost { max-width: min(100%, 350px); }
 .devinfo { font-weight: 700; }
 .legend { display: flex; flex-wrap: wrap; gap: 2px 16px; font-size: 12px; color: var(--soft); margin-top: 6px; }
 .rule { font-size: 13px; color: var(--soft); margin-top: 6px; }
@@ -298,11 +302,18 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
     <h3 data-t="h9t"></h3><p data-t="h9"></p>
   </section>
   <section class="plan device" id="device" hidden>
-    <div class="plan-h" data-t="devTitle"></div>
+    <div class="tabs device-tabs" id="deviceTabs" role="tablist" aria-labelledby="btnDevice">
+      <button class="tab" id="deviceTabUart" type="button" role="tab" aria-selected="true" aria-controls="deviceUart" data-t="devTitle"></button>
+      <button class="tab" id="deviceTabPlaydate" type="button" role="tab" aria-selected="false" aria-controls="devicePlaydate" tabindex="-1" data-t="visTitle"></button>
+      <button class="tab" id="deviceTabLab" type="button" role="tab" aria-selected="false" aria-controls="deviceLab" tabindex="-1" data-t="labSend"></button>
+    </div>
+    <section id="deviceUart" role="tabpanel" aria-labelledby="deviceTabUart">
     <p class="hint" data-t="devHint"></p>
+    <p class="hint" id="uartConnectionHint" hidden></p>
     <p class="devwarn" data-t="devWarn"></p>
     <div class="tools">
       <button class="btn small" id="btnConn" data-t="devConnect"></button>
+      <button class="btn small" id="btnUartRelease" data-t="uartFree" hidden></button>
       <span class="devinfo" id="devInfo"></span>
     </div>
     <div class="tools">
@@ -326,18 +337,14 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
     </div>
     <div class="flash"><span class="seg emu" id="devBar" style="width:0"></span></div>
     <p class="emustat" id="devStat"></p>
+    </section>
+    <section id="devicePlaydate" role="tabpanel" aria-labelledby="deviceTabPlaydate" hidden>
     <div id="visitBox">
-      <h4 class="subhead" data-t="visTitle"></h4>
-      <p class="hint" data-t="visHint" style="white-space:pre-line"></p>
+      <p class="hint" id="visSourceHint" data-t="visSourceHint"></p>
       <div class="tools">
-        <label><span data-t="visModel"></span> <select id="visEd"></select></label>
-        <button class="btn small primary" id="btnVis" data-t="visStart"></button>
-        <button class="btn small" id="btnVisCapture" data-t="visCapture" disabled></button>
-      </div>
-      <div class="tools">
-        <label><span data-t="visCharacter"></span>
-          <select id="visGhost">
-            <option value="" data-t="visMirror"></option>
+        <label><span id="visCharacterLabel" data-t="visCharacter"></span>
+          <select id="visGhost" aria-describedby="visSourceHint">
+            <option id="visDefault" value="" data-t="visMirror"></option>
             <optgroup id="visRomVisitors" label="ROM characters" hidden></optgroup>
           </select>
         </label>
@@ -349,6 +356,23 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       </div>
       <p class="hint" id="visGhostError" role="status"></p>
       <p class="hint" id="visRomVisitorError" role="status"></p>
+      <p class="hint" id="visConnectionHint" hidden></p>
+      <div id="playdateActions">
+        <p class="hint" id="visHint" data-t="visHint"></p>
+        <div class="tools">
+          <label><span data-t="visModel"></span> <select id="visEd"></select></label>
+          <button class="btn small primary" id="btnVis" data-t="visStart" aria-describedby="visHint"></button>
+          <button class="btn small" id="btnVisCapture" data-t="visCapture" disabled></button>
+        </div>
+        <p class="emustat" id="visStat" role="status"></p>
+      </div>
+      <div id="labActions" hidden>
+        <p class="hint" id="labHint" data-t="labHint"></p>
+        <div class="tools">
+          <button class="btn small primary" id="btnLabRelease" data-t="labSend" aria-describedby="labHint" disabled></button>
+        </div>
+        <p class="emustat" id="labStat" role="status"></p>
+      </div>
       <div id="visVisitor" hidden>
         <p id="visVisitorName" role="status"></p>
         <p class="hint" id="visVisitorInfo"></p>
@@ -364,6 +388,16 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
           </div>
           <p class="hint" id="visAppearanceNeedsRom" data-t="visAppearanceNeedsRom" hidden></p>
         </div>
+        <details class="playdate-details" id="visPlaydateEditor" open>
+          <summary data-t="visPlaydateEditor"></summary>
+          <div class="tools">
+            <label><span data-t="visPlanetImageChoice"></span>
+              <select id="visPlanetChoice"></select>
+            </label>
+            <span class="hint" id="visPlanetNeedsRom" data-t="visPlanetNeedsRom" hidden></span>
+          </div>
+          <div class="keygrid" id="visPlaydateFields"></div>
+        </details>
         <div class="playdate-pictures">
           <figure id="visVisitorCharacter" hidden>
             <canvas aria-labelledby="visVisitorCharacterCaption"></canvas>
@@ -402,7 +436,7 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
           <dl id="visVisitorParameters"></dl>
         </details>
       </div>
-      <p class="emustat" id="visStat"></p>
+    </div>
       <section id="visPeer" aria-labelledby="visPeerTitle" hidden>
         <h4 class="subhead" id="visPeerTitle" data-t="visPeerTitle"></h4>
         <p id="visPeerName" role="status"></p>
@@ -448,7 +482,8 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
           <button class="btn small" id="btnVisPeerExport" data-t="visPeerExport" disabled></button>
         </div>
       </section>
-    </div>
+    </section>
+    <section id="deviceLab" role="tabpanel" aria-labelledby="deviceTabLab" hidden></section>
   </section>
 
   <section class="start" id="start">

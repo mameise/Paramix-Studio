@@ -69,17 +69,23 @@
    * Returns { feed(Uint8Array), stop(), state }.
    * log events: 'start', 'packet' {kind}, 'sent', 'result' {result, breed}, 'done', 'error' {text}
    */
-  function createVisitor(opts) {
+  function createVisitor(opts) { return createSession(opts); }
+
+  function createLabRelease(opts) {
+    return createSession(opts, buildLabRelease(opts.ghost, opts.core));
+  }
+
+  function createSession(opts, release) {
     const ed = typeof opts.edition === 'number' ? opts.edition : ED[String(opts.edition).toLowerCase()];
-    if (!ed) throw new Error('unknown edition');
-    if (opts.ghost && opts.ghost.length !== GHOST_SIZE) throw new Error('invalid ghost size');
+    if (!release && !ed) throw new Error('unknown edition');
+    if (!release && opts.ghost && opts.ghost.length !== GHOST_SIZE) throw new Error('invalid ghost size');
     const key = opts.key, log = opts.log || (() => {});
     const st = { phase: 'wait', sid: 0, got: 0, stopped: false, result: null };
     let buf = new Uint8Array(0);
     let need = 0;                     // > 0: a chunk of this size is expected
     let rx = null;                    // packet coming in
     let tx = null;                    // packet going out
-    let echo = null, queue = Promise.resolve();
+    let echo = null, heartbeat = null, cooldown = null, queue = Promise.resolve();
     const out = (s) => opts.send(typeof s === 'string' ? enc(s) : s);
     const line = (s) => out(s + '\r\n');
 
@@ -89,11 +95,23 @@
       if (on && !st.stopped) echo = setInterval(() => { if (!tx && !rx && !need) line('ECHO REQ').catch(() => {}); }, 3000);
     }
     async function sendPacket(data, type) {
-      tx = { data, type, idx: 0, n: Math.ceil(data.length / 0x1000), tries: 0, done: null };
-      const p = new Promise((res, rej) => { tx.done = res; tx.fail = rej; });
-      await line('PKT ' + data.length);
-      tx.timer = setTimeout(retryPkt, 2000);
-      return p;
+      if (st.stopped || tx) throw new Error('session is unavailable');
+      const current = tx = { data, type, idx: 0, n: Math.ceil(data.length / 0x1000), tries: 0 };
+      return new Promise((resolve, reject) => {
+        current.done = resolve;
+        current.fail = reject;
+        current.timer = setTimeout(retryPkt, 2000);
+        Promise.resolve().then(() => {
+          if (tx === current && !st.stopped) return line('PKT ' + data.length);
+        }).catch(error => { if (tx === current) cancelPacket(error); });
+      });
+    }
+    function cancelPacket(error) {
+      if (!tx) return;
+      const current = tx;
+      tx = null;
+      clearTimeout(current.timer);
+      current.fail(error);
     }
     function retryPkt() {
       if (!tx || st.stopped) return;
@@ -101,11 +119,13 @@
       line('PKT ' + tx.data.length).catch(() => {}); tx.timer = setTimeout(retryPkt, 2000);
     }
     async function sendChunk() {
-      const i = tx.idx, d = tx.data.subarray(i * 0x1000, Math.min(tx.data.length, (i + 1) * 0x1000));
+      const current = tx;
+      const i = current.idx, d = current.data.subarray(i * 0x1000, Math.min(current.data.length, (i + 1) * 0x1000));
       const p = new Uint8Array(12 + d.length);
       w32(p, 0, st.sid); p[4] = 0x54; p[5] = 0x43; p[6] = 0x50; p[7] = tx.type; p[8] = i; p[9] = 255 - i; w16(p, 10, crc16(d)); p.set(d, 12);
       const n = rnd4(), c = await crypt(n, key, p), all = new Uint8Array(4 + c.length);
       all.set(n, 0); all.set(c, 4);
+      if (tx !== current || current.idx !== i || st.stopped) return;
       clearTimeout(tx.timer); tx.timer = setTimeout(() => { if (tx && ++tx.tries < 3) sendChunk().catch(() => {}); else if (tx) { const f = tx.fail; tx = null; f(new Error('no ACK for a chunk')); } }, 5000);
       await out(all);
     }
@@ -126,10 +146,11 @@
       w32(a, GHOST_SIZE + 4, 0x504D5800 | ed);
       const characterId = opts.ghost ? u32(opts.ghost, 0) : u32(their, GHOST_SIZE + 8);
       w32(a, GHOST_SIZE + 8, (characterId ^ 0x5A5A0000 ^ ed) >>> 0);
-      return a;
+      return writePlaydateFields(a, opts.playdateFields);
     }
     async function packet(d, type) {
       st.got++;
+      if (release) return;
       if (type & 0x10) { log('packet', { kind: 'session' }); return; }
       if (d.length === PACKET_SIZE) {
         log('packet', { kind: 'data', ed: u32(d, GHOST_SIZE) >>> 16, playdate: d });
@@ -151,7 +172,59 @@
       log('packet', { kind: 'other', n: d.length });
     }
     function finish() { if (st.phase === 'done') return; st.phase = 'done'; idle(false); log('done', { result: st.result }); }
-    function fail(e) { if (st.stopped) return; idle(false); st.phase = 'error'; log('error', { text: e && e.message || String(e) }); }
+    function fail(e) {
+      if (st.stopped || st.phase === 'error' || st.phase === 'done') return;
+      idle(false);
+      st.phase = 'error';
+      cancelPacket(e);
+      if (heartbeat) heartbeat(e);
+      if (cooldown) cooldown(e);
+      log('error', { text: e && e.message || String(e) });
+    }
+
+    function echoRound() {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => heartbeat(new Error('My Lab stopped responding')), 5000);
+        heartbeat = error => {
+          clearTimeout(timer);
+          heartbeat = null;
+          if (error) reject(error);
+          else resolve();
+        };
+        Promise.resolve().then(() => {
+          if (!st.stopped && heartbeat) return line('ECHO REQ');
+        }).catch(error => heartbeat?.(error));
+      });
+    }
+
+    function releaseDelay(ms) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { cooldown = null; resolve(); }, ms);
+        cooldown = error => { clearTimeout(timer); cooldown = null; reject(error); };
+      });
+    }
+
+    async function startRelease() {
+      if (!release || st.phase !== 'wait' || st.stopped) return;
+      st.phase = 'send';
+      st.sid = u32(rnd4(), 0) || 1;
+      const challenge = rnd4()[0];
+      log('start', {});
+      try {
+        // Timing follows the native Neon trace at a 96 MHz emulated clock.
+        await sendPacket(Uint8Array.of(challenge, challenge), 0x36);
+        await releaseDelay(850);
+        await sendPacket(release, 0x26);
+        log('sent', {});
+        await releaseDelay(2100);
+        for (let i = 0; i < 6; i++) {
+          await echoRound();
+          await releaseDelay(i === 5 ? 1500 : 2100);
+        }
+        await sendPacket(new Uint8Array(2), 0x26);
+        finish();
+      } catch (e) { fail(e); }
+    }
 
     async function chunk(c) {
       const n = c.subarray(0, 4), p = await crypt(n, key, c.subarray(4));
@@ -159,7 +232,7 @@
       const ok = p[4] === 0x54 && p[5] === 0x43 && p[6] === 0x50 && p[9] === 255 - idx && crc16(d) === crc && (!st.sid || (type & 0x10) || sid === st.sid);
       if (!ok) { need = c.length; await line('NAK'); if (!st.badKey && p[4] !== 0x54) { st.badKey = true; log('error', { text: 'key' }); } return; }
       if (idx !== rx.idx) { need = c.length; await line('ENQ ' + rx.idx); return; }
-      if (type & 0x10) st.sid = sid;
+      if (!release && (type & 0x10)) st.sid = sid;
       rx.data.set(d, rx.off); rx.off += d.length; rx.idx++;
       const left = rx.n - rx.off;
       need = left > 0 ? 16 + Math.min(0x1000, left) : 0;
@@ -167,7 +240,8 @@
       if (!left) { const r = rx; rx = null; packet(r.data, type).catch(fail); }
     }
     async function command(s) {
-      const w = s.trim().split(/\s+/);
+      // A physical My Lab can prefix its first ACK with a NUL byte.
+      const w = s.replace(/^[\x00\s]+|[\x00\s]+$/g, '').split(/\s+/);
       if (!w[0]) return;
       if (w[0] === 'PKT') {
         const n = +w[1];
@@ -180,9 +254,19 @@
       }
       if (w[0] === 'ACK') { onAck(); return; }
       if (w[0] === 'NAK') { if (tx && tx.started) sendChunk().catch(fail); return; }
-      if (w[0] === 'ENQ') { if (tx) { tx.idx = +w[1] || 0; tx.started = true; sendChunk().catch(fail); } return; }
-      if (w[0] === 'CAN') { if (tx) { const f = tx.fail; tx = null; f(new Error('cancelled by the Paradise')); } else if (st.phase !== 'done') fail(new Error('cancelled by the Paradise')); return; }
-      if (w[0] === 'ECHO') { if (w[1] === 'REQ') await line('ECHO REP'); return; }
+      if (w[0] === 'ENQ') {
+        const index = Number(w[1]);
+        if (tx && Number.isInteger(index) && index >= 0 && index < tx.n) {
+          tx.idx = index; tx.started = true; sendChunk().catch(fail);
+        }
+        return;
+      }
+      if (w[0] === 'CAN') { fail(new Error('cancelled by the connected device')); return; }
+      if (w[0] === 'ECHO') {
+        if (w[1] === 'REQ') await line('ECHO REP');
+        if (w[1] === 'REP') heartbeat?.();
+        return;
+      }
       if (w[0] === 'SYNC') return;     // we sent ours with BREED 0
     }
     async function pump() {
@@ -202,13 +286,24 @@
     }
     return {
       state: st,
+      ...(release ? { start: startRelease } : {}),
       feed(bytes) {
         if (st.stopped) return queue;
         const b = new Uint8Array(buf.length + bytes.length); b.set(buf, 0); b.set(bytes, buf.length); buf = b;
         queue = queue.then(pump).catch(fail);
         return queue;
       },
-      stop() { st.stopped = true; idle(false); if (tx) clearTimeout(tx.timer); tx = null; rx = null; },
+      async stop() {
+        const notify = release && st.phase !== 'wait' && st.phase !== 'done' && st.phase !== 'error';
+        st.stopped = true;
+        idle(false);
+        const error = new Error('session stopped');
+        cancelPacket(error);
+        if (heartbeat) heartbeat(error);
+        if (cooldown) cooldown(error);
+        rx = null;
+        if (notify) await line('CAN');
+      },
     };
   }
 
@@ -216,6 +311,37 @@
   const GHOST_SPRITES = 0x1d34;
   const GHOST_PLANET = 0x1b000;
   const PLANET_SPRITE = GHOST_PLANET + 0x200;
+  const PLAYDATE_FIELDS = [
+    ['visDeviceUid', 4, 4], ['visCharacterUid', 8, 4],
+    ['visFriendship', 12, 2], ['visPreviousResult', 14, 2],
+    ['visHunger', 16, 1], ['visHappiness', 17, 1], ['visLove', 18, 0],
+  ];
+  function playdateFields(packet, ghost, edition) {
+    if (packet?.length !== PACKET_SIZE) return {
+      visDeviceUid: (0x504D5800 | edition) >>> 0,
+      visCharacterUid: (u32(ghost, 0) ^ 0x5A5A0000 ^ edition) >>> 0,
+      visFriendship: 0, visPreviousResult: 0, visHunger: 3, visHappiness: 3, visLove: 0,
+    };
+    return Object.fromEntries(PLAYDATE_FIELDS.map(([key, offset, width]) => {
+      const at = GHOST_SIZE + offset;
+      return [key, width === 4 ? u32(packet, at) : width === 2 ? u16(packet, at) :
+        width === 1 ? packet[at] : packet[at] & 1];
+    }));
+  }
+
+  function writePlaydateFields(packet, fields) {
+    if (!fields) return packet;
+    for (const [key, offset, width] of PLAYDATE_FIELDS) {
+      const value = fields[key];
+      const max = width ? 2 ** (8 * width) - 1 : 1;
+      if (!Number.isInteger(value) || value < 0 || value > max) throw new Error('invalid Playdate field: ' + key);
+      const at = GHOST_SIZE + offset;
+      if (width === 4) w32(packet, at, value);
+      else if (width === 2) w16(packet, at, value);
+      else packet[at] = width === 1 ? value : (packet[at] & ~1) | value;
+    }
+    return packet;
+  }
   const GHOST_POSES = [20, 24];
   const alignWord = (n) => (n + 3) & ~3;
   function collectRomVisitors(ctx, core) {
@@ -223,6 +349,8 @@
     const pack = ctx.files[0], poses = core.paraLayers(pack), text = core.textTablesOf(ctx.rom);
     if (!poses || !text) return [];
     const groups = new Map();
+    const namesFor = character => text.tabs.slice(0, 9).map(table =>
+      core.txtWords(table, character.name).slice(0, 12));
     const visitors = core.characterSprites(ctx).map((character) => {
       const { group } = character;
       if (!groups.has(group)) {
@@ -230,13 +358,28 @@
         groups.set(group, frames[0]); groups.set(group + 3, frames[1]);
       }
       const frames = [groups.get(group), groups.get(group + 3)];
-      const names = text.tabs.slice(0, 9).map((table) => core.txtWords(table, character.name).slice(0, 12));
-      return { character, group, frames, names, pack, entries: ctx.entries };
+      const sprites = Array.from({ length: 6 }, (_, i) => group + i);
+      return { character, sprites, frames, names: namesFor(character), pack, entries: ctx.entries };
     });
     for (const frame of poses.frames) {
       const body = frame.find(layer => layer.type === 0 && groups.has(layer.img));
       const frames = groups.get(body?.img);
       if (frames && body.sub < frames.length && !frames[body.sub]) frames[body.sub] = frame;
+    }
+    if (ctx.editionId !== 7) {
+      // Transplanted figures can share individual sprites with other species.
+      // Read their own animation rather than assuming six consecutive sprites.
+      for (const character of core.charTable(pack)) {
+        if (character.id >= 9000 || character.field < 7 || character.field > 9 ||
+            character.stage < 3 || character.stage > 5) continue;
+        const frames = GHOST_POSES.map((count, zoom) =>
+          Array.from({ length: count }, (_, i) => poses.frameAt(54 * character.animation + (zoom ? 30 : 1) + i)));
+        if (!frames.every(group => group.every(Boolean))) continue;
+        const sprites = frames.flatMap(group => [0, 1, 15].map(type =>
+          group[0].find(layer => layer.type === type)?.img));
+        if (!sprites.every(sprite => ctx.entries[sprite])) continue;
+        visitors.push({ character, sprites, frames, names: namesFor(character), pack, entries: ctx.entries });
+      }
     }
     return visitors.filter((visitor) => visitor.frames.every((frames) => frames.every(Boolean)));
   }
@@ -254,7 +397,7 @@
   function writeRomPose(out, frame, pose, visitor, firstPart) {
     const start = GHOST_COMPOSITES + 110 * pose;
     for (const layer of frame) {
-      const part = layer.img - visitor.group;
+      const part = visitor.sprites.indexOf(layer.img, firstPart);
       const own = part >= firstPart && part < firstPart + 3;
       const slot = own ? part - firstPart : layer.type === 17 ? 4 : 3;
       const at = start + 22 * slot;
@@ -276,7 +419,7 @@
   }
 
   function buildRomGhost(visitor, core) {
-    const { character, group, frames, entries, names } = visitor;
+    const { character, sprites, frames, entries, names } = visitor;
     const out = new Uint8Array(GHOST_SIZE);
     const { id, stage, field, rank, flags } = character;
     // Live Paradise packets use the generic adult definition while retaining the actual species ID.
@@ -292,7 +435,7 @@
 
     let end = GHOST_SPRITES;
     for (let part = 0; part < 6; part++) {
-      const sprite = entries[group + part];
+      const sprite = entries[sprites[part]];
       const length = alignWord(sprite.length);
       if (sprite.length < 24 || end + length > GHOST_PLANET) throw new Error('character sprites do not fit the Playdate packet');
       const at = 0x110 + 8 * part;
@@ -351,7 +494,7 @@
 
   function romEyes(visitor, target, core) {
     if (!target || visitor.character.stage !== target.stage) return null;
-    const sprites = EYE_PARTS.map(part => visitor.entries[visitor.group + part]);
+    const sprites = EYE_PARTS.map(part => visitor.entries[visitor.sprites[part]]);
     const compatible = sprites.every((sprite, zoom) => {
       const h = ghostSpriteGeometry(sprite, core), want = target.sheets[zoom];
       return h && h.width === want.width && h.height === want.height && h.frames >= want.frames;
@@ -363,6 +506,85 @@
     let sum = (wordSum(ghost, 8, 0x180) + wordSum(ghost, GHOST_COMPOSITES, GHOST_SPRITES)) >>> 0;
     for (const part of parts) if (part) sum = (sum + wordSum(ghost, part.start, part.start + part.length)) >>> 0;
     w32(ghost, 0, sum); w32(ghost, 4, -sum);
+  }
+
+  function releaseSprite(sprite, core) {
+    const h = core.spriteHeader(sprite);
+    const count = h.numSprites;
+    const pixels = h.sw * h.sh;
+    const compression = h.flags & 0x68;
+    const xor = h.flags & 0x80 ? 0x53 : 0;
+    const cellBytes = Math.ceil(pixels / 8) * 4;
+    const limit = Math.min(h.dataLength, sprite.length);
+    const tableEnd = h.pixOffset + (compression ? 8 * count : Math.ceil(pixels / 2) * count);
+    if (h.bpp !== 2 || !count || !pixels || pixels * count > 0x1000000 ||
+        h.palOffset < 24 || h.palOffset + 32 * Math.max(1, h.numPal) > h.pixOffset || tableEnd > limit ||
+        ![0, 0x08, 0x20, 0x40].includes(compression)) throw new Error('invalid Lab Invite sprite');
+    let transcode = compression === 8;
+    if (compression) {
+      for (let i = 0; i < count; i++) {
+        const at = h.pixOffset + 8 * i, address = u32(sprite, at);
+        const start = h.pixOffset + (address & 0x7fffffff), length = u32(sprite, at + 4);
+        if (start < tableEnd || start + (address >>> 31 ? cellBytes : length) > limit)
+          throw new Error('invalid Lab Invite sprite cell');
+        if (compression === 0x20 && xor && !(address >>> 31) && length >= core.LEGACY_LZ4_TAG.length &&
+            core.LEGACY_LZ4_TAG.every((value, index) => (sprite[start + index] ^ xor) === value)) transcode = true;
+      }
+    }
+    if (!transcode) {
+      if (h.dataLength === limit) return sprite;
+      const out = Uint8Array.from(sprite);
+      w32(out, 0, limit);
+      return out;
+    }
+    const cells = core.spriteDecode(sprite, 0, true).cells.map(indices => {
+      const raw = new Uint8Array(cellBytes);
+      for (let i = 0; i < indices.length; i++) raw[i >> 1] |= indices[i] << ((i & 1) * 4);
+      const encoded = core.rleEncode(raw);
+      return (encoded.length < raw.length ? encoded : raw).map(byte => byte ^ xor);
+    });
+    const out = new Uint8Array(cells.reduce((size, cell) => size + cell.length, tableEnd));
+    out.set(sprite.subarray(0, h.pixOffset));
+    out[4] = (h.flags & ~0x68) | 0x20;
+    w32(out, 0, out.length);
+    let offset = tableEnd;
+    for (const [i, cell] of cells.entries()) {
+      w32(out, h.pixOffset + 8 * i, (offset - h.pixOffset) | (cell.length === cellBytes ? 0x80000000 : 0));
+      w32(out, h.pixOffset + 8 * i + 4, cell.length);
+      out.set(cell, offset);
+      offset += cell.length;
+    }
+    return out;
+  }
+
+  function buildLabRelease(input, core) {
+    if (![GHOST_SIZE, PACKET_SIZE].includes(input?.length)) throw new Error('choose a ghost or Playdate character');
+    const ghost = input.subarray(0, GHOST_SIZE);
+    if (u16(ghost, 0xfc) !== 5 || !u16(ghost, 0x10a)) throw new Error('Lab Invite needs an adult Tama');
+    const parts = ghostParts(ghost);
+    const end = u32(ghost, 0x10c);
+    if (!parts || !parts[0] || !parts[3] || end > GHOST_PLANET ||
+        parts.some(part => part && ((part.start | part.length) & 3 || part.start + part.length > end)) ||
+        ((u32(ghost, 0) + u32(ghost, 4)) >>> 0) !== 0) throw new Error('invalid Lab Invite ghost');
+    const sorted = parts.filter(Boolean).sort((a, b) => a.start - b.start);
+    if (sorted.some((part, i) => i && part.start < sorted[i - 1].start + sorted[i - 1].length))
+      throw new Error('overlapping Lab Invite sprite ranges');
+    const out = new Uint8Array(GHOST_SIZE);
+    out.set(ghost.subarray(0, GHOST_SPRITES));
+    let offset = GHOST_SPRITES;
+    for (const [index, part] of parts.entries()) {
+      if (!part) continue;
+      const sprite = releaseSprite(part.bytes, core);
+      const length = alignWord(sprite.length);
+      if (offset + length > GHOST_PLANET) throw new Error('character sprites do not fit the Lab Invite packet');
+      out.set(sprite, offset);
+      w32(out, 0x110 + index * 8, offset);
+      w32(out, 0x114 + index * 8, length);
+      offset += length;
+    }
+    w32(out, 0x10c, offset);
+    writeGhostChecksum(out, ghostParts(out));
+    return out.subarray(0, GHOST_PLANET);
   }
 
   function editGhostAppearance(original, { color, palette, eyes }) {
@@ -401,8 +623,22 @@
     return out;
   }
 
+  function setPlanetNameAndChecksum(out, core) {
+    const size = u32(out, GHOST_PLANET + 12);
+    if (u32(out, GHOST_PLANET + 8) !== 0x54485353 || size < 0x216 || size > 0x5000 ||
+        size % 4 || GHOST_PLANET + size > out.length) return false;
+    const checksum = wordSum(out, PLANET_SPRITE, GHOST_PLANET + size);
+    w32(out, GHOST_PLANET, checksum); w32(out, GHOST_PLANET + 4, ~checksum);
+    const label = Array.from('PARAMIX', c => core.TXT_ENC[c]);
+    for (let slot = 0; slot < 9; slot++) {
+      const at = GHOST_PLANET + 16 + 26 * slot;
+      out.fill(0, at, at + 26);
+      ghostName(out, at, label);
+    }
+    return true;
+  }
+
   function writeRomGhostPlanet(out, portrait, core) {
-    // ROM-only visitors have no live planet. Make a standard inline image from the selected Tama.
     const palette = new Map(), indices = new Uint8Array(128 * 128);
     const scale = Math.max(1, Math.min(2, Math.floor(128 / Math.max(portrait.w, portrait.h))));
     const width = Math.min(128, portrait.w * scale), height = Math.min(128, portrait.h * scale);
@@ -418,24 +654,25 @@
       indices[(y + y0) * 128 + x + x0] = palette.get(color);
     }
     const encoded = core.rleEncode(indices);
-    const dataOffset = 24 + 512, size = alignWord(dataOffset + 8 + encoded.length);
-    if (PLANET_SPRITE + size > GHOST_SIZE) throw new Error('Playdate image is too large');
-    const sprite = out.subarray(PLANET_SPRITE, PLANET_SPRITE + size);
+    const dataOffset = 24 + 512;
+    const size = Math.ceil((0x200 + dataOffset + 8 + encoded.length) / 0x1000) * 0x1000;
+    if (GHOST_PLANET + size > GHOST_SIZE) throw new Error('Playdate image is too large');
+    out.fill(0xff, GHOST_PLANET, GHOST_SIZE);
+    out.fill(0, GHOST_PLANET, GHOST_PLANET + size);
+    const sprite = out.subarray(PLANET_SPRITE, GHOST_PLANET + size);
     sprite.set([0x27, 3, 1, 0, 128, 128, 0, 0, 1, 1, 0x11, 1], 4);
     w16(sprite, 18, 24); w16(sprite, 20, dataOffset);
     for (const [color, index] of palette) w16(sprite, 24 + index * 2, color);
     w32(sprite, dataOffset, 8); w32(sprite, dataOffset + 4, encoded.length);
     sprite.set(encoded, dataOffset + 8);
-    const checksum = wordSum(sprite, 0, size);
-    w32(out, GHOST_PLANET, checksum); w32(out, GHOST_PLANET + 4, ~checksum);
-    w32(out, GHOST_PLANET + 8, 0x54485353); w32(out, GHOST_PLANET + 12, 0x200 + size);
-    const label = Array.from('PARAMIX', (c) => core.TXT_ENC[c]);
-    for (let slot = 0; slot < 9; slot++) ghostName(out, GHOST_PLANET + 16 + 26 * slot, label);
+    w32(out, GHOST_PLANET + 8, 0x54485353); w32(out, GHOST_PLANET + 12, size);
+    setPlanetNameAndChecksum(out, core);
   }
 
   const api = {
-    ED, GHOST_SIZE, PACKET_SIZE, createVisitor, parseKey, crypt, crc16,
-    collectRomVisitors, buildRomGhost, writeRomGhostPlanet,
+    ED, GHOST_SIZE, PACKET_SIZE, createVisitor, createLabRelease, buildLabRelease, parseKey, crypt, crc16,
+    collectRomVisitors, buildRomGhost, writeRomGhostPlanet, setPlanetNameAndChecksum,
+    PLAYDATE_FIELDS, playdateFields, writePlaydateFields,
     ghostAppearanceOptions, romEyes, editGhostAppearance,
   };
   if (typeof module === 'object' && module.exports) module.exports = api;

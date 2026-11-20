@@ -2,7 +2,7 @@
  * Paramix Studio: save games in and out of the Paradise.
  *
  * Paradise: the game keeps its progress in the flash after the edition ID page
- * (0xD4A000, Tropical/Glacier 0xD2A000, Neon Planet 0xD86000) up to 0xF00000. Exported as a
+ * (0xD4A000, Tropical/Glacier 0xD2A000, Neon Planets 0xD86000) up to 0xF00000. Exported as a
  * .tamasave (format 3 of the TamaParadise app): every page of that region,
  * the seconds counter of the device and an armed wake alarm, so the app
  * continues instead of starting like a fresh battery. Behind the pages a

@@ -12,7 +12,7 @@
 
 const ASSET_BASE = 0x111000;          // ARC2 root in flash (all editions)
 const ARC2_MAGIC = 0x32435241;        // "ARC2"
-const EDITIONS = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier', 7: 'Neon Planet' };
+const EDITIONS = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier', 7: 'Neon Planets' };
 
 // ------------------------------------------------------------------ helpers
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);
@@ -1281,7 +1281,7 @@ async function zipRead(buf, inflateRaw) {
 // ------------------------------------------------------------- fields (worlds)
 /*
  * What belongs to which field. Every edition carries complete sets of characters
- * for several field types. Neon Planet has three additional fields and shares
+ * for several field types. Neon Planets has three additional fields and shares
  * sprite groups across characters. The character table has 30-byte records:
  * id, animation id, name index, stage, line, ..., field at word 7.
  * Field maps are 7 sprites of 64x64x64 per field (Tropical/Glacier: plus 7 overlay

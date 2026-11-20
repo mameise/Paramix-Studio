@@ -80,6 +80,7 @@ jobs:
           node test/settings_test.js
           node test/home_menu_test.js
           node test/feld_slot_clock_test.js
+          node test/lab_release_test.js
 
       - name: Build
         working-directory: ${{ env.PROJECT }}

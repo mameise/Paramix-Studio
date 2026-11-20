@@ -15,11 +15,11 @@ async function chunk(sid, type, idx, data) {
   all.set(n); all.set(e, 4); return all;
 }
 
-async function run(breed, edition, romType, ghost) {
+async function run(breed, edition, romType, ghost, playdateFields) {
   const lines = [], bin = [];
   let rxbuf = new Uint8Array(0), want = 0, waiters = [];
   const log = [];
-  const v = V.createVisitor({ edition, ghost, key, log: (e, i) => log.push([e, i]),
+  const v = V.createVisitor({ edition, ghost, playdateFields, key, log: (e, i) => log.push([e, i]),
     send: async (b) => { const a = new Uint8Array(rxbuf.length + b.length); a.set(rxbuf); a.set(b, rxbuf.length); rxbuf = a; drain(); } });
   function drain() {
     for (;;) {
@@ -62,7 +62,8 @@ async function run(breed, edition, romType, ghost) {
   assert.strictEqual(new DataView(got.buffer).getUint16(0x20000, true), 0, 'force_send_away is cleared');
   const reply = new DataView(got.buffer);
   assert.strictEqual(reply.getUint16(0x20002, true), romType, 'ROM type for ' + edition);
-  assert.strictEqual(reply.getUint32(0x20004, true), 0x504D5800 | romType, 'own device UID');
+  if (playdateFields) assert.deepStrictEqual(V.playdateFields(got), playdateFields, 'edited fields on the wire');
+  else assert.strictEqual(reply.getUint32(0x20004, true), 0x504D5800 | romType, 'own device UID');
   for (let k = 0; k < 100 && !log.some((x) => x[0] === 'sent'); k++) await tick();
   await v.feed(enc('ECHO REQ\r\n')); await expect('ECHO REP');
   await sendPacket(0x01, new Uint8Array([4, 0]));
@@ -76,6 +77,9 @@ async function run(breed, edition, romType, ghost) {
 
 (async () => {
   await run(false, 'sky', 3);
-  await run(true, 'neon', 7, new Uint8Array(V.GHOST_SIZE).fill(0x55));
+  await run(true, 'neon', 7, new Uint8Array(V.GHOST_SIZE).fill(0x55), {
+    visDeviceUid: 0x4A1F6148, visCharacterUid: 1, visFriendship: 1234,
+    visPreviousResult: 56, visHunger: 3, visHappiness: 2, visLove: 1,
+  });
   console.log('visit_test ok');
 })().catch((e) => { console.error(e); process.exit(1); });

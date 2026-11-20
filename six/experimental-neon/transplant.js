@@ -58,12 +58,12 @@ function dataPack(tables) {
 }
 
 function officialPlanetNames(source) {
-  if (C.editionIdOf(source) !== 7) throw new Error('expected a Neon Planet source');
+  if (C.editionIdOf(source) !== 7) throw new Error('expected a Neon Planets source');
   const tables = C.textTablesOf(source)?.tabs;
   if (!tables || tables.length !== 9) throw new Error('unrecognized Neon text pack');
   const labels = tables.map(t => PLANET_TEXTS.map(id => C.txtWords(t, id)));
   if (labels.some(lang => lang.some(words => !words.length || !words.includes(217))))
-    throw new Error('Neon Planet labels are missing');
+    throw new Error('Neon Planets labels are missing');
   return labels;
 }
 
@@ -126,18 +126,18 @@ function needsPlanetNames(rom) {
 }
 
 function localizePlanetNames(rom, source) {
-  if (!needsPlanetNames(rom)) throw new Error('no legacy Neon Planet labels to update');
+  if (!needsPlanetNames(rom)) throw new Error('no legacy Neon Planets labels to update');
   const labels = officialPlanetNames(source);
   const first = u16(rom, NAME_STATE + 4) + 86;
   const text = C.textTablesOf(rom);
   const tables = text.tabs.map((t, lang) => {
-    if (first + 3 > t.n) throw new Error('Neon Planet label index is out of bounds');
+    if (first + 3 > t.n) throw new Error('Neon Planets label index is out of bounds');
     return rebuildNames(t, [], new Map(labels[lang].map((words, i) => [first + i, words])));
   });
   const archive = C.arc2Build(tables), ctx = C.openRom(rom);
   // The text pack is last, so replacing it leaves every sprite address intact.
   if (text.off + ctx.root.ents[2].clen !== ctx.assetEnd || text.off + archive.length > ctx.limit)
-    throw new Error('cannot replace the Neon Planet label table in place');
+    throw new Error('cannot replace the Neon Planets label table in place');
   const out = new Uint8Array(rom), finish = text.off + archive.length, base = C.ASSET_BASE;
   out.set(archive, text.off);
   if (finish < ctx.assetEnd) out.fill(0xFF, finish, ctx.assetEnd);
@@ -303,7 +303,7 @@ function addAnimations(dst, src, chars, sprite) {
 
 function transplant(base, neon) {
   if (![5, 6].includes(C.editionIdOf(base)) || Six.sixInfo(base)?.kind !== 'gen3' || C.editionIdOf(neon) !== 7) {
-    throw new Error('expected a Tropical or Glacier six-field base and a Neon Planet source');
+    throw new Error('expected a Tropical or Glacier six-field base and a Neon Planets source');
   }
   // Node Buffer slices alias their input. The archive builder and frame
   // remapper need the copying behavior of an ordinary Uint8Array slice.
@@ -418,7 +418,7 @@ function clearItemSaveSlots(slots) {
 
 function transplantItems(base, neon) {
   if (!installed(base) || !Lz4.isInstalled(base) || Six.sixInfo(base)?.kind !== 'gen3' || C.editionIdOf(neon) !== 7)
-    throw new Error('expected a six-field LZ4 ROM with Neon Tama and a Neon Planet source');
+    throw new Error('expected a six-field LZ4 ROM with Neon Tama and a Neon Planets source');
   if (itemsInstalled(base) || !base.subarray(ITEM_STATE, ITEM_STATE + 16).every(b => b === 0xFF))
     throw new Error('Neon item manifest is already installed or occupied');
   const dst = C.openRom(new Uint8Array(base)), src = C.openRom(new Uint8Array(neon));

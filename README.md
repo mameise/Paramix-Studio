@@ -438,20 +438,30 @@ sound), holding the wheel for 2 s saves the whole game and goes back. The games'
 import as .eep in the tab "Save". Games that need a lot of computing run slower than on the Arduboy. Own emulator
 (ATmega32U4, display, timers), program and details: `ab/`.
 
-### Simulated visit for the Paradise itself (1.6.9)
-Under "Device" the Studio can play a second Paradise over the dongle, so one device is enough for a playdate.
-The Paradise runs its normal game (no flash app). "Connect" above is not needed for it.
+### Simulate a Playdate (Paradise)
+Open **Device → Playdate** and attach the USB-UART adapter to the Paradise while the game is running. If the adapter is connected for ROM reading or writing, select **Release UART** on the **Device over UART** tab first.
 
-1. Choose the edition the visitor comes from (Land, Water, Sky, Jade Forest, Tropics, Glacier), "Start", pick the dongle.
-2. On the Paradise: planet menu, CONNECTION, PLAYDATE, then B.
+1. Use **Open ROM** or **Load Character File** to add a character and select it under **Visitor**. **Return received character** works without a file.
+2. Choose the model, click **Start Playdate** and select the adapter.
+3. On the Paradise, open the planet menu, select **CONNECTION → PLAYDATE** and press B.
 
-The visitor is a copy of your own Tama (its picture comes from your device, the Studio has no game data); only
-the edition and its IDs are its own, so every edition is a friend of its own. At the young stage the Paradise
+With a character selected, **Edit Playdate details** lets you change the device UID, character UID, friendship, previous result, hunger, happiness and love flag. The edited settings are used for Playdate and included in the exported Playdate `.bin`. You can choose a planet image from the loaded ROM. The outgoing planet name is **PARAMIX** in every language, and the screenshot size and checksum reflect the encoded image.
+
+With **Return received character**, the Studio sends a copy of your Tama with the selected edition and its own IDs. At the young stage the Paradise
 notes the edition of each partner (seen in its save after a visit from Water and one from Sky); the secret
 characters want two other colours there. Whether the secret character then comes is to be checked on the device.
 Protocol: GMMan's tama-para-research (TCP over UART, 460800 baud), code in `src/visit.js`. The Studio
 answers as the device that was asked (the Paradise presses B), never breeds (it answers BREED 0).
 Checked on the PC with the emulated Land against the Studio in the browser (Sky, Water, Jade Forest).
+
+### Send an adult Tama to My Lab
+
+Open **Device → Send to My Lab**. Use **Open ROM** or **Load Character File**, then select an adult under **Tama to Send**.
+Attach the adapter to My Lab and open **CONNECTION → LAB INVITE**. If the garden is already full, choose a Tama to replace on My Lab.
+Click **Send to My Lab** in the Studio and select the adapter. The Studio reports the serial acknowledgement. Check the garden
+for the character before retrying. The source ROM and character file remain available after sending.
+
+The Studio sender follows a Capybara recording of the Neon Lab Invite transfer. Receipt, replacement in a full garden and persistence after reboot have been verified on a physical My Lab.
 
 ### Battery (1.6.9)
 Battery saving (1.6.9, switch `CLK_ECO`, `emu/src/emu/eco.h`): with the screen off T7Emu, V1Emu and V3Emu lower the
@@ -613,7 +623,7 @@ The menu itself, while the screen is dark, sleeps deeply until a key or the whee
   the tick you keep the three own fields and still have several saves; on a
   ROM that already has them, untick it to take the extra fields out again
   (the device must be on one of the own fields).
-- Choose Neon Planet ROM: add 86 Tama and 59 items to a Tropical or Glacier
+- Choose Neon Planets ROM: add 86 Tama and 59 items to a Tropical or Glacier
   six-field ROM. You can supply Tropical or Glacier plus a Land, Water or Sky ROM,
   or open an existing six-field ROM. The nine groups appear in Tama Files.
   The six playable fields can raise the imported Tama and use the new items.
@@ -630,7 +640,7 @@ The menu itself, while the screen is dark, sleeps deeply until a key or the whee
 - Items: put items into the bag and set their amount, with picture. The list
   and the pictures come from your own ROM. Amount 0 ("REMOVE") takes an item out
   again; items the game holds with amount 0 (eaten up) are not shown (switch `BAG_DEL`).
-  On Neon Planet, **Set Owned Counts** shows how many existing items would
+  On Neon Planets, **Set Owned Counts** shows how many existing items would
   change. **MAX** uses each item's own limit. Fixed items and quantities already
   in use keep their game rules.
 - Tamapoints: set digit by digit.

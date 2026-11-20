@@ -169,7 +169,7 @@ const PROFILES = [
     cols: [rgb(255, 150, 60), rgb(150, 220, 255), rgb(60, 190, 110)],
     common: [], field: [], bag: [0xC0, 0x284, 0x784], fieldByte: 0x207, tama: 0x114 },
 ];
-const NAMES = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier', 7: 'Neon Planet' };
+const NAMES = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier', 7: 'Neon Planets' };
 /* Tropical/Glacier with six fields: the second three are slots 0..2 with the set byte 1. */
 function profileOf(rom, p) {
   if (!isSix(rom)) return p;
@@ -222,7 +222,7 @@ function edition(rom) {
 }
 /** Family of an edition ID (same firmware, only the active field differs): 'gen1' (Land, Water, Sky), 'jade', 'gen3'. */
 function familyOf(id) { const p = PROFILES.find((q) => q.edIds.includes(id)); return p ? p.name : null; }
-/** Edition ID (1 Land ... 7 Neon Planet) or 0. */
+/** Edition ID (1 Land ... 7 Neon Planets) or 0. */
 function feldId(rom) { const e = edition(rom); return e ? e.id : 0; }
 /** Does this edition have native fields backed by a known save profile? */
 function canFields(rom) { const e = edition(rom); return !!(e && e.profile.ids.length); }
@@ -1036,11 +1036,11 @@ function feldApply(rom, opts, saved, emb, E) {
   const save = appsOnly && (root.ParamixSaves || (typeof require !== 'undefined' ? require('./saves.js') : null));
   const neonEdit = save && save.neonSaveLayout(out);
   const neonTama = appsOnly && !!opts.neonTama;
-  if (neonTama && (!neonEdit || !neonAppearance(out))) throw new Error('Neon Planet appearance routine does not match this firmware');
-  if (neonSaves && !neonEdit) throw new Error('Neon Planet save layout does not match this firmware');
-  if (neonBag && (!neonEdit || !neonBagLayout(out))) throw new Error('Neon Planet item save layout does not match this firmware');
+  if (neonTama && (!neonEdit || !neonAppearance(out))) throw new Error('Neon Planets appearance routine does not match this firmware');
+  if (neonSaves && !neonEdit) throw new Error('Neon Planets save layout does not match this firmware');
+  if (neonBag && (!neonEdit || !neonBagLayout(out))) throw new Error('Neon Planets item save layout does not match this firmware');
   if (ed.id === 7 && (opts.tama || opts.gplay || opts.launch)) {
-    throw new Error('use the Programs menu for Neon Planet');
+    throw new Error('use the Programs menu for Neon Planets');
   }
   const v6 = u32(emb.feld, findWord(emb.feld, FELD_MAGIC) + 4) >= 6;
   const launch = !!opts.launch;
@@ -1057,15 +1057,15 @@ function feldApply(rom, opts, saved, emb, E) {
   if (!prev && !isFF(out, stubOff, 0x1000)) throw new Error('no room for the launcher');
   const catList = bag ? itemCatalog(out) : [];
   if (neonBag && (!catList.length || new Set(catList.map(c => c.id)).size !== catList.length || catList.some(c => c.pic >= 0x1000))) {
-    throw new Error('Neon Planet item catalog does not match this firmware');
+    throw new Error('Neon Planets item catalog does not match this firmware');
   }
-  if (tama || neonTama || book9) {
+  if (tama || neonTama || book9 || neonEdit) {
     const chars = charCatalog(out, P, tama || neonTama);
-    if (neonTama && !chars.some(c => c.preview)) throw new Error('Neon Planet character preview data is missing');
-    catList.push(...chars);
+    if (neonTama && !chars.some(c => c.preview)) throw new Error('Neon Planets character preview data is missing');
+    catList.push(...(neonEdit && !neonTama ? chars.filter(c => (c.sum >> 8) >= 7) : chars));
     catList.sort((a, b) => a.id - b.id);
   }
-  const cat = bag || tama || neonTama || book9 ? catalogBlob(catList) : new Uint8Array(0);
+  const cat = bag || tama || neonTama || book9 || neonEdit ? catalogBlob(catList) : new Uint8Array(0);
   const fsz = page(emb.feld.length), csz = page(cat.length);
   const doom = kind === 1;
   const doomEnd = Math.min(DOOM_SAVE, ...languagePages);
@@ -1134,7 +1134,7 @@ function feldApply(rom, opts, saved, emb, E) {
   if (ci < 0 || u32(f, ci + 4) < 3) throw new Error('settings block of the menu missing');
   const template = u32(f, ci + 620);
   if (neonSaves ? template !== 0x3256534E : appsOnly && template !== 0x4E535650 && template !== 0x3256534E)
-    throw new Error('menu program too old for Neon Planet');
+    throw new Error('menu program too old for Neon Planets');
   w32(f, ci + 8, slotOff); w32(f, ci + 12, slotSize); w32(f, ci + 16, nslots);
   w32(f, ci + 20, P.idPage + 0x1000); w32(f, ci + 24, P.six || neonSaves ? 0xF00000 : 0x1000000);
   w32(f, ci + 28, P.idPage);   // ID page (1.2.2 to 1.2.11 lost this line: Tropical/Glacier wrote the ID to 0xD49000)

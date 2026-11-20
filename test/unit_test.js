@@ -63,7 +63,7 @@ const neonRom = Buffer.from(rom);
 neonRom.writeUInt32LE(7, 0xD85000);
 neonRom.writeUInt32LE(0x99431742, 0xD85FF8);
 neonRom.writeUInt32LE(0x66BCE8BD, 0xD85FFC);
-ok(C.openRom(neonRom).edition === 'Neon Planet', 'Edition 7 is Neon Planet');
+ok(C.openRom(neonRom).edition === 'Neon Planets', 'Edition 7 is Neon Planets');
 neonRom[0xD85FFC] ^= 1;
 ok(C.editionIdOf(neonRom) !== 7, 'Neon edition ID requires a valid footer');
 // 3) character rules

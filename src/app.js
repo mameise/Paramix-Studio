@@ -24,10 +24,10 @@ function paramixShortcutOf(rom, menu) {
 // ------------------------------------------------------------------ texts
 const T = {
   de: {
-    neonBagUnavailable: 'Das Inventarformat dieser Neon-Planet-Firmware ist unbekannt.',
+    neonBagUnavailable: 'Das Inventarformat dieser Neon-Planets-Firmware ist unbekannt.',
     paraClear: 'Aktiven ROM-Spielstand löschen', paraClearAsk: 'Den aktiven Paradise-Spielstand im geladenen ROM löschen?', paraClearDone: 'Aktiver Spielstand gelöscht. Speichere das ROM als neue Datei.', paraClearPending: 'Schliesse zuerst die Spielstand-Wiederherstellung im Paramix-Menü ab.',
-    neonDonorPick: 'Neon-Planet-ROM wählen', neonDonorHint: 'Ergänzt 86 Tama und 59 Items aus Neon Planet.', neonDonorReady: 'Neon-Quelle: {name}', neonDonorBad: 'Dieses ROM ist kein unterstütztes Neon Planet.', neonDonorNeedsSix: 'Wähle zusätzlich ein Land-, Water- oder Sky-ROM.', neonDonorFail: 'Neon-Inhalte konnten nicht eingebaut werden: {e}', neonDonorOn: 'Neon-Inhalte', neonItemsHint: 'Ergänzt 59 Items aus Neon Planet.', neonLocalizeHint: 'Übernimmt die originalen Planetennamen in allen Sprachen.',
-    appsOnlyOn: 'Programmmenü', appsOnlyHint: 'Paramix neben dem normalen Neon-Planet-Spiel öffnen. Enthält Programme und das Flash-Werkzeug.', neonSaves: 'Drei Neon-Spielstände', neonSaveFields: 'Neue Spielstände starten mit der Original-Einrichtung. Das Spiel schaltet Felder mit dem Fortschritt frei.', neonSaveFull: 'Für einen Neon-Spielstand im Menü ist eine vollständige .tamasave-Datei erforderlich.',
+    neonDonorPick: 'Neon-Planets-ROM wählen', neonDonorHint: 'Ergänzt 86 Tama und 59 Items aus Neon Planets.', neonDonorReady: 'Neon-Quelle: {name}', neonDonorBad: 'Wähle ein unterstütztes Neon-Planets-ROM.', neonDonorNeedsSix: 'Wähle zusätzlich ein Land-, Water- oder Sky-ROM.', neonDonorFail: 'Neon-Inhalte konnten nicht eingebaut werden: {e}', neonDonorOn: 'Neon-Inhalte', neonItemsHint: 'Ergänzt 59 Items aus Neon Planets.', neonLocalizeHint: 'Übernimmt die originalen Planetennamen in allen Sprachen.',
+    appsOnlyOn: 'Programmmenü', appsOnlyHint: 'Paramix neben dem normalen Neon-Planets-Spiel öffnen. Enthält Programme und das Flash-Werkzeug.', neonSaves: 'Drei Neon-Spielstände', neonSaveFields: 'Neue Spielstände starten mit der Original-Einrichtung. Das Spiel schaltet Felder mit dem Fortschritt frei.', neonSaveFull: 'Für einen Neon-Spielstand im Menü ist eine vollständige .tamasave-Datei erforderlich.',
     neonTamaOn: 'Tama im Programmmenü (Pflege, Aussehen, Alter)', petPoints: 'Tamapoints', petMission: 'Mission', petMissionAction: 'Abschluss', petMissionComplete: 'Als erledigt markieren', petMissionReset: 'Abschluss zurücksetzen',
     open: 'ROM öffnen', save: 'Neues ROM speichern',
     startTitle: 'Mehr aus deinem Tamagotchi Paradise',
@@ -63,9 +63,12 @@ const T = {
     devConnect: 'Verbinden', devDump: 'ROM auslesen', devWrite: 'Neues ROM aufs Gerät schreiben', devOnly: 'Nur Änderungen schreiben', devKeep: 'Spielstände behalten', devStop: 'Abbrechen',
     devNoSerial: 'Dieser Browser kann nicht mit dem Dongle reden. Bitte Chrome oder Edge am Computer verwenden.', devNone: 'Nicht verbunden.',
     devOn: 'Verbunden: {ed}, {mb} MB{l}', devLoaded: ', Flash-App geladen', devReady: 'Bereit.', devNeedRom: 'Zum Schreiben zuerst ein ROM öffnen (oder auslesen).',
-    visTitle: 'Besuch simulieren (Paradise)', visStart: 'Starten', visStop: 'Beenden',
+    visTitle: 'Playdate', visStart: 'Playdate starten', visStop: 'Beenden',
     visModel: 'Modell', visCapture: 'Empfangene UART-Daten herunterladen',
-    visCharacter: 'Besucher', visMirror: 'Empfangenen Charakter zurücksenden', visImport: 'Dateien auswählen',
+    visCharacter: 'Besucher', visMirror: 'Empfangenen Charakter zurücksenden', visImport: 'Charakterdatei laden…',
+    labCharacter: 'Tama zum Senden', labChoose: 'Erwachsenes Tama auswählen',
+    visSourceHint: 'Über „ROM öffnen“ eine Paradise-ROM öffnen oder über „Charakterdatei laden“ eine Ghost- oder Playdate-Datei (.bin) oder eine .ghost.png-Datei laden. Dann hier den Charakter wählen.',
+    visConnectionHint: 'Der Adapter wird im Tab „{tab}“ verwendet. Wechsle dorthin, um die Verbindung zu beenden.',
     visImported: 'Importiert',
     visRomCharacters: 'Charaktere aus der ROM', visRomVisitorError: 'Charakter konnte nicht vorbereitet werden ({reason}).',
     visVisitorColor: 'Körperfarbe', visKeepColor: 'Aktuelle Farbe', visKeepEyes: 'Aktuelle Augen',
@@ -86,11 +89,17 @@ const T = {
     visGhostType: 'Pakettyp', visGhostFlags: 'Paket-Flags', visGhostLength: 'Paketgröße (Bytes)', visGhostChecksum: 'Prüfsumme',
     visBodyPalette: 'Körperpalette (RGB565)', visMouthPalette: 'Mundpalette (RGB565)',
     visPlanetSize: 'Planetenbildgröße (Bytes)', visPlanetChecksum: 'Planetenbild-Prüfsumme',
+    visPlaydateEditor: 'Playdate-Daten bearbeiten', visPlanetImageChoice: 'Planetenbild', visPlanetAuto: 'Automatisch',
+    visPlanetNeedsRom: 'Eine ROM öffnen, um ein Planetenbild auszuwählen.',
     visNameSlot: 'Charaktername · {language}', visPlanetNameSlot: 'Planetenname · {language}',
     visDeviceUid: 'Geräte-UID', visCharacterUid: 'Charakter-UID', visFriendship: 'Freundschaft',
     visPreviousResult: 'Vorheriges Ergebnis', visHunger: 'Hunger', visHappiness: 'Zufriedenheit', visLove: 'Verliebt (0/1)',
     visGhostFormat: 'Ungültiges .ghost.png oder Playdate-Paket',
-    visHint: 'Das Studio spielt ein zweites Paradise. Dongle an die Kontakte, das Paradise läuft normal.\n1. Edition wählen, Starten, Dongle wählen.\n2. Am Paradise: Planet-Menü, VERBINDUNG, PLAYDATE, dann B.\nOben "Verbinden" ist nur fürs ROM, für den Besuch nicht drücken.',
+    labSend: 'An My Lab senden', labHint: 'Den USB-UART-Adapter an My Lab anschließen und ein erwachsenes Tama wählen. Am My Lab VERBINDUNG → LAB INVITE öffnen. Bei einem vollen Garten dort ein Tama zum Ersetzen wählen. Dann hier „An My Lab senden“ wählen und den Adapter auswählen.',
+    labRun: 'Charakter wird an My Lab übertragen…', labWait: 'Charakter übertragen. Warte auf das Ende der Verbindung…',
+    labDone: 'Übertragung bestätigt. Prüfe, ob das Tama im Garten von My Lab angekommen ist.',
+    labError: 'My Lab: {e}. Prüfe den Garten vor einem erneuten Versuch.',
+    visHint: 'Den USB-UART-Adapter an das Paradise im normalen Spiel anschließen. Hier das Modell wählen, „Playdate starten“ drücken und den Adapter auswählen. Am Paradise im Planetenmenü VERBINDUNG → PLAYDATE öffnen und B drücken. Zum Zurücksenden des empfangenen Charakters ist keine Datei nötig.',
     visWait: 'Bereit als {ed}. Am Paradise PLAYDATE wählen und B drücken.', visRun: 'Verbunden, Daten werden getauscht…', visPlay: 'Die beiden spielen…',
     visDone: 'Besuch fertig ({ed}). Für den nächsten wieder B am Paradise.', visErr: 'Abgebrochen: {e}. Am Paradise nochmals B.', visBadKey: 'Das Paradise versteht die Daten nicht.',
     phload: 'Flash-App laden', phread: 'Auslesen', phcompare: 'Vergleichen', phwrite: 'Schreiben', phcheck: 'Prüfen', phprepare: 'Vorbereiten',
@@ -175,10 +184,10 @@ const T = {
     mColorsFig: 'Bleiben alle Farben aus dem Original, färbt das Spiel die Figur weiter je nach Tama um. Neue Farben werden fest (bis 8 Farben plus Umriss).',
   },
   en: {
-    neonBagUnavailable: 'This Neon Planet firmware uses an unrecognized item save layout.',
+    neonBagUnavailable: 'This Neon Planets firmware uses an unrecognized item save layout.',
     paraClear: 'Clear active ROM save', paraClearAsk: 'Clear the active Paradise save in the loaded ROM?', paraClearDone: 'Active save cleared. Save the ROM as a new file.', paraClearPending: 'Finish recovering the saved game in the Paramix menu first.',
-    neonDonorPick: 'Choose Neon Planet ROM', neonDonorHint: 'Add 86 Tama and 59 items from Neon Planet to the six-field game.', neonDonorReady: 'Neon source: {name}', neonDonorBad: 'Choose a supported Neon Planet ROM.', neonDonorNeedsSix: 'Choose a Land, Water or Sky ROM as well.', neonDonorFail: 'Could not add Neon content: {e}', neonDonorOn: 'Neon content', neonItemsHint: 'Add 59 items from Neon Planet.', neonLocalizeHint: 'Update Tama Files with the original planet names in all languages.',
-    appsOnlyOn: 'Programs menu', appsOnlyHint: 'Open Paramix alongside the Neon Planet game to use programs and the Flash Tool.', neonSaves: 'Three Neon save slots', neonSaveFields: 'New saves use the game’s setup. The game unlocks fields with progress.', neonSaveFull: 'Writing a Neon menu slot requires a complete .tamasave backup.',
+    neonDonorPick: 'Choose Neon Planets ROM', neonDonorHint: 'Add 86 Tama and 59 items from Neon Planets to the six-field game.', neonDonorReady: 'Neon source: {name}', neonDonorBad: 'Choose a supported Neon Planets ROM.', neonDonorNeedsSix: 'Choose a Land, Water or Sky ROM as well.', neonDonorFail: 'Could not add Neon content: {e}', neonDonorOn: 'Neon content', neonItemsHint: 'Add 59 items from Neon Planets.', neonLocalizeHint: 'Update Tama Files with the original planet names in all languages.',
+    appsOnlyOn: 'Programs menu', appsOnlyHint: 'Open Paramix alongside the Neon Planets game to use programs and the Flash Tool.', neonSaves: 'Three Neon save slots', neonSaveFields: 'New saves use the game’s setup. The game unlocks fields with progress.', neonSaveFull: 'Writing a Neon menu slot requires a complete .tamasave backup.',
     neonTamaOn: 'Tama in Programs menu (care, appearance, age)', petPoints: 'Tamapoints', petMission: 'Mission', petMissionAction: 'Completion', petMissionComplete: 'Mark complete', petMissionReset: 'Reset completion',
     open: 'Open ROM', save: 'Save new ROM',
     startTitle: 'Get more out of your Tamagotchi Paradise',
@@ -214,9 +223,12 @@ const T = {
     devConnect: 'Connect', devDump: 'Read ROM', devWrite: 'Write new ROM to the device', devOnly: 'Only write changes', devKeep: 'Keep saves', devStop: 'Cancel',
     devNoSerial: 'This browser cannot talk to the dongle. Please use Chrome or Edge on a computer.', devNone: 'Not connected.',
     fl_noRescueRoom: 'No room for the write protection (rescue start, top 64 KB of the flash). Nothing was written. Remove a program from the start device and write again.', plHint: 'Prolific adapter (PL2303): newer Windows drivers block older and copied PL2303 chips, then no data gets through. Fix: pick the older Prolific driver 3.3.2.x in the Device Manager, or use an adapter with CH340 or CP2102.', resOn: 'Write protection on: if a write is cut off, the device starts in the flash screen.', resModeGo: 'The last write was cut off. The device is in the flash screen and waits. Press "Continue writing".', resModeRom: 'The last write was cut off. The device is in the flash screen and waits. Open the ROM again (or your backup) and write it to the device.', resResume: 'Continue writing', resHalf: 'The last write did not finish. Press "Continue writing" so everything fits together again.', resResumed: 'Done: {w} sectors written. Switch the Paradise off and on.', resTest: 'Test rescue start', resBack: 'Write header back', resSure: 'Test: the rescue start goes to 0xFF0000, then the device header (sector 0) is cleared. Then switch the Paradise off and on. If the flash screen appears, connect here and "Write header back". If it does not, the device will not start without your own flash tool. Go on?', resCleared: 'Header cleared. Switch the Paradise off and on. Flash screen there? Then connect and "Write header back".', resBackDone: 'Header written back. Switch the Paradise off and on: it starts normally again.', resNoHdr: 'No header kept.', devOn: 'Connected: {ed}, {mb} MB{l}', devLoaded: ', flash app loaded', devReady: 'Ready.', devNeedRom: 'To write, open a ROM first (or read one).',
-    visTitle: 'Simulate a visit (Paradise)', visStart: 'Start', visStop: 'Stop',
+    visTitle: 'Playdate', visStart: 'Start Playdate', visStop: 'Stop',
     visModel: 'Model', visCapture: 'Download incoming UART',
-    visCharacter: 'Visitor', visMirror: 'Return received character', visImport: 'Choose Files',
+    visCharacter: 'Visitor', visMirror: 'Return received character', visImport: 'Load Character File…',
+    labCharacter: 'Tama to Send', labChoose: 'Choose an adult Tama',
+    visSourceHint: 'Use Open ROM to load a Paradise ROM, or Load Character File to import a ghost or Playdate .bin or a .ghost.png. Then select the character below.',
+    visConnectionHint: 'The adapter is in use on the {tab} tab. Open that tab to end the connection.',
     visImported: 'Imported',
     visRomCharacters: 'ROM characters', visRomVisitorError: 'Could not prepare visitor ({reason}).',
     visVisitorColor: 'Body color', visKeepColor: 'Keep color', visKeepEyes: 'Keep eyes',
@@ -237,11 +249,17 @@ const T = {
     visGhostType: 'Ghost package type', visGhostFlags: 'Ghost package flags', visGhostLength: 'Ghost package size (bytes)',
     visGhostChecksum: 'Ghost checksum', visBodyPalette: 'Body palette (RGB565)', visMouthPalette: 'Mouth palette (RGB565)',
     visPlanetSize: 'Planet screenshot size (bytes)', visPlanetChecksum: 'Planet screenshot checksum',
+    visPlaydateEditor: 'Edit Playdate details', visPlanetImageChoice: 'Planet image', visPlanetAuto: 'Automatic',
+    visPlanetNeedsRom: 'Open a ROM to choose a planet image.',
     visNameSlot: 'Character name · {language}', visPlanetNameSlot: 'Planet name · {language}',
     visDeviceUid: 'Device UID', visCharacterUid: 'Character UID', visFriendship: 'Friendship',
     visPreviousResult: 'Previous result', visHunger: 'Hunger', visHappiness: 'Happiness', visLove: 'In love (0/1)',
     visGhostFormat: 'Invalid .ghost.png or Playdate package',
-    visHint: 'The Studio plays a second Paradise. Dongle on the contacts, the Paradise runs normally.\n1. Choose the edition, Start, choose the dongle.\n2. On the Paradise: planet menu, CONNECTION, PLAYDATE, then B.\n"Connect" above is only for the ROM, do not press it for a visit.',
+    labSend: 'Send to My Lab', labHint: 'Attach the USB-UART adapter to My Lab and select an adult Tama. On My Lab, open CONNECTION → LAB INVITE. If the garden is full, choose a Tama to replace on My Lab. Then click Send to My Lab here and select the adapter.',
+    labRun: 'Sending the character to My Lab…', labWait: 'Character sent. Waiting for the connection to finish…',
+    labDone: 'Transfer acknowledged. Check the My Lab garden for the Tama.',
+    labError: 'My Lab: {e}. Check the garden before trying again.',
+    visHint: 'Attach the USB-UART adapter to the Paradise while the game is running. Choose the model here, click Start Playdate and select the adapter. On the Paradise, open the planet menu, choose CONNECTION → PLAYDATE and press B. Return received character works without loading a file.',
     visWait: 'Ready as {ed}. On the Paradise choose PLAYDATE and press B.', visRun: 'Connected, exchanging data…', visPlay: 'The two are playing…',
     visDone: 'Visit done ({ed}). For the next one press B on the Paradise again.', visErr: 'Stopped: {e}. Press B on the Paradise again.', visBadKey: 'The Paradise does not understand the data.',
     phload: 'Loading flash app', phread: 'Reading', phcompare: 'Comparing', phwrite: 'Writing', phcheck: 'Checking', phprepare: 'Preparing',
@@ -435,7 +453,7 @@ function applyLang() {
   }
   try {
     if (!dv.run) devRender();
-    visRender();
+    else visRender();
     visPeerLabels();
     visPlaybackLabel('visPeer');
     visPlaybackLabel('visVisitor');
@@ -686,12 +704,12 @@ function refreshTile(kind, idx) {
 const CLEAN_TABS = ['figs', 'all', 'names', 'dim'];
 function cleanTabs() {
   const off = !!state.clean;
-  document.querySelectorAll('.tab').forEach((b) => { b.hidden = off && CLEAN_TABS.includes(b.dataset.tab); });
-  const sel = document.querySelector('.tab[aria-selected="true"]');
+  document.querySelectorAll('.tab[data-tab]').forEach((b) => { b.hidden = off && CLEAN_TABS.includes(b.dataset.tab); });
+  const sel = document.querySelector('.tab[data-tab][aria-selected="true"]');
   if (off && sel && sel.hidden) document.querySelector('.tab[data-tab="emu"]').click();
 }
-document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
-  document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x === b)));
+document.querySelectorAll('.tab[data-tab]').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tab[data-tab]').forEach(x => x.setAttribute('aria-selected', String(x === b)));
   ['figs', 'all', 'names', 'dim', 'emu', 'doom', 'gb', 'sms', 'pm', 'ab', 'wolf', 'feld', 'save'].forEach(k => $('pane-' + k).hidden = k !== b.dataset.tab);
 });
 
@@ -2959,10 +2977,47 @@ $('btnSave').onclick = () => busy(async () => {
 
 // ------------------------------------------------------------- device (UART)
 const FL = window.ParamixFlash;
-const dv = { io: null, d: null, loaded: false, run: false, cancel: false };
+const hasFlashApp = !!FL.embedded();
+const dv = { io: null, d: null, loaded: false, opening: false, run: false, cancel: false };
+const deviceTabs = Array.from($('deviceTabs').querySelectorAll('[role="tab"]'));
+function showDeviceTab(tab) {
+  const panel = $(tab.getAttribute('aria-controls'));
+  for (const item of deviceTabs) {
+    const selected = item === tab;
+    item.setAttribute('aria-selected', String(selected));
+    item.tabIndex = selected ? 0 : -1;
+    $(item.getAttribute('aria-controls')).hidden = !selected;
+  }
+  if (panel.id !== 'deviceUart') {
+    const lab = panel.id === 'deviceLab';
+    panel.prepend($('visitBox'));
+    $('playdateActions').hidden = lab;
+    $('labActions').hidden = !lab;
+    $('visPlaydateEditor').hidden = lab;
+    for (const [id, key] of [['visCharacterLabel', lab ? 'labCharacter' : 'visCharacter'], ['visDefault', lab ? 'labChoose' : 'visMirror']]) {
+      const element = $(id);
+      element.dataset.t = key;
+      element.textContent = t(key);
+    }
+  }
+  visRender();
+}
+for (const tab of deviceTabs) {
+  tab.onclick = () => showDeviceTab(tab);
+  tab.onkeydown = event => {
+    const index = deviceTabs.indexOf(tab);
+    const count = deviceTabs.length;
+    const next = { ArrowLeft: (index + count - 1) % count, ArrowRight: (index + 1) % count, Home: 0, End: count - 1 }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    showDeviceTab(deviceTabs[next]);
+    deviceTabs[next].focus();
+  };
+}
 function devRender(msg) {
-  const ser = !!(navigator.serial && FL.embedded());
-  $('btnConn').disabled = !ser || dv.run;
+  const ser = !!(navigator.serial && hasFlashApp);
+  $('btnUartRelease').hidden = !dv.io;
+  $('btnUartRelease').disabled = dv.opening || dv.run;
   $('btnDump').disabled = !dv.d || dv.run;
   $('btnWrite').disabled = !dv.d || dv.run || !state.ctx;
   $('btnSaveRead').disabled = $('btnSaveWrite').disabled = $('btnParaIn').disabled = !dv.d || dv.run;
@@ -2974,6 +3029,7 @@ function devRender(msg) {
   else if (!ser) $('devStat').textContent = t('devNoSerial');
   else if (dv.d && !state.ctx && !dv.run) $('devStat').textContent = t('devNeedRom');
   uartWarnRender();
+  visRender();
 }
 /* Flasher errors and notes carry a code; German has its own texts, English uses the module's */
 function flMsg(x) { return x && x.code && lang !== 'en' && T[lang]['fl_' + x.code] ? t('fl_' + x.code, x.p) : (x.message || x.text || String(x)); }
@@ -2999,6 +3055,7 @@ async function devTask(fn) {
   }
 }
 $('btnDevice').onclick = () => { $('device').hidden = !$('device').hidden; devRender(); };
+$('btnUartRelease').onclick = devFree;
 $('btnHelp').onclick = () => { $('helpBox').hidden = !$('helpBox').hidden; };
 $('helpClose').onclick = () => { $('helpBox').hidden = true; };
 $('btnDevStop').onclick = () => { dv.cancel = true; };
@@ -3006,12 +3063,20 @@ $('btnDevStop').onclick = () => { dv.cancel = true; };
  * flash app loader (src/flash.js). */
 const VIS = window.ParamixVisit;
 const VS = {
-  io: null, v: null, peer: null, chunks: [], bytes: 0,
+  io: null, mode: null, opening: false, v: null, peer: null, chunks: [], bytes: 0,
   ghosts: [], baseVisitor: null, visitor: null, romContext: null, romVisitors: new Map(),
   romPalette: null, eyeChoices: new Map(),
 };
 const VIS_CAPTURE_LIMIT = 4 * 1024 * 1024;
 const VIS_SCREENSHOT = 0x1b000;
+// Native Space planet sprites, matched by decoded pixels across editions.
+const VIS_ROM_PLANETS = {
+  1: [207, 217, 218, 219, 223],
+  4: [213, 223, 224, 225, 229, 241],
+  5: [222, 232, 233, 234, 238, 250, 252, 253, 254, 255, 256, 257, 260, 261],
+  7: [225, 227, 228, 229, 230, 235, 237, 238, 239, 240, 241, 242, 245, 246, 247, 248, 249, 250, 251, 252, 254],
+};
+const VIS_PLANET_PROFILES = [0, 1, 1, 1, 4, 5, 5, 7];
 const VIS_ED = [
   ['land', 'Land', '#A42D5D', '#FF9CC1'],
   ['water', 'Water', '#145EB6', '#8DC2FF'],
@@ -3019,7 +3084,7 @@ const VIS_ED = [
   ['jade', 'Jade Forest', '#236D3F', '#90DFA7'],
   ['tropics', 'Tropics', '#A64110', '#FFB881'],
   ['glacier', 'Glacier', '#53657A', '#DFE8F4'],
-  ['neon', 'Neon Planet', '#526300', '#D7F25D'],
+  ['neon', 'Neon Planets', '#526300', '#D7F25D'],
   ['my-lab', 'My Lab', '#126E70', '#79D8D3'],
 ];
 const VIS_LANGUAGES = [
@@ -3242,9 +3307,8 @@ function visSetAnimation(prefix, bytes, sheets) {
   visSetFrameSequence(prefix);
   return true;
 }
-function visCharacterImages(prefix, bytes) {
+function visCharacterImages(prefix, bytes, planet) {
   const character = visSetAnimation(prefix, bytes, visSpriteSheets(bytes));
-  const planet = visPlanetImage(bytes);
   visPicture(prefix + 'Planet', planet);
   const planetName = planet ? visGhostName(visView(bytes), VIS_SCREENSHOT + 0x10) : '';
   $(prefix + 'PlanetName').textContent = planetName ? ' · ' + planetName : '';
@@ -3260,7 +3324,7 @@ function visNativeFieldModel(field) {
 function visModelColor([, , light, dark]) {
   return 'light-dark(' + light + ', ' + dark + ')';
 }
-function visCharacterParameters(prefix, view, playdate) {
+function visCharacterParameters(prefix, view, playdate, hasPlanet) {
   const word = (offset) => view.getUint16(offset, true);
   const hexWord = (offset) => visHex(word(offset));
   const palette = (offset) => Array.from({ length: 16 }, (_, i) => hexWord(offset + 2 * i)).join(' ');
@@ -3283,14 +3347,14 @@ function visCharacterParameters(prefix, view, playdate) {
     });
   };
   addNames(0x12, 'visNameSlot');
-  if (view.getUint32(VIS_SCREENSHOT + 8, true) === 0x54485353) {
+  if (hasPlanet) {
     rows.push(
       ['visPlanetSize', view.getUint32(VIS_SCREENSHOT + 12, true)],
       ['visPlanetChecksum', visHex(view.getUint32(VIS_SCREENSHOT, true), 8)],
     );
     addNames(VIS_SCREENSHOT + 0x10, 'visPlanetNameSlot');
   }
-  if (playdate) {
+  if (playdate && prefix === 'visPeer') {
     const data = visView(playdate), base = VIS.GHOST_SIZE;
     rows.push(
       ['visDeviceUid', visHex(data.getUint32(base + 4, true), 8)],
@@ -3312,7 +3376,7 @@ function visCharacterParameters(prefix, view, playdate) {
     list.append(label, detail);
   }
 }
-function visCharacterLabels(prefix, bytes, name, playdate, romType = playdate && visView(playdate).getUint16(VIS.GHOST_SIZE + 2, true)) {
+function visCharacterLabels(prefix, bytes, name, playdate, planet, romType = playdate && visView(playdate).getUint16(VIS.GHOST_SIZE + 2, true)) {
   const view = visView(bytes);
   const info = [];
   if (romType !== undefined) {
@@ -3325,11 +3389,11 @@ function visCharacterLabels(prefix, bytes, name, playdate, romType = playdate &&
   }));
   $(prefix + 'Name').textContent = name || visGhostName(view) || t('visUnnamed');
   $(prefix + 'Info').textContent = info.join(' · ');
-  visCharacterParameters(prefix, view, playdate);
+  visCharacterParameters(prefix, view, playdate, !!planet);
 }
-function visPeerLabels() {
+function visPeerLabels(planet = VS.peer && visPlanetImage(VS.peer)) {
   if (!VS.peer) return;
-  visCharacterLabels('visPeer', VS.peer, null, VS.peer);
+  visCharacterLabels('visPeer', VS.peer, null, VS.peer, planet);
 }
 function visRefreshRomVisitors() {
   if (VS.io || VS.romContext === state.ctx) return;
@@ -3413,9 +3477,48 @@ function visSelectVisitor() {
     error = e;
   }
   visConfigureAppearance();
+  visConfigurePlaydate();
   visRenderVisitor();
   if (error) $('visRomVisitorError').textContent = t('visRomVisitorError', { reason: error.message });
 }
+function visConfigurePlaydate() {
+  const base = VS.baseVisitor, select = $('visPlanetChoice');
+  const ids = VIS_ROM_PLANETS[VIS_PLANET_PROFILES[state.ctx?.editionId]] || [];
+  select.replaceChildren();
+  visAddChoice(select, '', t('visPlanetAuto'));
+  select.options[0].dataset.t = 'visPlanetAuto';
+  for (const id of ids) {
+    if (state.ctx.entries[id]) visAddChoice(select, String(id), '#' + id);
+  }
+  $('visPlanetNeedsRom').hidden = select.options.length > 1;
+  VS.playdateFields = base ? VIS.playdateFields(base.playdate, base.bytes, base.romType || VIS.ED[$('visEd').value]) : null;
+  for (const [key, , width] of VIS.PLAYDATE_FIELDS) {
+    const value = VS.playdateFields?.[key];
+    $(key + 'Input').value = value === undefined ? '' : width === 4 ? visHex(value, 8) : String(value);
+  }
+}
+
+for (const [key, , width] of VIS.PLAYDATE_FIELDS) {
+  const label = document.createElement('label'), title = document.createElement('span');
+  title.dataset.t = key;
+  const input = document.createElement('input');
+  input.id = key + 'Input';
+  input.type = 'text';
+  input.inputMode = width === 4 ? 'text' : 'numeric';
+  input.maxLength = width === 4 ? 10 : width === 2 ? 5 : width === 1 ? 3 : 1;
+  input.onchange = () => {
+    if (!VS.playdateFields) return;
+    const text = input.value.trim(), max = width ? 2 ** (8 * width) - 1 : 1;
+    const valid = width === 4 ? /^(?:0x[0-9a-f]+|[0-9]+)$/i.test(text) : /^\d+$/.test(text);
+    const value = Number(text);
+    if (valid && value <= max) VS.playdateFields[key] = value;
+    const saved = VS.playdateFields[key];
+    input.value = width === 4 ? visHex(saved, 8) : String(saved);
+  };
+  label.append(title, input);
+  $('visPlaydateFields').append(label);
+}
+$('visPlanetChoice').onchange = () => visRenderVisitor();
 function visRenderVisitor(renderImages = true) {
   if (renderImages) {
     const base = VS.baseVisitor;
@@ -3428,13 +3531,18 @@ function visRenderVisitor(renderImages = true) {
           color: color === '' ? undefined : Number(color), palette: VS.romPalette,
           eyes: VS.eyeChoices.get($('visEyesChoice').value),
         });
-        if (base.fromRom) {
+        const planetId = $('visPlanetChoice').value;
+        const sourcePlanet = planetId === '' ? null : visDecodeSprite(state.ctx.entries[Number(planetId)])?.[0];
+        if (sourcePlanet || base.fromRom || visPlanetImage(bytes)) {
           if (bytes === base.bytes) bytes = bytes.slice();
-          const poses = visCharacterPoses(bytes, visSpriteSheets(bytes));
-          const portrait = poses[0][0] || poses[1][0];
-          if (portrait) VIS.writeRomGhostPlanet(bytes, portrait, C);
+          if (sourcePlanet) VIS.writeRomGhostPlanet(bytes, sourcePlanet, C);
+          else if (base.fromRom) {
+            const poses = visCharacterPoses(bytes, visSpriteSheets(bytes));
+            const portrait = poses[0][0] || poses[1][0];
+            if (portrait) VIS.writeRomGhostPlanet(bytes, portrait, C);
+          } else VIS.setPlanetNameAndChecksum(bytes, C);
         }
-        VS.visitor = { ...base, bytes };
+        VS.visitor = { ...base, bytes, sourcePlanet: !!sourcePlanet };
       }
     } catch (e) {
       $('visRomVisitorError').textContent = t('visRomVisitorError', { reason: e.message });
@@ -3444,14 +3552,17 @@ function visRenderVisitor(renderImages = true) {
   const ghost = VS.visitor || VS.baseVisitor;
   $('visVisitor').hidden = !ghost;
   if (!ghost) { visStopAnimation('visVisitor'); return; }
-  visCharacterLabels('visVisitor', ghost.bytes, ghost.name, ghost.playdate, ghost.romType);
-  if (renderImages) visCharacterImages('visVisitor', ghost.bytes);
+  // A ROM visitor's generated portrait is for the Playdate packet, not a planet screenshot.
+  const planet = ghost.fromRom && !ghost.sourcePlanet ? null : visPlanetImage(ghost.bytes);
+  visCharacterLabels('visVisitor', ghost.bytes, ghost.name, ghost.playdate, planet, ghost.romType);
+  if (renderImages) visCharacterImages('visVisitor', ghost.bytes, planet);
 }
 function visReceivePeer(bytes) {
   VS.peer = bytes;
-  visCharacterImages('visPeer', bytes);
+  const planet = visPlanetImage(bytes);
+  visCharacterImages('visPeer', bytes, planet);
   $('btnVisPeerExport').disabled = false;
-  visPeerLabels();
+  visPeerLabels(planet);
   $('visPeer').hidden = false;
 }
 async function visImportGhost(file) {
@@ -3524,8 +3635,10 @@ $('btnVisPeerExport').onclick = () => {
 $('btnVisVisitorExport').onclick = () => {
   const ghost = VS.visitor;
   if (!ghost?.canEdit) return;
-  const bytes = ghost.playdate ? ghost.playdate.slice() : ghost.bytes;
-  if (ghost.playdate) bytes.set(ghost.bytes);
+  const bytes = ghost.playdate ? ghost.playdate.slice() : new Uint8Array(VIS.PACKET_SIZE);
+  if (!ghost.playdate) visView(bytes).setUint16(VIS.GHOST_SIZE + 2, ghost.romType || VIS.ED[$('visEd').value], true);
+  bytes.set(ghost.bytes);
+  VIS.writePlaydateFields(bytes, VS.playdateFields);
   visDownloadCharacter(bytes, ghost.name, 'visitor-');
 };
 $('btnVisCapture').onclick = () => {
@@ -3534,17 +3647,35 @@ $('btnVisCapture').onclick = () => {
   download(new Blob(VS.chunks, { type: 'application/octet-stream' }), 'playdate-incoming-' + date + '.bin');
 };
 function visKey() { return window.ParamixVisit.parseKey(FL.linkKey); }
-function visStat(m) { $('visStat').textContent = m; }
+function visStat(m, mode = 'playdate') { $(mode === 'lab' ? 'labStat' : 'visStat').textContent = m; }
 function visEdName() { const e = $('visEd').value; const x = VIS_ED.find((a) => a[0] === e); return x ? x[1] : e; }
 function visRender() {
-  $('btnVis').textContent = t(VS.io ? 'visStop' : 'visStart');
-  $('btnVis').disabled = !navigator.serial || (!VS.io && !!$('visGhost').value && !VS.visitor);
+  const locked = VS.opening || !!VS.io;
+  const playdate = VS.mode === 'playdate', lab = VS.mode === 'lab';
+  const uartBusy = dv.opening || dv.run || !!dv.io;
+  const activeTab = deviceTabs.find(tab => tab.getAttribute('aria-selected') === 'true');
+  const activeMode = activeTab.id === 'deviceTabLab' ? 'lab' : 'playdate';
+  const otherMode = VS.mode && VS.mode !== activeMode;
+  const hint = $('visConnectionHint'), uartHint = $('uartConnectionHint');
+  hint.hidden = !(uartBusy || otherMode);
+  hint.textContent = hint.hidden ? '' : t('visConnectionHint', { tab: t(uartBusy ? 'devTitle' : lab ? 'labSend' : 'visTitle') });
+  uartHint.hidden = !VS.io;
+  uartHint.textContent = uartHint.hidden ? '' : t('visConnectionHint', { tab: t(lab ? 'labSend' : 'visTitle') });
+  $('btnConn').disabled = !navigator.serial || !hasFlashApp || dv.run || dv.opening || locked;
+  $('btnVis').textContent = t(playdate ? 'visStop' : 'visStart');
+  $('btnVis').disabled = !navigator.serial || uartBusy || VS.opening || lab || (!VS.io && !!$('visGhost').value && !VS.visitor);
+  $('btnLabRelease').textContent = t(lab ? 'visStop' : 'labSend');
+  $('btnLabRelease').disabled = !navigator.serial || uartBusy || VS.opening || playdate ||
+    (!lab && (!VS.visitor || visView(VS.visitor.bytes).getUint16(0xfc, true) !== 5));
+  $('visEd').disabled = lab || VS.opening;
   $('btnVisCapture').disabled = !VS.bytes;
-  $('visGhost').disabled = !!VS.io;
-  $('btnVisGhostImport').disabled = !!VS.io;
-  $('visGhostImport').disabled = !!VS.io;
-  $('visColorChoice').disabled = !!VS.io || $('visColorChoice').options.length < 2;
-  $('visEyesChoice').disabled = !!VS.io || $('visEyesChoice').options.length < 2;
+  $('visGhost').disabled = locked;
+  $('btnVisGhostImport').disabled = locked;
+  $('visGhostImport').disabled = locked;
+  $('visPlanetChoice').disabled = locked || $('visPlanetChoice').options.length < 2;
+  for (const [key] of VIS.PLAYDATE_FIELDS) $(key + 'Input').disabled = locked;
+  $('visColorChoice').disabled = locked || $('visColorChoice').options.length < 2;
+  $('visEyesChoice').disabled = locked || $('visEyesChoice').options.length < 2;
   $('btnVisVisitorExport').disabled = !VS.visitor?.canEdit;
 }
 {
@@ -3566,44 +3697,66 @@ function visRender() {
   sel.onchange = () => {
     updateModelColor();
     try { localStorage.setItem('pmxVisitEd', sel.value); } catch (e) {}
-    if (VS.io && (!VS.v || VS.v.state.phase === 'wait' || VS.v.state.phase === 'done' || VS.v.state.phase === 'error')) visArm();
+    if (VS.mode === 'playdate' && (!VS.v || VS.v.state.phase === 'wait' || VS.v.state.phase === 'done' || VS.v.state.phase === 'error')) visArm();
   };
   visRender();
 }
 function visArm() {
   if (VS.v) VS.v.stop();
   const ed = visEdName();
+  const io = VS.io;
   VS.v = window.ParamixVisit.createVisitor({
     edition: $('visEd').value, key: visKey(),
-    ghost: VS.visitor?.bytes,
-    send: (b) => VS.io.write(b),
+    ghost: VS.visitor?.bytes, playdateFields: VS.visitor && VS.playdateFields,
+    send: (b) => io.write(b),
     log: (e, i) => {
       if (e === 'packet' && i.kind === 'data') visReceivePeer(i.playdate);
       else if (e === 'start') visStat(t('visRun'));
       else if (e === 'sent') visStat(t('visPlay'));
-      else if (e === 'done') { visStat(t('visDone', { ed })); setTimeout(() => { if (VS.io) visArm(); visStat(t('visDone', { ed })); }, 500); }
-      else if (e === 'error') { visStat(i.text === 'key' ? t('visBadKey') : t('visErr', { e: i.text })); if (i.text !== 'key') setTimeout(() => { if (VS.io) visArm(); }, 1000); }
+      else if (e === 'done') { visStat(t('visDone', { ed })); setTimeout(() => { if (VS.io === io) { visArm(); visStat(t('visDone', { ed })); } }, 500); }
+      else if (e === 'error') { visStat(i.text === 'key' ? t('visBadKey') : t('visErr', { e: i.text })); if (i.text !== 'key') setTimeout(() => { if (VS.io === io) visArm(); }, 1000); }
     },
   });
   visStat(t('visWait', { ed }));
 }
 async function visClose() {
-  const io = VS.io; VS.io = null;
-  if (VS.v) VS.v.stop(); VS.v = null;
+  const io = VS.io, session = VS.v;
+  VS.opening = true;
+  VS.v = null;
+  visRender();
+  try { await session?.stop(); } catch (_) {}
   try { if (io) await io.close(); } catch (e) {}
+  VS.io = null; VS.mode = null; VS.opening = false;
   visRefreshRomVisitors();
   visRender();
 }
-$('btnVis').onclick = async () => {
-  if (VS.io) { await visClose(); visStat(''); return; }
-  if (!navigator.serial) { visStat(t('devNoSerial')); return; }
-  if (dv.io) { visStat(t('uartBusy')); return; }
-  let port;
-  try { port = await navigator.serial.requestPort(); } catch (e) { return; }
-  try { VS.io = await FL.serialOpen(port); } catch (e) { visStat(t('visErr', { e: e.message })); return; }
+async function visOpen(mode) {
+  if (VS.opening) return;
+  if (VS.io) {
+    if (VS.mode === mode) { await visClose(); visStat('', mode); }
+    return;
+  }
+  if (!navigator.serial) { visStat(t('devNoSerial'), mode); return; }
+  if (dv.opening || dv.run || dv.io) return;
+  const ghost = VS.visitor?.bytes;
+  visStat('', mode);
+  VS.opening = true;
+  visRender();
+  try {
+    const port = await navigator.serial.requestPort();
+    VS.io = await FL.serialOpen(port);
+    VS.mode = mode;
+  } catch (e) {
+    if (e.name !== 'NotFoundError') visStat(t(mode === 'lab' ? 'labError' : 'visErr', { e: e.message }), mode);
+    return;
+  } finally {
+    VS.opening = false;
+    visRender();
+  }
+  const io = VS.io;
   VS.chunks = [];
   VS.bytes = 0;
-  VS.io.onData = (d) => {
+  io.onData = (d) => {
     const remaining = VIS_CAPTURE_LIMIT - VS.bytes;
     if (remaining > 0 && d.length) {
       const chunk = d.slice(0, remaining);
@@ -3613,13 +3766,37 @@ $('btnVis').onclick = async () => {
     }
     if (VS.v) VS.v.feed(d);
   };
-  visRender(); visArm();
-};
+  visRender();
+  if (mode === 'playdate') { visArm(); return; }
+  try {
+    VS.v = VIS.createLabRelease({
+      ghost, core: C, key: visKey(), send: bytes => io.write(bytes),
+      log(event, info) {
+        if (VS.io !== io) return;
+        if (event === 'start') visStat(t('labRun'), 'lab');
+        if (event === 'sent') visStat(t('labWait'), 'lab');
+        if (event === 'done' || event === 'error') {
+          const message = event === 'done' ? t('labDone') : t('labError', { e: info.text });
+          visClose().then(() => visStat(message, 'lab'));
+        }
+      },
+    });
+    void VS.v.start();
+  } catch (e) {
+    await visClose();
+    visStat(t('labError', { e: e.message }), 'lab');
+  }
+}
+$('btnVis').onclick = () => visOpen('playdate');
+$('btnLabRelease').onclick = () => visOpen('lab');
 const PL_HINT = true;
 $('btnConn').onclick = async () => {
-  if (VS.io) await visClose();
+  if (VS.opening || VS.io || dv.opening || dv.run) return;
+  dv.opening = true;
+  devRender();
   let port;
   try { port = await navigator.serial.requestPort(); } catch (e) { return; }
+  finally { dv.opening = false; devRender(); }
   // A reconnect must not wait for a lock acknowledgement from the old transport.
   const previousIO = dv.io; dv.io = null; dv.d = null;
   devTask(async () => {
