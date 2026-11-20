@@ -176,6 +176,35 @@ static void flash_tool_tests(void){
   root_pause("pbb"); assert(g_fb[12u*128u+3u]==ABOUT_COLOR);
   assert(!memcmp(rescue,host_flash+FT_BASE,sizeof rescue));
 }
+static void neon_progress_keys(const char *sequence){
+  keys(sequence);
+  int jump=setjmp(g_jb); if(!jump) neon_progress_menu();
+  assert(!jump && !g_seq[g_pos]);
+}
+static void neon_progress_tests(void){
+  save_fixture();
+  g_cfg.flags=F_NEON_EDIT;
+  memset(g_set,0,PAGE);
+  sl_w32(g_set+0xAD0,35);
+  sl_w32(g_set+0xC0,12345);
+  g_set[0xD2]=0x80; g_set[0xD3]=0xA5;
+  /* This mission is already complete and has an unclaimed native reward. */
+  g_set[0xF8]=1u<<4;
+  stamp(g_set); memcpy(host_flash+0xD86000,g_set,PAGE);
+  neon_progress_keys("baaaaabcc"); /* Galaxy Level +5, save, stay, back. */
+  assert(!set_load() && neon_set_generation(g_set)==36u && g_set[0x88]==0x55u);
+  neon_progress_keys("ababbccc"); /* Complete all missions. */
+  assert(!set_load() && neon_set_generation(g_set)==37u);
+  assert(sl_r32(g_set+0xF8)==0x3FFFFFu);
+  assert(sl_r32(g_set+0xFC)==0x3FFFEFu && sl_r32(g_set+0x100)==0x3FFFEFu);
+  assert(g_set[0xD2]==0xBFu && g_set[0xD3]==0xA5u);
+  neon_progress_keys("abbbbccc"); /* Reset the first mission. */
+  assert(!set_load() && neon_set_generation(g_set)==38u);
+  assert((g_set[0xC4]|((u32)g_set[0xC5]<<8))==499u);
+  assert(sl_r32(g_set+0xF8)==0x3FFFFEu);
+  assert(sl_r32(g_set+0xFC)==0x3FFFEEu && sl_r32(g_set+0x100)==0x3FFFEEu);
+  assert(sl_r32(g_set+0xC0)==12345u);
+}
 int main(int argc,char **argv){
   assert(argc==2); g_dir=argv[1]; host_flash=malloc(0x1000000); assert(host_flash);
   flash_tool_tests();
@@ -193,11 +222,11 @@ int main(int argc,char **argv){
   assert(wrap_step(1,-1,1,15)==15 && wrap_step(15,1,1,15)==1 && wrap_step(0,-9,0,3)==3);
   filter_fixture(); g_show_max=0; cat_build(); assert(g_catn==2 && g_cat[0]==5002 && g_cat[1]==5003);
   g_show_max=1; cat_build(); assert(g_catn==3);
-  filter_fixture(); keys("b"); assert(count_edit(5001,15,1)==15);
-  keys("nb"); assert(count_edit(5001,15,1)==1);
-  keys("pb"); assert(count_edit(5001,1,1)==15);
-  keys("nb"); assert(count_edit(5001,15,0)==0);
-  keys("pb"); assert(count_edit(5001,0,0)==15);
+  filter_fixture(); keys("b"); assert(count_edit(5001,15,1,0)==15);
+  keys("nb"); assert(count_edit(5001,15,1,0)==1);
+  keys("pb"); assert(count_edit(5001,1,1,0)==15);
+  keys("nb"); assert(count_edit(5001,15,0,0)==0);
+  keys("pb"); assert(count_edit(5001,0,0,0)==15);
   /* Add picker: last -> filter row -> last, toggle filter on and off. */
   filter_fixture(); keys("ppnbnbnb"); cat_pick(); assert(g_show_max && g_dirty && count_get(0)==1);
   fixture(); count_set(0,15); count_set(1,15); list_set(4,5003); count_set(4,15);
@@ -309,6 +338,7 @@ int main(int argc,char **argv){
   /* Active slot clear is refused. */
   run_saves("bnbcc"); assert(field_now()==0);
   framing(); transfer(1,0,0); transfer(1,1,0); transfer(1,0,1); transfer(0,0,0); interrupted_transfer();
+  neon_progress_tests();
   puts("PASS: filtering, circular controls, max points, slot copy/clear, UI, CRC/replay and two-peer save transfer");
   free(host_flash); return 0;
 }

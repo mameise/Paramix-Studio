@@ -708,8 +708,10 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <div class="tools">
         <button class="btn small" id="btnParaOut" data-t="saveParaOutB"></button>
         <button class="btn small" id="btnParaIn" data-t="saveParaInB"></button>
+        <button class="btn small" id="btnParaClear" data-t="paraClear"></button>
       </div>
       <p class="hint" data-t="saveParaInfo"></p>
+      <p class="hint" id="paraClearStatus" hidden></p>
       <div class="tools">
         <b class="lbl" data-t="petT"></b>
         <button class="btn small" id="btnPetOpen" data-t="petOpen"></button>
@@ -718,14 +720,25 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       </div>
       <div class="tools" id="petRow" hidden>
         <label><span data-t="petLevel"></span> <select id="petLevel"></select></label>
-        <label><span data-t="petChar"></span> <select id="petChar"></select></label>
-        <label class="check"><input type="checkbox" id="petCare"> <span data-t="petCare"></span></label>
+        <label id="petCharRow"><span data-t="petChar"></span> <select id="petChar"></select></label>
+        <label class="check" id="petCareRow"><input type="checkbox" id="petCare"> <span data-t="petCare"></span></label>
+        <label id="petPointsRow" hidden><span data-t="petPoints"></span> <input id="petPoints" type="number" min="0" max="99999" step="1"></label>
+        <label id="petMissionRow" hidden><span data-t="petMission"></span> <select id="petMission"></select></label>
+        <label id="petMissionActionRow" hidden><span data-t="petMissionAction"></span> <select id="petMissionAction">
+          <option value="" data-t="petKeep"></option>
+          <option value="complete" data-t="petMissionComplete"></option>
+          <option value="reset" data-t="petMissionReset"></option>
+        </select></label>
         <button class="btn small" id="btnPetSave" data-t="petSave"></button>
         <button class="btn small" id="btnPetClose" data-t="petClose"></button>
       </div>
       <p class="emustat" id="petStat"></p>
     </div>
     <div class="pane" id="pane-feld" hidden>
+      <div class="tools" id="appsOnlyRow" hidden>
+        <label class="check"><input type="checkbox" id="appsOnlyOn"> <span data-t="appsOnlyOn"></span></label>
+        <span class="hint" data-t="appsOnlyHint"></span>
+      </div>
       <div class="tools">
         <label class="check"><input type="checkbox" id="launchOn"> <span data-t="launchOn"></span></label>
         <span class="hint" data-t="launchHint"></span>
@@ -742,7 +755,7 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
         <label class="check"><input type="checkbox" id="feldOn"> <span data-t="feldOn"></span></label>
         <label class="check"><input type="checkbox" id="bagOn"> <span data-t="bagOn"></span></label>
         <label class="check"><input type="checkbox" id="tamaOn"> <span data-t="tamaOn"></span></label>
-        <span class="hint" data-t="feldHint"></span>
+        <span class="hint" id="feldHint" data-t="feldHint"></span>
       </div>
       <div class="tools" id="paramixShortcutRow">
         <label class="check"><input type="checkbox" id="paramixShortcut"> <span data-t="paramixShortcut"></span></label>
@@ -765,6 +778,11 @@ footer .legal { max-width: 760px; margin: 6px auto 0; }
       <div class="tools" id="sixPlanetRow" hidden>
         <label class="check"><input type="checkbox" id="sixPlanet" checked> <span data-t="sixPlanet"></span></label>
         <label class="check"><input type="checkbox" id="sixMenu" checked> <span data-t="sixMenu"></span></label>
+      </div>
+      <div class="tools" id="neonDonorRow" hidden>
+        <button class="btn small" id="neonDonorPick" data-t="neonDonorPick"></button>
+        <input type="file" id="neonDonorFile" accept=".bin,.BIN" hidden>
+        <span class="hint" id="neonDonorStat"></span>
       </div>
       <p class="emustat" id="feldStat"></p>
     </div>
@@ -824,6 +842,12 @@ __FELD__
 </script>
 <script>
 __SIX__
+</script>
+<script>
+__LEGACY_LZ4__
+</script>
+<script>
+__NEON_TRANSPLANT__
 </script>
 <script>
 __FLASH__

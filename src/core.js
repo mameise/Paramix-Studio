@@ -3,8 +3,7 @@
  * Pure functions on Uint8Array, no DOM. Runs in the browser and in Node (tests).
  *
  * Format references: github.com/GMMan/tama-para-research (formats/archive.md,
- * formats/sprites.md). Everything else measured on the six editions
- * (Land, Water, Sky, Jade Forest, Tropical, Glacier).
+ * formats/sprites.md). Everything else measured on Paradise flash dumps.
  *
  * Author: mameise
  */
@@ -13,7 +12,7 @@
 
 const ASSET_BASE = 0x111000;          // ARC2 root in flash (all editions)
 const ARC2_MAGIC = 0x32435241;        // "ARC2"
-const EDITIONS = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier' };
+const EDITIONS = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier', 7: 'Neon Planet' };
 
 // ------------------------------------------------------------------ helpers
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);
@@ -21,15 +20,16 @@ const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 
 /* 1.7.3 test11: an ID page counts when its footer fits (+0xFF8 = C minus ID, +0xFFC its inverse); Tropical/Glacier
  * (0xD29000) first. A Glacier was read as Land: at 0xD49000 it has its own save data (or an ID a Studio up to 1.2.11
  * wrote there) whose first word can be 1..6. Without a fitting footer the first word as before. */
-const ED_C = [0, 0x70169E2C, 0x70169E2C, 0x70169E2C, 0x849633DB, 0x96CB83B8, 0x96CB83B8];
-function edPage(rom, p, check) {
+const ED_C = [0, 0x70169E2C, 0x70169E2C, 0x70169E2C, 0x849633DB, 0x96CB83B8, 0x96CB83B8, 0x99431749];
+function edPage(rom, p) {
   if (p + 0x1000 > rom.length) return 0;
-  const v = u32(rom, p); if (!(p === 0xD29000 ? v === 5 || v === 6 : p === 0xD49000 ? v >= 1 && v <= 4 : v >= 1 && v <= 6)) return 0;
-  if (!check) return v;
+  const v = u32(rom, p);
+  if (!EDITIONS[v]) return 0;
+  if ((p === 0xD85000 && v !== 7) || (p === 0xD29000 && v !== 5 && v !== 6) || (p === 0xD49000 && v > 4)) return 0;
   const k = u32(rom, p + 0xFF8); return ((k + v) >>> 0) === ED_C[v] && u32(rom, p + 0xFFC) === (~k >>> 0) ? v : 0;
 }
 function editionIdOf(rom) {
-  for (const p of [0xD29000, 0xD49000, 0xEFD000]) { const v = edPage(rom, p, true); if (v) return v; }   // 0xEFD000: clean ROM (1.7.3 test13)
+  for (const p of [0xD85000, 0xD29000, 0xD49000, 0xEFD000]) { const v = edPage(rom, p); if (v) return v; }   // 0xEFD000: clean ROM (1.7.3 test13)
   for (const p of [0xD49000, 0xD29000]) { const v = p + 4 <= rom.length ? u32(rom, p) : 0; if (v >= 1 && v <= 6) return v; }
   return 0;
 }
@@ -123,8 +123,11 @@ function characterPaletteVariants(entries) {
   }
   return match;
 }
-const F_TRANSP = 0x04, F_RLE_BYTE = 0x20, F_RLE_WORD = 0x40, F_XOR = 0x80;
+const F_TRANSP = 0x04, F_LZ4 = 0x08, F_RLE_BYTE = 0x20, F_RLE_WORD = 0x40, F_XOR = 0x80;
+const F_COMPRESSED = F_LZ4 | F_RLE_BYTE | F_RLE_WORD;
 const BITS = { 0: 1, 1: 2, 2: 4, 3: 8 };
+// Tag used only by the opt-in Tropical LZ4 prototype, after removing sprite XOR.
+const LEGACY_LZ4_TAG = [0x80, 0x80, 0x80, 0x80, 0x50, 0x4C, 0x5A, 0x34];
 
 function rleDecode(d, word, maxLength = Infinity) {
   const out = []; let i = 0;
@@ -159,6 +162,68 @@ function rleEncode(data) {
   return Uint8Array.from(out);
 }
 
+/* LZ4 block (sequences: token, literals, offset, match; the last one only literals), hash chains */
+function lzEnc(src, standard = false) {
+  const n = src.length, out = [], head = new Int32Array(4096).fill(-1), prev = new Int32Array(n).fill(-1);
+  const h4 = (i) => ((src[i] | src[i + 1] << 8 | src[i + 2] << 16 | src[i + 3] << 24) * 2654435761 >>> 20) & 4095;
+  const put = (v) => { while (v >= 255) { out.push(255); v -= 255; } out.push(v); };
+  let i = 0, lit = 0;
+  const emit = (ml, off) => {
+    const ll = i - lit; out.push(((ll >= 15 ? 15 : ll) << 4) | (ml ? (ml - 4 >= 15 ? 15 : ml - 4) : 0));
+    if (ll >= 15) put(ll - 15);
+    for (let k = lit; k < i; k++) out.push(src[k]);
+    if (ml) { out.push(off & 255, off >> 8); if (ml - 4 >= 15) put(ml - 19); }
+  };
+  const ins = (p) => { if (p + 4 <= n) { const h = h4(p); prev[p] = head[h]; head[h] = p; } };
+  // The device uses ordinary LZ4 for sprites. Guest pages also accept matches
+  // ending at the end of the block, so keep the existing packing for those.
+  const matchLimit = standard ? n - 5 : n;
+  const matchStart = standard ? n - 12 : n - 4;
+  while (i <= matchStart) {
+    let best = 0, bo = 0;
+    for (let c = head[h4(i)], d = 0; c >= 0 && d < 256 && i - c <= 0xFFFF; c = prev[c], d++) {
+      let l = 0; while (i + l < matchLimit && src[c + l] === src[i + l]) l++;
+      if (l > best) { best = l; bo = i - c; if (i + l === matchLimit) break; }
+    }
+    if (best >= 4) { emit(best, bo); for (let k = 0; k < best; k++) ins(i + k); i += best; lit = i; }
+    else { ins(i); i++; }
+  }
+  i = n; emit(0, 0);
+  return new Uint8Array(out);
+}
+function lzDecodeSprite(data, size) {
+  const out = new Uint8Array(size);
+  let ip = 0, op = 0;
+  const read = () => {
+    if (ip >= data.length) throw new Error('truncated sprite LZ4 block');
+    return data[ip++];
+  };
+  const length = (n) => {
+    if (n === 15) {
+      let next;
+      do { next = read(); n += next; } while (next === 255);
+    }
+    return n;
+  };
+  while (ip < data.length) {
+    const token = read(), literals = length(token >>> 4);
+    if (literals > data.length - ip || literals > size - op) throw new Error('invalid sprite LZ4 literal length');
+    out.set(data.subarray(ip, ip + literals), op);
+    ip += literals; op += literals;
+    if (ip === data.length) break;
+    const offset = read() | (read() << 8), match = length(token & 15) + 4;
+    if (!offset || offset > op || match > size - op) throw new Error('invalid sprite LZ4 match');
+    for (let i = 0; i < match; i++, op++) out[op] = out[op - offset];
+  }
+  if (op !== size) throw new Error('invalid sprite LZ4 pixel data size');
+  return out;
+}
+
+function spritePayload(raw, lz4, encrypted) {
+  const data = lz4 ? lzEnc(raw, true) : rleEncode(raw);
+  return encrypted ? data.map(b => b ^ 0x53) : data;
+}
+
 /** Decode one sprite entry. Returns header, palettes, raw index cells and
  *  composed subimages as RGBA (palette set `palSet`). */
 function spriteDecode(e, palSet = 0, bounded = false) {
@@ -174,21 +239,32 @@ function spriteDecode(e, palSet = 0, bounded = false) {
     }
   } else {
     const bits = BITS[h.bpp]; if (!bits) throw new Error('unknown bpp ' + h.bpp);
-    const ncol = 1 << bits;
+    const ncol = 1 << bits, paletteCount = Math.max(1, h.numPal);
+    const comp = h.flags & F_COMPRESSED, enc = h.flags & F_XOR, lz4 = h.flags & F_LZ4;
+    const bp = h.pixOffset, raws = [], paddedSize = Math.ceil(npx * bits / 32) * 4;
+    if (lz4 && (h.dataLength > e.length || bp + 8 * n > h.dataLength || (comp & ~F_LZ4) ||
+        h.palOffset < 24 || h.palOffset + 2 * ncol * paletteCount > bp)) throw new Error('invalid sprite LZ4 table');
     palettes = [];
-    for (let p = 0; p < Math.max(1, h.numPal); p++) {
+    for (let p = 0; p < paletteCount; p++) {
       const pal = []; for (let k = 0; k < ncol; k++) pal.push(u16(e, h.palOffset + 2 * (p * ncol + k)));
       palettes.push(pal);
     }
-    const comp = h.flags & (F_RLE_BYTE | F_RLE_WORD), enc = h.flags & F_XOR;
-    const bp = h.pixOffset, raws = [];
     if (comp) {
       for (let s = 0; s < n; s++) {
         let off = u32(e, bp + 8 * s); const ln = u32(e, bp + 8 * s + 4);
         const unc = off & 0x80000000; off &= 0x7fffffff;
+        if (lz4 && (off < 8 * n || ln > h.dataLength - bp - off || (unc && ln !== paddedSize))) throw new Error('invalid sprite LZ4 cell range');
         let d = e.slice(bp + off, bp + off + ln);
         if (enc) d = d.map(x => x ^ 0x53);
-        if (!unc) d = rleDecode(d, h.flags & F_RLE_WORD, bounded ? Math.ceil(npx * bits / 32) * 4 : Infinity);
+        if (!unc) {
+          const tagged = enc && comp === F_RLE_BYTE && LEGACY_LZ4_TAG.every((v, i) => d[i] === v);
+          if (tagged) {
+            if (d.length < 11 || u16(d, 8) !== paddedSize || paddedSize > 0x4000) throw new Error('invalid tagged LZ4 cell size');
+            d = lzDecodeSprite(d.subarray(10), paddedSize);
+          } else {
+            d = lz4 ? lzDecodeSprite(d, paddedSize) : rleDecode(d, h.flags & F_RLE_WORD, bounded ? paddedSize : Infinity);
+          }
+        }
         raws.push(d);
       }
     } else {
@@ -305,12 +381,13 @@ function spriteEncode(orig, subs, opts = {}) {
       }
       s++;
     });
-    writeHeader(out, { dataLength: out.length, flags: h.flags & ~(F_RLE_BYTE | F_RLE_WORD | F_XOR), bpp: 0x11, numSprites: n, sw: w, sh: hh, ox: h.ox, oy: h.oy, iw: h.iw, ih: h.ih, palBpp: 0x11, numPal: 0, transp: tr, palOffset: 24, pixOffset: 24 });
+    writeHeader(out, { dataLength: out.length, flags: h.flags & ~(F_COMPRESSED | F_XOR), bpp: 0x11, numSprites: n, sw: w, sh: hh, ox: h.ox, oy: h.oy, iw: h.iw, ih: h.ih, palBpp: 0x11, numPal: 0, transp: tr, palOffset: 24, pixOffset: 24 });
     return out;
   }
 
   let keep = opts.keepPalette || h.numPal > 1;
-  let bpp = h.bpp, palBlock, transpIdx, indexOf;
+  let bpp = h.bpp, palBlock, transpIdx, indexOf, origCells;
+  const lz4 = !!(h.flags & F_LZ4);
   let anyTransparent = false;
   for (const s of subs) for (let i = 3; i < s.data.length; i += 4) if (s.data[i] < 128) { anyTransparent = true; break; }
   const origTransp = !!(h.flags & F_TRANSP);
@@ -340,7 +417,14 @@ function spriteEncode(orig, subs, opts = {}) {
     palBlock = orig.slice(h.palOffset, h.palOffset + 2 * ncol * Math.max(1, h.numPal));
     // FIG_NOVAR: own pictures never land in slots 2-7 (the game recolours them per Tama, on the field too)
     const pk = opts.figure && FIG_NOVAR ? pal0.map((c, i) => (i >= 2 && i <= 7 ? [1e6, 1e6, 1e6] : c)) : pal0;
-    indexOf = (p) => (p[3] < 128 && transpIdx >= 0) ? transpIdx : nearestIndex(pk, p[0], p[1], p[2], transpIdx);
+    if (lz4) origCells = dec.cells;
+    indexOf = (p, original) => {
+      if (p[3] < 128 && transpIdx >= 0) return transpIdx;
+      // Equal colours in the base palette can differ in another variant.
+      const colour = pk[original];
+      if (original !== transpIdx && colour && colour.every((c, i) => c === p[i])) return original;
+      return nearestIndex(pk, p[0], p[1], p[2], transpIdx);
+    };
   } else if (figureMode) {
     const FREE = [8, 9, 10, 11, 12, 13, 14, 15];
     // FIG_QUANT2: the outline colour of the game (0x000C = 0,0,98) also counts as dark (it took one of the 8 slots)
@@ -390,15 +474,16 @@ function spriteEncode(orig, subs, opts = {}) {
     };
   }
 
-  const bits = BITS[bpp];
+  const bits = BITS[bpp], encrypted = !lz4 || !!(h.flags & F_XOR);
   const datas = [];
   forEachCell((si, gx, gy) => {
-    const raw = new Uint8Array(Math.ceil(npx * bits / 8));
+    const raw = new Uint8Array(lz4 ? Math.ceil(npx * bits / 32) * 4 : Math.ceil(npx * bits / 8));
+    const origCell = origCells && origCells[si * iw * ih + gy * iw + gx];
     for (let k = 0; k < npx; k++) {
-      const v = indexOf(cellRGBA(si, gx, gy, k));
+      const v = indexOf(cellRGBA(si, gx, gy, k), origCell && origCell[k]);
       const bit = k * bits; raw[bit >> 3] |= v << (bit & 7);
     }
-    datas.push(rleEncode(raw).map(x => x ^ 0x53));
+    datas.push(spritePayload(raw, lz4, encrypted));
   });
   const palOff = 24, pixOff = palOff + palBlock.length, tblLen = 8 * n;
   let pos = pixOff + tblLen; const tbl = [], body = [];
@@ -411,7 +496,7 @@ function spriteEncode(orig, subs, opts = {}) {
   if (SPR_ALIGN) pos = (pos + 3) & ~3;
   const out = new Uint8Array(pos);
   const useT = transpIdx >= 0;
-  writeHeader(out, { dataLength: pos, flags: F_XOR | F_RLE_BYTE | 0x03 | (useT ? F_TRANSP : 0), bpp, numSprites: n, sw: w, sh: hh, ox: h.ox, oy: h.oy, iw: h.iw, ih: h.ih, palBpp: 0x11, numPal: keep ? Math.max(1, h.numPal) : 1, transp: useT ? transpIdx : 0, palOffset: palOff, pixOffset: pixOff });
+  writeHeader(out, { dataLength: pos, flags: (encrypted ? F_XOR : 0) | (lz4 ? F_LZ4 : F_RLE_BYTE) | 0x03 | (useT ? F_TRANSP : 0), bpp, numSprites: n, sw: w, sh: hh, ox: h.ox, oy: h.oy, iw: h.iw, ih: h.ih, palBpp: 0x11, numPal: keep ? Math.max(1, h.numPal) : 1, transp: useT ? transpIdx : 0, palOffset: palOff, pixOffset: pixOff });
   out.set(palBlock, palOff);
   tbl.forEach((t, i) => { w32(out, pixOff + 8 * i, t[0]); w32(out, pixOff + 8 * i + 4, t[1]); });
   out.set(concat(body), pixOff + tblLen);
@@ -474,11 +559,12 @@ function spriteBlank(orig, opts = {}) {
 function spriteTiny(orig) {
   const h = spriteHeader(orig), n = h.numSprites, npx = h.sw * h.sh;
   const tr = !!(h.flags & F_TRANSP);
-  const d = rleEncode(new Uint8Array(Math.ceil(npx / 8))).map(x => x ^ 0x53);
+  const lz4 = !!(h.flags & F_LZ4), encrypted = !lz4 || !!(h.flags & F_XOR);
+  const d = spritePayload(new Uint8Array(lz4 ? Math.ceil(npx / 32) * 4 : Math.ceil(npx / 8)), lz4, encrypted);
   const palOff = 24, pixOff = palOff + 4, dataOff = pixOff + 8 * n;
   const len = dataOff + d.length, pos = (len + 3) & ~3;
   const out = new Uint8Array(pos);
-  writeHeader(out, { dataLength: pos, flags: F_XOR | F_RLE_BYTE | 0x03 | (tr ? F_TRANSP : 0), bpp: 0, numSprites: n, sw: h.sw, sh: h.sh, ox: h.ox, oy: h.oy, iw: h.iw, ih: h.ih, palBpp: 0x11, numPal: 1, transp: 0, palOffset: palOff, pixOffset: pixOff });
+  writeHeader(out, { dataLength: pos, flags: (encrypted ? F_XOR : 0) | (lz4 ? F_LZ4 : F_RLE_BYTE) | 0x03 | (tr ? F_TRANSP : 0), bpp: 0, numSprites: n, sw: h.sw, sh: h.sh, ox: h.ox, oy: h.oy, iw: h.iw, ih: h.ih, palBpp: 0x11, numPal: 1, transp: 0, palOffset: palOff, pixOffset: pixOff });
   w16(out, palOff, tr ? 0x07e0 : 0); w16(out, palOff + 2, 0);
   for (let i = 0; i < n; i++) { w32(out, pixOff + 8 * i, dataOff - pixOff); w32(out, pixOff + 8 * i + 4, d.length); }
   out.set(d, dataOff);
@@ -572,10 +658,12 @@ function openRom(rom) {
   let limit = (end + 0xfff) & ~0xfff;
   const page = (p) => { for (let i = p; i < p + 0x1000 && i < rom.length; i++) if (rom[i] !== 0xff) return false; return true; };
   while (limit < rom.length && page(limit)) limit += 0x1000;
-  // Edition ID: on its own page (0xD49000, Tropical/Glacier 0xD29000). Previously the first
+  // Edition ID: on its own page at 0xD49000, 0xD29000 or 0xD85000. Previously the first
   // used page after the characters, which went wrong with DOOM or save slots next to it.
   let editionId = editionIdOf(rom);
   if (!editionId) editionId = limit < rom.length ? u32(rom, limit) : 0;
+  if (editionId === 7 && u32(rom, 0xD24000) === 0x5641534E)
+    limit = Math.min(limit, 0xD23000); // Neon switch journal precedes its active-slot record
   const groups = findGroups(entries);
   return { rom, root, files, entries, groups, adult: groups.length ? findFirstAdult(entries, groups) : -1, egg: findEgg(entries), assetEnd: end, limit, editionId, edition: EDITIONS[editionId] || ('Edition ' + editionId) };
 }
@@ -988,9 +1076,18 @@ function paraLayers(dp) {
       }
       layers.push(L); i += 2;
     }
+    function frameAt(index) {
+      const at = fo + 4 * index;
+      if (index < 0 || at + 4 > fe) return null;
+      const first = u(at), count = u(at + 2);
+      return first !== 0xFFFF && first + count <= layers.length ? layers.slice(first, first + count) : null;
+    }
     const frames = [];
-    for (let k = fo; k + 4 <= fe; k += 4) { const li = u(k), n = u(k + 2); if (li !== 0xFFFF && li + n <= layers.length) frames.push(layers.slice(li, li + n)); }
-    return { layers, frames };
+    for (let i = 0; i < (fe - fo) / 4; i++) {
+      const frame = frameAt(i);
+      if (frame) frames.push(frame);
+    }
+    return { layers, frames, frameAt };
   } catch (e) { return null; }
 }
 /* body and eye layer of every frame showing both (each eye layer once); null when the table cannot be read */
@@ -1184,15 +1281,14 @@ async function zipRead(buf, inflateRaw) {
 // ------------------------------------------------------------- fields (worlds)
 /*
  * What belongs to which field. Every edition carries complete sets of characters
- * for several field types (1 Land, 2 Water, 3 Sky, 4 Forest, 5 Tropical, 6 Glacier):
- * Land/Water/Sky ROMs types 1-3, Jade Forest 1-4, Tropical/Glacier all six.
- * Per field: 1 child, 4 teens, 17 adults. Characters come from the character table
- * of the data pack (30 byte records: id, ?, name index, stage, line, ..., field at
- * word 7); the sprite groups follow the character ids in order (group 0 = fallback).
+ * for several field types. Neon Planet has three additional fields and shares
+ * sprite groups across characters. The character table has 30-byte records:
+ * id, animation id, name index, stage, line, ..., field at word 7.
  * Field maps are 7 sprites of 64x64x64 per field (Tropical/Glacier: plus 7 overlay
  * sprites of 64x64x32), close-ups are 6 sprites of 64x64x4 per field type.
  */
-const FIELD_NAMES = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Forest', 5: 'Tropical', 6: 'Glacier' };
+const FIELD_NAMES = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Forest', 5: 'Tropical', 6: 'Glacier',
+  7: 'Cosmic Planet', 8: 'New Tamagotchi Planet', 9: 'Tamagotchi Planet' };
 function charTable(dp) {
   const u32 = (o) => (dp[o] | (dp[o + 1] << 8) | (dp[o + 2] << 16) | (dp[o + 3] << 24)) >>> 0;
   const u16 = (o) => dp[o] | (dp[o + 1] << 8);
@@ -1202,7 +1298,7 @@ function charTable(dp) {
     if (b > a && b <= dp.length && (b - a) % 30 === 0 && b - a >= 60 && u16(a) === 0xFFFF && u16(a + 30) === 1000) {
       const out = [];
       for (let o = a; o < b; o += 30) out.push({
-        id: u16(o), name: u16(o + 4) + 1, stage: u16(o + 6), line: u16(o + 8),
+        id: u16(o), animation: u16(o + 2), name: u16(o + 4) + 1, stage: u16(o + 6), line: u16(o + 8),
         rank: u16(o + 10), field: u16(o + 14), flags: u16(o + 16),
       });
       return out;
@@ -1210,13 +1306,34 @@ function charTable(dp) {
   }
   return [];
 }
-function fieldSets(ctx) {
+/** Character records with their first sprite index. Several Neon records may
+ *  use the same group, especially the younger stages and returning adults. */
+function characterSprites(ctx) {
   const chars = charTable(ctx.files[0]).filter((c) => c.id > 1000 && c.id < 9000);
+  if (ctx.editionId === 7) {
+    // Neon has 169 groups. Its fallback uses animation 26, and the
+    // playable sprite sets in pack order use 27 through 194.
+    const animations = [...new Set(chars.map(c => c.animation))].sort((a, b) => a - b);
+    if (animations.length + 1 !== ctx.groups.length || !animations.every((a, i) => a === i + 27)) return [];
+    return chars.map(c => ({ ...c, group: ctx.groups[c.animation - 26] }));
+  }
+  const transplant = root.ParamixNeonTransplant ||
+    (typeof require !== 'undefined' && u32(ctx.rom, 0x107000) === 0x5747524E ? require('../six/experimental-neon/transplant.js') : null);
+  if (transplant?.installed(ctx.rom)) {
+    // Imported animations can reuse individual sprites from unrelated groups.
+    // The pre-existing figures still occupy the original contiguous groups.
+    const legacy = chars.filter(c => c.field < 7);
+    if (ctx.groups.length < legacy.length + 1) return [];
+    return legacy.map((c, i) => ({ ...c, group: ctx.groups[i + 1] }));
+  }
   if (chars.length + 1 !== ctx.groups.length) return [];
-  chars.forEach((c, i) => { c.group = ctx.groups[i + 1]; });
-  const types = [...new Set(chars.map((c) => c.field).filter((f) => f >= 1 && f <= 6))].sort((a, b) => a - b);
+  return chars.map((c, i) => ({ ...c, group: ctx.groups[i + 1] }));
+}
+function fieldSets(ctx) {
+  const chars = characterSprites(ctx);
+  const types = [...new Set(chars.map((c) => c.field).filter((f) => FIELD_NAMES[f]))].sort((a, b) => a - b);
   const kind = (i) => { const h = spriteHeader(ctx.entries[i]); return h.sw === 64 && h.sh === 64 ? Math.max(1, h.iw) * Math.max(1, h.ih) : 0; };
-  const maps = [], over = [];
+  const maps = [];
   ctx.entries.forEach((e, i) => { const k = kind(i); if (k === 64) maps.push(i); });
   // close-ups: the longest run of 64x64x4 sprites, 6 per field type
   let best = [0, 0];
@@ -1224,12 +1341,19 @@ function fieldSets(ctx) {
   const nClose = Math.floor((best[1] - best[0]) / 6);
   const nMap = Math.floor(maps.length / 7);
   // maps belong to the highest field types present (Tropical/Glacier: Forest, Tropical, Glacier)
-  const mapTypes = types.slice(Math.max(0, types.length - nMap));
+  const neon = ctx.editionId === 7;
+  const mapTypes = neon ? (nMap === 3 ? [7, 8, 9] : []) : types.slice(Math.max(0, types.length - nMap));
+  // Neon stores the six legacy close-up backgrounds and foregrounds in pairs.
+  const neonClose = 2237;
+  const hasNeonClose = neon && ctx.entries.length >= neonClose + 12 &&
+    ctx.entries.slice(neonClose, neonClose + 12).every((_, i) => kind(neonClose + i) === 4);
   return types.map((tp) => {
     const m = mapTypes.indexOf(tp), maps7 = m >= 0 ? maps.slice(7 * m, 7 * m + 7) : [];
     const overlays = [];
     if (maps7.length) { const last = maps7[6]; for (let j = last + 1; j < last + 8 && j < ctx.entries.length && kind(j) === 32; j++) overlays.push(j); }
-    const close = tp <= nClose ? Array.from({ length: 6 }, (_, k) => best[0] + 6 * (tp - 1) + k) : [];
+    let close = [];
+    if (hasNeonClose && tp <= 6) close = [neonClose + 2 * (tp - 1), neonClose + 2 * (tp - 1) + 1];
+    if (!neon && tp <= nClose) close = Array.from({ length: 6 }, (_, k) => best[0] + 6 * (tp - 1) + k);
     return { type: tp, name: FIELD_NAMES[tp], chars: chars.filter((c) => c.field === tp), maps: maps7, overlays, closeups: close };
   });
 }
@@ -1299,10 +1423,10 @@ function textApply(rom, edits) {
 }
 
 root.ParamixCore = { paraLayers, faceFirst, facePoses, layersMove, EYE_V2, smaDetect, smaLoad, eyeFirst, eyeRelGet, shiftEyes, textClean, textGet, textApply, textTablesOf, txtWords, TXT_ENC,
-  fieldSets, charTable, FIELD_NAMES,
-  ASSET_BASE, EDITIONS, GROUP_PARTS, GROUP_SHEET_W, GROUP_SHEET_H,
+  fieldSets, charTable, characterSprites, FIELD_NAMES,
+  ASSET_BASE, EDITIONS, editionIdOf, GROUP_PARTS, GROUP_SHEET_W, GROUP_SHEET_H,
   arc2Parse, arc2Files, arc2Build, arc2Checksum, packSplit, packJoin, spriteHeader, characterPaletteVariants, spriteDecode, spriteEncode, spriteBlank, spriteTiny, spriteAlign, partOptions, launcherKeep, launcherChanges, isLauncher,
-  rleEncode, rleDecode, quantize, findGroups, findEgg, openRom, buildRom, verifyRom,
+  lzEnc, rleEncode, rleDecode, LEGACY_LZ4_TAG, quantize, findGroups, findEgg, openRom, buildRom, verifyRom,
   sheetLayout, sheetFromSubs, subsFromSheet, groupSheet, groupFromSheet, emptyImage, sameImage, crop,
   dimLoad, dimCharParts, dimEggSubs, dimCharPartsWithEyes, dimGuessEye, eyeRectAt, eyeVariants, setEyeOffset, hideEyes, dimEyePreset, DIM_EYE_PRESETS, place, numberImage, zipBuild, zipRead, crc32,
 };

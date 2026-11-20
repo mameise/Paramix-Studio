@@ -41,6 +41,31 @@ ok(Buffer.compare(Buffer.from(same.rom), Buffer.from(rom)) === 0, 'rebuild witho
 let rt = true;
 for (const e of ctx.entries) { const d = C.spriteDecode(e); const d2 = C.spriteDecode(C.spriteEncode(e, d.subs, {})); rt = rt && d2.subs.every((s, k) => C.sameImage(s, d.subs[k])); }
 ok(rt, 'decode/encode roundtrip is pixel exact');
+// An overlapping LZ4 match and equal base colours that differ in a variant.
+const stream = [0x16, 0xe4, 1, 0, 0x50, ...Array(5).fill(0xe4)];
+const neonTile = Buffer.alloc(48 + stream.length);
+neonTile.writeUInt32LE(neonTile.length, 0);
+neonTile.set([0x8b, 1, 1, 0, 8, 8, 0, 0, 1, 1, 0x11, 2, 0, 0, 24, 0, 40, 0], 4);
+[0, 0, 0xffff, 0xffff, 0x001f, 0x07e0, 0xf800, 0xffff].forEach((colour, i) => neonTile.writeUInt16LE(colour, 24 + 2 * i));
+neonTile.writeUInt32LE(8, 40);
+neonTile.writeUInt32LE(stream.length, 44);
+neonTile.set(stream.map(b => b ^ 0x53), 48);
+const neonDecoded = C.spriteDecode(neonTile);
+ok(neonDecoded.cells[0].every((v, i) => v === i % 4), 'Neon sprite decodes an XOR LZ4 block');
+const neonEncoded = C.spriteEncode(neonTile, neonDecoded.subs, { keepPalette: true });
+ok(C.spriteHeader(neonEncoded).flags === 0x8b &&
+  C.sameImage(C.spriteDecode(neonEncoded, 1).subs[0], C.spriteDecode(neonTile, 1).subs[0]), 'Neon sprite preserves LZ4 and alternative palettes');
+neonTile[50] ^= 1;
+let invalidLz4 = false;
+try { C.spriteDecode(neonTile); } catch (e) { invalidLz4 = /invalid sprite LZ4 match/.test(e.message); }
+ok(invalidLz4, 'invalid Neon sprite back-reference rejected');
+const neonRom = Buffer.from(rom);
+neonRom.writeUInt32LE(7, 0xD85000);
+neonRom.writeUInt32LE(0x99431742, 0xD85FF8);
+neonRom.writeUInt32LE(0x66BCE8BD, 0xD85FFC);
+ok(C.openRom(neonRom).edition === 'Neon Planet', 'Edition 7 is Neon Planet');
+neonRom[0xD85FFC] ^= 1;
+ok(C.editionIdOf(neonRom) !== 7, 'Neon edition ID requires a valid footer');
 // 3) character rules
 const g = ctx.groups[0];
 const red = img(64, 64, (x, y) => (x > 10 && x < 50 && y > 10) ? [250, 30, 40, 255] : (x === 10 ? [0, 0, 0, 255] : [0, 0, 0, 0]));

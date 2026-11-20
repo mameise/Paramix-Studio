@@ -105,6 +105,40 @@ static void appearance_hints(void){
   green=0; for(u32 y=111;y<118;y++) for(u32 x=0;x<128;x++) green+=g_fb[y*128+x]==RGB(120,240,140);
   assert(green && eyes==body && !memcmp(before,g_set,PAGE));
 }
+static void neon_pet(void){
+  pet_fixture(0x114u);
+  g_cfg.flags=F_APPS|F_NEON_EDIT|F_NEON_TAMA;
+  g_cfg.level_off=0;
+  g_cfg.user_start=NEON_SET_FIRST; g_cfg.user_end=0xF00000u;
+  const u32 record=0xE4E000u, table=0xAE954u, hook=0x4902Cu;
+  sl_w32(host_flash+table,0x60E4E000u);
+  sl_w32(host_flash+table+4u,0x60D8F000u);
+  sl_w32(host_flash+table+8u,0x60E52000u);
+  sl_w32(host_flash+hook,0x2190F241u);
+  sl_w32(host_flash+hook+0x14u,0x681202E4u);
+  sl_w32(host_flash+hook+0x18u,0x4F7FF1B2u);
+  sl_w32(host_flash+hook+0x1Cu,0xD00Bu);
+  sl_w32(host_flash+record,123u);
+  sl_w32(host_flash+record+4u,0u-123u);
+  sl_w32(host_flash+record+0x10Cu,0x2BA4u);
+  host_flash[record+0x10Au]=0xA1; host_flash[record+0x10Bu]=0x0F;
+  sl_w32(g_set+NEON_SET_GENERATION,40u);
+  stamp(g_set); memcpy(host_flash+NEON_SET_FIRST,g_set,PAGE);
+  u8 before[PAGE]; memcpy(before,g_set,PAGE);
+  assert(tama_ok() && !set_load() && t_active_record()==record);
+  assert(!t_visual(4001,1001,1,5) && !memcmp(before,g_set,PAGE));
+  keys("nbnbpbbb"); appearance_edit();
+  assert(!g_seq[g_pos] && t_id()==4002 && t_word(6)==4001 && t_color()==15);
+  assert(t_stage()==5 && t_word(0xCu)==25 && t_active_record()==record);
+  assert(!memcmp(before,host_flash+NEON_SET_FIRST,PAGE));
+  assert(set_crc_ok(host_flash+NEON_SET_FIRST+PAGE) && neon_set_generation(g_set)==41u);
+  assert(rd32(record+0x10Cu)==T_REBUILD_PENDING && rd16(record+0x10Au)==4001u);
+  assert(neon_set_generation(host_flash+SET_A)==0u && neon_set_generation(host_flash+SET_B)==0u);
+  g_set[0x128]=0xF0; g_set[0x150]=0x5A;
+  t_care(15u);
+  assert(g_set[0x130]==6u && g_set[0x131]==20u && g_set[0x124]==0u && g_set[0x128]==0xE0);
+  assert(g_set[0x150]==0x5A);
+}
 static void ui(void){
   pet_fixture(0x104); u8 before[PAGE]; memcpy(before,host_flash+SET_A,PAGE);
   keys("...n...c"); tama_number(0); assert(!g_seq[g_pos] && !memcmp(before,host_flash+SET_A,PAGE));
@@ -276,7 +310,7 @@ int main(int argc,char **argv){
   assert(argc==2 || argc==4); g_dir=argv[1]; host_flash=malloc(0x1000000); assert(host_flash);
   fields(0x104); fields(0x108); fields(0x114);
   body_stages(0x104); body_stages(0x108); body_stages(0x114);
-  appearance_cancel(0x104); appearance_cancel(0x108); appearance_cancel(0x114); appearance_hints(); ui(); progress_level(); progress_colors(); progress_unlocks();
+  appearance_cancel(0x104); appearance_cancel(0x108); appearance_cancel(0x114); appearance_hints(); neon_pet(); ui(); progress_level(); progress_colors(); progress_unlocks();
   mission_unlocks(0x104u,0); mission_unlocks(0x108u,0); mission_unlocks(0x114u,12u);
   if(argc==4) real_appearance(argv[2],(u32)strtoul(argv[3],0,0));
   free(host_flash);

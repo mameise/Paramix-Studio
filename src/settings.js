@@ -31,6 +31,7 @@ const PROFILES = [
   { table: 0xA4FFC, original: [28,70,0,27,71,0,26,0,0], ptr: 0x582CC, select: 0x583A6, next: 0x33CFC, scene: 0x138CC, stateSite: 0x138D6, state: 0x18001CB4, lang: 113, settings: 55, date: 114, inline: true },
   { table: 0x91A68, original: [28,68,0,27,69,0,26,0,0], ptr: 0x525E0, select: 0x526BA, next: 0x30448, scene: 0x8E948, stateSite: 0x1CCF6, state: 0x18001BF4, lang: 109, settings: 54, date: 110, inline: false },
   { table: 0x8C7F0, original: [28,67,0,27,68,0,26,0,0], ptr: 0x5061C, select: 0x506F6, next: 0x2F104, scene: 0x8A430, stateSite: 0x1CA8E, state: 0x18001BF4, lang: 106, settings: 53, date: 107, inline: false },
+  { table: 0xA6A4C, original: [28,73,0,27,74,0,26,0,0], ptr: 0x589A4, select: 0x58A7E, next: 0x34994, scene: 0x13A5C, stateSite: 0x13A66, state: 0x1800136C, lang: 113, settings: 58, date: 114, inline: true },
 ];
 const U = (b,o) => (b[o] | b[o+1]<<8 | b[o+2]<<16 | b[o+3]<<24) >>> 0;
 const H = (b,o) => b[o] | b[o+1]<<8;
@@ -76,7 +77,7 @@ function readMarker(b,page) {
   const magic=String.fromCharCode(...b.subarray(page+0x80,page+0x88));
   if(magic!=='ZHLANG01' && magic!=='ZHLANG02')return null;
   const v=magic==='ZHLANG02'?2:1,info={page,profileIndex:U(b,page+0x94),languageLabel:U(b,page+0x90),flags:v===2?U(b,page+0xA0):1,paramixLabel:v===2?U(b,page+0xA4):ABSENT,stub:v===2?U(b,page+0xA8):0,version:v};
-  if(U(b,page+0x88)!==v || U(b,page+0x8C)!==page || U(b,page+0x98)!==PAGE || info.profileIndex>=3 || U(b,page+0x9C)!==sum(b,page,page+0x80) || !info.flags || info.flags>3 ||
+  if(U(b,page+0x88)!==v || U(b,page+0x8C)!==page || U(b,page+0x98)!==PAGE || info.profileIndex>=(v===1?3:PROFILES.length) || U(b,page+0x9C)!==sum(b,page,page+0x80) || !info.flags || info.flags>3 ||
      ((info.flags&1)?info.languageLabel===ABSENT:info.languageLabel!==ABSENT) || ((info.flags&2)?(!info.stub || info.paramixLabel===ABSENT):(info.stub!==0 || info.paramixLabel!==ABSENT)))throw new Error('damaged Settings patch metadata');
   if(v===2 && (U(b,page+0xAC)!==sum(b,page,page+0xAC) || !blank(b,page+0xB0,page+PAGE)))throw new Error('damaged Settings patch reservation');
   if(v===1 && !blank(b,page+0xA0,page+PAGE))throw new Error('damaged legacy Settings patch reservation');
@@ -99,7 +100,7 @@ function inspect(b) {
     const info={page,profileIndex:i,flags:1,languageLabel:U(b,page+36),paramixLabel:ABSENT,stub:0,version:0};
     if(validPatch(b,info))return info;
   }
-  for(let i=0;i<3;i++){const p=PROFILES[i];if(sources(p,b) && originalEdits(p).every(([a,v])=>same(b,a,v)))return {original:true,profileIndex:i,flags:0,page:0,languageLabel:ABSENT,paramixLabel:ABSENT,stub:0};}
+  for(let i=0;i<PROFILES.length;i++){const p=PROFILES[i];if(sources(p,b) && originalEdits(p).every(([a,v])=>same(b,a,v)))return {original:true,profileIndex:i,flags:0,page:0,languageLabel:ABSENT,paramixLabel:ABSENT,stub:0};}
   return null;
 }
 function reservations(b) {
@@ -111,6 +112,7 @@ function reservations(b) {
     if(catAt){if(U(b,catAt)!==0x54414350 || U(b,catAt+4)!==count)throw new Error('invalid Paramix catalog');let end=catAt+8+count*28;if(U(b,end)===0x54584550)end+=4+12*count;if(U(b,end)===0x56525054){let n=U(b,end+12),size=U(b,end+8);if(n>256 || size>128)throw new Error('invalid preview catalog');end+=24+n*size;}add(catAt,end-catAt);}
     const slots=U(b,c+16),size=U(b,c+12),first=U(b,c+8),second=U(b,c+364),split=U(b,c+368);if(slots>6 || (slots && (size<8192 || size%PAGE || split>slots || (second && !split))))throw new Error('invalid Paramix slots');
     for(let i=0;i<slots;i++)add(second && i>=split?second+(i-split)*size:first+i*size,size);
+    if(U(b,c+36)&0x1000){if(first!==0xD25000 || size!==0x20000 || slots!==3 || second || split)throw new Error('invalid Neon save reservation');add(first-2*PAGE,2*PAGE);}
     if(version>=11){const a=U(b,c+612),n=U(b,c+616);if(a || n){if(a<0xF00000 || a%PAGE || a>=0xFF0000 || !n || n>(0xFF0000-a)/PAGE)throw new Error('invalid Paramix extra pool');add(a,n*PAGE);}}
     const id=U(b,c+28);if(id<PAGE || id>b.length-PAGE)throw new Error('invalid Paramix ID page');ranges.push([id-PAGE,b.length]);
     const apps=version>=5?U(b,c+392):0;if(apps>(version>=8?12:6))throw new Error('invalid Paramix apps');

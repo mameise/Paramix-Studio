@@ -90,6 +90,15 @@ let six = fs.readFileSync(__dirname + '/src/six.js', 'utf8');
   six = six.replace('__SIX_B64__', binary('six')).replace('__BOOK_B64__', binary('book'));
 }
 if (six.includes('</script')) throw new Error('script end tag inside source');
+const lz4 = fs.readFileSync(__dirname + '/six/experimental-lz4/patch.js', 'utf8')
+  .replace("'__LEGACY_LZ4_B64__'", JSON.stringify(fs.readFileSync(__dirname + '/six/experimental-lz4/helper.bin').toString('base64')));
+const growth = __dirname + '/six/experimental-neon/growth.bin';
+const neon = fs.readFileSync(__dirname + '/six/experimental-neon/transplant.js', 'utf8')
+  .replace("'__NEON_GROWTH_B64__'", JSON.stringify(fs.readFileSync(growth).toString('base64')));
+for (const [name, source] of [['legacy LZ4', lz4], ['Neon transplant', neon]]) {
+  if (source.includes('</script')) throw new Error('script end tag inside ' + name);
+  new Function(source);
+}
 // Flash app for the device tab (our own code, source in flash/src)
 let flash = fs.readFileSync(__dirname + '/src/flash.js', 'utf8');
 {
@@ -116,7 +125,7 @@ if (flash.includes('</script')) throw new Error('script end tag inside source');
 if (feld.includes('</script')) throw new Error('script end tag inside source');
 if (doom.includes('</script')) throw new Error('script end tag inside source');
 if (core.includes('</script') || app.includes('</script') || emu.includes('</script')) throw new Error('script end tag inside source');
-html = html.replace('__CORE__', () => core).replace('__SETTINGS__', () => settings).replace('__HOME_MENU__', () => homeMenu).replace('__EMU__', () => emu).replace('__DOOM__', () => doom).replace('__FELD__', () => feld).replace('__SIX__', () => six).replace('__FLASH__', () => flash).replace('__SAVES__', () => saves).replace('__VISIT__', () => visit).replace('__WOLF__', () => wolf).replace('__APP__', () => app).split('__VERSION__').join('v' + v);
+html = html.replace('__CORE__', () => core).replace('__SETTINGS__', () => settings).replace('__HOME_MENU__', () => homeMenu).replace('__EMU__', () => emu).replace('__DOOM__', () => doom).replace('__FELD__', () => feld).replace('__SIX__', () => six).replace('__LEGACY_LZ4__', () => lz4).replace('__NEON_TRANSPLANT__', () => neon).replace('__FLASH__', () => flash).replace('__SAVES__', () => saves).replace('__VISIT__', () => visit).replace('__WOLF__', () => wolf).replace('__APP__', () => app).split('__VERSION__').join('v' + v);
 fs.mkdirSync(__dirname + '/dist', { recursive: true });
 fs.writeFileSync(__dirname + '/dist/ParamixStudio.html', html);
 fs.writeFileSync(__dirname + '/dist/index.html', html);

@@ -221,12 +221,15 @@
   function collectRomVisitors(ctx, core) {
     if (!ctx?.files?.[0]) return [];
     const pack = ctx.files[0], poses = core.paraLayers(pack), text = core.textTablesOf(ctx.rom);
-    const characters = core.charTable(pack).filter(({ id }) => id > 1000 && id < 9000);
-    if (!poses || !text || characters.length + 1 !== ctx.groups.length) return [];
+    if (!poses || !text) return [];
     const groups = new Map();
-    const visitors = characters.map((character, index) => {
-      const group = ctx.groups[index + 1], frames = GHOST_POSES.map((count) => Array(count).fill(null));
-      groups.set(group, frames[0]); groups.set(group + 3, frames[1]);
+    const visitors = core.characterSprites(ctx).map((character) => {
+      const { group } = character;
+      if (!groups.has(group)) {
+        const frames = GHOST_POSES.map(count => Array(count).fill(null));
+        groups.set(group, frames[0]); groups.set(group + 3, frames[1]);
+      }
+      const frames = [groups.get(group), groups.get(group + 3)];
       const names = text.tabs.slice(0, 9).map((table) => core.txtWords(table, character.name).slice(0, 12));
       return { character, group, frames, names, pack, entries: ctx.entries };
     });

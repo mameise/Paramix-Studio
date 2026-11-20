@@ -2,7 +2,7 @@
  * Paramix Studio: save games in and out of the Paradise.
  *
  * Paradise: the game keeps its progress in the flash after the edition ID page
- * (0xD4A000, Tropical/Glacier 0xD2A000) up to 0xF00000. Exported as a
+ * (0xD4A000, Tropical/Glacier 0xD2A000, Neon Planet 0xD86000) up to 0xF00000. Exported as a
  * .tamasave (format 3 of the TamaParadise app): every page of that region,
  * the seconds counter of the device and an armed wake alarm, so the app
  * continues instead of starting like a fresh battery. Behind the pages a
@@ -21,14 +21,32 @@
 const PAGE = 0x1000;
 const MAGIC = 'TAMASAVE', VERSION = 3, TRAILER = 0x45584D50;   // "PMXE"
 const SET_A = 0xEFE000, SET_B = 0xEFF000, REGION_END = 0xF00000;
+const NEON_SETTINGS = [0xD86000, 0xD87000, 0xD88000, 0xD89000, 0xD8A000];
+const NEON_GENERATION = 0xAD0;
+const NEON_POINTS = 0xC0;
+const NEON_LEVEL = 0x88;
+const NEON_MISSION_FLAGS = [0xF8, 0xFC, 0x100];
+// [save offset, target, optional bitmap byte count]; mission 13 is a u32 counter.
+const NEON_MISSIONS = [
+  [0xC4, 500], [0xC6, 500], [0xC8, 100], [0xCA, 100], [0xCC, 100], [0xCE, 1000],
+  [0xD0, 10], [0xD2, 7, 1], [0xD4, 50], [0xD6, 50], [0xD8, 100], [0xDA, 50],
+  [0xDC, 100], [0xE0, 99999], [0xE4, 50], [0xE6, 50], [0xE8, 18, 3],
+  [0xEB, 12, 2], [0xED, 16, 2], [0xEF, 16, 2], [0xF1, 16, 2], [0xF3, 16, 2],
+];
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);
 const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
 function w32(b, o, v) { b[o] = v & 255; b[o + 1] = (v >>> 8) & 255; b[o + 2] = (v >>> 16) & 255; b[o + 3] = (v >>> 24) & 255; }
 
 /** Edition 5/6 (Tropical, Glacier) keep their ID page lower. */
-function idPage(edition) { return edition === 5 || edition === 6 ? 0xD29000 : 0xD49000; }
+function idPage(edition) { return edition === 7 ? 0xD85000 : edition === 5 || edition === 6 ? 0xD29000 : 0xD49000; }
 function region(edition) { return [idPage(edition) + PAGE, REGION_END]; }
-function family(edition) { return edition === 5 || edition === 6 ? 'gen3' : edition === 4 ? 'jade' : 'gen1'; }
+function paraClear(rom, edition) {
+  if (rom.length !== 0x1000000 || !Number.isInteger(edition) || edition < 1 || edition > 7)
+    throw new Error('expected a Paradise ROM with a known save layout');
+  const [start, end] = region(edition);
+  return new Uint8Array(rom).fill(0xFF, start, end);
+}
+function family(edition) { return edition === 7 ? 'neon' : edition === 5 || edition === 6 ? 'gen3' : edition === 4 ? 'jade' : 'gen1'; }
 
 /* Settings block: CRC-16/ARC over bytes 4..4095 at 0, its inverse at 2. */
 function crc16arc(d, from, to) {
@@ -37,6 +55,23 @@ function crc16arc(d, from, to) {
   return c;
 }
 function settingsOk(p) { const c = crc16arc(p, 4, PAGE); return u16(p, 0) === c && u16(p, 2) === (~c & 0xFFFF); }
+
+function sealSettings(page) {
+  const crc = crc16arc(page, 4, PAGE);
+  w32(page, 0, crc | ((~crc & 0xFFFF) << 16));
+}
+
+/** The native boot scan picks the highest unsigned generation, with later pages winning ties. */
+function neonSettings(pages) {
+  let active = null;
+  for (const [index, address] of NEON_SETTINGS.entries()) {
+    const page = pages.get(address);
+    if (!page || page.length !== PAGE || !settingsOk(page)) continue;
+    const generation = u32(page, NEON_GENERATION);
+    if (!active || generation >= active.generation) active = { index, page, generation };
+  }
+  return active;
+}
 
 // ---------------------------------------------------------------- Paradise
 /** Pages of the save region from a 16 MB image (all of them, empty ones too). */
@@ -120,10 +155,13 @@ function paraCheck(save, edition) {
     pages.set(p, d);
   }
   if (outside) warnings.push({ code: 'saveOutside', p: { n: outside } });
-  const sa = pages.get(SET_A), sb = pages.get(SET_B);
-  const set = sa && settingsOk(sa) ? sa : sb && settingsOk(sb) ? sb : null;
-  if (!set) errors.push({ code: 'saveNoSettings' });
-  else if ((u16(set, 12) === 0x016D) !== (family(edition) === 'gen3')) errors.push({ code: 'saveFamily' });
+  const neon = edition === 7, settings = neon ? NEON_SETTINGS : [SET_A, SET_B];
+  const set = neon ? neonSettings(pages)?.page : settings.map(a => pages.get(a)).find(p => p && settingsOk(p));
+  // Restoring only some ring pages can leave a newer copy of the previous
+  // settings on the device. A snapshot must include the whole ring.
+  if (!set || (neon && !settings.every(a => pages.has(a)))) errors.push({ code: 'saveNoSettings' });
+  // +0x0C is a calendar value on Neon; it cannot identify the edition.
+  else if (!neon && (u16(set, 12) === 0x016D) !== (family(edition) === 'gen3')) errors.push({ code: 'saveFamily' });
   let complete = true;
   for (let p = a; p < b; p += PAGE) if (!pages.has(p)) { complete = false; break; }
   if (!complete) warnings.push({ code: 'saveIncomplete' });
@@ -133,6 +171,102 @@ function paraCheck(save, edition) {
 function paraClock(save, now = Math.floor(Date.now() / 1000)) {
   if (!save.counter || !save.stamp) return null;
   return (save.counter + Math.max(0, now - save.stamp)) >>> 0;
+}
+
+function neonProgress(save) {
+  if (save.edition && save.edition !== 7) return null;
+  if (!NEON_SETTINGS.every(address => save.pages.get(address)?.length === PAGE)) return null;
+  const current = neonSettings(save.pages);
+  if (!current) return null;
+  const page = current.page;
+  const flags = u32(page, NEON_MISSION_FLAGS[0]);
+  const id = u16(page, 0x118), stage = (page[0x12C] >> 2) & 7;
+  return {
+    points: u32(page, NEON_POINTS),
+    level: page[NEON_LEVEL] & 15,
+    id, stage, canCare: id >= 1001 && id <= 4999 && stage >= 2 && stage <= 5,
+    hunger: page[0x130], happy: page[0x131], sick: page[0x124],
+    missions: NEON_MISSIONS.map(([, target], index) => ({
+      target, count: neonMissionCount(page, index), complete: !!(flags & (1 << index)),
+    })),
+  };
+}
+
+function neonSaveLayout(rom) {
+  const getter = [0x40,0xF2,0x94,0x20,0xC1,0xF6,0x00,0x00,0xD0,0xF8,0xBC,0x00,0x70,0x47];
+  return rom.length === 0x1000000 && getter.every((byte, index) => rom[0x229C0 + index] === byte)
+    && NEON_MISSIONS.every(([, target], index) => u32(rom, 0xA6D24 + index * 4) === target);
+}
+
+function neonMissionCount(page, index) {
+  const [offset, , bytes] = NEON_MISSIONS[index];
+  if (!bytes) return index === 13 ? u32(page, offset) : u16(page, offset);
+  let count = 0;
+  for (let i = 0; i < bytes; i++) {
+    for (let value = page[offset + i]; value; value &= value - 1) count++;
+  }
+  return count;
+}
+
+function neonMissionSet(page, mission) {
+  const { index, complete } = mission;
+  if (!Number.isInteger(index) || !NEON_MISSIONS[index] || typeof complete !== 'boolean') throw new Error('invalid Neon mission');
+  const mask = 1 << index;
+  // Preserve the game's unclaimed reward for a mission that was already completed.
+  if (complete && (u32(page, NEON_MISSION_FLAGS[0]) & mask)) return;
+  const [offset, target, bytes] = NEON_MISSIONS[index];
+  const current = neonMissionCount(page, index);
+  const next = complete ? Math.max(current, target) : Math.min(current, target - 1);
+  if (bytes) {
+    let count = current;
+    for (let i = 0; i < bytes * 8 && count !== next; i++) {
+      const bit = complete ? i : bytes * 8 - 1 - i;
+      const at = offset + (bit >> 3), flag = 1 << (bit & 7);
+      if (complete && !(page[at] & flag)) { page[at] |= flag; count++; }
+      if (!complete && (page[at] & flag)) { page[at] &= ~flag; count--; }
+    }
+  } else if (index === 13) {
+    w32(page, offset, next);
+  } else {
+    page[offset] = next & 255;
+    page[offset + 1] = next >>> 8;
+  }
+  for (const at of NEON_MISSION_FLAGS) {
+    const flags = u32(page, at);
+    w32(page, at, complete ? flags | mask : flags & ~mask);
+  }
+}
+
+function neonProgressSet(save, changes) {
+  const progress = neonProgress(save);
+  if (!progress) throw new Error('the Neon settings ring is missing or damaged');
+  const current = neonSettings(save.pages);
+  const page = new Uint8Array(current.page);
+  if (changes.points !== undefined) {
+    const points = changes.points;
+    if (!Number.isInteger(points) || points < 0 || points > 99999) throw new Error('Tamapoints must be between 0 and 99999');
+    w32(page, NEON_POINTS, points);
+  }
+  if (changes.level !== undefined) {
+    const level = changes.level;
+    if (!Number.isInteger(level) || level < 0 || level > 10) throw new Error('Galaxy level must be between 0 and 10');
+    if (level !== (page[NEON_LEVEL] & 15)) page[NEON_LEVEL] = level * 0x11;
+  }
+  if (changes.mission) neonMissionSet(page, changes.mission);
+  if (changes.care) {
+    if (!progress.canCare) throw new Error('the save has no active Tama to care for');
+    page[0x130] = 6;
+    page[0x131] = 20;
+    page[0x124] = 0;
+    page[0x128] &= ~0x10;
+  }
+  if (page.every((byte, index) => byte === current.page[index])) return save;
+  if (current.generation === 0xFFFFFFFF) throw new Error('the Neon settings generation cannot be advanced');
+  w32(page, NEON_GENERATION, current.generation + 1);
+  sealSettings(page);
+  const pages = new Map(save.pages);
+  pages.set(NEON_SETTINGS[(current.index + 1) % NEON_SETTINGS.length], page);
+  return { ...save, edition: 7, pages };
 }
 
 // ---------------------------------------------------------------- change a Paradise save (1.6.8)
@@ -174,7 +308,7 @@ function paraPetSet(save, edition, ch) {
     if (TAMA_ANY && old && old !== ch.id && !found) throw new Error('the Tama\'s own file is not in the save, the Tama would not change');
   }
   if (ch.care) { p[t + 0x1C] = 6; p[t + 0x1D] = 20; p[t + 0x10] = 0; }
-  const c = crc16arc(p, 4, PAGE); p[0] = c & 255; p[1] = c >> 8; p[2] = ~c & 255; p[3] = (~c >> 8) & 255;
+  sealSettings(p);
   pages.set(SET_A, p); pages.set(SET_B, p.slice());
   return Object.assign({}, save, { pages });
 }
@@ -300,6 +434,6 @@ function t7SaveIn(img, save, base = 0xC0000) {
   return out;
 }
 
-root.ParamixSaves = { paraPet, paraPetSet, paraWrite, t7SaveOut, t7SaveIn, t7SaveCheck, T7_EE, idPage, region, family, settingsOk, crc16arc, paraFromImage, paraEncode, paraDecode, paraCheck, paraClock, emuCfg, emuGuestAsync, lzGoneApply, KINDS };
+root.ParamixSaves = { paraPet, paraPetSet, neonSaveLayout, neonSettings, neonProgress, neonProgressSet, paraClear, paraWrite, t7SaveOut, t7SaveIn, t7SaveCheck, T7_EE, idPage, region, family, settingsOk, crc16arc, paraFromImage, paraEncode, paraDecode, paraCheck, paraClock, emuCfg, emuGuestAsync, lzGoneApply, KINDS };
 if (typeof module !== 'undefined') module.exports = root.ParamixSaves;
 })(typeof window !== 'undefined' ? window : globalThis);

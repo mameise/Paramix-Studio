@@ -169,31 +169,9 @@ function lzOk(dev, b) {
   const D = DEVICES[dev]; if (!D || !LZ_WARM[dev] || b === D.par || (HOT[dev] || []).includes(b) || LZ_WARM[dev].includes(b)) return false;
   return !(DLC_DEV[dev] || []).some((k) => b >= k.base >> 16 && b <= (k.base + k.n * k.size - 1) >> 16);
 }
-/* LZ4 block (sequences: token, literals, offset, match; the last one only literals), hash chains */
 function lzEnc(src) {
-  const n = src.length, out = [], head = new Int32Array(4096).fill(-1), prev = new Int32Array(n).fill(-1);
-  const h4 = (i) => ((src[i] | src[i + 1] << 8 | src[i + 2] << 16 | src[i + 3] << 24) * 2654435761 >>> 20) & 4095;
-  const put = (v) => { while (v >= 255) { out.push(255); v -= 255; } out.push(v); };
-  let i = 0, lit = 0;
-  const emit = (ml, off) => {
-    const ll = i - lit, t = out.length; out.push(((ll >= 15 ? 15 : ll) << 4) | (ml ? (ml - 4 >= 15 ? 15 : ml - 4) : 0));
-    if (ll >= 15) put(ll - 15);
-    for (let k = lit; k < i; k++) out.push(src[k]);
-    if (ml) { out.push(off & 255, off >> 8); if (ml - 4 >= 15) put(ml - 19); }
-    void t;
-  };
-  const ins = (p) => { if (p + 4 <= n) { const h = h4(p); prev[p] = head[h]; head[h] = p; } };
-  while (i + 4 <= n) {
-    let best = 0, bo = 0;
-    for (let c = head[h4(i)], d = 0; c >= 0 && d < 256; c = prev[c], d++) {
-      let l = 0; while (i + l < n && src[c + l] === src[i + l]) l++;
-      if (l > best) { best = l; bo = i - c; if (i + l === n) break; }
-    }
-    if (best >= 4) { emit(best, bo); for (let k = 0; k < best; k++) ins(i + k); i += best; lit = i; }
-    else { ins(i); i++; }
-  }
-  i = n; emit(0, 0);
-  return new Uint8Array(out);
+  const C = root.ParamixCore || require('./core.js');
+  return C.lzEnc(src);
 }
 function lzDec(s, n) {
   const d = new Uint8Array(n); let ip = 0, op = 0;
@@ -1672,16 +1650,19 @@ function appsPlace0(rom, extras, app, opts = {}) {
   const apps = app instanceof Uint8Array ? { t7: app } : app;
   const out = new Uint8Array(rom), list = [], res = appReserved(out).concat(opts.keep || []);
   if (extras.length > APPX_MAX) throw new Error('at most ' + APPX_MAX + ' more programs');
+  const core = root.ParamixCore || (typeof require === 'function' ? require('./core.js') : null);
+  const neon = !opts.clean && core && core.editionIdOf(rom) === 7;
   let top = GUEST_END;
   // launcher ROM (1.6.8): anywhere free between the setup pictures and 0xD40000, from the top down
-  const floor = opts.clean ? 0x10000 : opts.launch ? Math.max(0x200000, (assetEnd(out) + 0xFFFF) & ~0xFFFF) : GUEST_OFF;
-  const ceil = opts.clean ? 0xFF0000 : opts.launch ? Math.min(GUEST_END, idPageOf(out)) : GUEST_END;   // never into the Paradise's save (Tropical/Glacier: from 0xD29000)
-  if (opts.launch) top = ceil;
+  const scan = !!opts.launch || neon;
+  const floor = opts.clean ? 0x10000 : scan ? Math.max(0x200000, (assetEnd(out) + 0xFFFF) & ~0xFFFF) : GUEST_OFF;
+  const ceil = opts.clean ? 0xFF0000 : neon ? 0xD85000 : opts.launch ? Math.min(GUEST_END, idPageOf(out)) : GUEST_END;
+  if (scan) top = ceil;
   const fits = (at, size) => at >= floor && at + size <= ceil && isFF(out, at, size) && !res.some(([a, b]) => a < at + size && b > at);
-  const find = (size, align) => { let at = ((APPS_PACK && opts.launch ? ceil : top) - size) & ~(align - 1); if (opts.launch || align > 0x10000) while (at >= floor && !fits(at, size)) at -= align; return fits(at, size) ? at : -1; };
+  const find = (size, align) => { let at = ((APPS_PACK && scan ? ceil : top) - size) & ~(align - 1); if (scan || align > 0x10000) while (at >= floor && !fits(at, size)) at -= align; return fits(at, size) ? at : -1; };
   // start device (1.6.8): the Paradise never writes behind its save (0xF00000..0xFFFFFF); without T18Emu (it takes that
   // MB itself) programs that fit go there first
-  const hiOk = !!opts.launch && !opts.clean && !extras.some((x) => extraKind(x) === 't18') && u32(out, APP_OFF + 0x140) !== T18_MAGIC;
+  const hiOk = !!opts.launch && !opts.clean && !neon && !extras.some((x) => extraKind(x) === 't18') && u32(out, APP_OFF + 0x140) !== T18_MAGIC;
   const hiEnd = RESCUE_RES && !opts.noResv ? RESCUE_BLK << 16 : 0x1000000;   // test13: the rescue start's block stays free
   const fitsHi = (at, size) => at >= 0xF00000 && at + size <= hiEnd && isFF(out, at, size) && !res.some(([a, b]) => a < at + size && b > at);
   const findHi = (size, align) => { if (!hiOk) return -1; let at = (hiEnd - size) & ~(align - 1); while (at >= 0xF00000 && !fitsHi(at, size)) at -= align; return fitsHi(at, size) ? at : -1; };

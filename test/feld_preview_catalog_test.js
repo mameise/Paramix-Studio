@@ -46,3 +46,24 @@ assert.throws(() => F.feldApply(rom, { fields: true, tama: true }, [], emb, E), 
 assert.throws(() => F.feldApply(rom, { fields: true, tama: true, paramixShortcut: false }, [], emb, E), /Settings patch code/);
 b[p + 0x9C] ^= 1; assert.throws(() => F.languagePatchPages(rom), /damaged language/);
 console.log('PASS: padded ARC2 preview indices and language-patch page preservation');
+
+// Optional real Edition 7 ROM exercises the shared-animation character index
+// and the exact native appearance routine fingerprint.
+if (process.argv[2]) {
+  const neon = new Uint8Array(fs.readFileSync(process.argv[2]));
+  assert.equal(F.neonAppearance(neon), 'stock');
+  const patch = { appsOnly: true, neonTama: true };
+  const out = F.feldApply(neon, patch, [], emb, E);
+  const f = F.feldFind(out, emb.stub), v = new DataView(out.buffer);
+  assert.ok(f.flags & F.F_NEON_TAMA);
+  assert.equal(F.neonAppearance(out), 'patched');
+  const previews = f.catOff + 12 + 40 * f.catN;
+  assert.equal(v.getUint32(previews, true), 0x56525054);
+  assert.equal(v.getUint32(previews + 12, true), f.catN);
+  const chars = Array.from({ length: f.catN }, (_, i) => v.getUint16(previews + 24 + 72 * i, true));
+  assert.ok([1001, 4022, 4152, 4721].every(id => chars.includes(id)));
+  assert.deepEqual(F.feldStrip(out, emb, E), neon);
+  const wrong = neon.slice(); wrong[0x4902C] ^= 1;
+  assert.throws(() => F.feldApply(wrong, patch, [], emb, E), /appearance routine/);
+  console.log('PASS: Neon pet previews, verified appearance hook and reversible install');
+}

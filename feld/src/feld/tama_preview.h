@@ -32,6 +32,10 @@ static int tp_decode(u32 n,u32 cap,u32 flags){
     if(n!=cap) return 0; for(;o<cap;o++) g_spr[o]=TP_BYTE(o); return 1;
   }
   if((flags&0x60u)==0x60u) return 0;
+  if(xr && !(flags&0x40u)){
+    int lz4=spr_legacy_lz4(g_spr,g_pic,n,cap);
+    if(lz4>=0) return lz4;
+  }
   while(o<cap){
     u32 run,lit,unit=flags&0x40u?4u:1u;
     if(i+unit>n) return 0;

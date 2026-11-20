@@ -7,6 +7,8 @@ const E = window.ParamixEmu;
 const D = window.ParamixDoom;
 const F = window.ParamixFeld;
 const S6 = window.ParamixSix;
+const LZ = window.ParamixLegacyLz4;
+const NT = window.ParamixNeonTransplant;
 const $ = (id) => document.getElementById(id);
 
 // New/legacy ROMs start unchecked; retain an actually installed shortcut.
@@ -22,6 +24,11 @@ function paramixShortcutOf(rom, menu) {
 // ------------------------------------------------------------------ texts
 const T = {
   de: {
+    neonBagUnavailable: 'Das Inventarformat dieser Neon-Planet-Firmware ist unbekannt.',
+    paraClear: 'Aktiven ROM-Spielstand löschen', paraClearAsk: 'Den aktiven Paradise-Spielstand im geladenen ROM löschen?', paraClearDone: 'Aktiver Spielstand gelöscht. Speichere das ROM als neue Datei.', paraClearPending: 'Schliesse zuerst die Spielstand-Wiederherstellung im Paramix-Menü ab.',
+    neonDonorPick: 'Neon-Planet-ROM wählen', neonDonorHint: 'Ergänzt 86 Tama aus Neon Planet. Die sechs spielbaren Felder bleiben.', neonDonorReady: 'Tama-Quelle: {name}', neonDonorBad: 'Dieses ROM ist kein unterstütztes Neon Planet.', neonDonorNeedsSix: 'Wähle zusätzlich ein Land-, Water- oder Sky-ROM.', neonDonorFail: 'Neon-Tama konnten nicht eingebaut werden: {e}', neonDonorOn: 'Neon-Tama', neonLocalizeHint: 'Übernimmt die originalen Planetennamen in allen Sprachen.',
+    appsOnlyOn: 'Programmmenü', appsOnlyHint: 'Paramix neben dem normalen Neon-Planet-Spiel öffnen. Enthält Programme und das Flash-Werkzeug.', neonSaves: 'Drei Neon-Spielstände', neonSaveFields: 'Neue Spielstände starten mit der Original-Einrichtung. Das Spiel schaltet Felder mit dem Fortschritt frei.', neonSaveFull: 'Für einen Neon-Spielstand im Menü ist eine vollständige .tamasave-Datei erforderlich.',
+    neonTamaOn: 'Tama im Programmmenü (Pflege, Aussehen, Alter)', petPoints: 'Tamapoints', petMission: 'Mission', petMissionAction: 'Abschluss', petMissionComplete: 'Als erledigt markieren', petMissionReset: 'Abschluss zurücksetzen',
     open: 'ROM öffnen', save: 'Neues ROM speichern',
     startTitle: 'Mehr aus deinem Tamagotchi Paradise',
     startText: 'Paramix Studio baut dein eigenes Paradise-ROM um. Lade dein Paradise-Abbild (16 MB Flash-Dump) oder lies es direkt vom Gerät aus, wähl aus, was dazukommen soll, und schreib das neue ROM zurück.',
@@ -130,7 +137,7 @@ const T = {
     emuGone: 'Emulator wird beim Speichern entfernt.', emuMissing: 'In dieser Ausgabe fehlt das Emulator-Programm.',
     emuFail: 'Emulator nicht eingebaut: {e}', savedEmu: 'Gespeichert: {name}',
     t18Pics: 'Bilder für Erwachsen', t18PicsPick: 'Bilder wählen', t18PicsDel: 'Bilder entfernen', t18PicsOk: '{n} Bilder übernommen.', t18PicsUnknown: '{f}: unbekannter Name', t18PicsHint: 'Am Gerät zeigt Erwachsen dann das Bild der Wahl. PNG-Dateien, Name = Figur (z.B. Mametchi.png, Kuchipatchi.png) oder ihre Nummer (16.png). Der Ordner erwachsen aus dem Android-T18Emu geht auch: alle Dateien samt erwachsen.json wählen. Jede Grösse, wird auf 64x64 verkleinert.', t18Items: 'Items', t18ItemsPick: 'MyMeets-Dateien wählen', t18ItemsNoSave: 'Items gehen, sobald das Spiel einmal gelaufen ist (ROM vom Gerät lesen).', t18ItemsHint: 'Items, Raum und Tamapoints kommen in den Spielstand des Spiels. Beim Schreiben ersetzt das den Spielstand von T18Emu auf dem Gerät, auch mit «Spielstände behalten». Das Tama bleibt, der laufende Stand fängt neu an.', t18ItemsNone: 'Keine Items in den Dateien gefunden.', t18ItemsOther: '{n} ist für {m}, nicht für die Meets/On. Ob es dort geht, ist nicht sicher.', t18ItemsFull: 'kein Platz mehr', mmTitle: 'MixingMeets (Besuch, Heirat)', uartBusy: 'Paramix Studio ist noch mit dem Dongle verbunden. So lange geht die Brücke nicht.', uartFree: 'UART freigeben', uartFreed: 'Dongle freigegeben. Das Paradise neu starten, damit das Spiel wieder läuft.', uartRun: 'Erst warten, bis das Gerät fertig ist.', pairTitle: 'Zwei Paradise verbinden (Besuch, Spiel)', pairHint: 'Beide Paradise oben zusammenstecken, an beiden T18Emu starten. Dann an beiden CONNECTION, TAMAGOTCHI und weiter wie bei zwei Tamas.', pairHintDigi: 'Beide Paradise oben zusammenstecken, an beiden V1Emu mit Digimon starten. Dann den Kampf wählen und starten wie bei zwei echten Digimon.', pairHintPs: 'Beide Paradise oben zusammenstecken, an beiden TamaEmu (P\'s) starten. Dann an beiden Verbindung, たまごっちP\'s, あそぶ. Am einen あそびにいく, am anderen ともだちをよぶ, ふたりで, ein Spiel, dann B.', pairHintIdl: 'Beide Paradise oben zusammenstecken, an beiden TamaEmu (iD L) starten. Dann an beiden die Verbindung im Spiel wählen wie bei zwei echten iD L.', pairHintV3: 'Beide Paradise oben zusammenstecken, an beiden V3Emu starten. Dann an beiden die Verbindung im Spiel wählen wie bei zwei echten V3.', pairHintT7: 'Beide Paradise oben zusammenstecken, an beiden T7Emu (Tama-Go) starten. Dann an beiden Verbindung, TAMA-GO, VISIT oder GAME. Am Gerät, das besuchen geht, B drücken.', mmLink: 'Paramix-Brücke', mmDrag: 'In die Lesezeichenleiste ziehen, dann auf mixing-meets.com anklicken.', mmHint: '1. Den Knopf Paramix-Brücke einmal in die Lesezeichenleiste ziehen (Chrome oder Edge).\n2. Paramix Studio vom Dongle trennen (UART freigeben oder das Studio schliessen). Dongle an die Kontakte wie beim Flashen. Am Tama: CONNECTION, APP, VISIT (zum Zurückholen: A drücken, GO BACK, YES).\n3. Auf mixing-meets.com Connect oder Return öffnen, das Lesezeichen anklicken, dann Select Tamagotchi und den Dongle wählen.\nNach jedem Seitenwechsel das Lesezeichen nochmals anklicken.', t7Gp: 'Gotchi Points', t7GpHint: 'Kommt wie ein eingespielter Spielstand ins ROM: das Tama bleibt, der laufende Stand fängt neu an (am Gerät DOWNLOAD wählen).', t18KeepAsk: 'T18Emu: Items oder Tamapoints geändert. Sein Spielstand auf dem Gerät wird durch den aus dem ROM ersetzt (Stand beim Auslesen), auch mit «Spielstände behalten». Weiter?', t18ItemNo: 'Nr. {n}', t18ItemOk: '{n} liegt jetzt bei {k}.', t18Points: 'Tamapoints', t18A_food: 'Essen', t18A_item: 'Gegenstände', t18A_acc: 'Accessoires', t18A_room: 'Raum', t18RoomBack: 'eigener Raum weg', t18RoomBuiltin: 'eingebauter Raum', dlcPick: 'Download-Inhalte hinzufügen', dlcInfo: 'Belegte Plätze zeigen', progMore: 'Einstellungen und Inhalt', progMakeMain: 'Zum Hauptprogramm machen', progIsMain: 'Hauptprogramm', v1Ok: 'Erstes Tamagotchi oder Digimon erkannt (V1Emu).', v3Ok: 'Tamagotchi Connection V3 erkannt (V3Emu).', v3Use: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Rad kurz: Einstellungen. Zurück: Rad lange drücken.', optVol: 'Lautstärke', optVolN: 'normal', optVolQ: 'leise', optVolL: 'laut', optOff: 'aus', optDim: 'Helligkeit', optScr: 'Bild aus nach', optDev: 'Auch am Gerät: Rad kurz drücken. Dort Geändertes gilt, bis du es hier wieder änderst.', optScrToy: 'wie am Tama', v1Use: 'Starten: auf dem Heimbildschirm A und C zusammen halten. Rad kurz: Einstellungen. Rad drehen: schütteln. Zurück: Rad lange drücken.', progNoMainDoom: 'DOOM ist das Hauptprogramm. Für ein anderes zuerst DOOM entfernen (×).', doomAutoHint: 'Rad 2 s drücken: zurück ins Paradise, es bleibt dort.', progReplaced: '{n} ist jetzt das Hauptprogramm statt {o}.', mainAuto: '{n} ist jetzt der erste Eintrag im Menü, nur so passt alles.', mainNoRoom: 'Als erster Eintrag fehlen etwa {k} KB Platz. Es bleibt wie es war.', appTwice: '{n} ist schon dabei.', progNoMainV1: 'V1Emu startet nur aus dem Menü', progNoMain: 'Geht nur im Startgerät', progMainNow: '{n} ist jetzt das Hauptprogramm. Die Spielstände der getauschten Programme fangen neu an.', dlcLoading: 'Wird gelesen…', dlcNewArea: 'Der Speicher dieses Emulators wird dafür neu eingeteilt. Sein Spielstand fängt nach dem Schreiben neu an.', dlcHint: 'Essen, Kleider, Accessoires, Spiele usw. als .jpg-Download-Dateien oder .zip. Mehrere Dateien auf einmal gehen, bei P\'s einen VDP-Satz immer ganz.', dlcFreeN: '{n} frei', dlcDel: 'entfernen', dlcK0: 'Mahlzeiten', dlcK1: 'Snacks', dlcK2: 'Kleider', dlcK3: 'Accessoires', dlcK4: 'Gegenstände', dlcK5: 'Alltagsdinge', dlcK6: 'Hintergründe', dlcK7: 'Spiele', dlcK8: 'Ausflugsziele', dlcK10: 'VDP-Rezepte', dlcK15: 'Dekorationen', dlcK16: 'Gutscheine', dlcK17: 'Bingo', dlcK18: 'Gashapon', dlcK19: 'Figuren', dlcOk: '{n} liegt jetzt in {k}, Platz {s}.', dlcBad: '{f}: {e}', dlcGone: '{n} entfernt.',
-    figField: 'Feld:', figAll: 'alle', zipField: 'Feld als ZIP', fieldZipOk: '{f}: {n} Figuren und {s} Bilder als ZIP.', fieldIn: 'Feld aus ZIP übernehmen', fieldInBad: 'Kein Feld-ZIP (field.json fehlt).', fieldInOk: '{src} in {dst} übernommen: {n} Teile.', fieldInEyes: '{k} Figuren bleiben original, ihre Augenbilder sind hier zu gross.',
+    figField: 'Feld:', figAll: 'alle', zipField: 'Feld als ZIP', fieldZipOk: '{f}: {n} Figuren und {s} Bilder als ZIP.', fieldIn: 'Feld aus ZIP übernehmen', fieldInBad: 'Kein Feld-ZIP (field.json fehlt).', fieldInOk: '{src} in {dst} übernommen: {n} Teile.', fieldInEyes: '{k} Figuren bleiben original, ihre Augenbilder sind hier zu gross.', fieldInShared: 'Figurengruppe {n} hat unterschiedliche Vorlagen.',
     zipFigs: 'Alle Figuren als ZIP', zipAll: 'Alle Sprites als ZIP', upload: 'Sheets hochladen (PNG oder ZIP)',
     numbers: 'Nummern-Test-ROM',
     figHint: 'Eine Figur besteht aus Körper, Augen und Mund, je gross und klein. Klick auf eine Figur für ihr Sheet.',
@@ -168,6 +175,11 @@ const T = {
     mColorsFig: 'Bleiben alle Farben aus dem Original, färbt das Spiel die Figur weiter je nach Tama um. Neue Farben werden fest (bis 8 Farben plus Umriss).',
   },
   en: {
+    neonBagUnavailable: 'This Neon Planet firmware uses an unrecognized item save layout.',
+    paraClear: 'Clear active ROM save', paraClearAsk: 'Clear the active Paradise save in the loaded ROM?', paraClearDone: 'Active save cleared. Save the ROM as a new file.', paraClearPending: 'Finish recovering the saved game in the Paramix menu first.',
+    neonDonorPick: 'Choose Neon Planet ROM', neonDonorHint: 'Add 86 Neon Planet Tama to the six-field game.', neonDonorReady: 'Tama source: {name}', neonDonorBad: 'Choose a supported Neon Planet ROM.', neonDonorNeedsSix: 'Choose a Land, Water or Sky ROM as well.', neonDonorFail: 'Could not add Neon Tama: {e}', neonDonorOn: 'Neon Tama', neonLocalizeHint: 'Update Tama Files with the original planet names in all languages.',
+    appsOnlyOn: 'Programs menu', appsOnlyHint: 'Open Paramix alongside the Neon Planet game to use programs and the Flash Tool.', neonSaves: 'Three Neon save slots', neonSaveFields: 'New saves use the game’s setup. The game unlocks fields with progress.', neonSaveFull: 'Writing a Neon menu slot requires a complete .tamasave backup.',
+    neonTamaOn: 'Tama in Programs menu (care, appearance, age)', petPoints: 'Tamapoints', petMission: 'Mission', petMissionAction: 'Completion', petMissionComplete: 'Mark complete', petMissionReset: 'Reset completion',
     open: 'Open ROM', save: 'Save new ROM',
     startTitle: 'Get more out of your Tamagotchi Paradise',
     startText: 'Paramix Studio rebuilds your own Paradise ROM. Load your Paradise dump (16 MB flash image) or read it straight from the device, pick what to add, and write the new ROM back.',
@@ -266,7 +278,7 @@ const T = {
     emuGone: 'The emulator is removed on save.', emuMissing: 'This build does not contain the emulator program.',
     emuFail: 'Emulator not built in: {e}', savedEmu: 'Saved: {name}',
     t18Pics: 'Pictures for grow up', t18PicsPick: 'Choose pictures', t18PicsDel: 'Remove pictures', t18PicsOk: '{n} pictures taken.', t18PicsUnknown: '{f}: unknown name', t18PicsHint: 'On the device grow up then shows the picture of the choice. PNG files, name = character (e.g. Mametchi.png, Kuchipatchi.png) or its number (16.png). The folder erwachsen of the Android T18Emu works too: choose all files with erwachsen.json. Any size, scaled to 64x64.', t18Items: 'Items', t18ItemsPick: 'Choose MyMeets files', t18ItemsNoSave: 'Items work once the game has run (read the ROM from the device).', t18ItemsHint: 'Items, room and Tamapoints go into the game\'s save. When written it replaces T18Emu\'s save on the device, even with "Keep saves". The Tama stays, the running state starts anew.', t18ItemsNone: 'No items found in the files.', t18ItemsOther: '{n} is for {m}, not for the Meets/On. It may not work there.', t18ItemsFull: 'no room left', mmTitle: 'MixingMeets (visit, marriage)', uartBusy: 'Paramix Studio is still connected to the dongle. The bridge does not work meanwhile.', uartFree: 'Release UART', uartFreed: 'Dongle released. Restart the Paradise so the game runs again.', uartRun: 'Wait until the device is done.', pairTitle: 'Connect two Paradise (visit, game)', pairHint: 'Plug both Paradise together at the top and start T18Emu on both. Then on both CONNECTION, TAMAGOTCHI and on as with two Tamas.', pairHintDigi: 'Plug both Paradise together at the top and start V1Emu with Digimon on both. Then choose and start the battle as with two real Digimon.', pairHintPs: 'Plug both Paradise together at the top and start TamaEmu (P\'s) on both. Then on both connection, たまごっちP\'s, あそぶ. On one あそびにいく, on the other ともだちをよぶ, ふたりで, a game, then B.', pairHintIdl: 'Plug both Paradise together at the top and start TamaEmu (iD L) on both. Then choose the connection in the game on both as with two real iD L.', pairHintV3: 'Plug both Paradise together at the top and start V3Emu on both. Then choose the connection in the game on both as with two real V3.', pairHintT7: 'Plug both Paradise together at the top and start T7Emu (Tama-Go) on both. Then on both connection, TAMA-GO, VISIT or GAME. Press B on the device that goes visiting.', mmLink: 'Paramix bridge', mmDrag: 'Drag it to the bookmarks bar, then click it on mixing-meets.com.', mmHint: '1. Drag the Paramix bridge button to the bookmarks bar once (Chrome or Edge).\n2. Disconnect Paramix Studio from the dongle (Release UART or close the Studio). Dongle on the contacts as for flashing. On the Tama: CONNECTION, APP, VISIT (to bring it back: press A, GO BACK, YES).\n3. On mixing-meets.com open Connect or Return, click the bookmark, then Select Tamagotchi and choose the dongle.\nClick the bookmark again after every page change.', t7Gp: 'Gotchi Points', t7GpHint: 'Goes into the ROM like an imported save: the Tama stays, the running state starts anew (choose DOWNLOAD on the device).', t18KeepAsk: 'T18Emu: items or Tamapoints changed. Its save on the device is replaced by the one in the ROM (as read), even with "Keep saves". Go on?', t18ItemNo: 'No. {n}', t18ItemOk: '{n} is now in {k}.', t18Points: 'Tamapoints', t18A_food: 'Food', t18A_item: 'Items', t18A_acc: 'Accessories', t18A_room: 'Room', t18RoomBack: 'remove own room', t18RoomBuiltin: 'built-in room', dlcPick: 'Add download content', dlcInfo: 'Show used slots', progMore: 'Settings and content', progMakeMain: 'Make it the main program', progIsMain: 'Main program', v1Ok: 'First Tamagotchi or Digimon recognised (V1Emu).', v3Ok: 'Tamagotchi Connection V3 recognised (V3Emu).', v3Use: 'Start: hold A and C together on the home screen. Wheel short: settings. Back: hold the wheel.', optVol: 'Volume', optVolN: 'normal', optVolQ: 'quiet', optVolL: 'loud', optOff: 'off', optDim: 'Brightness', optScr: 'Screen off after', optDev: 'Also on the device: press the wheel briefly. A change made there applies until you change it here again.', optScrToy: 'as on the Tama', v1Use: 'Start: hold A and C together on the home screen. Wheel short: settings. Turn the wheel: shake. Back: hold the wheel.', progNoMainDoom: 'DOOM is the main program. For another one remove DOOM first (×).', doomAutoHint: 'Hold the wheel for 2 s: back to the Paradise, it stays there.', progReplaced: '{n} is now the main program instead of {o}.', mainAuto: '{n} is now the first entry of the menu, only this way everything fits.', mainNoRoom: 'As the first entry about {k} KB of room are missing. It stays as it was.', appTwice: '{n} is already in.', progNoMainV1: 'V1Emu starts from the menu only', progNoMain: 'Only in a start device', progMainNow: '{n} is now the main program. The saves of the swapped programs start anew.', dlcLoading: 'Reading…', dlcNewArea: 'The memory of this emulator is laid out anew for it. Its save starts anew after writing.', dlcHint: 'Food, clothes, accessories, games etc. as .jpg download files or .zip. Several files at once work, on the P\'s always a whole VDP set.', dlcFreeN: '{n} free', dlcDel: 'remove', dlcK0: 'Meals', dlcK1: 'Snacks', dlcK2: 'Clothing', dlcK3: 'Accessories', dlcK4: 'Items', dlcK5: 'Daily items', dlcK6: 'Wallpapers', dlcK7: 'Games', dlcK8: 'Destinations', dlcK10: 'VDP recipes', dlcK15: 'Decorations', dlcK16: 'Coupons', dlcK17: 'Bingo', dlcK18: 'Gashapon', dlcK19: 'Characters', dlcOk: '{n} now sits in {k}, slot {s}.', dlcBad: '{f}: {e}', dlcGone: '{n} removed.',
-    figField: 'Field:', figAll: 'all', zipField: 'Field as ZIP', fieldZipOk: '{f}: {n} characters and {s} pictures as ZIP.', fieldIn: 'Load field from ZIP', fieldInBad: 'Not a field ZIP (field.json missing).', fieldInOk: '{src} applied to {dst}: {n} parts.', fieldInEyes: '{k} characters stay original, their eye images are too big here.',
+    figField: 'Field:', figAll: 'all', zipField: 'Field as ZIP', fieldZipOk: '{f}: {n} characters and {s} pictures as ZIP.', fieldIn: 'Load field from ZIP', fieldInBad: 'Not a field ZIP (field.json missing).', fieldInOk: '{src} applied to {dst}: {n} parts.', fieldInEyes: '{k} characters stay original, their eye images are too big here.', fieldInShared: 'Character group {n} has conflicting source images.',
     zipFigs: 'All characters as ZIP', zipAll: 'All sprites as ZIP', upload: 'Upload sheets (PNG or ZIP)',
     numbers: 'Number test ROM',
     figHint: 'A character is made of body, eyes and mouth, each large and small. Click a character for its sheet.',
@@ -440,7 +452,8 @@ const entry = (i) => state.changed.get(i) || (state.launch && state.launchMap &&
 /* 1.7.2 CLEAN_ROM: start device without any Paradise code (Menu tab); the menu starts right away, sets the clock
  * itself, and almost the whole flash is for programs */
 const CLEAN_ROM = true;
-const menuWanted = () => !!(state.feld || state.bag || state.tama || state.gplay || state.launch);
+const neonRom = () => state.ctx && state.ctx.editionId === 7 && !state.ctx.clean;
+const menuWanted = () => !!(state.appsOnly || state.feld || state.bag || state.tama || state.gplay || state.launch);
 /* launcher ROM (1.6.8): the small images, computed once per ROM */
 function launchMapGet() { if (!state.launchMap) state.launchMap = C.launcherChanges(state.ctx); return state.launchMap; }
 function decode(i) {
@@ -480,7 +493,7 @@ async function inflateRaw(bytes) {
   return new Uint8Array(out);
 }
 const pad4 = (n) => String(n).padStart(4, '0');
-const baseName = () => state.name.replace(/\.[^.]+$/, '').replace(/(_paramix|_emu|_t7|_t18|_doom_E\d|_felder|_fields|_4fields|_6fields|_items|_start|_clean)+$/, '');
+const baseName = () => state.name.replace(/\.[^.]+$/, '').replace(/(_paramix|_emu|_t7|_t18|_doom_E\d|_felder|_fields|_4fields|_6fields|_neon-tama|_items|_start|_clean)+$/, '');
 
 // ------------------------------------------------------------- loading
 async function loadRom(file) {
@@ -491,12 +504,15 @@ async function loadRom(file) {
   if (clean) { const ed = F.edition(buf); ctx = { rom: buf, entries: [], files: [], groups: [], edition: ed ? (FL.EDITIONS[ed.id] || ed.id) : '?', limit: 0, clean: true }; }
   else try { ctx = C.openRom(buf); } catch (e) { toast(t('notRom', { e: em(e) }), true); return; }
   state.clean = clean; state.cleanInit = clean;
+  $('btnPetClose').onclick();
   Object.assign(state, { ctx, name: file.name, changed: new Map(), decoded: new Map(), open: null, eyeOffsets: new Map() });
   // 1.7.3 test21 SPR_ALIGN: own Tama pictures of older versions with an odd length are padded (playdates failed at 90 %)
   if (!clean) for (const g of ctx.groups) for (let k = 0; k < 6; k++) { const f = C.spriteAlign(ctx.entries[g + k]); if (f) state.changed.set(g + k, f); }
   $('start').hidden = true; $('work').classList.add('on'); $('btnSave').disabled = false;
   $('romname').textContent = file.name;
   state.pmBios = undefined; state.pmKeys = null; state.abKeys = null;
+  state.neonDonor = null;
+  state.paraCleared = false;
   state.emu = null; state.t7save = null; state.t7saveX = null; state.saveIn = null; state.emuRemove = false; state.doom = null; state.doomKeys = null; state.six = null; state.sixName = ''; state.sixWant = false; state.sixOff = false; state.petDirty = false; state.texts = new Map(); state.eyeShift = new Map(); state.mouthShift = new Map(); state.poseAdj = new Map(); state.poseCache = null; face.g = -1; state.dlcT = 'main'; state.figT = 'main'; state.dlcOpen = false; state.mainGuest = null; state.emuPack = (() => { const c = romEmuCfg(buf); return !!(c && c.version >= 5 && c.lzOff) && (!E.PACK_ASK || E.lzCount(buf, c.lzOff) > E.PACK_FEW); })();   // PACK_ASK: the 2 or 3 blocks every main TamaEmu packs do not mean "Pack the firmware" state.t18Main = null; state.t18Dirty = false; state.t18Pics = E.t18PicsRead(buf); state.t18PicsDirty = false; state.itemT = 'main'; state.progOpen = new Set(); state.mainPick = null; state.mainDirty = false; state.roomFree = null; state.paraMainTaken = false;
   { const si = S6.sixInfo(buf); state.sixPlanet = si && si.version >= 5 ? si.planet : true; state.sixMenu = si && si.version >= 6 ? si.fieldMenu : true; }
   { const l = stubList(buf); const g = E.autoGet(buf, l); state.emuAuto = g === null ? E.autoGetOld(buf, l) : g; }
@@ -505,7 +521,8 @@ async function loadRom(file) {
   { const c = E.emuNfcGet(buf); state.emuNfc = c === null ? true : c; }
   state.emuOpt = E.emuOptGet(buf) || { vol: 0, dim: 0, off: 0 };
   { const fe = F.embedded(), f = fe && F.feldFind(buf, fe.stub);
-    state.feld = !!(f && (f.flags & F.F_FIELDS)); state.bag = !!(f && (f.flags & F.F_BAG)); state.tama = !!(f && (f.flags & F.F_TAMA)); state.paramixShortcut = paramixShortcutOf(buf, f); state.gplay = !!(f && (f.flags & F.F_GPLAY)); state.saves = true;
+    state.feld = !!(f && (f.flags & F.F_FIELDS)); state.bag = !!(f && (f.flags & F.F_BAG)); state.tama = !!(f && (f.flags & (F.F_TAMA | F.F_NEON_TAMA))); state.paramixShortcut = paramixShortcutOf(buf, f); state.gplay = !!(f && (f.flags & F.F_GPLAY)); state.saves = true;
+    state.appsOnly = !!(f && (f.flags & F.F_APPS)); state.appsOnlyInit = state.appsOnly;
     state.feldInit = state.feld; state.bagInit = state.bag; state.tamaInit = state.tama; state.paramixShortcutInit = state.paramixShortcut; state.gplayInit = state.gplay; state.savesInit = true;
     state.launch = !!(f && f.version >= 2 && (f.flags & F.F_LAUNCH)); state.launchInit = state.launch; state.launchMap = null;
     state.t18Few = false; state.exitKey = EXIT_KEY ? exitGet(buf) : 0; state.exitKeyInit = state.exitKey; if ($('exitKey')) $('exitKey').value = String(state.exitKey);
@@ -531,7 +548,7 @@ async function loadRom(file) {
         const embOld = { stub: fe.stub, oldStub: E.embedded() && E.embedded().stub };
         const fa = F.feldApps(buf, fe.stub), low = fa.apps.length ? Math.min(...fa.apps.map((a) => a.src - 0x10000000 + 0x11000)) : 0;
         const dl = f.version >= 7 ? (buf[f.off + 0x334] | buf[f.off + 0x335] << 8 | buf[f.off + 0x336] << 16 | buf[f.off + 0x337] << 24) >>> 0 : 0, dlo = dl ? dl - 0x10000000 + 0x11000 : 0;
-        const re = F.feldApply(F.feldStrip(buf, embOld, E), { fields: state.feld, bag: state.bag, tama: state.tama, paramixShortcut: state.paramixShortcut, gplay: state.gplay, saves: state.saves, launch: state.launch, apps: fa.apps, name0: fa.name0, appsLow: low, dl, mainSrc: fa.mainSrc, auto: fa.auto, fieldNames: fieldTexts(buf).map((x) => x.name) }, F.feldSlots(buf, fe.stub), { feld: fe.feld, stub: fe.stub }, E);
+        const re = F.feldApply(F.feldStrip(buf, embOld, E), { fields: state.feld, bag: state.bag, tama: !neonRom() && state.tama, neonTama: neonRom() && state.tama, appsOnly: state.appsOnly, paramixShortcut: state.paramixShortcut, gplay: state.gplay, saves: state.saves, launch: state.launch, apps: fa.apps, name0: fa.name0, appsLow: low, dl, mainSrc: fa.mainSrc, auto: fa.auto, fieldNames: fieldTexts(buf).map((x) => x.name) }, F.feldSlots(buf, fe.stub), { feld: fe.feld, stub: fe.stub }, E);
         if (dlo) re.set(buf.subarray(dlo, dlo + 0x10000), dlo);   // the flash app stays where it is
         state.feldStale = re.length !== buf.length || re.some((v, i) => v !== buf[i]);
       } catch (e) { state.feldStale = false; }
@@ -540,8 +557,14 @@ async function loadRom(file) {
   state.fields = []; state.charNames = new Map();
   try {
     state.fields = C.fieldSets(ctx);
-    const tt = F.textTabelle(buf), chars = C.charTable(ctx.files[0]).filter((c) => c.id > 1000 && c.id < 9000);
-    if (tt >= 0 && chars.length + 1 === ctx.groups.length) chars.forEach((c, i) => { const n = F.zeichenkette(buf, tt, c.name); if (n) state.charNames.set(ctx.groups[i + 1], n); });
+    const tt = F.textTabelle(buf);
+    if (tt >= 0) {
+      for (const c of C.characterSprites(ctx)) {
+        if (state.charNames.has(c.group)) continue;
+        const name = F.zeichenkette(buf, tt, c.name);
+        if (name) state.charNames.set(c.group, name);
+      }
+    }
   } catch (e) { state.fields = []; }
   visRefreshRomVisitors();
   cleanTabs();
@@ -554,6 +577,7 @@ async function loadRom(file) {
  * Menu tab, their names can be changed before they are built in */
 const sixActive = () => !!state.ctx && !state.launch && ((!!S6.sixInfo(state.ctx.rom) && !state.sixOff) || !!state.six || !!state.sixWant);
 function fieldTexts(rom, six) {
+  if (F.feldId(rom) === 7) return [];
   let fn = F.fieldNames(rom).map((s) => s.toUpperCase()); const lws = ['LAND', 'WATER', 'SKY'], out = [];
   if (six !== undefined) {
     const id = F.feldId(rom);
@@ -755,7 +779,15 @@ $('figField').onchange = applyFieldPick;
 $('btnZipField').onclick = () => busy(async () => {
   const f = state.fields.find((x) => String(x.type) === $('figField').value); if (!f) return;
   const files = [], lines = ['Paramix Studio: ' + f.name + ' (' + state.ctx.edition + ')', ''];
-  for (const c of f.chars) { files.push({ name: sheetName('fig', c.group), data: await pngBytes(sheetOf('fig', c.group)) }); lines.push(sheetName('fig', c.group) + '  stage ' + c.stage + '  ' + (state.charNames.get(c.group) || '')); }
+  const groups = new Set();
+  for (const c of f.chars) {
+    const name = sheetName('fig', c.group);
+    if (!groups.has(c.group)) {
+      files.push({ name, data: await pngBytes(sheetOf('fig', c.group)) });
+      groups.add(c.group);
+    }
+    lines.push(name + '  stage ' + c.stage + '  ' + (C.textGet(state.ctx.rom, c.name) || ''));
+  }
   const pics = [...f.maps, ...f.overlays, ...f.closeups];
   for (const i of pics) files.push({ name: sheetName('spr', i), data: await pngBytes(sheetOf('spr', i)) });
   if (f.maps.length) lines.push('', 'field map: ' + f.maps.map((i) => sheetName('spr', i)).join(' '));
@@ -784,7 +816,16 @@ $('fileField').onchange = (e) => {
       try { applySheet(kind, dstIdx, await decodePng(new Blob([data], { type: 'image/png' }))); n++; refreshTile(kind, dstIdx); }
       catch (err) { if (/^eye image too detailed/.test(err.message)) eyes++; else skip.push(t('wrongSize', { f: nm, e: em(err) })); }
     };
-    for (let i = 0; i < meta.chars.length && i < dst.chars.length; i++) await put('fig', meta.chars[i].group, dst.chars[i].group);
+    const groups = new Map();
+    for (let i = 0; i < meta.chars.length && i < dst.chars.length; i++) {
+      const src = meta.chars[i], target = dst.chars[i];
+      if (!groups.has(target.group)) groups.set(target.group, src.group);
+      else if (groups.get(target.group) !== src.group) groups.set(target.group, null);
+    }
+    for (const [target, source] of groups) {
+      if (source === null) skip.push(t('fieldInShared', { n: target }));
+      else await put('fig', source, target);
+    }
     for (let i = 0; i < meta.maps.length && i < dst.maps.length; i++) await put('spr', meta.maps[i], dst.maps[i]);
     for (let i = 0; i < meta.overlays.length && i < dst.overlays.length; i++) await put('spr', meta.overlays[i], dst.overlays[i]);
     for (let i = 0; i < meta.closeups.length && i < dst.closeups.length; i++) await put('spr', meta.closeups[i], dst.closeups[i]);
@@ -1124,14 +1165,15 @@ function renderPlan() {
     planWolf(),
     [t('planDoom'), st(doomOn, !!state.doom, kind === 1, state.doom ? (DOOM_EPS && doomFree() && state.doom.sel ? doomChip(state.doom) : 'E' + $('doomEp').value) + ($('doomMusic').checked ? ' + ' + t('doomMusic') : '') : ''), state.doom ? 'new' : doomOn ? 'keep' : kind === 1 ? 'del' : 'off'],
   ];
-  const menuOn = menuWanted(), parts = [state.launch ? t('planLaunch') : '', state.feld ? t('feldOn') : '', state.bag ? t('bagOn') : '', state.tama ? t('tamaOn') : '', menuOn && state.paramixShortcut !== false && !state.launch && !state.clean && !state.ctx.clean ? t('paramixShortcut') : '', state.gplay ? t('gplayOn') : ''].filter(Boolean).join(', ');
-  const menuSame = state.feld === state.feldInit && state.bag === state.bagInit && state.tama === state.tamaInit && state.paramixShortcut === state.paramixShortcutInit && !!state.gplay === !!state.gplayInit && state.saves === state.savesInit && state.launch === state.launchInit;
+  const menuOn = menuWanted(), parts = [state.appsOnly ? t('appsOnlyOn') : '', state.launch ? t('planLaunch') : '', state.feld ? t(neonRom() ? 'neonSaves' : 'feldOn') : '', state.bag ? t('bagOn') : '', state.tama ? t('tamaOn') : '', menuOn && state.paramixShortcut !== false && !state.launch && !state.clean && !state.ctx.clean ? t('paramixShortcut') : '', state.gplay ? t('gplayOn') : ''].filter(Boolean).join(', ');
+  const menuSame = state.appsOnly === state.appsOnlyInit && state.feld === state.feldInit && state.bag === state.bagInit && state.tama === state.tamaInit && state.paramixShortcut === state.paramixShortcutInit && !!state.gplay === !!state.gplayInit && state.saves === state.savesInit && state.launch === state.launchInit;
   if (state.clean) chips[0] = [t('planFig'), t('cleanOn'), state.cleanInit ? 'keep' : 'new'];
   chips.push([t('planMenu'), menuOn ? parts + (state.feldStale && menuSame ? ' (' + t('stUpd') + ')' : '') : (menuOld ? t('stDel') : t('stNone')), menuOn ? ((menuSame && !state.feldStale) ? 'keep' : 'new') : menuOld ? 'del' : 'off']);
   const sixIn = !!S6.sixInfo(rom);
   { const n = new Set([...(state.eyeShift || new Map()).keys(), ...(state.mouthShift || new Map()).keys(), ...(state.poseAdj || new Map()).keys()]).size; if (n) chips.push([t('planEyes'), t('planNamesN', { n }), 'new']); }
   if (state.texts && state.texts.size) chips.push([t('planNames'), t('planNamesN', { n: state.texts.size }), 'new']);
   if (sixIn || state.six || state.sixWant) chips.push([t('planSix'), sixIn ? t('stKeep') : t('stNew'), sixIn ? 'keep' : 'new']);
+  if (state.neonDonor) chips.push([t('neonDonorOn'), t('stNew'), 'new']);
   // Flash: from 0x111000 to the end
   const base = state.clean ? 0x10000 : 0x111000, end = 0x1000000, total = end - base, segs = [];
   const assets = state.clean ? 0 : estimateEnd() - base + (state.six && !sixIn ? 0xB9000 : 0); if (assets) segs.push(['fw', t('segFw'), assets]);
@@ -1939,9 +1981,11 @@ async function addExtra(g, fname, preset) {
   // outside a start device a colour Tama or TG18 only runs as the main program (A and C): it becomes the main one
   if (!state.launch && (x.kind === 'tama' || x.kind === 't18')) { busy(() => makeMain(state.extras.length - 1)); return; }
   // 1.6.8: does it still fit? A trial build right away, not only when writing
+  const wasAppsOnly = state.appsOnly, wasShortcut = state.paramixShortcut;
+  if (neonRom() && !state.appsOnly) { state.appsOnly = true; state.paramixShortcut = true; }
   const f = await busy(roomFit), k = f.k;
-  if (k || f.err) { state.extras = state.extras.filter((y) => y !== x); state.extrasDirty = true; renderEmu(); toast(k ? t('noRoomAdd', { n: E.extraName(x), k }) + (E.PACK_OPT && (state.extras || []).some((y) => y.kind === 'tama' && !y.pack) ? t('packTip') : '') : t('appFail', { e: f.err }), true); return; }
-  renderEmu();
+  if (k || f.err) { state.appsOnly = wasAppsOnly; state.paramixShortcut = wasShortcut; state.extras = state.extras.filter((y) => y !== x); state.extrasDirty = true; renderEmu(); toast(k ? t('noRoomAdd', { n: E.extraName(x), k }) + (E.PACK_OPT && (state.extras || []).some((y) => y.kind === 'tama' && !y.pack) ? t('packTip') : '') : t('appFail', { e: f.err }), true); return; }
+  renderEmu(); if (neonRom()) renderFeld();
 }
 $('btnT7Fig').onclick = () => $('fileT7Fig').click();
 $('fileT7Fig').onchange = async (e) => {
@@ -2503,26 +2547,45 @@ function renderFeld() {
   if (!state.ctx) return;
   if (EXIT_KEY) { const sx = $('exitKey'), v = String(state.exitKey || 0); sx.innerHTML = ''; for (let i = 0; i < 4; i++) { const o = document.createElement('option'); o.value = String(i); o.textContent = t('exit' + i); sx.appendChild(o); } sx.value = v; }
   const fe = F.embedded(), rom = state.ctx.rom, ed = F.edition(rom), can = F.canFields(rom);
-  const box = $('feldOn'), bag = $('bagOn'), tm = $('tamaOn'), la = !!state.launch;
-  $('launchOn').checked = la; $('launchOn').disabled = !fe || !ed || !!state.ctx.clean || (state.launchInit && C.isLauncher(state.ctx)) || !!S6.sixInfo(rom); $('launchOn').parentNode.title = S6.sixInfo(rom) ? t('launchSix') : '';
+  const box = $('feldOn'), bag = $('bagOn'), tm = $('tamaOn'), la = !!state.launch, neon = neonRom();
+  $('appsOnlyRow').hidden = !neon; $('appsOnlyOn').checked = !!state.appsOnly; $('appsOnlyOn').disabled = !fe || !!state.feld;
+  $('launchOn').checked = la; $('launchOn').disabled = !fe || !ed || neon || !!state.ctx.clean || (state.launchInit && C.isLauncher(state.ctx)) || !!S6.sixInfo(rom); $('launchOn').parentNode.title = S6.sixInfo(rom) ? t('launchSix') : '';
   $('cleanRow').hidden = !CLEAN_ROM || !la; $('cleanClockRow').hidden = !state.clean; $('cleanClock').checked = state.cleanClock !== false; $('cleanOn').checked = !!state.clean; $('cleanOn').disabled = !fe || !ed || !!state.ctx.clean || !FL.embedded() || !cleanCan();
-  box.checked = !!state.feld && can && !la; box.disabled = !fe || !can || la;
-  bag.checked = !!state.bag && !la; bag.disabled = !fe || !ed || la;
-  tm.checked = !!state.tama && !la; tm.disabled = !fe || !ed || la;
+  box.checked = !!state.feld && can && !la; box.disabled = !fe || !can || la || !!state.neonDonor;
+  if (neon) box.disabled = box.disabled || !SV.neonSaveLayout(rom);
+  const fieldLabel = box.parentNode.querySelector('[data-t]');
+  fieldLabel.dataset.t = neon ? 'neonSaves' : 'feldOn';
+  fieldLabel.textContent = t(fieldLabel.dataset.t);
+  const fieldHint = $('feldHint');
+  fieldHint.dataset.t = neon ? 'neonSaveFields' : 'feldHint';
+  fieldHint.textContent = t(fieldHint.dataset.t);
+  bag.checked = !!state.bag && !la; bag.disabled = !fe || !ed || (neon && !F.neonBagLayout(rom)) || la;
+  bag.parentNode.title = neon && bag.disabled ? t('neonBagUnavailable') : '';
+  tm.checked = !!state.tama && !la;
+  tm.disabled = !fe || !ed || la || (neon && (!SV.neonSaveLayout(rom) || !F.neonAppearance(rom)));
+  const tamaLabel = tm.parentNode.querySelector('[data-t]');
+  tamaLabel.dataset.t = neon ? 'neonTamaOn' : 'tamaOn';
+  tamaLabel.textContent = t(tamaLabel.dataset.t);
   { const shortcut = $('paramixShortcut'), off = la || !!state.clean || !!state.ctx.clean;
     shortcut.checked = state.paramixShortcut !== false && !off; shortcut.disabled = !fe || !ed || off || !menuWanted();
     $('paramixShortcutRow').hidden = off; }
-  { const g = $('gplayOn'), off = la || !!state.clean || !!state.ctx.clean; $('gplayRow').hidden = !F.GPLAY; g.checked = !!state.gplay && !off; g.disabled = !fe || !ed || off; }
+  { const g = $('gplayOn'), off = la || !!state.clean || !!state.ctx.clean; $('gplayRow').hidden = !F.GPLAY; g.checked = !!state.gplay && !off; g.disabled = !fe || !ed || neon || off; }
   let s;
   // six fields (Tropical/Glacier): row visible there only
   const si = S6.sixInfo(rom), sixIn = !!si, sixOld = !!si && si.version < S6.VERSION, sixCan = !!S6.kindOf(rom), jade = S6.kindOf(rom) === 'jade';
+  const neonBuilt = !!NT?.installed?.(rom);
+  $('neonDonorRow').hidden = !NT?.installGrowth || !LZ || !sixCan || jade || la || !!state.clean || (neonBuilt && !NT.needsPlanetNames(rom));
+  $('neonDonorStat').textContent = state.neonDonor
+    ? t('neonDonorReady', { name: state.neonDonor.name }) + (!sixIn && !state.six ? ' ' + t('neonDonorNeedsSix') : '')
+    : t(neonBuilt ? 'neonLocalizeHint' : 'neonDonorHint');
   $('sixRow').hidden = !sixCan || la;
   for (const [id, k] of [['sixOnTxt', jade ? 'sixOnJ' : 'sixOn'], ['sixHintTxt', jade ? 'sixHintJ' : 'sixHint']]) { $(id).dataset.t = k; $(id).textContent = t(k); }
-  $('sixOn').checked = (sixIn && !state.sixOff) || !!state.six || !!state.sixWant; $('sixOn').disabled = !fe || !S6.embedded();
-  $('btnSix').hidden = jade || (sixIn && !sixOld && sixSame(si));
+  $('sixOn').checked = (sixIn && !state.sixOff) || !!state.six || !!state.sixWant; $('sixOn').disabled = !fe || !S6.embedded() || neonBuilt;
+  if (neonBuilt) box.disabled = true;
+  $('btnSix').hidden = jade || neonBuilt || (sixIn && !sixOld && sixSame(si));
   $('sixPlanetRow').hidden = !sixCan || la || !((sixIn && !state.sixOff) || state.six || state.sixWant);
-  $('sixPlanet').checked = state.sixPlanet !== false; $('sixPlanet').disabled = !fe || !S6.embedded();
-  $('sixMenu').checked = state.sixMenu !== false; $('sixMenu').disabled = !fe || !S6.embedded();
+  $('sixPlanet').checked = state.sixPlanet !== false; $('sixPlanet').disabled = !fe || !S6.embedded() || neonBuilt;
+  $('sixMenu').checked = state.sixMenu !== false; $('sixMenu').disabled = !fe || !S6.embedded() || neonBuilt;
   if (!fe) s = t('feldMissing');
   else if (!ed) s = t('feldUnknown');
   else if (state.clean) s = t('cleanUse') + (state.ctx.clean ? '' : '\n' + t('cleanWarn'));
@@ -2532,7 +2595,9 @@ function renderFeld() {
     if (can) {
       s += ' ' + t('feldList', { s: F.fieldNames(rom).slice(0, sixIn && state.sixOff ? 3 : 99).concat(!sixIn && (state.six || (jade && state.sixWant)) ? (jade ? ['Sky'] : ['Land', 'Water', 'Sky']) : []).join(', ') });
       const ff = F.feldFind(rom, fe.stub), sm = ff && ff.version >= 6 && (ff.flags & F.F_SAVES);
-      const sl = F.feldSlots(rom, fe.stub).map(x => sm ? t('saveSlot', { n: x.index + 1 }) : F.NAMES[x.field]);
+      const sl = neon
+        ? (F.saveSlots(rom, fe.stub)?.list || []).filter(x => x.used).map(x => t('saveSlot', { n: x.i + 1 }))
+        : F.feldSlots(rom, fe.stub).map(x => sm ? t('saveSlot', { n: x.index + 1 }) : F.NAMES[x.field]);
       if (sl.length) s += ' ' + t('feldStored', { s: sl.join(', ') });
     } else s += '\n' + t('feldNo');
     if (sixCan && sixIn && state.sixOff) s += '\n' + t(jade ? 'sixOffJ' : 'sixOff');
@@ -2546,17 +2611,22 @@ function renderFeld() {
       else if (state.sixWant && !state.six) s += '\n' + t('sixNeed');
       else if (state.six) s += '\n' + t('sixOk', { n: state.sixName });
     }
-    if (state.feld || state.bag || state.tama) s += '\n' + t('feldUse');
+    if (state.feld || state.bag || state.tama || state.appsOnly) s += '\n' + t('feldUse');
   }
   $('feldStat').textContent = s;
   renderPlan();
 }
-$('feldOn').onchange = (e) => { state.feld = e.target.checked; renderFeld(); };
+$('appsOnlyOn').onchange = (e) => { state.appsOnly = e.target.checked; if (state.appsOnly) state.paramixShortcut = true; else if (neonRom()) { state.tama = false; state.bag = false; } renderFeld(); };
+$('feldOn').onchange = (e) => {
+  state.feld = e.target.checked;
+  if (state.feld && neonRom() && !state.appsOnly) { state.appsOnly = true; state.paramixShortcut = true; }
+  renderFeld();
+};
 $('exitKey').onchange = (e) => { state.exitKey = +e.target.value; renderPlan(); };
 $('launchOn').onchange = (e) => busy(async () => {
   state.launch = e.target.checked;
   if (!state.launch) { state.clean = false; await paraMainSync(); doomFreeSync(); cleanTabs(); }
-  if (state.launch) { launchMapGet(); state.feld = state.bag = state.tama = state.gplay = false; state.sixWant = false; state.six = null; }
+  if (state.launch) { launchMapGet(); state.feld = state.bag = state.tama = state.gplay = false; state.sixWant = false; state.six = null; state.neonDonor = null; }
   renderInfo(); renderFeld(); renderEmu(); renderNames();
 });
 /* CLEAN_ROM: the feld build of this Studio knows the clock sector (menu version 10) */
@@ -2572,7 +2642,7 @@ $('cleanClock').onchange = (e) => { state.cleanClock = e.target.checked; state.m
 $('sixOn').onchange = (e) => {
   state.sixOff = !e.target.checked && !!S6.sixInfo(state.ctx.rom);   // 1.6.8: take the extra fields out again
   state.sixWant = e.target.checked;
-  if (!e.target.checked) state.six = null;
+  if (!e.target.checked) { state.six = null; state.neonDonor = null; }
   else { state.feld = true; if (!state.six && S6.sixNeedsSource(state.ctx.rom)) $('fileSix').click(); }
   renderFeld(); renderNames();
 };
@@ -2588,8 +2658,26 @@ $('fileSix').onchange = async (e) => {
   toast(t('sixOk', { n: f.name }));
   renderFeld(); renderNames();
 };
-$('bagOn').onchange = (e) => { state.bag = e.target.checked; renderFeld(); };
-$('tamaOn').onchange = (e) => { state.tama = e.target.checked; renderFeld(); };
+$('neonDonorPick').onclick = () => $('neonDonorFile').click();
+$('neonDonorFile').onchange = async (e) => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  const buf = new Uint8Array(await file.arrayBuffer());
+  if (buf.length !== 0x1000000 || C.editionIdOf(buf) !== 7) { toast(t('neonDonorBad'), true); return; }
+  state.neonDonor = { rom: buf, name: file.name };
+  state.sixOff = false; state.sixWant = true; state.feld = true;
+  renderFeld(); renderNames();
+};
+$('bagOn').onchange = (e) => {
+  state.bag = e.target.checked;
+  if (state.bag && neonRom() && !state.appsOnly) { state.appsOnly = true; state.paramixShortcut = true; }
+  renderFeld();
+};
+$('tamaOn').onchange = (e) => {
+  state.tama = e.target.checked;
+  if (state.tama && neonRom() && !state.appsOnly) { state.appsOnly = true; state.paramixShortcut = true; }
+  renderFeld();
+};
 $('paramixShortcut').onchange = (e) => { state.paramixShortcut = e.target.checked; renderFeld(); };
 $('gplayOn').onchange = (e) => { state.gplay = e.target.checked; renderFeld(); };
 
@@ -2688,8 +2776,11 @@ async function composeRom() {
   const keysDirty = !state.doom && doomInstalled() && state.doomKeys && D.doomKeysGet(state.ctx.rom) && JSON.stringify(state.doomKeys) !== JSON.stringify(D.doomKeysGet(state.ctx.rom));
   const si0 = S6.sixInfo(state.ctx.rom), sixUp = (!!si0 && (si0.version < S6.VERSION || !sixSame(si0)) && !S6.sixNeedsSource(state.ctx.rom)) || sixDnaUp(si0);
   const emuUp = emuUpPending();
-  if (!state.changed.size && !state.t7save && !state.emu && !state.emuRemove && !state.doom && !keysDirty && !emuUp && !emuAutoDirty() && !state.six && !sixUp && !(state.sixWant && !S6.sixInfo(state.ctx.rom)) && state.feld === state.feldInit && state.bag === state.bagInit && state.tama === state.tamaInit && state.paramixShortcut === state.paramixShortcutInit && !!state.gplay === !!state.gplayInit && state.saves === state.savesInit && state.launch === state.launchInit && (state.exitKey || 0) === (state.exitKeyInit || 0) && !state.feldStale && !state.extrasDirty && !state.mainDirty && !state.extrasUp && !state.t7saveX && !state.saveIn && !state.sixOff && !state.petDirty && !state.t18Dirty && !state.t18PicsDirty && !(state.texts && state.texts.size) && !(state.eyeShift && state.eyeShift.size) && !(state.mouthShift && state.mouthShift.size) && !(state.poseAdj && state.poseAdj.size)) return { rom: state.ctx.rom, name: state.name, res: null, same: true };
-  const fe = F.embedded(); let feldSaved = fe ? F.feldSlots(state.ctx.rom, fe.stub) : [];
+  if (!state.changed.size && !state.t7save && !state.emu && !state.emuRemove && !state.doom && !keysDirty && !emuUp && !emuAutoDirty() && !state.six && !state.neonDonor && !sixUp && !(state.sixWant && !S6.sixInfo(state.ctx.rom)) && state.appsOnly === state.appsOnlyInit && state.feld === state.feldInit && state.bag === state.bagInit && state.tama === state.tamaInit && state.paramixShortcut === state.paramixShortcutInit && !!state.gplay === !!state.gplayInit && state.saves === state.savesInit && state.launch === state.launchInit && (state.exitKey || 0) === (state.exitKeyInit || 0) && !state.feldStale && !state.extrasDirty && !state.mainDirty && !state.extrasUp && !state.t7saveX && !state.saveIn && !state.sixOff && !state.petDirty && !state.t18Dirty && !state.t18PicsDirty && !(state.texts && state.texts.size) && !(state.eyeShift && state.eyeShift.size) && !(state.mouthShift && state.mouthShift.size) && !(state.poseAdj && state.poseAdj.size)) return { rom: state.ctx.rom, name: state.paraCleared ? baseName() + '_save-cleared.bin' : state.name, res: null, same: !state.paraCleared };
+  const fe = F.embedded(); let feldSaved;
+  try { feldSaved = fe ? F.feldSlots(state.ctx.rom, fe.stub) : []; }
+  catch (e) { toast(t('feldFail', { e: em(e) }), true); return null; }
+  if (neonRom() && !state.feld && feldSaved.length && !confirm(t('sixOffSlots'))) return null;
   // start device with DOOM (1.6.8): DOOM is the program at 0x0A0000, the emulator of the Emulator tab goes along as a further program
   const doomL = !!state.launch && (!!state.doom || (doomInstalled() && !state.emuRemove));
   let mainX = null;
@@ -2781,6 +2872,18 @@ async function composeRom() {
   if (S6.DNA && S6.sixInfo(rom)) rom = S6.sixDna(rom, S6.embedded(), true);
   if (S6.HUNT && S6.sixInfo(rom)) rom = S6.sixHunt(rom);   // 1.7.3 test23: egg hunt per field
   if (S6.sixInfo(rom)) rom = S6.sixFix(rom);   // the archive may have moved: rain pictures point to 0xF00000
+  if (state.neonDonor) {
+    try {
+      if (NT.installed(rom)) {
+        rom = NT.localizePlanetNames(rom, state.neonDonor.rom);
+      } else {
+        const helper = LZ.embedded();
+        rom = LZ.isInstalled(rom) ? LZ.refresh(rom, helper) : LZ.patch(rom, helper, null, true, fe?.stub).rom;
+        const added = NT.transplant(rom, state.neonDonor.rom);
+        rom = NT.installGrowth(added.rom, added.rows);
+      }
+    } catch (e) { toast(t('neonDonorFail', { e: em(e) }), true); return null; }
+  }
   // more emulators (1.6.0): the old blocks go, the list is placed again from the top of the emulator area
   let apps = [], appsLow = 0;
   if (fe && !APPS_CLEAR_FIRST) { const old = E.appsRead(state.ctx.rom, F.feldApps(state.ctx.rom, fe.stub).apps); if (old.length) rom = E.appsClear(rom, old.filter((o) => !extrasL.some((x) => x.kind === 't18' && x.keepOff === o.off))); }   // test2: an installed T18Emu stays
@@ -2791,7 +2894,8 @@ async function composeRom() {
     const progs = { t7: E.t7Embedded(), tama: E.embedded() && E.embedded().app, t18: E.t18Embedded(), v1: E.v1Embedded() };
     let dlRes = false;
     if (state.launch) { rom = dlStrip(rom, fe); if (DL_RESCUE && FL.embedded()) { const w = FL.withRescue(rom, FL.embedded()); if (w) { rom = w; dlRes = true; } } }
-    try { const r = E.appsPlace(rom, extrasL, progs, { lang, clock: state.emuClock !== false, nfc: state.emuNfc !== false, launch: !!state.launch, txSpare: T18_FEW && state.t18Few ? 0x40000 : undefined, keep: F.appKind(rom) === 1 ? [[0x830000, 0xD48000]] : [], dlApp: state.launch && !dlRes ? FL.embedded() : null }); rom = r.rom; apps = r.list; appsLow = r.low; dl = dlRes ? DL_AT : r.dl; lastFree = r.freeKB;
+    const keep = neonRom() && state.feld ? [F.neonSlotRange()] : F.appKind(rom) === 1 ? [[0x830000, 0xD48000]] : [];
+    try { const r = E.appsPlace(rom, extrasL, progs, { lang, clock: state.emuClock !== false, nfc: state.emuNfc !== false, launch: !!state.launch, txSpare: T18_FEW && state.t18Few ? 0x40000 : undefined, keep, dlApp: state.launch && !dlRes ? FL.embedded() : null }); rom = r.rom; apps = r.list; appsLow = r.low; dl = dlRes ? DL_AT : r.dl; lastFree = r.freeKB;
       for (const x of extrasL) if (x.kind === 't18' && x.items && x.keepOff !== undefined) t18Fresh(rom, x.keepOff, fresh);   // test3
       if (state.t7saveX && apps[state.t7saveX.i + (mainX ? 1 : 0)]) rom = SV.t7SaveIn(rom, state.t7saveX.save, apps[state.t7saveX.i + (mainX ? 1 : 0)].off + 0x10000);
       if (state.saveIn && typeof state.saveIn.key === 'number' && apps[state.saveIn.key + (mainX ? 1 : 0)]) {
@@ -2808,8 +2912,14 @@ async function composeRom() {
   const mainSrcOf = () => { if (!state.launch || !state.mainPick || !doomL) return 0; const k = state.mainPick === 'emu' ? (mainX ? 0 : -1) : extrasL.indexOf(state.mainPick); return k >= 0 && apps[k] ? apps[k].src : 0; };
   const name0 = F.appKind(rom) === 1 ? 'DOOM' : state.emu && state.emu.guest ? E.tamaName(state.emu.guest, state.emu.dev) : (!state.emu && !state.emuRemove && fe && F.appKind(state.ctx.rom) === F.appKind(rom) && F.feldApps(state.ctx.rom, fe.stub).name0) || mainName(rom);
   if (fe && menuWanted()) {
-    try { rom = F.feldApply(rom, { fields: state.feld, bag: state.bag, tama: state.tama, paramixShortcut: state.paramixShortcut, gplay: state.gplay && !state.clean, saves: state.saves, launch: !!state.launch, apps, name0, appsLow, dl, mainSrc: mainSrcOf(), auto: !!state.emuAuto, fieldNames: fieldTexts(rom).map((x) => x.name) }, feldSaved, { feld: fe.feld, stub: fe.stub }, E); }
+    try { rom = F.feldApply(rom, { fields: state.feld, bag: state.bag, tama: !neonRom() && state.tama, neonTama: neonRom() && state.tama, appsOnly: state.appsOnly, paramixShortcut: state.paramixShortcut, gplay: state.gplay && !state.clean, saves: state.saves, launch: !!state.launch, apps, name0, appsLow, dl, mainSrc: mainSrcOf(), auto: !!state.emuAuto, fieldNames: fieldTexts(rom).map((x) => x.name) }, feldSaved, { feld: fe.feld, stub: fe.stub }, E); }
     catch (e) { toast(t('feldFail', { e: em(e) }), true); return null; }
+  }
+  if (state.neonDonor) {
+    const menu = fe && F.feldFind(rom, fe.stub);
+    if (!menu || !(menu.flags & 0x100) || rd32(rom, menu.stubOff + 0x304) !== 3) {
+      toast(t('neonDonorFail', { e: 'nine-group Tama Files could not be installed' }), true); return null;
+    }
   }
   // autostart of the emulator (the stubs above were written with it off), clock switch (1.5.1)
   if (F.appKind(rom) === 2) rom = E.emuSessSet(E.emuOptSet(E.emuNfcSet(E.emuClockSet(rom, state.emuClock !== false), state.emuNfc !== false), state.emuOpt), state.emuSess !== false);
@@ -2823,7 +2933,7 @@ async function composeRom() {
     if (a) rom = a;
   }
   if (EXIT_KEY && (state.exitKey || exitGet(rom))) rom = exitSet(rom, state.exitKey || 0);
-  const name = baseName() + (state.changed.size ? '_paramix' : '') + (state.emu ? (state.emu.v1 ? '_v1' : state.emu.t7 ? '_t7' : state.emu.t18 ? '_t18' : '_emu') : '') + (state.doom ? '_doom_E' + $('doomEp').value : '') + (S6.sixInfo(rom) ? (S6.kindOf(rom) === 'jade' ? '_4fields' : '_6fields') : state.feld ? '_fields' : '') + (state.bag ? '_items' : '') + (state.launch ? '_start' : '') + '.bin';
+  const name = baseName() + (state.changed.size ? '_paramix' : '') + (state.emu ? (state.emu.v1 ? '_v1' : state.emu.t7 ? '_t7' : state.emu.t18 ? '_t18' : '_emu') : '') + (state.doom ? '_doom_E' + $('doomEp').value : '') + (S6.sixInfo(rom) ? (S6.kindOf(rom) === 'jade' ? '_4fields' : '_6fields') : state.feld ? '_fields' : '') + (NT?.installed?.(rom) ? '_neon-tama' : '') + (state.bag ? '_items' : '') + (state.launch ? '_start' : '') + '.bin';
   return { rom, name, res, fresh };
 }
 $('btnSave').onclick = () => busy(async () => {
@@ -3815,6 +3925,12 @@ function renderSave() {
   $('btnEmuOut').textContent = t('saveBtnOut', { f }); $('btnEmuIn').textContent = t('saveBtnIn', { f });
   $('btnEmuOut').disabled = !p; $('btnEmuIn').disabled = false; $('btnEmuOut').title = '';
   $('saveStat').textContent = !p ? t('saveNoProg') : t('saveProgInfo');
+  $('btnPetOpen').disabled = $('btnPetRom').disabled = !!state.ctx.clean || (neonRom() && !SV.neonSaveLayout(state.ctx.rom));
+  const [saveStart, saveEnd] = SV.region(state.ctx.editionId);
+  $('btnParaClear').disabled = !!state.clean || !!state.ctx.clean || !F.edition(state.ctx.rom)
+    || state.ctx.rom.subarray(saveStart, saveEnd).every(byte => byte === 0xFF);
+  $('paraClearStatus').hidden = !state.paraCleared;
+  $('paraClearStatus').textContent = state.paraCleared ? t('paraClearDone') : '';
   let con = false; try { con = !!dv.d && !dv.run; } catch (e) {}
   $('btnParaIn').disabled = !con;
   // 1.6.8: which save (the menu keeps several)
@@ -3828,6 +3944,19 @@ function renderSave() {
     if ([...sl.options].some((o) => o.value === sc)) sl.value = sc;
   }
 }
+$('btnParaClear').onclick = () => {
+  if ($('btnParaClear').disabled || !state.ctx) return;
+  const { rom, editionId } = state.ctx;
+  const slots = paraSlots()?.f;
+  if (slots && (slots.flags & F.F_NEON_SAVES) && F.neonSwitchPending(rom, slots)) {
+    toast(t('paraClearPending'), true); return;
+  }
+  if (!confirm(t('paraClearAsk'))) return;
+  state.ctx.rom = SV.paraClear(rom, editionId);
+  state.paraCleared = true;
+  if (petFromRom) $('btnPetClose').click();
+  renderSave(); renderFeld();
+};
 function paraSlots() { const fe = F.embedded(); try { return state.ctx && fe ? F.saveSlots(state.ctx.rom, fe.stub) : null; } catch (e) { return null; } }
 function slotLabel(ss, i) { return ss.saves ? t('saveSlot', { n: i + 1 }) : (F.fieldNames(state.ctx.rom)[i] || t('saveSlot', { n: i + 1 })); }
 function paraSlotPick() { return $('paraSlotRow').hidden ? 'live' : $('paraSlot').value; }
@@ -3977,11 +4106,32 @@ let petFromRom = false;
 function petOpen(save, name, fromRom) {
   const ed = save.edition || state.ctx.editionId;
   if (SV.family(ed) !== SV.family(state.ctx.editionId)) { toast(t('petOther'), true); return; }
-  const pet = SV.paraPet(save, ed);
+  const neon = ed === 7;
+  const pet = neon ? SV.neonProgress(save) : SV.paraPet(save, ed);
   if (!pet) { toast(t('petNoSet'), true); return; }
   petSave = save; petSave.edition = ed; petName = name; petFromRom = fromRom;
   const lv = $('petLevel'); lv.innerHTML = '';
   for (let i = 0; i <= 10; i++) { const o = document.createElement('option'); o.value = i; o.textContent = i; if (i === pet.level) o.selected = true; lv.appendChild(o); }
+  $('petCare').checked = false;
+  $('petCharRow').hidden = neon;
+  $('petCareRow').hidden = neon && !pet.canCare;
+  $('petPointsRow').hidden = $('petMissionRow').hidden = $('petMissionActionRow').hidden = !neon;
+  $('petRow').hidden = false;
+  if (neon) {
+    $('petPoints').value = pet.points;
+    const missions = $('petMission');
+    missions.innerHTML = '';
+    pet.missions.forEach((mission, index) => {
+      const option = document.createElement('option');
+      option.value = index;
+      const label = C.textGet(state.ctx.rom, 177 + index) || '#' + (index + 1);
+      option.textContent = (mission.complete ? '✓ ' : '') + label + ' (' + mission.count + '/' + mission.target + ')';
+      missions.appendChild(option);
+    });
+    $('petMissionAction').value = '';
+    $('petStat').textContent = pet.canCare ? t('petNow', { l: pet.level, c: pet.id, h: pet.hunger, j: pet.happy, s: pet.sick ? t('petSick') : '' }) : '';
+    return;
+  }
   const sel = $('petChar'); sel.innerHTML = '';
   const keep = document.createElement('option'); keep.value = ''; keep.textContent = t('petKeep'); sel.appendChild(keep);
   const chars = F.characters(state.ctx.rom), fn = F.fieldNames(state.ctx.rom);
@@ -3998,25 +4148,38 @@ function petOpen(save, name, fromRom) {
     sel.appendChild(g);
   }
   $('petCare').checked = false;
-  $('petRow').hidden = false;
   $('petStat').textContent = t('petNow', { l: pet.level, c: cur || pet.id, h: pet.hunger, j: pet.happy, s: pet.sick ? t('petSick') : '' });
 }
 $('btnPetSave').onclick = () => {
   if (!petSave) return;
-  const ed = petSave.edition, pet = SV.paraPet(petSave, ed), ch = {};
+  const ed = petSave.edition, neon = ed === 7, ch = {};
+  const pet = neon ? SV.neonProgress(petSave) : SV.paraPet(petSave, ed);
   const lv = +$('petLevel').value; if (lv !== pet.level) ch.level = lv;
-  const v = $('petChar').value; if (v) { const [id, st] = v.split(':').map(Number); if (id !== pet.id || st !== pet.stage) { ch.id = id; ch.stage = st; } }
-  if ($('petCare').checked) ch.care = true;
+  if (neon) {
+    const points = $('petPoints').valueAsNumber;
+    if (points !== pet.points) ch.points = points;
+    const action = $('petMissionAction').value;
+    if (action) ch.mission = { index: +$('petMission').value, complete: action === 'complete' };
+  } else {
+    const v = $('petChar').value; if (v) { const [id, st] = v.split(':').map(Number); if (id !== pet.id || st !== pet.stage) { ch.id = id; ch.stage = st; } }
+  }
+  if (!$('petCareRow').hidden && $('petCare').checked) ch.care = true;
   if (!Object.keys(ch).length) { toast(t('petNothing')); return; }
+  let nw;
+  try { nw = neon ? SV.neonProgressSet(petSave, ch) : SV.paraPetSet(petSave, ed, ch); }
+  catch (err) { toast(em(err), true); return; }
+  if (nw === petSave) { toast(t('petNothing')); return; }
   if (petFromRom) {
-    const nw = SV.paraPetSet(petSave, ed, ch), r = new Uint8Array(state.ctx.rom);
+    const r = new Uint8Array(state.ctx.rom);
     for (const [a, d] of nw.pages) if (d.length === 0x1000) r.set(d, a);
-    state.ctx.rom = r; state.petDirty = true; petSave = nw; petSave.edition = ed;
+    state.ctx.rom = r; state.petDirty = true;
+    petOpen(nw, petName, true);
     $('petStat').textContent = t('petRomDone'); renderPlan(); return;
   }
-  const out = SV.paraWrite(SV.paraPetSet(petSave, ed, ch), ed);
+  const out = SV.paraWrite(nw, ed);
   const name = petName.replace(/\.tamasave$/i, '') + '-' + stamp() + '.tamasave';
   download(out, name);
+  if (neon) petOpen(nw, petName, false);
   $('petStat').textContent = t('petDone', { n: name });
 };
 
@@ -4171,6 +4334,9 @@ $('fileSave').onchange = async (e) => {
 function slotWrite(save, chk, i, warn) {
   const ss = paraSlots(), rom = state.ctx.rom, ed = dv.d.info.edition;
   if (!ss) return;
+  if ((ss.f.flags & F.F_NEON_SAVES) && !chk.complete) {
+    devRender(t('devErr', { e: t('neonSaveFull') })); return;
+  }
   if (!ss.saves) {
     const set = chk.pages.get(0xEFE000), fi = F.fieldOfSettings(rom, set);
     if (fi !== i) { devRender(t('devErr', { e: t('slotField', { a: F.fieldNames(rom)[fi] || '?', b: slotLabel(ss, i) }) })); return; }
@@ -4179,10 +4345,17 @@ function slotWrite(save, chk, i, warn) {
   devTask(async () => {
     const d = dv.d, f = ss.f, [a, b] = SV.region(ed);
     const mine = rom.subarray(f.off + 0x140, f.off + 0x140 + 620), dev = (await d.read(f.off, 0x1000)).subarray(0x140, 0x140 + 620);
-    for (const o of [0, 4, 8, 12, 16, 364, 368, ...(f.version >= 11 ? [612, 616] : [])]) if (mine[o] !== dev[o] || mine[o + 1] !== dev[o + 1] || mine[o + 2] !== dev[o + 2] || mine[o + 3] !== dev[o + 3]) throw new Error(t('slotDevOther'));
+    for (const o of [0, 4, 8, 12, 16, 36, 364, 368, ...(f.version >= 11 ? [612, 616] : [])]) if (mine[o] !== dev[o] || mine[o + 1] !== dev[o + 1] || mine[o + 2] !== dev[o + 2] || mine[o + 3] !== dev[o + 3]) throw new Error(t('slotDevOther'));
+    const img = new Uint8Array(0x1000000).fill(0xFF);
+    if (f.flags & F.F_NEON_SAVES) {
+      const from = f.slotOff - 0x2000;
+      img.set(await d.read(from, 0x2000), from);
+      const active = F.neonActive(img, f);
+      if (active < 0 || active === i || F.neonSwitchPending(img, f)) throw new Error(t('slotDevOther'));
+    }
     const heads = [];
     for (let j = 0; j < f.nslots; j++) heads.push(new Uint8Array(await d.read(F.slotAddr(f, j), 0x1000)));
-    const s = F.slotBuild(chk.pages, i, a, b), img = new Uint8Array(0x1000000).fill(0xFF);
+    const s = F.slotBuild(chk.pages, i, a, b);
     // Keep the old destination referenced until the replacement header commits.
     const used = F.poolUsed(f, heads);
     // Sharing must compare actual device bytes, not the empty staging image.

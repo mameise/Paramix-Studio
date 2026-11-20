@@ -14,6 +14,8 @@
 !flash/flashapp.bin
 !six/six.bin
 !six/book.bin
+!six/experimental-lz4/helper.bin
+!six/experimental-neon/growth.bin
 !t7/t7.bin
 !t7/t7x.bin
 !t18/t18.bin

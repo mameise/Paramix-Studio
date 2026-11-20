@@ -50,7 +50,7 @@ const LV = (() => { const o = new Uint8Array(LV_A.length + LV_B.length); let s =
 const LINK_KEY = String.fromCharCode(...LV.subarray(0, 32)), PDLO_TOKEN = String.fromCharCode(...LV.subarray(32, 40));
 const PDLO_XOR = (LV[40] | LV[41] << 8 | LV[42] << 16 | LV[43] << 24) >>> 0;
 const IMAGE_SIZE = 0x10000, CHUNK = 0x1000;
-const EDITIONS = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier' };
+const EDITIONS = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier', 7: 'Neon Planet' };
 
 // ------------------------------------------------------------------ messages
 // English texts; every error and note carries .code and .p so the page can show
@@ -422,16 +422,17 @@ class Paradise {
     const p = r.payload; if (p.length !== 44) throw fe('hello');
     this.info = { edition: p[8], wave: p[9], maxBlock: p[10] | (p[11] << 8), jedec: u32(p, 24), capacity: u32(p, 32), flashError: u32(p, 36), resetControl: !!(u32(p, 40) & 1) };
     // The flash app always reports 1 (Land). The real edition is the ID page in the flash
-    // (0xD49000, Tropical/Glacier 0xD29000), read like the Studio reads a ROM (1.3.0).
+    // (0xD49000, Tropical/Glacier 0xD29000, Neon Planet 0xD85000).
     try {
       // 1.7.3 test11: Tropical/Glacier first, with the page's footer (C minus ID, inverse): a Glacier was taken for Land
       // (its save data at 0xD49000 can begin with 1..6)
-      const C = [0, 0x70169E2C, 0x70169E2C, 0x70169E2C, 0x849633DB, 0x96CB83B8, 0x96CB83B8];
+      const C = [0, 0x70169E2C, 0x70169E2C, 0x70169E2C, 0x849633DB, 0x96CB83B8, 0x96CB83B8, 0x99431749];
       const ok = async (p, ids) => { const a = await this.read(p, 4), v = u32(a, 0); if (!ids.includes(v)) return 0;
         const f = await this.read(p + 0xFF8, 8), k = u32(f, 0); return ((k + v) >>> 0) === C[v] && u32(f, 4) === (~k >>> 0) ? v : -v; };
-      const g = await ok(0xD29000, [5, 6]), l = g > 0 ? 0 : await ok(0xD49000, [1, 2, 3, 4]);
-      const c = g > 0 || l > 0 ? 0 : await ok(0xEFD000, [1, 2, 3, 4, 5, 6]);   // 1.7.3 test13: a clean ROM's ID page
-      const v = g > 0 ? g : l > 0 ? l : c > 0 ? c : l < 0 ? -l : g < 0 ? -g : 0;
+      const n = await ok(0xD85000, [7]), g = n > 0 ? 0 : await ok(0xD29000, [5, 6]);
+      const l = n > 0 || g > 0 ? 0 : await ok(0xD49000, [1, 2, 3, 4]);
+      const c = n > 0 || g > 0 || l > 0 ? 0 : await ok(0xEFD000, [1, 2, 3, 4, 5, 6, 7]);
+      const v = n > 0 ? n : g > 0 ? g : l > 0 ? l : c > 0 ? c : l < 0 ? -l : g < 0 ? -g : 0;
       if (v) this.info.edition = v;
     } catch (e) { if (!(e instanceof TimeoutError)) throw e; }
     this.info.name = EDITIONS[this.info.edition] || 'Edition ' + this.info.edition;

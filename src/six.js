@@ -1044,12 +1044,14 @@ function sixFix(rom) {
 const SIX_B64 = '__SIX_B64__';
 function embedded() { return SIX_B64.startsWith('__') ? null : b64(SIX_B64); }
 
-/* The native three-row Tama File selector can browse two banks without changing
+/* The native three-row Tama File selector can browse multiple banks without changing
  * the number of scene objects. Only install where the three extra fields and
  * their character data can be verified. Flash offsets are for Tropical/Glacier.
  */
 const BOOK_B64 = '__BOOK_B64__', BOOK_AT = 0x300, BOOK_MAGIC = 0x36304b42;
-const BOOK_VERSION = 2;
+const BOOK_VERSION = 3;
+const BOOK_NEON_COUNTS = [24, 38, 24];
+const BOOK_NEON_NAMES = ['COSMIC PLANET', 'NEW TAMAGOTCHI PLANET', 'TAMAGOTCHI PLANET'];
 const BOOK_SITES = [
   [0x166d4, '80b586b0', 'jump', 0],
   [0x16630, '80b586b0', 'jump', 1],
@@ -1074,6 +1076,12 @@ const BOOK_SITES = [
   [0x16b88, '40f2ec40', 'hex', '40f2f040'], // allocate a pointer for the page arrow
 ];
 const bookBytes = (s) => Uint8Array.from(s.match(/../g), (x) => parseInt(x, 16));
+function bookSites(version) {
+  if (version === 1) return BOOK_SITES.slice(0, -1);
+  if (version === 2) return BOOK_SITES;
+  return BOOK_SITES.map((site) => site[0] === 0x90c72 ? [site[0], site[1], 'hex', '0820'] : site)
+    .concat([[0x6feac, '20201190', 'jump', 14]]);
+}
 
 function bookReplacement(page, at, site) {
   const [off, orig, type, key] = site;
@@ -1085,6 +1093,21 @@ function bookReplacement(page, at, site) {
   bytes.set(branch(XIP(off), target, type === 'call'));
   for (let i = 4; i < bytes.length; i += 2) w16(bytes, i, 0xbf00);
   return bytes;
+}
+
+function bookPlanetNames(english) {
+  const n = u16(english, 0), first = u16(english, 2);
+  if (first !== n + 2 || u16(english, 2 * (n + 1)) * 2 !== english.length) return [];
+  const glyphs = BOOK_NEON_NAMES.map((name) => Array.from(name, (letter) => C.TXT_ENC[letter]));
+  const matches = (id, codes) => {
+    const at = 2 * u16(english, 2 * (id + 1)), end = 2 * u16(english, 2 * (id + 2));
+    return at >= first * 2 && end === at + 2 * (codes.length + 1) && u16(english, end - 2) === 0 &&
+      codes.every((code, k) => u16(english, at + 2 * k) === code);
+  };
+  for (let id = 0; id + glyphs.length <= n; id++) {
+    if (glyphs.every((codes, k) => matches(id + k, codes))) return glyphs.map((_, k) => id + k);
+  }
+  return [];
 }
 
 function bookCharacters(rom) {
@@ -1118,25 +1141,46 @@ function bookCharacters(rom) {
           ids.some((id, i) => u16(rom, list + 2 * i) !== id)) return null;
     }
   }
-  return new Set(added).size === 66 ? added : null;
+  if (new Set(added).size !== 66) return null;
+  const neon = BOOK_NEON_COUNTS.map((_, k) => chars.filter((c) =>
+    c.id > 1000 && c.id < 9000 && c.field === 7 + k && c.stage >= 3 && c.stage <= 5)
+    .map((c) => c.id).sort((a, b) => a - b));
+  if (!neon.some((ids) => ids.length)) return { ids: added, names: [] };
+  if (neon.some((ids, k) => ids.length !== BOOK_NEON_COUNTS[k])) return null;
+  const ids = added.concat(...neon);
+  if (new Set(ids).size !== ids.length) return null;
+  const texts = C.arc2Files(rom, C.ASSET_BASE)[2];
+  const english = C.arc2Files(texts, 0)[1];
+  const manifest = 0x107FE0, packed = u32(rom, manifest + 4);
+  const first = (packed & 0xFFFF) + 86;
+  const localized = u32(rom, manifest) === 0x314E5A4E && packed >>> 16 === 86 &&
+    u32(rom, manifest + 8) === (~packed >>> 0) && u32(rom, manifest + 16) === 0x31465A4E &&
+    first + 3 <= u16(english, 0);
+  const names = localized ? [first, first + 1, first + 2] : bookPlanetNames(english);
+  return names.length ? { ids, names } : null;
 }
 
 function sixBookApply(rom, stubOff) {
   const at = stubOff + BOOK_AT;
-  if (BOOK_SITES.some(([off, orig]) => hex(rom, off, orig.length / 2) !== orig)) return false;
-  let ids;
-  try { ids = bookCharacters(rom); } catch (_) { return false; }
-  if (!ids) return false;
+  let data;
+  try { data = bookCharacters(rom); } catch (_) { return false; }
+  if (!data) return false;
+  const { ids, names } = data, version = names.length ? BOOK_VERSION : 2, sites = bookSites(version);
+  if (sites.some(([off, orig]) => hex(rom, off, orig.length / 2) !== orig)) return false;
   const page = BOOK_B64.startsWith('__')
     ? (typeof require === 'undefined' ? null : require('node:fs').readFileSync(__dirname + '/../six/book.bin'))
     : b64(BOOK_B64);
   if (!page) return false;
-  const idsAt = u32(page, 60);
-  if (u32(page, 0) !== BOOK_MAGIC || u32(page, 4) !== BOOK_VERSION || idsAt + 132 > page.length ||
+  const idsAt = u32(page, 60), countAt = u32(page, 68), namesAt = u32(page, 72);
+  if (u32(page, 0) !== BOOK_MAGIC || u32(page, 4) !== BOOK_VERSION || idsAt + 2 * ids.length > page.length ||
+      countAt >= page.length || namesAt + 2 * names.length > page.length ||
       at + page.length > stubOff + 0x1000 || !rom.subarray(at, at + page.length).every((b) => b === 255)) return false;
+  w32(page, 4, version);
+  page[countAt] = names.length ? 9 : 6;
   ids.forEach((id, i) => w16(page, idsAt + 2 * i, id));
+  names.forEach((id, i) => w16(page, namesAt + 2 * i, id));
   rom.set(page, at);
-  BOOK_SITES.forEach((site) => rom.set(bookReplacement(page, at, site), site[0]));
+  sites.forEach((site) => rom.set(bookReplacement(page, at, site), site[0]));
   return true;
 }
 
@@ -1145,8 +1189,8 @@ function sixBookStrip(rom, stubOff) {
   if (u32(rom, at) !== BOOK_MAGIC) return;
   const page = rom.subarray(at, stubOff + 0x1000);
   const version = u32(page, 4);
-  const sites = version === 1 ? BOOK_SITES.slice(0, -1) : BOOK_SITES;
-  if ((version !== 1 && version !== BOOK_VERSION) || sites.some((site) => {
+  const sites = bookSites(version);
+  if ((version < 1 || version > BOOK_VERSION) || sites.some((site) => {
     const b = bookReplacement(page, at, site);
     return hex(rom, site[0], b.length) !== hex(b, 0, b.length);
   })) throw new Error('the native Tama File patch has changed');
