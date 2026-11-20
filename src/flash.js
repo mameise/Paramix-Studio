@@ -809,6 +809,8 @@ function keepPlan(F, E, menu, opts = {}) {
     // CLEAN_ROM: without the Paradise there is no save of it and no main program at 0x0A0000 (any program may sit
     // there); the menu's clock stays when the device is clean too
     const clean = !!(F.isClean && F.isClean(img)), dclean = !!(F.isClean && F.isClean(view)), mainOk = !clean && !dclean;
+    const neon = root.ParamixNeonTransplant;
+    const importNeonItems = mainOk && neon?.itemsInstalled(img) && !neon.itemsInstalled(view);
     // six fields keep pictures from 0xF00000; a start device (1.6.8) may have programs there (the Paradise never writes there)
     const launchImg = !!(menu && F.isLaunch && F.isLaunch(img, menu.stub));
     const ranges = mainOk ? [[ed.profile.idPage + (sameFam ? 0 : SECTOR), (F.isSix && F.isSix(img)) || launchImg ? 0xF00000 : FLASH_SIZE]] : [];
@@ -818,7 +820,7 @@ function keepPlan(F, E, menu, opts = {}) {
     if (fd && (fd.flags & 1)) {
       const at = (f, i) => (F.slotAddr ? F.slotAddr(f, i) : f.slotOff + i * f.slotSize);
       const slotRanges = f => F.slotRanges ? F.slotRanges(f) : Array.from({length:f.nslots},(_,i)=>[at(f,i),at(f,i)+f.slotSize]);
-      if (fi && (fi.flags & 1) && fi.slotOff === fd.slotOff && fi.slotSize === fd.slotSize && fi.nslots === fd.nslots && (fi.slotOff2 || 0) === (fd.slotOff2 || 0) && (fi.slotN1 || 0) === (fd.slotN1 || 0) && (fi.poolExtraOff || 0) === (fd.poolExtraOff || 0) && (fi.poolExtraPages || 0) === (fd.poolExtraPages || 0)) {
+      if (!importNeonItems && fi && (fi.flags & 1) && fi.slotOff === fd.slotOff && fi.slotSize === fd.slotSize && fi.nslots === fd.nslots && (fi.slotOff2 || 0) === (fd.slotOff2 || 0) && (fi.slotN1 || 0) === (fd.slotN1 || 0) && (fi.poolExtraOff || 0) === (fd.poolExtraOff || 0) && (fi.poolExtraPages || 0) === (fd.poolExtraPages || 0)) {
         ranges.push(...slotRanges(fd));
       }
       else if (fi && (fi.flags & 1) && F.slotReadAsync) {
@@ -840,7 +842,11 @@ function keepPlan(F, E, menu, opts = {}) {
         for (const [a,b] of slotRanges(fi)) image.fill(0xFF,a,b);
         const used = new Set();
         for (const [idx, s] of slots) {
-          try { F.slotPlace(image, fi, idx, s, used); notes.push(note('noteMoved', { f: s.field })); }
+          try {
+            const migrated = importNeonItems ? neon.clearItemSaveSlots([{ ...s, index: idx }])[0] : s;
+            F.slotPlace(image, fi, idx, migrated, used);
+            notes.push(note('noteMoved', { f: s.field }));
+          }
           catch (_) { throw fe('slotMigration', { f: s.field }); }
         }
         for (const [from,to] of slotRanges(fi)) for (let a=from;a<to;a+=SECTOR) if (crc32(image,a,SECTOR)!==crc32(img,a,SECTOR)) changed.add(a);
@@ -1050,6 +1056,13 @@ function keepPlan(F, E, menu, opts = {}) {
     for (const [a, b] of opts.fresh || []) for (let s = a & ~0xFFF; s < b; s += SECTOR) prot.delete(s);   // 1.6.8: imported saves
     let kept = 0;
     for (const s of prot) if (changed.has(s)) { image.set(await dev.read(s, SECTOR), s); kept++; }
+    if (importNeonItems) {
+      for (const s of [0xEFE000, 0xEFF000]) {
+        if (!prot.has(s) || !neon.clearPlaceholderCounts(image.subarray(s, s + SECTOR))) continue;
+        changed.add(s);
+        prot.delete(s);
+      }
+    }
     const protectedSectors = [...prot].filter((s) => changed.has(s));
     return { image, notes, kept, protectedSectors };
   };

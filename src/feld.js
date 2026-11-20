@@ -507,7 +507,7 @@ function slotClock(p, h) {
   const next = crc(); w16(p, 0, next); w16(p, 2, ~next);
   return p;
 }
-function slotPages(s) {
+function slotPages(s, resolveClock = true) {
   const np = u32(s.head, 8), pages = new Map(); let pos = 0, sum = 0;
   for (let k = 0; k < s.bytes; k++) sum = (sum + s.stream[k]) >>> 0;
   if (np > 500 || sum !== u32(s.head, 16)) throw new Error('stored save damaged');
@@ -515,14 +515,15 @@ function slotPages(s) {
     const pg = u16(s.head, 32 + 4 * k), n = u16(s.head, 34 + 4 * k);
     if (!n || pos + n > s.bytes || (k && pg <= u16(s.head, 28 + 4 * k))) throw new Error('stored save damaged');
     const addr = pg * 0x1000, p = lzUnpack(s.stream.subarray(pos, pos + n), n);
-    pages.set(addr, addr === 0xEFE000 || addr === 0xEFF000 ? slotClock(p, s.head) : p); pos += n;
+    pages.set(addr, resolveClock && (addr === 0xEFE000 || addr === 0xEFF000) ? slotClock(p, s.head) : p); pos += n;
   }
   if (pos !== s.bytes) throw new Error('stored save damaged');
   return pages;
 }
 /** A save (Map address -> 4 KB, only pages from..to that are not empty) packed like the menu does, for slotPlace. */
-function slotBuild(pages, i, from, to) {
+function slotBuild(pages, i, from, to, sourceHead) {
   const head = new Uint8Array(0x1000).fill(0xFF), parts = []; let np = 0, bytes = 0, sum = 0;
+  if (sourceHead) head.set(sourceHead.subarray(SLOT_TIME_OFF), SLOT_TIME_OFF);
   for (const a of [...pages.keys()].sort((x, y) => x - y)) {
     const d = pages.get(a);
     if (a < from || a >= to || d.length !== 0x1000 || d.every((v) => v === 0xFF)) continue;
@@ -704,22 +705,23 @@ function neonBagLayout(d) {
     && u32(d, 0x8F648) === 0x0780F8D0 && u32(d, 0x8F670) === 0x08C0F8D0
     && NEON_ITEM_LIMITS.every((limit, type) => d[0xA6738 + type] === limit);
 }
-/** The Neon data pack stores halfword offsets. Its item table is entry 10. */
-function neonItemTable(d) {
+/** The data pack stores halfword offsets. Its item table is entry 10. */
+function packedItemTable(d, count) {
   const base = 0x111000;
   if (u32(d, base) !== 0x32435241 || u32(d, base + 12) !== 3) return [-1, 0];
   const pack = base + u32(d, base + 20), size = u32(d, base + 28);
   if (u32(d, base + 16) || pack < base + 64 || pack + size > assetEnd(d) || pack + size > d.length) return [-1, 0];
   const start = 2 * u32(d, pack + 40), end = 2 * u32(d, pack + 44);
-  if (start < 48 || end > size || end - start !== 406 * SATZ) return [-1, 0];
-  return [pack + start, 406];
+  if (start < 48 || end > size || end - start !== count * SATZ) return [-1, 0];
+  return [pack + start, count];
 }
 /** Catalog: [{ id, fixed, pic, sum, name }] ascending, only groups 5 to 8. */
 function itemCatalog(d) {
   const bt = bildTabelle(d);
   if (bt < 0) return [];
   const neon = edition(d)?.id === 7;
-  const [it, n] = neon ? neonItemTable(d) : itemTabelle(d, u32(d, bt) / 4);
+  const imported = u32(d, 0x107FD0) === 0x31495A4E;
+  const [it, n] = neon || imported ? packedItemTable(d, neon ? 406 : 400) : itemTabelle(d, u32(d, bt) / 4);
   if (it < 0 || n < 100) return [];
   const tt = textTabelle(d);
   const out = [];
@@ -727,9 +729,9 @@ function itemCatalog(d) {
     const o = it + i * SATZ, id = u16(d, o);
     if (id < (neon ? 5000 : 5001) || id > 8999) continue;
     const max = neon ? NEON_ITEM_LIMITS[d[o + 22]] : 0;
-    if (neon && !max) continue;
-    const pic = u16(d, o + 4);
-    const pi = neon && !pic ? null : picInfo(d, bt, pic);
+    if ((neon && !max) || (imported && !d[o + 22])) continue;
+    const pic = u16(d, o + 4) || (imported ? u16(d, o + 6) : 0);
+    const pi = (neon || imported) && !pic ? null : picInfo(d, bt, pic);
     out.push({ id, max, fixed: u16(d, o + 24) === 0xFFFF, pic, sum: pi ? pi.sum : 0, at: pi, text: u16(d, o + 2) + 1, name: tt >= 0 ? zeichenkette(d, tt, u16(d, o + 2) + 1) : '' });
   }
   out.sort((a, b) => a.id - b.id);

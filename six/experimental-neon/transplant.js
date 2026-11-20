@@ -1,4 +1,4 @@
-// Add Neon character assets to the known Tropical/Glacier six-field archive.
+// Add Neon characters and items to the Tropical/Glacier six-field archive.
 (function (root) {
 'use strict';
 
@@ -9,6 +9,9 @@ const Lz4 = root.ParamixLegacyLz4 || require('../experimental-lz4/patch');
 
 const RECORDS = 11, SPRITE_FLAGS = 12, LAYERS = 15, LAYER_OFFSETS = 16, FRAME_SOUNDS = 17, FRAMES = 18;
 const RECORD_SIZE = 30, FRAMES_PER_ANIMATION = 54;
+const ITEMS = 10, ITEM_SIZE = 46, SCRIPT_OFFSETS = 13, SCRIPTS = 14;
+const ITEM_COUNT = 59, ITEM_STATE = 0x107FD0, ITEM_MAGIC = 0x31495A4E; // NZI1
+const ITEM_PLACEHOLDERS = [5086, 6052];
 const PLANET_TEXTS = [14, 15, 16];
 const expectedFields = [24, 38, 24];
 const GROWTH_B64 = '__NEON_GROWTH_B64__';
@@ -331,6 +334,135 @@ function transplant(base, neon) {
   };
 }
 
+function itemsInstalled(rom) {
+  const names = u32(rom, ITEM_STATE + 4);
+  return u32(rom, ITEM_STATE) === ITEM_MAGIC && names >>> 16 === ITEM_COUNT &&
+    u32(rom, ITEM_STATE + 8) === (~names >>> 0) && u32(rom, ITEM_STATE + 12) <= 1;
+}
+
+function importItemScripts(dst, src, sprite) {
+  const index = dst[SCRIPT_OFFSETS], original = dst[SCRIPTS];
+  const from = src[SCRIPT_OFFSETS], code = src[SCRIPTS];
+  if (original.length % 4 || code.length % 4 || u16(index, index.length - 2) * 4 >= original.length ||
+      u16(from, from.length - 2) * 4 > code.length)
+    throw new Error('unrecognized item script table');
+  const imported = new Map(), offsets = [], bytecode = [];
+  let end = original.length;
+  // A 16-bit command header is followed by the operands selected by its high byte.
+  // The two first-operand references used by the donor are sprites and other scripts.
+  const supported = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 13, 16, 26, 27, 28, 29, 30, 32, 36]);
+  function script(id) {
+    if (imported.has(id)) return imported.get(id);
+    const start = 4 * u16(from, 2 * id), limit = (id + 1) * 2 < from.length ? 4 * u16(from, 2 * (id + 1)) : code.length;
+    if (id * 2 >= from.length || start + 2 > limit || limit > code.length)
+      throw new Error('missing Neon item script ' + id);
+    const result = code.slice(start, limit), length = result.length;
+    const mapped = index.length / 2 + bytecode.length;
+    imported.set(id, mapped);
+    offsets.push(word(end / 4)); bytecode.push(result); end += result.length;
+    if (end / 4 > 0xFFFF) throw new Error('too many item script words');
+    for (let pos = 2; pos < length;) {
+      const command = u16(result, pos), op = command & 255;
+      pos += 2;
+      if (command === 0xFCBD) break;
+      if (!supported.has(op)) throw new Error('unknown Neon item command ' + command.toString(16) + ' in script ' + id + ' at ' + (pos - 2));
+      for (const bit of [15, 14, 13, 11, 10, 9]) {
+        if (!(command & (1 << bit))) continue;
+        if (pos + 2 > length) throw new Error('truncated Neon item command in script ' + id + ' at ' + pos);
+        if (bit === 15) {
+          const ref = u16(result, pos);
+          if (ref && op === 1) w16(result, pos, sprite(ref));
+          if (ref && op === 16) w16(result, pos, script(ref));
+          if (op !== 1 && op !== 16) throw new Error('unrecognized Neon item script reference');
+        }
+        pos += 2;
+      }
+    }
+    return mapped;
+  }
+  return { script, finish() {
+    dst[SCRIPT_OFFSETS] = concat([index, ...offsets, word(end / 4)]);
+    dst[SCRIPTS] = concat([original, ...bytecode]);
+  } };
+}
+
+function itemRows(table) {
+  if (table.length % ITEM_SIZE) throw new Error('invalid item records');
+  return Array.from({ length: table.length / ITEM_SIZE }, (_, i) => table.subarray(i * ITEM_SIZE, (i + 1) * ITEM_SIZE));
+}
+
+function clearPlaceholderCounts(page) {
+  const SV = root.ParamixSaves || require('../../src/saves');
+  if (!page || !SV.settingsOk(page)) return false;
+  let changed = false;
+  for (let i = 0; i < 640; i++) {
+    if (!ITEM_PLACEHOLDERS.includes(u16(page, 0x270 + 2 * i))) continue;
+    const off = 0x770 + (i >> 1), mask = 0xF << (4 * (i & 1));
+    if (page[off] & mask) { page[off] &= ~mask; changed = true; }
+  }
+  if (changed) {
+    const crc = SV.crc16arc(page, 4, 0x1000);
+    w16(page, 0, crc); w16(page, 2, ~crc);
+  }
+  return changed;
+}
+
+function clearItemSaveSlots(slots) {
+  return slots.map(slot => {
+    const pages = F.slotPages(slot, false);
+    const a = clearPlaceholderCounts(pages.get(0xEFE000));
+    const b = clearPlaceholderCounts(pages.get(0xEFF000));
+    return a || b ? { ...F.slotBuild(pages, slot.index, 0, 0x1000000, slot.head), index: slot.index } : slot;
+  });
+}
+
+function transplantItems(base, neon) {
+  if (!installed(base) || !Lz4.isInstalled(base) || Six.sixInfo(base)?.kind !== 'gen3' || C.editionIdOf(neon) !== 7)
+    throw new Error('expected a six-field LZ4 ROM with Neon Tama and a Neon Planet source');
+  if (itemsInstalled(base) || !base.subarray(ITEM_STATE, ITEM_STATE + 16).every(b => b === 0xFF))
+    throw new Error('Neon item manifest is already installed or occupied');
+  const dst = C.openRom(new Uint8Array(base)), src = C.openRom(new Uint8Array(neon));
+  const target = dataTables(dst.files[0]), donor = dataTables(src.files[0]);
+  const existing = itemRows(target[ITEMS]).map(row => row.slice());
+  const positions = new Map(existing.map((row, i) => [u16(row, 0), i]));
+  if (existing.length !== 343 || positions.size !== existing.length || ITEM_PLACEHOLDERS.some(id =>
+    !existing[positions.get(id)]?.subarray(2).every(b => b === 0))) throw new Error('unrecognized six-field item table');
+  const items = itemRows(donor[ITEMS]).filter(row => {
+    const id = u16(row, 0);
+    return id >= 5000 && id < 9000 && row[22] && u16(row, 24) !== 0xFFFF &&
+      (!positions.has(id) || ITEM_PLACEHOLDERS.includes(id));
+  }).sort((a, b) => u16(a, 0) - u16(b, 0));
+  if (items.length !== ITEM_COUNT || new Set(items.map(row => u16(row, 0))).size !== ITEM_COUNT)
+    throw new Error('Neon donor does not have the expected 59 items');
+  const images = spriteImporter(dst.entries, src.entries, target[SPRITE_FLAGS], donor[SPRITE_FLAGS], dst.groups);
+  const scripts = importItemScripts(target, donor, images.sprite);
+  const texts = C.textTablesOf(dst.rom).tabs, source = C.textTablesOf(src.rom).tabs, first = texts[0].n;
+  if (texts.length !== 9 || source.length !== 9 || texts.some(t => t.n !== first)) throw new Error('invalid Neon item language tables');
+  const translated = texts.map((t, lang) => rebuildNames(t, items.map(row => {
+    const words = C.txtWords(source[lang], u16(row, 2) + 1);
+    if (!words.length) throw new Error('missing native item name');
+    return words;
+  })));
+  items.forEach((native, i) => {
+    const row = native.slice(), id = u16(row, 0);
+    w16(row, 2, first + i);
+    for (const at of [4, 6]) { const ref = u16(row, at); if (ref) w16(row, at, images.sprite(ref)); }
+    for (let at = 8; at <= 18; at += 2) { const ref = u16(row, at); if (ref) w16(row, at, scripts.script(ref)); }
+    if (positions.has(id)) existing[positions.get(id)] = row;
+    else existing.push(row);
+  });
+  scripts.finish();
+  target[ITEMS] = concat(existing);
+  target[SPRITE_FLAGS] = images.allFlags();
+  const rebuilt = C.buildRom({ ...dst, entries: images.entries, files: [null, null, C.arc2Build(translated)] }, new Map(), dataPack(target));
+  const rom = Six.sixFix(rebuilt.rom), manifest = first | ITEM_COUNT << 16;
+  w32(rom, ITEM_STATE, ITEM_MAGIC); w32(rom, ITEM_STATE + 4, manifest);
+  w32(rom, ITEM_STATE + 8, ~manifest); w32(rom, ITEM_STATE + 12, 0);
+  for (const at of [0xEFE000, 0xEFF000]) clearPlaceholderCounts(rom.subarray(at, at + 0x1000));
+  C.verifyRom(rom, []);
+  return { ...rebuilt, rom, ids: items.map(row => u16(row, 0)) };
+}
+
 function growthBranch(from, to) {
   const delta = to - (from + 4), sign = delta >>> 24 & 1;
   const bits = new Uint8Array(4);
@@ -428,6 +560,6 @@ function installGrowth(rom, rows, code = growthBinary()) {
   return out;
 }
 
-root.ParamixNeonTransplant = { transplant, installGrowth, installed, fixLayerIndices, needsPlanetNames, localizePlanetNames, growthPage: GROWTH_PAGE };
+root.ParamixNeonTransplant = { transplant, installGrowth, installed, fixLayerIndices, needsPlanetNames, localizePlanetNames, transplantItems, itemsInstalled, clearPlaceholderCounts, clearItemSaveSlots, growthPage: GROWTH_PAGE };
 if (typeof module !== 'undefined') module.exports = root.ParamixNeonTransplant;
 })(typeof window !== 'undefined' ? window : globalThis);

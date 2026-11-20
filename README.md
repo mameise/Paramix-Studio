@@ -613,6 +613,12 @@ The menu itself, while the screen is dark, sleeps deeply until a key or the whee
   the tick you keep the three own fields and still have several saves; on a
   ROM that already has them, untick it to take the extra fields out again
   (the device must be on one of the own fields).
+- Choose Neon Planet ROM: add 86 Tama and 59 items to a Tropical or Glacier
+  six-field ROM. You can supply Tropical or Glacier plus a Land, Water or Sky ROM,
+  or open an existing six-field ROM. The nine groups appear in Tama Files.
+  The six playable fields can raise the imported Tama and use the new items.
+  Use Items and Tamapoints to add the items to your inventory. The first import
+  clears the old placeholder counts for Sparkle Fruit and Andromeda Cotton Candy.
 - Game menu Fields: all fields from level 4 in the game's own field menu.
 - Sky as 4th field (Jade Forest): tick "Sky as 4th field". Jade Forest
   already has everything of Sky, no second ROM is needed.
@@ -624,6 +630,9 @@ The menu itself, while the screen is dark, sleeps deeply until a key or the whee
 - Items: put items into the bag and set their amount, with picture. The list
   and the pictures come from your own ROM. Amount 0 ("REMOVE") takes an item out
   again; items the game holds with amount 0 (eaten up) are not shown (switch `BAG_DEL`).
+  On Neon Planet, **Set Owned Counts** shows how many existing items would
+  change. **MAX** uses each item's own limit. Fixed items and quantities already
+  in use keep their game rules.
 - Tamapoints: set digit by digit.
 - Change Tama: care, planet level, appearance, age and preview. APPEARANCE combines
   Body/Stage → same-stage Eyes → Color → Review. The body starts with compatible

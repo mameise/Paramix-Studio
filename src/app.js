@@ -26,7 +26,7 @@ const T = {
   de: {
     neonBagUnavailable: 'Das Inventarformat dieser Neon-Planet-Firmware ist unbekannt.',
     paraClear: 'Aktiven ROM-Spielstand löschen', paraClearAsk: 'Den aktiven Paradise-Spielstand im geladenen ROM löschen?', paraClearDone: 'Aktiver Spielstand gelöscht. Speichere das ROM als neue Datei.', paraClearPending: 'Schliesse zuerst die Spielstand-Wiederherstellung im Paramix-Menü ab.',
-    neonDonorPick: 'Neon-Planet-ROM wählen', neonDonorHint: 'Ergänzt 86 Tama aus Neon Planet. Die sechs spielbaren Felder bleiben.', neonDonorReady: 'Tama-Quelle: {name}', neonDonorBad: 'Dieses ROM ist kein unterstütztes Neon Planet.', neonDonorNeedsSix: 'Wähle zusätzlich ein Land-, Water- oder Sky-ROM.', neonDonorFail: 'Neon-Tama konnten nicht eingebaut werden: {e}', neonDonorOn: 'Neon-Tama', neonLocalizeHint: 'Übernimmt die originalen Planetennamen in allen Sprachen.',
+    neonDonorPick: 'Neon-Planet-ROM wählen', neonDonorHint: 'Ergänzt 86 Tama und 59 Items aus Neon Planet.', neonDonorReady: 'Neon-Quelle: {name}', neonDonorBad: 'Dieses ROM ist kein unterstütztes Neon Planet.', neonDonorNeedsSix: 'Wähle zusätzlich ein Land-, Water- oder Sky-ROM.', neonDonorFail: 'Neon-Inhalte konnten nicht eingebaut werden: {e}', neonDonorOn: 'Neon-Inhalte', neonItemsHint: 'Ergänzt 59 Items aus Neon Planet.', neonLocalizeHint: 'Übernimmt die originalen Planetennamen in allen Sprachen.',
     appsOnlyOn: 'Programmmenü', appsOnlyHint: 'Paramix neben dem normalen Neon-Planet-Spiel öffnen. Enthält Programme und das Flash-Werkzeug.', neonSaves: 'Drei Neon-Spielstände', neonSaveFields: 'Neue Spielstände starten mit der Original-Einrichtung. Das Spiel schaltet Felder mit dem Fortschritt frei.', neonSaveFull: 'Für einen Neon-Spielstand im Menü ist eine vollständige .tamasave-Datei erforderlich.',
     neonTamaOn: 'Tama im Programmmenü (Pflege, Aussehen, Alter)', petPoints: 'Tamapoints', petMission: 'Mission', petMissionAction: 'Abschluss', petMissionComplete: 'Als erledigt markieren', petMissionReset: 'Abschluss zurücksetzen',
     open: 'ROM öffnen', save: 'Neues ROM speichern',
@@ -177,7 +177,7 @@ const T = {
   en: {
     neonBagUnavailable: 'This Neon Planet firmware uses an unrecognized item save layout.',
     paraClear: 'Clear active ROM save', paraClearAsk: 'Clear the active Paradise save in the loaded ROM?', paraClearDone: 'Active save cleared. Save the ROM as a new file.', paraClearPending: 'Finish recovering the saved game in the Paramix menu first.',
-    neonDonorPick: 'Choose Neon Planet ROM', neonDonorHint: 'Add 86 Neon Planet Tama to the six-field game.', neonDonorReady: 'Tama source: {name}', neonDonorBad: 'Choose a supported Neon Planet ROM.', neonDonorNeedsSix: 'Choose a Land, Water or Sky ROM as well.', neonDonorFail: 'Could not add Neon Tama: {e}', neonDonorOn: 'Neon Tama', neonLocalizeHint: 'Update Tama Files with the original planet names in all languages.',
+    neonDonorPick: 'Choose Neon Planet ROM', neonDonorHint: 'Add 86 Tama and 59 items from Neon Planet to the six-field game.', neonDonorReady: 'Neon source: {name}', neonDonorBad: 'Choose a supported Neon Planet ROM.', neonDonorNeedsSix: 'Choose a Land, Water or Sky ROM as well.', neonDonorFail: 'Could not add Neon content: {e}', neonDonorOn: 'Neon content', neonItemsHint: 'Add 59 items from Neon Planet.', neonLocalizeHint: 'Update Tama Files with the original planet names in all languages.',
     appsOnlyOn: 'Programs menu', appsOnlyHint: 'Open Paramix alongside the Neon Planet game to use programs and the Flash Tool.', neonSaves: 'Three Neon save slots', neonSaveFields: 'New saves use the game’s setup. The game unlocks fields with progress.', neonSaveFull: 'Writing a Neon menu slot requires a complete .tamasave backup.',
     neonTamaOn: 'Tama in Programs menu (care, appearance, age)', petPoints: 'Tamapoints', petMission: 'Mission', petMissionAction: 'Completion', petMissionComplete: 'Mark complete', petMissionReset: 'Reset completion',
     open: 'Open ROM', save: 'Save new ROM',
@@ -493,7 +493,7 @@ async function inflateRaw(bytes) {
   return new Uint8Array(out);
 }
 const pad4 = (n) => String(n).padStart(4, '0');
-const baseName = () => state.name.replace(/\.[^.]+$/, '').replace(/(_paramix|_emu|_t7|_t18|_doom_E\d|_felder|_fields|_4fields|_6fields|_neon-tama|_items|_start|_clean)+$/, '');
+const baseName = () => state.name.replace(/\.[^.]+$/, '').replace(/(_paramix|_emu|_t7|_t18|_doom_E\d|_felder|_fields|_4fields|_6fields|_neon-tama|_neon-items|_items|_start|_clean)+$/, '');
 
 // ------------------------------------------------------------- loading
 async function loadRom(file) {
@@ -2574,10 +2574,10 @@ function renderFeld() {
   // six fields (Tropical/Glacier): row visible there only
   const si = S6.sixInfo(rom), sixIn = !!si, sixOld = !!si && si.version < S6.VERSION, sixCan = !!S6.kindOf(rom), jade = S6.kindOf(rom) === 'jade';
   const neonBuilt = !!NT?.installed?.(rom);
-  $('neonDonorRow').hidden = !NT?.installGrowth || !LZ || !sixCan || jade || la || !!state.clean || (neonBuilt && !NT.needsPlanetNames(rom));
+  $('neonDonorRow').hidden = !NT?.installGrowth || !LZ || !sixCan || jade || la || !!state.clean || (neonBuilt && NT.itemsInstalled(rom) && !NT.needsPlanetNames(rom));
   $('neonDonorStat').textContent = state.neonDonor
     ? t('neonDonorReady', { name: state.neonDonor.name }) + (!sixIn && !state.six ? ' ' + t('neonDonorNeedsSix') : '')
-    : t(neonBuilt ? 'neonLocalizeHint' : 'neonDonorHint');
+    : t(!neonBuilt ? 'neonDonorHint' : NT.itemsInstalled(rom) ? 'neonLocalizeHint' : 'neonItemsHint');
   $('sixRow').hidden = !sixCan || la;
   for (const [id, k] of [['sixOnTxt', jade ? 'sixOnJ' : 'sixOn'], ['sixHintTxt', jade ? 'sixHintJ' : 'sixHint']]) { $(id).dataset.t = k; $(id).textContent = t(k); }
   $('sixOn').checked = (sixIn && !state.sixOff) || !!state.six || !!state.sixWant; $('sixOn').disabled = !fe || !S6.embedded() || neonBuilt;
@@ -2665,7 +2665,7 @@ $('neonDonorFile').onchange = async (e) => {
   const buf = new Uint8Array(await file.arrayBuffer());
   if (buf.length !== 0x1000000 || C.editionIdOf(buf) !== 7) { toast(t('neonDonorBad'), true); return; }
   state.neonDonor = { rom: buf, name: file.name };
-  state.sixOff = false; state.sixWant = true; state.feld = true;
+  state.sixOff = false; state.sixWant = true; state.feld = true; state.bag = true;
   renderFeld(); renderNames();
 };
 $('bagOn').onchange = (e) => {
@@ -2875,12 +2875,16 @@ async function composeRom() {
   if (state.neonDonor) {
     try {
       if (NT.installed(rom)) {
-        rom = NT.localizePlanetNames(rom, state.neonDonor.rom);
+        if (NT.needsPlanetNames(rom)) rom = NT.localizePlanetNames(rom, state.neonDonor.rom);
       } else {
         const helper = LZ.embedded();
         rom = LZ.isInstalled(rom) ? LZ.refresh(rom, helper) : LZ.patch(rom, helper, null, true, fe?.stub).rom;
         const added = NT.transplant(rom, state.neonDonor.rom);
         rom = NT.installGrowth(added.rom, added.rows);
+      }
+      if (!NT.itemsInstalled(rom)) {
+        rom = NT.transplantItems(rom, state.neonDonor.rom).rom;
+        feldSaved = NT.clearItemSaveSlots(feldSaved);
       }
     } catch (e) { toast(t('neonDonorFail', { e: em(e) }), true); return null; }
   }
@@ -2933,7 +2937,7 @@ async function composeRom() {
     if (a) rom = a;
   }
   if (EXIT_KEY && (state.exitKey || exitGet(rom))) rom = exitSet(rom, state.exitKey || 0);
-  const name = baseName() + (state.changed.size ? '_paramix' : '') + (state.emu ? (state.emu.v1 ? '_v1' : state.emu.t7 ? '_t7' : state.emu.t18 ? '_t18' : '_emu') : '') + (state.doom ? '_doom_E' + $('doomEp').value : '') + (S6.sixInfo(rom) ? (S6.kindOf(rom) === 'jade' ? '_4fields' : '_6fields') : state.feld ? '_fields' : '') + (NT?.installed?.(rom) ? '_neon-tama' : '') + (state.bag ? '_items' : '') + (state.launch ? '_start' : '') + '.bin';
+  const name = baseName() + (state.changed.size ? '_paramix' : '') + (state.emu ? (state.emu.v1 ? '_v1' : state.emu.t7 ? '_t7' : state.emu.t18 ? '_t18' : '_emu') : '') + (state.doom ? '_doom_E' + $('doomEp').value : '') + (S6.sixInfo(rom) ? (S6.kindOf(rom) === 'jade' ? '_4fields' : '_6fields') : state.feld ? '_fields' : '') + (NT?.installed?.(rom) ? '_neon-tama' : '') + (NT?.itemsInstalled?.(rom) ? '_neon-items' : '') + (state.bag ? '_items' : '') + (state.launch ? '_start' : '') + '.bin';
   return { rom, name, res, fresh };
 }
 $('btnSave').onclick = () => busy(async () => {

@@ -1708,25 +1708,31 @@ static u32 bulk_items(int missing, u32 v, int apply){
 }
 static void bulk_menu(int missing){
   u32 v=1u;
+  int neon=neon_bag();
+  const u32 hi=neon ? 10u : 15u;
   const char *title=missing ? "ADD ALL MISSING" : "SET OWNED COUNTS";
   for(;;){
     u32 changed=bulk_items(missing,v,0);
     if(changed>640u){ message("BAG IS FULL","NOTHING CHANGED",""); return; }
     rect(0,0,128,128,BG); menu_title(4,title);
-    char s[12]; s[0]='x'; utoa_(v,s+1); ctext(30,s,GOLD,3);
+    char s[12]; s[0]='x'; utoa_(v,s+1);
+    const char *qty=neon && v==hi ? "MAX" : s;
+    ctext(30,qty,GOLD,3);
+    if(neon) ctext(54,"ITEM LIMITS APPLY",GREY,1);
     utoa_(changed,s); ctext(64,s,GOLD,2); ctext(83,"ITEMS TO CHANGE",GREY,1);
     ctext(108,"WHEEL: COUNT",GREY,1); ctext(119,"B OK   C BACK",GREY,1);
     show(); wait_release();
     for(;;){
       int k=input();
-      if(k==1){ v=wrap_step(v,g_step,1u,15u); break; }
-      if(k==K_A){ v=v>=15u ? 1u : v+1u; break; }
+      if(k==1){ v=wrap_step(v,g_step,1u,hi); break; }
+      if(k==K_A){ v=v>=hi ? 1u : v+1u; break; }
       if(k==K_BACK) return;
       if(k==K_OK){
         if(!changed){ message("NOTHING TO CHANGE","",""); return; }
         rect(0,0,128,128,BG); ctext(12,title,WHITE,1);
         utoa_(changed,s); ctext(32,s,GOLD,2); ctext(52,"ITEMS TO CHANGE",GREY,1);
-        s[0]='x'; utoa_(v,s+1); ctext(68,s,GOLD,2);
+        s[0]='x'; utoa_(v,s+1); ctext(68,qty,GOLD,2);
+        if(neon) ctext(84,"ITEM LIMITS APPLY",GREY,1);
         ctext(96,"B APPLY",WHITE,1); ctext(110,"C CANCEL",GREY,1); show();
         if(yes_no() && bulk_items(missing,v,1)) g_dirty=1;
         return;

@@ -1377,8 +1377,9 @@ function textTablesOf(rom) {
   if (u32(rom, off) !== ARC2_MAGIC) return null;
   const tabs = arc2Files(rom, off).map((b) => {
     const w = (o) => b[o] | (b[o + 1] << 8), n = w(0), offs = [];
-    for (let i = 0; i < n; i++) offs.push(w(2 * i));
-    return { b, n, offs };
+    const native = w(2) === n + 2 && w(2 * (n + 1)) * 2 === b.length;
+    for (let i = 0; i < (native ? n + 2 : n); i++) offs.push(w(2 * i));
+    return { b, n, offs, native };
   });
   return { off, tabs };
 }
@@ -1388,7 +1389,7 @@ function txtLatin(t) { if (t.n < 20) return false; const ws = txtWords(t, 1); re
 /** English text i (Paradise font), '' if it has other glyphs */
 function textGet(rom, i) {
   const x = textTablesOf(rom); if (!x) return '';
-  const t = x.tabs.find(txtLatin); if (!t || i >= t.n) return '';
+  const t = x.tabs.find(txtLatin); if (!t || i > (t.native ? t.n : t.n - 1)) return '';
   let s = ''; for (const c of txtWords(t, i)) { if (TXT_DEC[c] === undefined) return ''; s += TXT_DEC[c]; } return s.trim();
 }
 /** ROM with changed texts. edits: Map text index -> name (cleaned). Throws if the archive would not fit. */
@@ -1398,18 +1399,24 @@ function textApply(rom, edits) {
   const tabs = x.tabs.map((t) => {
     if (!txtLatin(t)) return t.b;
     const end = t.b.length >> 1, segs = [];
-    for (let i = 0; i < t.n; i++) {
-      const a = t.offs[i], b = i + 1 < t.n ? t.offs[i + 1] : end;
+    const first = t.native ? 1 : 0, last = t.native ? t.n : t.n - 1;
+    for (let i = first; i <= last; i++) {
+      const a = t.offs[i], b = t.offs[i + 1] ?? end;
       let seg = t.b.subarray(2 * a, 2 * b);
       const nm = edits.has(i) ? textClean(edits.get(i)) : null;
-      // only an entry that is exactly its string plus the 0 is replaced (the first and the last are not)
-      if (nm && i > 0 && i + 1 < t.n && b === a + txtWords(t, i).length + 1) {
+      // Only replace rows that contain exactly one complete string.
+      if (nm && i > 0 && (t.native || i < last) && b === a + txtWords(t, i).length + 1) {
         const ns = new Uint8Array(2 * (nm.length + 1)); [...nm].forEach((c, k) => w16(ns, 2 * k, TXT_ENC[c])); seg = ns;
       }
       segs.push(seg);
     }
-    let pos = t.n; const head = new Uint8Array(2 * t.n);
-    segs.forEach((sg, i) => { if (pos > 0xFFFF) throw new Error('text table too long'); w16(head, 2 * i, pos); pos += sg.length >> 1; });
+    let pos = t.offs.length; const head = new Uint8Array(2 * pos);
+    segs.forEach((sg, i) => { if (pos > 0xFFFF) throw new Error('text table too long'); w16(head, 2 * (first + i), pos); pos += sg.length >> 1; });
+    if (t.native) {
+      if (pos > 0xFFFF) throw new Error('text table too long');
+      w16(head, 0, t.n);
+      w16(head, 2 * (t.n + 1), pos);
+    }
     const out = concat([head, ...segs]);
     return (t.b.length & 1) ? concat([out, new Uint8Array(1)]) : out;
   });
