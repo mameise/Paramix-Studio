@@ -8,6 +8,7 @@ const fs = require('fs'), path = require('path');
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 860 }, acceptDownloads: true });
   const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  page.on('dialog', (d) => d.accept());   // 1.7.5 PACK_WARN asks before saving a packed firmware
   await page.addInitScript(() => { try { localStorage.setItem('paramix-lang', 'de'); } catch (e) {} });
   await page.goto('file://' + path.resolve(__dirname, '../dist/ParamixStudio.html'));
   await page.setInputFiles('#fileRom', rom);

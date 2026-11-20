@@ -42,6 +42,28 @@ const path = require('path');
   ok(w.length === 2 && w[0][2] === 2 && w[0][3] === 0xF0 && w[1][2] === 20, 'write frames ' + w.map((f) => f[2]).join(','));
   ok(r.notes.length === 1 && r.notes[0][1] === 0x0C, 'notification ' + JSON.stringify(r.notes));
   ok(r.sent.some((f) => f[1] === 0x43 && f[3] === 0) && r.gone === 1 && !r.connected, 'disconnect');
+  // 1.7.6 BRIDGE_WAIT: Select Tamagotchi before the Tama waits: the bridge waits for the module (hello bit 0)
+  const wt = await p.evaluate(async (href) => {
+    delete window.__pmxBridge; delete navigator.bluetooth;
+    let push = null; const box = () => [...document.querySelectorAll('div')].filter((d) => /^Paramix:/.test(d.textContent)).pop();
+    const fr = (ty, d) => { const a = [0xA5, ty, d.length, ...d]; a.push(a.slice(1).reduce((x, y) => x + y, 0) & 255); return new Uint8Array(a); };
+    const port = { open: async () => {}, readable: { getReader: () => ({ read: () => new Promise((res) => { push = res; }) }) },
+      writable: { getWriter: () => ({ write: async () => {} }) } };
+    Object.defineProperty(navigator, 'serial', { configurable: true, value: { requestPort: async () => port } });
+    eval(decodeURIComponent(href.slice('javascript:'.length)));
+    const t0 = Date.now(); let said = '';
+    const hs = [0, 0, 0, 1]; hs.forEach((f, i) => setTimeout(() => { push({ value: fr(0x48, [f]), done: false }); if (i === 2) said = box().textContent; }, 200 + i * 600));
+    const D = await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
+    const ms = Date.now() - t0;
+    // the Paradise answers once, then not any more
+    delete window.__pmxBridge; delete navigator.bluetooth;
+    eval(decodeURIComponent(href.slice('javascript:'.length)));
+    setTimeout(() => push({ value: fr(0x48, [0]), done: false }), 200);
+    let err = ''; try { await navigator.bluetooth.requestDevice({ acceptAllDevices: true }); } catch (e) { err = e.message; }
+    return { ms, said, name: D.name, err, last: box().textContent };
+  }, href);
+  ok(wt.name === 'TMGC_meets' && wt.ms >= 1900 && /On the Tama now/.test(wt.said), 'waits for the Tama (' + wt.ms + ' ms, ' + wt.said + ')');
+  ok(wt.err === 'Tama not ready' && /stopped answering/.test(wt.last), 'Paradise silent: says so (' + wt.last + ')');
   // test7: the dongle still held by the Studio
   const busy = await p.evaluate(async (href) => {
     delete window.__pmxBridge; const al = []; window.alert = (m) => al.push(m);

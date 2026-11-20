@@ -75,7 +75,7 @@ function dataPack(tables) {
 }
 
 function officialPlanetNames(source) {
-  if (C.editionIdOf(source) !== 7) throw new Error('expected a Neon Planets source');
+  if (C.editionIdOf(source) !== 8) throw new Error('expected a Neon Planets source');
   const tables = C.textTablesOf(source)?.tabs;
   if (!tables || tables.length !== 9) throw new Error('unrecognized Neon text pack');
   const labels = tables.map(t => PLANET_TEXTS.map(id => C.txtWords(t, id)));
@@ -356,7 +356,7 @@ function addAnimations(dst, src, chars, sprite) {
 }
 
 function transplant(base, neon) {
-  if (!growthKind(base) || C.editionIdOf(neon) !== 7) {
+  if (!growthKind(base) || C.editionIdOf(neon) !== 8) {
     throw new Error('expected an original Paradise base and a Neon Planets source');
   }
   // Node Buffer slices alias their input. The archive builder and frame
@@ -473,8 +473,8 @@ function clearItemSaveSlots(slots) {
 }
 
 function transplantItems(base, neon) {
-  const edition = C.editionIdOf(base), stockCount = BASE_ITEM_COUNTS[edition];
-  if (!stockCount || C.editionIdOf(neon) !== 7) throw new Error('expected an original Paradise base and a Neon Planets source');
+  const edition = C.editionIdOf(base), stockCount = BASE_ITEM_COUNTS[edition === 7 ? 5 : edition];
+  if (!stockCount || C.editionIdOf(neon) !== 8) throw new Error('expected an original Paradise base and a Neon Planets source');
   if (itemsInstalled(base) || !base.subarray(ITEM_STATE, ITEM_STATE + 16).every(b => b === 0xFF))
     throw new Error('Neon item manifest is already installed or occupied');
   const stub = F.embedded()?.stub || (typeof require !== 'undefined'

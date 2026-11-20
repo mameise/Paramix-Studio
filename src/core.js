@@ -12,7 +12,7 @@
 
 const ASSET_BASE = 0x111000;          // ARC2 root in flash (all editions)
 const ARC2_MAGIC = 0x32435241;        // "ARC2"
-const EDITIONS = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier', 7: 'Neon Planets' };
+const EDITIONS = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier', 7: 'Tropical/Glacier', 8: 'Neon Planets' };
 
 // ------------------------------------------------------------------ helpers
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);
@@ -23,10 +23,14 @@ const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 
 const ED_C = [0, 0x70169E2C, 0x70169E2C, 0x70169E2C, 0x849633DB, 0x96CB83B8, 0x96CB83B8, 0x99431749];
 function edPage(rom, p) {
   if (p + 0x1000 > rom.length) return 0;
-  const v = u32(rom, p);
-  if (!EDITIONS[v]) return 0;
-  if ((p === 0xD85000 && v !== 7) || (p === 0xD29000 && v !== 5 && v !== 6) || (p === 0xD49000 && v > 4)) return 0;
-  const k = u32(rom, p + 0xFF8); return ((k + v) >>> 0) === ED_C[v] && u32(rom, p + 0xFFC) === (~k >>> 0) ? v : 0;
+  const v = u32(rom, p), k = u32(rom, p + 0xFF8);
+  if (u32(rom, p + 0xFFC) !== (~k >>> 0)) return 0;
+  const footer = (k + v) >>> 0;
+  if ((p === 0xD85000 || p === 0xEFD000) && v === 7 && footer === ED_C[7]) return 8;
+  if ((p === 0xD29000 || p === 0xEFD000) && v === 4 && footer === ED_C[5]) return 7;
+  if (v < 1 || v > 6 || (p === 0xD85000) ||
+      (p === 0xD29000 && v < 5) || (p === 0xD49000 && v > 4)) return 0;
+  return footer === ED_C[v] ? v : 0;
 }
 function editionIdOf(rom) {
   for (const p of [0xD85000, 0xD29000, 0xD49000, 0xEFD000]) { const v = edPage(rom, p); if (v) return v; }   // 0xEFD000: clean ROM (1.7.3 test13)
@@ -662,7 +666,7 @@ function openRom(rom) {
   // used page after the characters, which went wrong with DOOM or save slots next to it.
   let editionId = editionIdOf(rom);
   if (!editionId) editionId = limit < rom.length ? u32(rom, limit) : 0;
-  if (editionId === 7 && u32(rom, 0xD24000) === 0x5641534E)
+  if (editionId === 8 && u32(rom, 0xD24000) === 0x5641534E)
     limit = Math.min(limit, 0xD23000); // Neon switch journal precedes its active-slot record
   const groups = findGroups(entries);
   return { rom, root, files, entries, groups, adult: groups.length ? findFirstAdult(entries, groups) : -1, egg: findEgg(entries), assetEnd: end, limit, editionId, edition: EDITIONS[editionId] || ('Edition ' + editionId) };
@@ -1310,7 +1314,7 @@ function charTable(dp) {
  *  use the same group, especially the younger stages and returning adults. */
 function characterSprites(ctx) {
   const chars = charTable(ctx.files[0]).filter((c) => c.id > 1000 && c.id < 9000);
-  if (ctx.editionId === 7) {
+  if (ctx.editionId === 8) {
     // Neon has 169 groups. Its fallback uses animation 26, and the
     // playable sprite sets in pack order use 27 through 194.
     const animations = [...new Set(chars.map(c => c.animation))].sort((a, b) => a - b);
@@ -1341,7 +1345,7 @@ function fieldSets(ctx) {
   const nClose = Math.floor((best[1] - best[0]) / 6);
   const nMap = Math.floor(maps.length / 7);
   // maps belong to the highest field types present (Tropical/Glacier: Forest, Tropical, Glacier)
-  const neon = ctx.editionId === 7;
+  const neon = ctx.editionId === 8;
   const mapTypes = neon ? (nMap === 3 ? [7, 8, 9] : []) : types.slice(Math.max(0, types.length - nMap));
   // Neon stores the six legacy close-up backgrounds and foregrounds in pairs.
   const neonClose = 2237;

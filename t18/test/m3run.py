@@ -239,7 +239,7 @@ for l in open(script):
     elif p[0] == 'hash':
         cmd(3); cyc = rd(2) | rd(3) << 32
         print('cyc %d pc %08x sram %08x' % (cyc, rd(4), rd(5)))
-        print('  hole pages %d%s' % (rd(7) >> 8, ' OUT OF PAGES' if rd(7) & 1 else ''), file=sys.stderr)
+        print('  hole pages %d%s%s' % ((rd(7) >> 8) & 0xFFF, ' OUT OF PAGES' if rd(7) & 1 else '', ' (table half taken, %d times)' % (rd(7) >> 20) if rd(7) >> 20 else ''), file=sys.stderr)
     elif p[0] == 'stat':
         cmd(4)
         print('ginstr %d bytes %d (%.1f/instr) ' % (rd(13), rd(14), rd(14) / max(1, rd(13))), end=''); print('blocks %d entries %d stuck %d flushes %d slow %d links %d lookups %d used %d | interp thumb %d arm %d' % (rd(1), rd(2), rd(3), rd(4), rd(5), rd(6), rd(11), rd(12), rd(7), rd(10)))
@@ -254,6 +254,8 @@ for l in open(script):
         else: print('shot: picture at', hex(src))
     elif p[0] == 'time':
         cmd(5, *[int(x) for x in p[1:7]])
+    elif p[0] == 'steal':
+        cmd(8)
     elif p[0] == 'verify':
         cmd(6)
     elif p[0] == 'exact':

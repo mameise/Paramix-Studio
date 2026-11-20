@@ -19,6 +19,15 @@ let base = F.feldStrip(trop, emb, E);
 const t0 = Date.now();
 const six = S.sixApply(base, land, blob);
 ok(true, 'built in ' + (Date.now() - t0) + ' ms');
+const oldWalking = six.slice();
+const walkFlags = new DataView(oldWalking.buffer);
+walkFlags.setUint32(S.SIX_OFF + 32, walkFlags.getUint32(S.SIX_OFF + 32, true) & ~0x200, true);
+ok(S.sixStale(S.sixInfo(oldWalking)), 'legacy cleanup bit is not the WALKING fix');
+const walking = S.sixWalkingUpdate(oldWalking, land);
+ok(!S.sixStale(S.sixInfo(walking)) && S.sixInfo(walking).allLabGames &&
+  Buffer.from(walking.slice(0xD29000, 0xF00000)).equals(Buffer.from(oldWalking.slice(0xD29000, 0xF00000))),
+  'WALKING upgrade keeps other field features and save bytes');
+
 const info = S.sixInfo(six), ctx = C.openRom(six);
 ok(info && info.sprites === C.openRom(base).entries.length, 'helper page ' + JSON.stringify(info));
 ok(ctx.assetEnd < 0xD29000, 'archive ends at 0x' + ctx.assetEnd.toString(16) + ' (before the ID page)');

@@ -175,7 +175,13 @@ static void P_LoadSubsectorsFlash(int lump)
     }
     Z_Free(buf);
     _g->subsectors = first;
+#ifdef PDM_SSIDX
+    g_ss_base = first;
+#endif
 }
+#ifdef PDM_SSIDX
+subsector_t *g_ss_base;
+#endif
 #endif
 
 //

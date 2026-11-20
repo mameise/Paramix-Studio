@@ -413,7 +413,7 @@
       const frames = groups.get(body?.img);
       if (frames && body.sub < frames.length && !frames[body.sub]) frames[body.sub] = frame;
     }
-    if (ctx.editionId !== 7) {
+    if (ctx.editionId !== 8) {
       // Transplanted figures can share individual sprites with other species.
       // Read their own animation rather than assuming six consecutive sprites.
       for (const character of core.charTable(pack)) {

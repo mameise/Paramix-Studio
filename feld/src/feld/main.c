@@ -1315,10 +1315,13 @@ static void lset_menu(void){
           g_set[SND_OFF]=(u8)((g_set[SND_OFF]&~0x18u)|(snd<<3));
           g_set[IDLE_OFF]=(u8)(idl+1u);
           rect(0,0,128,128,BG); ctext(40,"SAVING",WHITE,1); ctext(54,"DO NOT SWITCH OFF",GREY,1); show();
-          stamp(g_set);
-          flash_prog4k(SET_A, g_set);
-          flash_prog4k(SET_B, g_set);
-          if(!flash_same(SET_A,g_set,PAGE) || !flash_same(SET_B,g_set,PAGE)) error_screen(41);
+          if(g_cfg.flags & F_NEON_EDIT) set_commit();
+          else {
+            stamp(g_set);
+            flash_prog4k(SET_A, g_set);
+            flash_prog4k(SET_B, g_set);
+            if(!flash_same(SET_A,g_set,PAGE) || !flash_same(SET_B,g_set,PAGE)) error_screen(41);
+          }
           g_idle_ms=g_idle_tab[idl];
         }
         return;

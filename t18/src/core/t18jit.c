@@ -96,10 +96,37 @@ void t18_verify_fail(uint32_t key, const arm7_t *before, const arm7_t *jit, cons
 #if defined(T18_JH_SPLIT)
 /* 1.6.6: 512 entries (with a bigger code buffer 256 were too few: blocks kept pushing each other out and
  * were interpreted again). No room in the hole for all: the second half lies in the Paradise's RAM. */
+#ifdef T18_POOL_STEAL
+/* 1.7.6: the first half lies behind the pages of the hole (the app's t18_pool, T18_POOL_STEAL pages). When the
+ * guest needs more pages than that (two T18 connected: up to 125), the app gives these 48 pages to the hole and
+ * the first half goes onto the second (t18_jit_steal(1): its entries with code move there where there is room, the
+ * others are dropped, their code stays valid). Back when the hole is emptied (the game restarts, also when it sleeps). Without that: no change. */
+extern uint8_t t18_pool[][64];
+static jent_t *JHa = (jent_t *)t18_pool[T18_POOL_STEAL];
+_Static_assert(sizeof(jent_t) * (JH_N / 2) == 48u * 64u, "T18_POOL_STEAL: the first half is 48 pages");
+#define JHb ((jent_t *)T18_JH_SPLIT)
+#else
 static jent_t JHa[JH_N / 2];
 #define JHb ((jent_t *)T18_JH_SPLIT)
+#endif
 #define JHE(i) ((i) < JH_N / 2 ? &JHa[i] : &JHb[(i) - JH_N / 2])
-#define JH_CLEAR() do { memset(JHa, 0, sizeof JHa); memset(JHb, 0, sizeof(jent_t) * (JH_N / 2)); } while (0)
+#define JH_CLEAR() do { memset(JHa, 0, sizeof(jent_t) * (JH_N / 2)); memset(JHb, 0, sizeof(jent_t) * (JH_N / 2)); } while (0)
+#ifdef T18_POOL_STEAL
+static inline uint32_t jh_hash(uint32_t key);
+__attribute__((section(".xiptext"), noinline)) void t18_jit_steal(int on)
+{
+    jent_t *a = JHa;
+    JHa = on ? JHb : (jent_t *)t18_pool[T18_POOL_STEAL];
+    if (!on) { memset(JHa, 0, sizeof(jent_t) * (JH_N / 2)); return; }
+    /* the entries with code move to free places of the second half (the rest is translated again when hot) */
+    for (uint32_t i = 0; i < JH_N / 2; i++) {
+        jent_t t = a[i];
+        if (!t.key || !t.off) continue;
+        uint32_t h = jh_hash(t.key);
+        for (int k = 0; k < 16; k++, h = (h + 1) & (JH_N - 1)) { jent_t *e = JHE(h); if (!e->key) { *e = t; break; } }
+    }
+}
+#endif
 #elif defined(T18_JH_SECT)
 static jent_t JH[JH_N] __attribute__((section(T18_JH_SECT)));   /* elsewhere (test: other RAM) */
 #define JHE(i) (&JH[i])
@@ -2325,6 +2352,9 @@ int t18_jit_code_line(uint32_t o) { (void)o; return 0; }
 int t18_jit_code_range(uint32_t o, uint32_t n) { (void)o; (void)n; return 0; }
 void t18_jit_written(arm7_t *c, uint32_t a, uint32_t n) { (void)c; (void)a; (void)n; }
 
+#ifdef T18_POOL_STEAL
+static inline uint32_t jh_hash(uint32_t key) { return (key * 0x9E3779B1u) >> (32 - JH_BITS); }
+#endif
 static inline jent_t *lookup(uint32_t key, int make)
 {
     uint32_t h = (key * 0x9E3779B1u) >> (32 - JH_BITS);

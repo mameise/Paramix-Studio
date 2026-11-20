@@ -63,9 +63,9 @@ const neonRom = Buffer.from(rom);
 neonRom.writeUInt32LE(7, 0xD85000);
 neonRom.writeUInt32LE(0x99431742, 0xD85FF8);
 neonRom.writeUInt32LE(0x66BCE8BD, 0xD85FFC);
-ok(C.openRom(neonRom).edition === 'Neon Planets', 'Edition 7 is Neon Planets');
+ok(C.openRom(neonRom).edition === 'Neon Planets', 'native ID 7 is Studio edition 8 (Neon Planets)');
 neonRom[0xD85FFC] ^= 1;
-ok(C.editionIdOf(neonRom) !== 7, 'Neon edition ID requires a valid footer');
+ok(C.editionIdOf(neonRom) !== 8, 'Neon edition ID requires a valid footer');
 // 3) character rules
 const g = ctx.groups[0];
 const red = img(64, 64, (x, y) => (x > 10 && x < 50 && y > 10) ? [250, 30, 40, 255] : (x === 10 ? [0, 0, 0, 255] : [0, 0, 0, 0]));

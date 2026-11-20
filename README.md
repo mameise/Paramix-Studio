@@ -28,6 +28,8 @@ the device over a UART dongle.
 - **DOOM:** build DOOM into the ROM from your own DOOM.WAD.
 - **More fields:** Land, Water and Sky on Tropical and Glacier, Sky on Jade
   Forest, with pictures, special characters and the matching planet.
+- **Neon Planets (1.7.6):** menu with items, Tamapoints and Tama, programs in the menu, saves, own characters
+  for its planets Cosmic, New Tama and Tama. The game switches planets, while the fork keeps three independent save slots.
 - **Menu:** an on-device menu with several saves (each on a field of your
   choice), items in the bag, Tamapoints and changes to the Tama (level, care,
   character). FLASH TOOL in the Paramix home menu starts the installed rescue
@@ -51,7 +53,7 @@ graphics; you need your own.
 
 This fork uses `<upstream base>-plus.<revision>`, for example `1.7.5-plus.20`.
 The base is the upstream version these changes build on; the revision increases
-for fork updates and continues across base upgrades (for example `1.7.6-plus.21`).
+for fork updates on that base and starts at `plus.1` after each upstream version upgrade.
 The earlier `menu19` naming corresponds to revision 19. `VERSION` is the single
 source for the browser/release version and the Paramix About screen. After changing
 it, rebuild both menu binaries with `sh feld/src/feld/build.sh` before `node build.js`.
@@ -83,7 +85,7 @@ your own devices and your own files.
    [Releases](../../releases) and open it in Chrome or Edge (or open the GitHub
    Pages site of this repository).
 2. Open a ROM. Recognised editions: Land, Water, Sky, Jade Forest, Tropical,
-   Glacier. No dump yet? Read one with the Device button (see below).
+   Glacier, Neon Planets. No dump yet? Read one with the Device button (see below).
 3. Make your changes in the tabs. "Your new ROM" at the top shows what the new
    ROM will contain and how full the flash is.
 4. "Save new ROM" downloads the new ROM, or write it straight to the device.
@@ -229,7 +231,7 @@ program. In a normal ROM a colour Tama or TG18 always becomes the main program. 
 Editions whose firmware reaches past 0x0A0000 (Jade Forest wave 2 up to 0x0A1683, Tropical and Glacier up to
 0x0B5E00; 1.6.9, GitHub issue) have no room for a main program there. The Studio then puts every program into
 the menu: in a normal ROM Tama-Go, Friends, V1Emu and V3Emu (A and C, with field switch or items switched on),
-colour Tamas and TG18 only in a start device. 0x0A0000.. of the firmware stays untouched. DOOM as
+colour Tamas, TG18 and DOOM only in a start device (DOOM there since 1.7.6). 0x0A0000.. of the firmware stays untouched. DOOM as
 the main program of a normal ROM can start when switched on (▾ in its row).
 ▾ opens a program's row: its settings (clock per program, NFC for a 4U, start when switched on
 for the main one) and its figures or download slots. The overview "Your new ROM" shows all emulators in one

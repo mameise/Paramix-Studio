@@ -554,14 +554,22 @@ static int clock_on(void) { return (g_cfg.flags & 10u) == 10u && g_set.sync && g
  * hours 0..11 at 0x1E, 0x1F = PM; 0x46 was a second counter of the game, not the clock). Both stand until the
  * time was set once in the game. */
 #define DIGI ((g_cfg.flags & 64u) != 0u)
-#define CB (DIGI ? 0x1Au : 0x10u)
+#ifdef V1_CLK12
+/* 1.7.6 V1_CLK12: Mothra (Studio flag bit 9) keeps its clock like the Digimon: 0x1A seconds (BCD), 0x1C minutes (BCD),
+ * 0x1E hour 1..12 (0 = never set), 0x1F PM (found on the PC by setting the clock with its keys) */
+#define MOTH ((g_cfg.flags & 512u) != 0u)
+#else
+#define MOTH 0
+#endif
+#define CLK12 (DIGI || MOTH)
+#define CB (CLK12 ? 0x1Au : 0x10u)
 #define NEEDSET 1
 static void clock_put(u32 d)
 {
   u32 h = d / 3600u, m = d / 60u % 60u, sec = d % 60u;
   cpu_v1_poke(CB, (u4_t)(sec % 10u)); cpu_v1_poke(CB + 1, (u4_t)(sec / 10u));
   cpu_v1_poke(CB + 2, (u4_t)(m % 10u)); cpu_v1_poke(CB + 3, (u4_t)(m / 10u));
-  if (DIGI) { cpu_v1_poke(CB + 4, (u4_t)(h % 12u ? h % 12u : 12u)); cpu_v1_poke(CB + 5, (u4_t)(h >= 12u)); }   /* 1..12, 0 = never set */
+  if (CLK12) { cpu_v1_poke(CB + 4, (u4_t)(h % 12u ? h % 12u : 12u)); cpu_v1_poke(CB + 5, (u4_t)(h >= 12u)); }   /* 1..12, 0 = never set */
   else { cpu_v1_poke(CB + 4, (u4_t)(h & 15u)); cpu_v1_poke(CB + 5, (u4_t)(h >> 4)); }
 }
 static void clock_write(void) { clock_put((g_para_time + (REG(0x45000304u) - g_para_cnt)) % 86400u); }
@@ -575,7 +583,7 @@ static u32 g_cd[4];   /* reference: time of day, counter; last check: time of da
 static u32 clock_now(void)
 {
   u32 s = clock_sec(), m = cpu_v1_peek(CB + 2) + 10u * cpu_v1_peek(CB + 3), h;
-  if (DIGI) { h = cpu_v1_peek(CB + 4); if (h < 1u || h > 12u) return 0xFFFFFFFFu; h = h % 12u + (cpu_v1_peek(CB + 5) ? 12u : 0u); }
+  if (CLK12) { h = cpu_v1_peek(CB + 4); if (h < 1u || h > 12u) return 0xFFFFFFFFu; h = h % 12u + (cpu_v1_peek(CB + 5) ? 12u : 0u); }
   else h = cpu_v1_peek(CB + 4) | (u32)cpu_v1_peek(CB + 5) << 4;
   if ((s & 15u) > 9u || s > 0x59u || m > 59u || h > 23u) return 0xFFFFFFFFu;
   return h * 3600u + m * 60u + (s >> 4) * 10u + (s & 15u);
@@ -607,7 +615,7 @@ static int clock_ok(void)
 {
   u32 t = g_para_time + (REG(0x45000304u) - g_para_cnt), want = t % 86400u / 60u, h;
   u32 m = cpu_v1_peek(CB + 2) + 10u * cpu_v1_peek(CB + 3);
-  if (DIGI) h = cpu_v1_peek(CB + 4) % 12u + (cpu_v1_peek(CB + 5) ? 12u : 0u);
+  if (CLK12) h = cpu_v1_peek(CB + 4) % 12u + (cpu_v1_peek(CB + 5) ? 12u : 0u);
   else h = cpu_v1_peek(CB + 4) | (u32)cpu_v1_peek(CB + 5) << 4;
   u32 diff = (h * 60u + m + 1440u - want) % 1440u;
   return diff <= 1u || diff >= 1439u;
@@ -615,10 +623,11 @@ static int clock_ok(void)
 #endif
 /* keys the program presses itself (Tamagotchis): B, B, B, A, C (wake, clock, clock setting, one hour so the clock
  * starts, set), 3 s after the start; then the time is written and checked (a second try if the clock stands) */
-#define NSET (DIGI ? 2 : 5)
+#define NSET (DIGI ? 2 : MOTH ? 3 : 5)
 static const u32 SETKEYS_T[5] = { BTN_B, BTN_B, BTN_B, BTN_A, BTN_C };
 static const u32 SETKEYS_D[2] = { BTN_B, BTN_C };   /* Digimon: B shows the clock setting, C takes it (then the clock runs) */
-#define SETKEYS (DIGI ? SETKEYS_D : SETKEYS_T)
+static const u32 SETKEYS_M[3] = { BTN_B, BTN_A, BTN_C };   /* 1.7.6 Mothra: B opens the clock setting, A one hour, C sets */
+#define SETKEYS (DIGI ? SETKEYS_D : MOTH ? SETKEYS_M : SETKEYS_T)
 static int g_auto_k = -1; static u32 g_auto_at, g_auto_b, g_auto_until;
 
 static void keys(u32 b)
@@ -664,7 +673,13 @@ void Reset_Handler(void)
   { const volatile u8 *r = XIP_PTR(g_cfg.rom_off); u32 n = g_cfg.rom_len / 2u; if (n > 8192u) n = 8192u;
     for (u32 i = 0; i < n; i++) g_prog[i] = (u12_t)(((u32)r[2 * i] << 8 | r[2 * i + 1]) & 0xFFFu); }
   tamalib_register_hal(&g_hal_v1);
-  { extern int thw_digi, cpu_kmask_fix; thw_digi = DIGI; cpu_kmask_fix = DIGI; }
+  { extern int thw_digi, cpu_kmask_fix; thw_digi = DIGI; cpu_kmask_fix = DIGI;
+#ifdef V1_KMASK_ALL
+    /* 1.7.6: the key interrupt masks where they belong for every toy. Mothra and Genjintchi take their keys from that
+     * interrupt (found on the PC: without it most presses were lost); the others never enable it, so nothing changes */
+    cpu_kmask_fix = 1;
+#endif
+  }
 #ifdef V1_DIRECT
   { extern int thw_direct; thw_direct = (g_cfg.flags & 128u) != 0u; }
 #ifdef V1_ICONSEG

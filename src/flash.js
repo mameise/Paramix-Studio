@@ -50,7 +50,7 @@ const LV = (() => { const o = new Uint8Array(LV_A.length + LV_B.length); let s =
 const LINK_KEY = String.fromCharCode(...LV.subarray(0, 32)), PDLO_TOKEN = String.fromCharCode(...LV.subarray(32, 40));
 const PDLO_XOR = (LV[40] | LV[41] << 8 | LV[42] << 16 | LV[43] << 24) >>> 0;
 const IMAGE_SIZE = 0x10000, CHUNK = 0x1000;
-const EDITIONS = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier', 7: 'Neon Planets' };
+const EDITIONS = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier', 7: 'Tropical/Glacier', 8: 'Neon Planets' };
 
 // ------------------------------------------------------------------ messages
 // English texts; every error and note carries .code and .p so the page can show
@@ -428,8 +428,11 @@ class Paradise {
       // (its save data at 0xD49000 can begin with 1..6)
       const C = [0, 0x70169E2C, 0x70169E2C, 0x70169E2C, 0x849633DB, 0x96CB83B8, 0x96CB83B8, 0x99431749];
       const ok = async (p, ids) => { const a = await this.read(p, 4), v = u32(a, 0); if (!ids.includes(v)) return 0;
-        const f = await this.read(p + 0xFF8, 8), k = u32(f, 0); return ((k + v) >>> 0) === C[v] && u32(f, 4) === (~k >>> 0) ? v : -v; };
-      const n = await ok(0xD85000, [7]), g = n > 0 ? 0 : await ok(0xD29000, [5, 6]);
+        const f = await this.read(p + 0xFF8, 8), k = u32(f, 0); const footer = (k + v) >>> 0, valid = u32(f, 4) === (~k >>> 0);
+        if (valid && v === 4 && (p === 0xD29000 || p === 0xEFD000) && footer === C[5]) return 7;
+        if (p === 0xD29000 && v === 4) return 0;
+        return valid && footer === C[v] ? (v === 7 ? 8 : v) : -v; };
+      const n = await ok(0xD85000, [7]), g = n > 0 ? 0 : await ok(0xD29000, [4, 5, 6]);
       const l = n > 0 || g > 0 ? 0 : await ok(0xD49000, [1, 2, 3, 4]);
       const c = n > 0 || g > 0 || l > 0 ? 0 : await ok(0xEFD000, [1, 2, 3, 4, 5, 6, 7]);
       const v = n > 0 ? n : g > 0 ? g : l > 0 ? l : c > 0 ? c : l < 0 ? -l : g < 0 ? -g : 0;
@@ -792,6 +795,7 @@ function t18SameGrown(d, dc, n, nc) {
   if (nd > 64 || nn > 64 || nn < nd) return false;
   return eq(8, 4) && eq(16, 256) && eq(272, 2 * nd) && (nn === nd ? eq(272, 128) : true);
 }
+const NEON_HI = true;
 function keepPlan(F, E, menu, opts = {}) {
   return async (dev, img, changed, moves) => {
     const ed = F.edition(img);
@@ -813,7 +817,7 @@ function keepPlan(F, E, menu, opts = {}) {
     const importNeonItems = mainOk && ed.profile.name === 'gen3' && neon?.itemsInstalled(img) && !neon.itemsInstalled(view);
     // six fields keep pictures from 0xF00000; a start device (1.6.8) may have programs there (the Paradise never writes there)
     const launchImg = !!(menu && F.isLaunch && F.isLaunch(img, menu.stub));
-    const ranges = mainOk ? [[ed.profile.idPage + (sameFam ? 0 : SECTOR), (F.isSix && F.isSix(img)) || launchImg ? 0xF00000 : FLASH_SIZE]] : [];
+    const ranges = mainOk ? [[ed.profile.idPage + (sameFam ? 0 : SECTOR), (F.isSix && F.isSix(img)) || launchImg || (NEON_HI && ed.profile.ring) ? 0xF00000 : FLASH_SIZE]] : [];   // NEON_HI: Neon's save ends at 0xF00000, programs may follow
     if (clean && dclean) { const ci = F.cleanInfo(img), cd = F.cleanInfo(view); if (ci && cd && ci.clock === cd.clock) ranges.push([ci.clock, ci.clock + SECTOR]); }
     // field slots
     const fi = menu && F.feldFind(img, menu.stub), fd = menu && F.feldFind(view, menu.stub);
@@ -883,7 +887,10 @@ function keepPlan(F, E, menu, opts = {}) {
     } else if (kind === 2 && dkind === 2 && !t7i && !t7d && !t18i && !t18d && u32(img, 0xA0140) !== 0x31584D50 && u32(view, 0xA0140) !== 0x31584D50) {
       // same firmware layout (offset, size, save area, device, block map); the program version may differ
       const same = view.subarray(0xA0148, 0xA0140 + 24 + 128).every((v, i) => v === img[0xA0148 + i]);
-      if (same && !opts.emuChanged) {
+      if (!same && opts.emuSess && u32(view, 0xA0150) === u32(img, 0xA0150) && u32(view, 0xA0154) === u32(img, 0xA0154)) {
+        // 1.7.6 DLC_KEEP: the guest with the device's save is in the new image (other layout); the run state stays
+        const so = u32(img, 0xA0150); ranges.push([so, so + 0x50000]);
+      } else if (same && !opts.emuChanged) {
         const gOff = u32(img, 0xA0148), gLen = u32(img, 0xA014C);
         // with the packed firmware also the spare pages behind it (item stores, since v0.9.2)
         const end = u32(img, 0xA0144) >= 3 ? Math.min(u32(img, 0xA0140 + 152), 0xD48000) : gOff + gLen;
@@ -1018,6 +1025,18 @@ function keepPlan(F, E, menu, opts = {}) {
       const progs = async (b, rd, apps) => {
         const out = [], one = async (base, cfgOf) => {
           const c = await cfgOf(base); const m = u32(c, 0x140);
+          // 1.7.6 DLC_KEEP: a TamaEmu whose firmware came along from the device (saveCarry: moved or other layout)
+          // takes its run state along (it does not depend on the layout)
+          if (m === PMXC_ && u32(c, 0x144) >= 3 && opts.carried) {
+            const tama = u32(c, 0x154), guest = u32(c, 0x148);
+            const resetBlock = tama === 0 ? 0 : 0x40;
+            const code = [resetBlock, resetBlock + 1].map(block => {
+              const mapped = c[0x158 + block];
+              return mapped === 0xFF ? -1 : guest + ((mapped === 0xFE ? block : mapped) << 16);
+            });
+            out.push({ kind: m, tama, code, saveOff: u32(c, 0x150), saveLen: 0x50000, base });
+            return;
+          }
           if (m !== T7M && m !== V1M) return;
           const isMain = base === 0xA0000, so = u32(c, 0x150);
           out.push({ kind: m, romOff: u32(c, 0x148), romLen: u32(c, 0x14C), saveOff: so, saveLen: m === V1M ? 0x2000 : (isMain ? 0x6000 : 0x6000), base });
@@ -1033,6 +1052,25 @@ function keepPlan(F, E, menu, opts = {}) {
         const covered = (a) => ranges.some(([x, y]) => a >= x && a < y);
         for (const p of ip) {
           if (covered(p.saveOff)) continue;
+          if (p.tama !== undefined) {
+            const matches = [];
+            for (const d of dp) {
+              if (d.tama !== p.tama || !opts.carried.has(d.base) ||
+                  p.code.some((at, i) => at < 0 || d.code[i] < 0 || at + BLOCK64 > img.length || d.code[i] + BLOCK64 > img.length)) continue;
+              let same = true;
+              for (const [i, at] of p.code.entries()) {
+                const dc = dev.crc ? await dev.crc(d.code[i], BLOCK64) : crc32(await dev.read(d.code[i], BLOCK64));
+                if (dc !== crc32(img, at, BLOCK64)) { same = false; break; }
+              }
+              if (same) matches.push(d);
+            }
+            if (matches.length === 1) {
+              const data = await dev.read(matches[0].saveOff, p.saveLen);
+              image.set(data, p.saveOff);
+              for (let s = p.saveOff; s < p.saveOff + p.saveLen; s += SECTOR) changed.add(s);
+            }
+            continue;
+          }
           const want = crc32(img, p.romOff, p.romLen);
           for (const d of dp) {
             if (d.kind !== p.kind || d.romLen !== p.romLen || (d.base === p.base && d.saveOff === p.saveOff)) continue;
@@ -1063,6 +1101,7 @@ function keepPlan(F, E, menu, opts = {}) {
         prot.delete(s);
       }
     }
+    if (opts.after) { const before = image.slice(); await opts.after(image); for (let s = 0; s < image.length; s += SECTOR) { if (changed.has(s)) continue; for (let i = s; i < s + SECTOR; i++) if (image[i] !== before[i]) { changed.add(s); break; } } }
     const protectedSectors = [...prot].filter((s) => changed.has(s));
     return { image, notes, kept, protectedSectors };
   };

@@ -6,6 +6,7 @@ const S = require('../src/saves.js'), E = require('../src/emu.js');
 const rd = (p) => new Uint8Array(fs.readFileSync(p));
 let bad = 0; const ok = (c, m) => { console.log((c ? 'ok   ' : 'WRONG ') + m); if (!c) bad++; };
 const [waterF, glacF, idlF, out] = process.argv.slice(2);
+if (out) fs.mkdirSync(out, { recursive: true });
 const water = rd(waterF), glac = rd(glacF);
 (async () => {
   // Paradise
@@ -16,7 +17,8 @@ const water = rd(waterF), glac = rd(glacF);
   ok(sv.counter === 123456 && sv.stamp === 1700000000 && sv.edition === 2 && sv.alarm === 123455 && sv.status === 0x100, 'Paradise: clock and edition');
   const c1 = S.paraCheck(sv, 2);
   ok(!c1.errors.length && c1.complete, 'Paradise: fits Water ' + JSON.stringify(c1.errors));
-  ok(S.paraCheck(sv, 1).errors.some((e) => e.code === 'saveOtherEd'), 'Paradise: refused on Land');
+  // 1.7.6 SAVE_FAMILY: Land, Water and Sky are one firmware (the field switch changes the ID): a Water save fits Land
+  ok(!S.paraCheck(sv, 1).errors.length && S.paraCheck(sv, 6).errors.some((e) => e.code === 'saveOtherEd'), 'Paradise: fits Land (same firmware), refused on Glacier');
   ok(S.paraCheck(Object.assign({}, sv, { edition: 0 }), 6).errors.some((e) => e.code === 'saveFamily'), 'Paradise: without trailer, Glacier device refuses a Water save');
   const g = S.paraDecode(S.paraEncode(S.paraFromImage(glac, 6), 6, null));
   ok(!S.paraCheck(Object.assign({}, g, { edition: 0 }), 6).errors.length && S.paraCheck(Object.assign({}, g, { edition: 0 }), 2).errors.some((e) => e.code === 'saveFamily'), 'Paradise: Glacier save fits Glacier, not Water');

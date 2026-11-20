@@ -23,10 +23,10 @@ const APP_OFF = 0xA0000, STUB_OFF = 0xB0000, FELD_OFF = 0xB1000, FELD_END = 0xC0
 const DOOM_CODE = 0xB1000, DOOM_SAVE = 0x10E000;
 const SLOT_BASE = 0x830000, SLOT_SIZE = 0x58000, GUEST_OFF = 0x940000;
 const FELD_MAGIC = 0x444C4546, SLOT_MAGIC = 0x544C5346, CAT_MAGIC = 0x54414350, PMXC = 0x43584D50, PDMC = 0x434D4450;
-const PH_APP = 0x1234ABCD, PH_FELD = 0x6789EF01, PH_AUTO = 0x66666661, PH_ORIG = [0x22222221, 0x33333331, 0x44444441, 0x55555551];
+const PH_RING = 0x77777771, PH_APP = 0x1234ABCD, PH_FELD = 0x6789EF01, PH_AUTO = 0x66666661, PH_ORIG = [0x22222221, 0x33333331, 0x44444441, 0x55555551];
 const HOOK_OFF = [0x40, 0x46, 0x4C, 0x52];
 const F_FIELDS = 1, F_BAG = 2, F_TAMA = 4, F_SAVES = 8, F_LAUNCH = 16;
-const F_NO_SHORTCUT = 128; // persisted opt-out; the A+C menu remains enabled
+const F_RING = 0x80, F_NO_SHORTCUT = 0x2000; // persisted opt-out; the A+C menu remains enabled
 const F_BOOK6 = 256; // native Tama File has the three additional regions
 const F_APPS = 512;  // ordinary launcher menu without legacy Paradise save tools
 const F_NEON_TAMA = 0x800;
@@ -146,6 +146,7 @@ const rgb = (r, g, b) => ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
  * inverse. Factory settings (0xEFE000/0xEFF000): zeros and these bytes, plus the
  * checksum, which the program computes itself. Bag and money as in the app.
  */
+const ED_GEN3_4 = 7;
 const PROFILES = [
   { name: 'gen1', idPage: 0xD49000, edIds: [1, 2, 3], ids: [1, 2, 3], names: ['LAND', 'WATER', 'SKY'], h: [1, 4], c: 0x70169E2C,
     cols: [rgb(80, 200, 60), rgb(40, 120, 255), rgb(120, 210, 255)], fieldByte: 439,
@@ -160,16 +161,19 @@ const PROFILES = [
     common: [[4, 4], [8, 17], [16, 192], [17, 168], [168, 1], [170, 3], [580, 63], [581, 31], [1860, 1]],
     field: [[[443, 0]], [[443, 1]], [[443, 2]]], bag: [0xb4, 0x244, 0x744], tama: 0x108, level: 0x7C },
   // Tropical and Glacier: same firmware, three fields (byte 499): TROPICAL, ICE (Glacier), FOREST
-  { name: 'gen3', idPage: 0xD29000, edIds: [5, 6], ids: [5, 6, 0], names: ['TROPICAL', 'GLACIER', 'FOREST'], h: [3, 1], c: 0x96CB83B8,
+  // 1.7.6 GEN3_ID4 (User: Forest and Sky kept the ID of the save before, the special characters there never came): the
+  // Tropical/Glacier firmware takes the ID 4, 5 or 6 and makes the home of it (1/5 first, 2/6 second, 3/4 third), so
+  // Forest and Sky get the ID 4. Read back, such a page counts as edition 7 (Tropical/Glacier family, third home).
+  { name: 'gen3', idPage: 0xD29000, edIds: [5, 6, ED_GEN3_4], ids: [5, 6, 4], names: ['TROPICAL', 'GLACIER', 'FOREST'], h: [3, 1], c: 0x96CB83B8,
     cols: [rgb(255, 150, 60), rgb(150, 220, 255), rgb(60, 190, 110)], fieldByte: 499,
     common: [[4, 4], [8, 17], [12, 109], [13, 1], [16, 192], [17, 168], [180, 1], [182, 1], [624, 62], [625, 31], [1904, 1]],
     field: [[[499, 0]], [[499, 1]], [[499, 2]]], bag: [0xc0, 0x270, 0x770], tama: 0x114, level: 0x88 },
   // Neon saves rotate across five pages and use a new galaxy layout.
-  { name: 'neon', idPage: 0xD85000, edIds: [7], ids: [0, 0, 0], names: ['COSMIC PLANET', 'NEW TAMAGOTCHI PLANET', 'TAMAGOTCHI PLANET'], h: [4, 0], c: 0x99431749,
+  { name: 'neon', idPage: 0xD85000, edIds: [8], ring: true, ids: [0, 0, 0], names: ['COSMIC PLANET', 'NEW TAMAGOTCHI PLANET', 'TAMAGOTCHI PLANET'], h: [4, 0], c: 0x99431749,
     cols: [rgb(255, 150, 60), rgb(150, 220, 255), rgb(60, 190, 110)],
     common: [], field: [], bag: [0xC0, 0x284, 0x784], fieldByte: 0x207, tama: 0x114 },
 ];
-const NAMES = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier', 7: 'Neon Planets' };
+const NAMES = { 1: 'Land', 2: 'Water', 3: 'Sky', 4: 'Jade Forest', 5: 'Tropical', 6: 'Glacier', 7: 'Tropical/Glacier', 8: 'Neon Planets' };
 /* Tropical/Glacier with six fields: the second three are slots 0..2 with the set byte 1. */
 function profileOf(rom, p) {
   if (!isSix(rom)) return p;
@@ -210,29 +214,34 @@ function edition(rom) {
   // at 0xD49000 it has save data whose first word can be 1..6); without a footer the first word as before
   // 1.7.3 test13: a clean ROM keeps its ID page at CLEAN_ID (top, so 0xD49000 does not split the room for programs)
   for (const at of [null, CLEAN_ID]) for (const p of PROFILES.slice().reverse()) {
-    const a = at || p.idPage; if (a + 0x1000 > rom.length) continue;
+    const a = at || p.idPage;
+    if (a + 0x1000 > rom.length) continue;
     const id = u32(rom, a), k = u32(rom, a + 0xFF8);
-    if (p.edIds.includes(id) && ((k + id) >>> 0) === p.c && u32(rom, a + 0xFFC) === (~k >>> 0)) return { profile: p, id, at: a };
+    if (((k + id) >>> 0) !== p.c || u32(rom, a + 0xFFC) !== (~k >>> 0)) continue;
+    if (p.ring) {
+      if (id === 7) return { profile: p, id: 8, at: a };
+    } else if (id === 4 && p.name === 'gen3') return { profile: p, id: ED_GEN3_4, at: a };
+    else if (id !== ED_GEN3_4 && p.edIds.includes(id)) return { profile: p, id, at: a };
   }
   for (const p of PROFILES) {
     const id = u32(rom, p.idPage);
-    if (id !== 7 && p.edIds.includes(id)) return { profile: p, id, at: p.idPage };
+    if (!p.ring && id !== ED_GEN3_4 && p.edIds.includes(id)) return { profile: p, id, at: p.idPage };
   }
   return null;
 }
 /** Family of an edition ID (same firmware, only the active field differs): 'gen1' (Land, Water, Sky), 'jade', 'gen3'. */
 function familyOf(id) { const p = PROFILES.find((q) => q.edIds.includes(id)); return p ? p.name : null; }
-/** Edition ID (1 Land ... 7 Neon Planets) or 0. */
+/** Edition ID (1 Land ... 8 Neon Planets) or 0. */
 function feldId(rom) { const e = edition(rom); return e ? e.id : 0; }
 /** Does this edition have native fields backed by a known save profile? */
 function canFields(rom) { const e = edition(rom); return !!(e && e.profile.ids.length); }
 /** The fields of this ROM (names). */
-function fieldNames(rom) { const e = edition(rom); return e?.id === 7 ? NEON_FIELD_NAMES.slice() : e ? profileOf(rom, e.profile).names.map(cap) : []; }
+function fieldNames(rom) { const e = edition(rom); return e?.id === 8 ? NEON_FIELD_NAMES.slice() : e ? profileOf(rom, e.profile).names.map(cap) : []; }
 /** Active field (name), read from the save. */
 function fieldNow(rom) {
   const e = edition(rom); if (!e) return '';
   const P = profileOf(rom, e.profile);
-  if (e.id === 7) {
+  if (e.id === 8) {
     const S = root.ParamixSaves || (typeof require !== 'undefined' ? require('./saves.js') : null);
     const ring = new Map();
     for (let a = 0xD86000; a < 0xD8B000; a += 0x1000) ring.set(a, rom.subarray(a, a + 0x1000));
@@ -300,6 +309,16 @@ function feldAt(rom, stubOff, ph) {
   const version = u32(rom, c + 4);
   const f = { off, stubOff, version, slotOff: u32(rom, c + 8), slotSize: u32(rom, c + 12), nslots: u32(rom, c + 16), flags: F_FIELDS, catOff: 0, catN: 0 };
   if (version >= 2) { f.flags = u32(rom, c + 36); f.catOff = u32(rom, c + 272); f.catN = u32(rom, c + 276); }
+  if (f.flags & F_RING) {
+    // Official 1.7.6 uses this bit for the Neon ring. Those menus have no
+    // fork flags. Earlier forks set it for the optional shortcut instead.
+    const neon = u32(rom, c + 28) === 0xD85000;
+    if (!neon || ((f.flags & F_APPS) && !(f.flags & F_NO_SHORTCUT))) {
+      const code = rom.subarray(off, Math.min(off + 0x10000, rom.length));
+      const legacy = !neon || new TextDecoder().decode(code).includes('PMXVER:1.7.5-');
+      if (legacy) f.flags = (f.flags & ~F_RING) | F_NO_SHORTCUT;
+    }
+  }
   f.slotOff2 = version >= 4 ? u32(rom, c + 364) : 0; f.slotN1 = version >= 4 ? u32(rom, c + 368) : 0;
   f.poolExtraOff = version >= 11 ? u32(rom, c + 612) : 0;
   f.poolExtraPages = version >= 11 ? u32(rom, c + 616) : 0;
@@ -720,9 +739,9 @@ function itemCatalog(d) {
   const bt = bildTabelle(d);
   if (bt < 0) return [];
   const editionId = edition(d)?.id;
-  const neon = editionId === 7;
+  const neon = editionId === 8;
   const imported = u32(d, 0x107FD0) === 0x31495A4E;
-  const importedCount = [0, 305, 305, 305, 333, 400, 400][editionId];
+  const importedCount = [0, 305, 305, 305, 333, 400, 400, 400][editionId];
   const [it, n] = neon || imported ? packedItemTable(d, neon ? 406 : importedCount) : itemTabelle(d, u32(d, bt) / 4);
   if (it < 0 || n < 100) return [];
   const tt = textTabelle(d);
@@ -802,7 +821,7 @@ function characterPreviewData(d, C, ctx) {
 
   // Remapped Neon sprites may share slots with legacy characters. The
   // native neutral animation frame identifies each layer independently.
-  if (ctx.editionId !== 7) {
+  if (ctx.editionId !== 8) {
     for (const c of C.charTable(ctx.files[0])) {
       if (c.id >= 9000 || c.field < 7 || c.field > 9 || c.stage < 3 || c.stage > 5) continue;
       const neutral = layers.frameAt(54 * c.animation + 1);
@@ -904,7 +923,7 @@ const APPEARANCE_REBUILD = [
 });
 function neonAppearance(rom) {
   const table = 0xAE954;
-  if (feldId(rom) !== 7 || u32(rom, table) !== 0x60E4E000 ||
+  if (feldId(rom) !== 8 || u32(rom, table) !== 0x60E4E000 ||
       u32(rom, table + 4) !== 0x60D8F000 || u32(rom, table + 8) !== 0x60E52000) return null;
   const { off, stock, patched } = APPEARANCE_REBUILD[3];
   if (stock.every((byte, i) => rom[off + i] === byte)) return 'stock';
@@ -1037,20 +1056,20 @@ function feldApply(rom, opts, saved, emb, E) {
   const ed = edition(out);
   if (!ed) throw new Error('edition not recognised');
   const P = profileOf(out, ed.profile);
-  const neonSaves = ed.id === 7 && !!opts.fields;
-  const neonBag = ed.id === 7 && !!opts.bag;
-  const appsOnly = ed.id === 7 && (!!opts.appsOnly || neonSaves || neonBag);
-  const save = appsOnly && (root.ParamixSaves || (typeof require !== 'undefined' ? require('./saves.js') : null));
+  const launch = !!opts.launch;
+  const neonLaunch = P.ring && launch;
+  const neonSaves = P.ring && !!opts.fields && !launch;
+  const neonBag = P.ring && !!opts.bag && !launch;
+  const appsOnly = P.ring && !launch && (!!opts.appsOnly || neonSaves || neonBag || !!opts.neonTama);
+  const save = (appsOnly || neonLaunch) && (root.ParamixSaves || (typeof require !== 'undefined' ? require('./saves.js') : null));
   const neonEdit = save && save.neonSaveLayout(out);
   const neonTama = appsOnly && !!opts.neonTama;
   if (neonTama && (!neonEdit || !neonAppearance(out))) throw new Error('Neon Planets appearance routine does not match this firmware');
   if (neonSaves && !neonEdit) throw new Error('Neon Planets save layout does not match this firmware');
   if (neonBag && (!neonEdit || !neonBagLayout(out))) throw new Error('Neon Planets item save layout does not match this firmware');
-  if (ed.id === 7 && (opts.tama || opts.gplay || opts.launch)) {
-    throw new Error('use the Programs menu for Neon Planets');
-  }
+  if (neonLaunch && (!neonEdit || findWord(emb.stub, PH_RING) < 0)) throw new Error('Neon Planets launcher requires the settings ring');
+  if (P.ring && (opts.tama || opts.gplay)) throw new Error('use the Neon Planets menu tools');
   const v6 = u32(emb.feld, findWord(emb.feld, FELD_MAGIC) + 4) >= 6;
-  const launch = !!opts.launch;
   const book9 = !launch && !!neonGrowth?.installed(out);
   if (book9) neonGrowth.fixLayerIndices(out);
   const gplay = GPLAY && !!opts.gplay && !launch && !opts.clean; const fields = !!opts.fields && !launch, bag = !!opts.bag && !launch, tama = !!opts.tama && v6 && !launch, saves = fields && v6 && opts.saves !== false;
@@ -1066,13 +1085,13 @@ function feldApply(rom, opts, saved, emb, E) {
   if (neonBag && (!catList.length || new Set(catList.map(c => c.id)).size !== catList.length || catList.some(c => c.pic >= 0x1000))) {
     throw new Error('Neon Planets item catalog does not match this firmware');
   }
-  if (tama || neonTama || book9 || neonEdit) {
+  if (tama || neonTama || book9 || (neonEdit && !launch)) {
     const chars = charCatalog(out, P, tama || neonTama);
     if (neonTama && !chars.some(c => c.preview)) throw new Error('Neon Planets character preview data is missing');
     catList.push(...(neonEdit && !neonTama ? chars.filter(c => (c.sum >> 8) >= 7) : chars));
     catList.sort((a, b) => a.id - b.id);
   }
-  const cat = bag || tama || neonTama || book9 || neonEdit ? catalogBlob(catList) : new Uint8Array(0);
+  const cat = bag || tama || neonTama || book9 || (neonEdit && !launch) ? catalogBlob(catList) : new Uint8Array(0);
   const fsz = page(emb.feld.length), csz = page(cat.length);
   const doom = kind === 1;
   const doomEnd = Math.min(DOOM_SAVE, ...languagePages);
@@ -1145,7 +1164,7 @@ function feldApply(rom, opts, saved, emb, E) {
   w32(f, ci + 8, slotOff); w32(f, ci + 12, slotSize); w32(f, ci + 16, nslots);
   w32(f, ci + 20, P.idPage + 0x1000); w32(f, ci + 24, P.six || neonSaves ? 0xF00000 : 0x1000000);
   w32(f, ci + 28, P.idPage);   // ID page (1.2.2 to 1.2.11 lost this line: Tropical/Glacier wrote the ID to 0xD49000)
-  w32(f, ci + 32, stubOff); w32(f, ci + 36, (fields ? F_FIELDS : 0) | (bag ? F_BAG : 0) | (tama ? F_TAMA : 0) | (saves ? F_SAVES : 0) | (launch ? F_LAUNCH : 0) | (gplay ? F_GPLAY : 0) | (appsOnly ? F_APPS : 0) | (neonEdit ? F_NEON_EDIT : 0) | (neonTama ? F_NEON_TAMA : 0) | (opts.paramixShortcut === false ? F_NO_SHORTCUT : 0));
+  w32(f, ci + 32, stubOff); w32(f, ci + 36, (fields ? F_FIELDS : 0) | (bag ? F_BAG : 0) | (tama ? F_TAMA : 0) | (saves ? F_SAVES : 0) | (launch ? F_LAUNCH : 0) | (gplay ? F_GPLAY : 0) | (appsOnly ? F_APPS : 0) | (neonEdit ? F_NEON_EDIT : 0) | (neonTama ? F_NEON_TAMA : 0) | (P.ring ? F_RING : 0) | (opts.paramixShortcut === false ? F_NO_SHORTCUT : 0));
   if (appsOnly || u32(f, ci + 4) >= 11) w32(f, ci + 620, fsz);
   if (neonSaves) w32(f, ci + 36, u32(f, ci + 36) | F_NEON_SAVES | F_SAVES);
   w32(f, ci + 40, P.c); w16(f, ci + 44, P.h[0]); w16(f, ci + 46, P.h[1]);
@@ -1228,6 +1247,7 @@ function feldApply(rom, opts, saved, emb, E) {
   put(PH_FELD, xip(prog));
   PH_ORIG.forEach((ph, k) => put(ph, origs[k]));
   { const ia = findWord(st, PH_AUTO); if (ia >= 0) w32(st, ia, 0); }   // autostart off, the Studio sets it at the end
+  { const ir = findWord(st, PH_RING); if (ir >= 0) w32(st, ir, P.ring ? 0x60000000 + P.idPage + 0x1000 : 0); }   // 1.7.6 RING_CHECK: start device on Neon, any page of the ring is a save
   out.fill(0xFF, stubOff, stubOff + 0x1000);
   out.set(st, stubOff);
   if (neonSaves) neonGuard(out, stubOff, true);
@@ -1312,6 +1332,7 @@ function cleanApply(rom, opts, emb) {
   const put = (ph, v) => { let n = 0; for (let i = 0; i + 4 <= st.length; i += 2) if (u32(st, i) === ph) { w32(st, i, v); n++; } if (n !== 1) throw new Error('launcher template does not fit'); };
   put(PH_APP, opts.app || 0); put(PH_FELD, xip(FO)); PH_ORIG.forEach((ph) => put(ph, 0));
   { const ia = findWord(st, PH_AUTO); if (ia >= 0) w32(st, ia, 0); }
+  { const ir = findWord(st, PH_RING); if (ir >= 0) w32(st, ir, 0); }
   if (u32(st, 0x0C) !== 0x4604B672) throw new Error('launcher template does not fit');   // cpsid i; mov r4, r0 (start_src)
   out.fill(0xFF, STUB_OFF, STUB_OFF + 0x1000); out.set(st, STUB_OFF);
   // the restart routine the programs call: ldr r0, [menu]; ldr r1, [start_src]; bx r1
@@ -1336,6 +1357,6 @@ function embedded() {
 }
 
 function emuType(rom) { const m = u32(rom, APP_OFF + 0x140); return m === 0x37584D50 ? 't7' : m === 0x38584D50 ? 't18' : m === 0x31584D50 ? 'v1' : m === PMXC && appKind(rom) === 2 ? 'tama' : ''; }
-root.ParamixFeld = { poolCount, slotRanges, sixPoolTail, F_NO_SHORTCUT, F_APPS, F_NEON_EDIT, F_NEON_TAMA, F_NEON_SAVES, neonSlotRange, neonActive, neonSwitchPending, neonAppearance, neonBagLayout, languagePatchPages, F_GPLAY, GPLAY, CLEAN_ROM, F_CLEAN, CLOCK_SEC, cleanReserved, cleanInfo, cleanBase, cleanApply, isClean, saveSlots, fieldOfSettings, lzPack, lzUnpack, slotPages, slotBuild, poolUsed, slotParse, FIELD_TEXT, characters, F_TAMA, F_SAVES, F_LAUNCH, isLaunch, launchRestore, emuType, familyOf, isSix, slotAddr, slotReadAsync, slotPlace, poolAddr, textTabelle, zeichenkette, edition, feldId, canFields, fieldNames, fieldNow, feldFind, feldSlots, feldStrip, feldApply, feldApps, appKind, itemCatalog, embedded, NAMES, F_FIELDS, F_BAG };
+root.ParamixFeld = { poolCount, slotRanges, sixPoolTail, F_RING, F_NO_SHORTCUT, F_APPS, F_NEON_EDIT, F_NEON_TAMA, F_NEON_SAVES, neonSlotRange, neonActive, neonSwitchPending, neonAppearance, neonBagLayout, languagePatchPages, F_GPLAY, GPLAY, CLEAN_ROM, F_CLEAN, CLOCK_SEC, cleanReserved, cleanInfo, cleanBase, cleanApply, isClean, saveSlots, fieldOfSettings, lzPack, lzUnpack, slotPages, slotBuild, poolUsed, slotParse, FIELD_TEXT, characters, F_TAMA, F_SAVES, F_LAUNCH, isLaunch, launchRestore, emuType, familyOf, isSix, slotAddr, slotReadAsync, slotPlace, poolAddr, textTabelle, zeichenkette, edition, feldId, canFields, fieldNames, fieldNow, feldFind, feldSlots, feldStrip, feldApply, feldApps, appKind, itemCatalog, embedded, NAMES, F_FIELDS, F_BAG };
 if (typeof module !== 'undefined') module.exports = root.ParamixFeld;
 })(typeof window !== 'undefined' ? window : globalThis);

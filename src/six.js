@@ -175,7 +175,12 @@ const LAND_FP = [[0x11000 + 0x38AA6, '46f61811c1f20801'], [0x11000 + 0x4D316, '0
  * whose tables have the same layout as Tropical's and whose scripts match Land's one to one.
  * scene: 5 columns, wagon: 2 columns (the other two stay), egg: field eggs.
  */
-const LAND_SCENE = [0x853, 1558, 1564, 1561, 1567], LAND_WAGON = [1464, 1467], LAND_EGG = 180;
+// 1.7.6 SCENE_LAND (switch): the scene table (0x1009472C) holds a script in column 0 and PICTURES in columns 1..4
+// (walk ground and objects 0x56316/0x56624, objects of the scene at 0x7FEA4). Land: script 2131+field, pictures
+// 1437+field (table 0x1007AD60), 1443+field (0x1004D860), 1440+field and 1446+field (0x1006D77A/0x1006D79A).
+// The old values (scripts 1558..1567) left the WALKING game of the PLAY list black on Land, Water and Sky.
+const SCENE_LAND = 0x200;
+const LAND_SCENE = [0x853, 1437, 1443, 1440, 1446], LAND_WAGON = [1464, 1467], LAND_EGG = 180;
 // Jade Forest keeps the Sky pictures and scripts itself: Sky values in Jade's own numbers
 const JADE_SKY = { bg: [773, 774, 775, 775, 776, 777, 777, 778, 779, 779, 780, 781, 781, 780, 781, 781],
   speed: [1371, 1372, 1373], egg: [183], scene: [2273, 1670, 1676, 1673, 1679], wagon: [1576, 1579, 1580, 1581],
@@ -668,7 +673,8 @@ function gamesBuild(rom, X, base) {
 function kindOf(rom) {
   if (rom.length !== 0x1000000) return null;
   const a = u32(rom, 0xD29000), b = u32(rom, 0xD49000);
-  if (a === 5 || a === 6) return 'gen3';
+  const footer = u32(rom, 0xD29FF8);
+  if (a === 5 || a === 6 || (a === 4 && ((footer + 4) >>> 0) === 0x96CB83B8 && u32(rom, 0xD29FFC) === (~footer >>> 0))) return 'gen3';
   if (b === 4) return 'jade';
   return null;
 }
@@ -678,6 +684,10 @@ function sixInfo(rom) {
   return { version, kind: version >= 3 && u32(rom, SIX_OFF + 28) === 1 ? 'jade' : 'gen3', flagOff: u32(rom, SIX_OFF + 12),
     sprites: u32(rom, SIX_OFF + 16), comps: u32(rom, SIX_OFF + 20), anims: version >= 2 ? u32(rom, SIX_OFF + 24) : 0,
     planet: version >= 5 && (u32(rom, SIX_OFF + 32) & 1) === 1, fieldMenu: version >= 6 && (u32(rom, SIX_OFF + 32) & 2) === 2,
+    // On the stock 1.7.6 helper bit 0x80 marked the WALKING repair.
+    // Fork helpers used that bit for the cleanup hooks instead.
+    scene: version >= 7 && (!!(u32(rom, SIX_OFF + 32) & SCENE_LAND) ||
+      (!!(u32(rom, SIX_OFF + 32) & CLEAN_FLAG) && hex(rom, CLEAN_SITES[0][0], 4) === CLEAN_SITES[0][1])),
     allLabGames: version >= 7 && !!(u32(rom, SIX_OFF + 32) & G_ALL),
     games: version >= 7 && (u32(rom, SIX_OFF + 32) & 4) === 4, dna: version >= 7 && (u32(rom, SIX_OFF + 32) & 8) === 8, hunt: version >= 7 && (u32(rom, SIX_OFF + 32) & 16) === 16, food: version >= 7 && (u32(rom, SIX_OFF + 32) & 64) === 64, gamesRest: version >= 7 ? u32(rom, SIX_OFF + 36) : 0 };
 }
@@ -717,7 +727,7 @@ function sixFieldsUpdate(rom, blob) {
     out.set(blob.subarray(P_CLEAN_LIST, CLEAN_LIST_END), SIX_OFF + P_CLEAN_LIST);
     out.set(blob.subarray(P_CLEAN), SIX_OFF + P_CLEAN);
     for (const [at, , target] of CLEAN_SITES) out.set(branch(XIP(at), SIX_XIP + target, true), at);
-    w32(out, SIX_OFF + 32, u32(out, SIX_OFF + 32) | CLEAN_FLAG);
+    w32(out, SIX_OFF + 32, u32(out, SIX_OFF + 32) | CLEAN_FLAG | (sixInfo(rom).scene ? SCENE_LAND : 0));
   }
   return out;
 }
@@ -739,6 +749,8 @@ function sixSource(land) {
   return movPair(land, LAND_BG_AT) === LAND_BG && movPair(land, LAND_ADULT_AT) === LAND_ADULT && LAND_FP.every(([o, h]) => hex(land, o, h.length / 2) === h);
 }
 /** Does this ROM need a Land, Water or Sky ROM for its extra fields? (Jade Forest does not) */
+/** SCENE_LAND: six fields of an older Studio with the wrong walk pictures; saving again with the Land ROM fixes them. */
+function sixStale(si) { return !!si && si.kind === 'gen3' && !si.scene; }
 function sixNeedsSource(rom) { return kindOf(rom) === 'gen3'; }
 /** Takes the extra fields out again (firmware places, helper page, added pictures and scripts). */
 function sixStrip(rom) {
@@ -802,7 +814,7 @@ function install(out, kind, blob, alt, counts, planet, fieldMenu, games) {
   const page = new Uint8Array(0x1000).fill(0xFF); page.set(blob.subarray(0, Math.min(blob.length, P_DNA)));
   page.fill(0, P_CLEAN_LIST, CLEAN_LIST_END);
   w32(page, 8, K.flag); w32(page, 12, FLAG_OFF);
-  w32(page, 16, counts[0]); w32(page, 20, counts[1]); w32(page, 24, counts[2]); w32(page, 28, K.id); w32(page, 32, (planet ? 1 : 0) | (fieldMenu ? 2 : 0) | (games ? 4 : 0) | EXTRAS.reduce((m, X) => m | (alt[X.name] ? X.bit : 0), 0)); w32(page, 36, games ? games.rest : 0);
+  w32(page, 16, counts[0]); w32(page, 20, counts[1]); w32(page, 24, counts[2]); w32(page, 28, K.id); w32(page, 32, (planet ? 1 : 0) | (fieldMenu ? 2 : 0) | (games ? 4 : 0) | (kind === 'gen3' ? SCENE_LAND : 0) | EXTRAS.reduce((m, X) => m | (alt[X.name] ? X.bit : 0), 0)); w32(page, 36, games ? games.rest : 0);
   // background table and child list
   alt.bg.forEach((v, i) => w16(page, T_BG + 2 * i, v));
   w32(page, P_BG, K.bg.table); w32(page, P_BG + 4, SIX_XIP + T_BG); w32(page, P_BG + 8, K.bg.mode);
@@ -952,11 +964,11 @@ function dnaStrip(out, K, info) {
   const fn = (k) => u32(page, P_FN + 4 * k) & ~1;
   out.set(branch(XIP(0x11000 + K.child.at), fn(FN_CHILD), true), 0x11000 + K.child.at);
   if (info.fieldMenu) out.set(branch(0x10000000 + K.fm.set, u32(page, P_FM_FN + 8) & ~1, true), 0x11000 + K.fm.set);
-  if (u32(page, 32) & CLEAN_FLAG) {
+  if ((u32(page, 32) & CLEAN_FLAG) && hex(out, CLEAN_SITES[0][0], 4) !== CLEAN_SITES[0][1]) {
     for (const [at, orig] of CLEAN_SITES) out.set(bookBytes(orig), at);
     page.fill(0, P_CLEAN_LIST, CLEAN_LIST_END);
   }
-  w32(page, 32, u32(page, 32) & ~(8 | CLEAN_FLAG)); page.fill(0xFF, P_DNA, DNA_END);
+  w32(page, 32, (u32(page, 32) & ~(8 | CLEAN_FLAG)) | (info.scene ? SCENE_LAND : 0)); page.fill(0xFF, P_DNA, DNA_END);
 }
 /**
  * DNA per field on or off for a ROM that has six fields already (no Land ROM needed). Returns the ROM
@@ -995,12 +1007,14 @@ function rows(rom, addr, n, nrows, repl) {
  */
 function sixApply(rom, land, blob, opts = {}) {
   const planet = opts.planet !== false;
-  const have = sixInfo(rom);
+  let have = sixInfo(rom);
   let fieldMenu = opts.fieldMenu !== false;
   const wantGames = SIX_GAMES && opts.games !== false && kindOf(rom) === 'gen3';
   const wantDna = SIX_DNA && opts.dna !== false && !!(KINDS[have ? have.kind : kindOf(rom)] || {}).dna;
   const wantFood = SIX_FOOD && opts.dna !== false;
 
+  if (sixStale(have) && have.version === SIX_VERSION && land && have.planet === planet &&
+      have.fieldMenu === fieldMenu && have.games === wantGames) return sixWalkingUpdate(rom, land);
   if (have && have.version >= SIX_VERSION && have.planet === planet && have.fieldMenu === fieldMenu && have.games === wantGames) { let r = sixDna(rom, blob, wantDna); if (wantFood) r = sixFood(r, blob); return sixLabGamesUpdate(sixFieldsUpdate(sixHunt(r), blob), blob); }
   if (have) rom = sixStrip(rom);
   const kind = kindOf(rom);
@@ -1091,7 +1105,7 @@ function sixApply(rom, land, blob, opts = {}) {
   const eggPic = [0, 1, 2].map((fi) => { const p = firstPic(LAND_EGG + fi); if (p < 0) throw new Error('unexpected Land picture ' + (LAND_EGG + fi)); return imp.sprite(p); });
   const scene = [], wagon = [], tw = rows(trop, 0x10095778, 4, 3, {});
   for (let fi = 0; fi < 3; fi++) {
-    for (const c of LAND_SCENE) scene.push(imp.anim(c + fi));
+    LAND_SCENE.forEach((c, k) => scene.push(k > 0 ? imp.sprite(c + fi) : imp.anim(c + fi)));
     wagon.push(imp.anim(LAND_WAGON[0] + fi), imp.anim(LAND_WAGON[1] + fi), tw[4 * fi + 2], tw[4 * fi + 3]);
   }
   imp.done();
@@ -1123,6 +1137,31 @@ function sixApply(rom, land, blob, opts = {}) {
   out.set(bh, B_OFF); out.set(concat(bData), B_OFF + bHead);
   if (games) out.set(games.bytes, gBase);
   return sixFix(sixFieldsUpdate(out, blob));
+}
+/** Fix the walking picture indices without rebuilding the other six-field imports. */
+function sixWalkingUpdate(rom, land) {
+  const info = sixInfo(rom);
+  if (!sixStale(info)) return rom;
+  if (info.version !== SIX_VERSION || !sixSource(land)) throw new Error('the WALKING update needs a Land, Water or Sky ROM');
+  const [site, , originalTable] = KINDS.gen3.sites.find(x => x[3] === 'scene');
+  const ret = (XIP(0x11000 + site) + 4) | 1;
+  let table = 0;
+  for (let at = SIX_OFF + T_SITES; at + 12 <= SIX_OFF + T_MORE && u32(rom, at); at += 12) {
+    if (u32(rom, at) === ret && u32(rom, at + 4) === originalTable)
+      table = SIX_OFF + u32(rom, at + 8) - SIX_XIP;
+  }
+  if (table < SIX_OFF + T_MORE || table + 30 > SIX_OFF + 0x800)
+    throw new Error('six-field scene table is damaged');
+  const dst = C.openRom(rom), src = C.openRom(land), entries = dst.entries.slice();
+  const imp = importer({ tabs: dpSplit(src.files[0]), entries: src.entries },
+    { tabs: dpSplit(dst.files[0]), entries: dst.entries }, entries);
+  const out = new Uint8Array(rom);
+  for (let field = 0; field < 3; field++) for (let col = 1; col < 5; col++)
+    w16(out, table + 2 * (5 * field + col), imp.sprite(LAND_SCENE[col] + field));
+  // The imported sprites are appended so existing characters and scripts keep their indices.
+  const built = C.buildRom({ ...dst, rom: out, entries }, new Map()).rom;
+  w32(built, SIX_OFF + 32, u32(built, SIX_OFF + 32) | SCENE_LAND);
+  return sixFix(built);
 }
 /** Points the rain pictures at their cells in region B again (call after every archive rebuild). */
 function sixFix(rom) {
@@ -1380,6 +1419,6 @@ function sixBookStrip(rom, stubOff) {
   sites.forEach(([off, orig]) => rom.set(bookBytes(orig), off));
 }
 
-root.ParamixSix = { VERSION: SIX_VERSION, DNA: SIX_DNA, HUNT: SIX_HUNT, sixHunt, sixLabGamesUpdate, sixLabGamesUpdateNeeded, sixFieldsUpdate, sixFieldsUpdateNeeded, sixDna, sixDnaCan, sixApply, sixStrip, sixFix, sixCan, sixSource, sixInfo, sixNeedsSource, sixBookApply, sixBookStrip, kindOf, embedded, FLAG_OFF, SIX_OFF, packGroup, reduceOne, mapCells };
+root.ParamixSix = { sixStale, sixWalkingUpdate, VERSION: SIX_VERSION, DNA: SIX_DNA, HUNT: SIX_HUNT, sixHunt, sixLabGamesUpdate, sixLabGamesUpdateNeeded, sixFieldsUpdate, sixFieldsUpdateNeeded, sixDna, sixDnaCan, sixApply, sixStrip, sixFix, sixCan, sixSource, sixInfo, sixNeedsSource, sixBookApply, sixBookStrip, kindOf, embedded, FLAG_OFF, SIX_OFF, packGroup, reduceOne, mapCells };
 if (typeof module !== 'undefined') module.exports = root.ParamixSix;
 })(typeof window !== 'undefined' ? window : globalThis);

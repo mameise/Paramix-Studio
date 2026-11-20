@@ -54,3 +54,10 @@ instead of B, and loading set the pointer from it (same address on the Paradise,
 after a resume). Now B is kept in the same 4 bytes; an older session (an address there) leaves B at 0 as before.
 
 - 1.7.3 test7 SESS_FLAG: flags bit 12 (0x1000) = no session: the run state is never written and an old one is dropped at the start, so the toy starts fresh every time (these toys have no save of their own); the settings are stored as before.
+
+## 1.7.6: Mothra (V1_CLK12, V1_KMASK_ALL)
+
+- Key interrupts for all toys (`cpu_kmask_fix = 1`). Mothra and Genjintchi enable K00-K02 interrupts (0xF14 = 7) and take
+  their keys from them; without, most presses were lost. The other ROMs never enable them.
+- Mothra (Studio flag bit 9): clock like the Digimon at 0x1A (seconds, minutes BCD, hour 1..12, 0x1F PM). Fresh start:
+  B (clock setting), A (one hour), C (set), then the Paradise's time is written.

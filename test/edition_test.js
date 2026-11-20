@@ -13,9 +13,9 @@ let bad = 0; const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if
       const i = await p.hello(), e = F.edition(r);
       ok(C.openRom(r).editionId === want && e && e.id === want && i.edition === want, nm + (g ? ' with ' + g + ' at 0xD49000' : '') + ': ' + FL.EDITIONS[want]);
     }
-    if (want === 7) {
-      const save = SV.paraDecode(SV.paraEncode(SV.paraFromImage(b, 7), 7, null));
-      ok(SV.paraCheck(save, 7).complete && !SV.paraCheck(save, 7).errors.length, 'Neon save makes a complete backup of 0xD86000 through 0xEFFFFF');
+    if (want === 8) {
+      const save = SV.paraDecode(SV.paraEncode(SV.paraFromImage(b, 8), 8, null));
+      ok(SV.paraCheck(save, 8).complete && !SV.paraCheck(save, 8).errors.length, 'Neon save makes a complete backup of 0xD86000 through 0xEFFFFF');
       const before = SV.neonProgress(save);
       const edited = SV.neonProgressSet(save, { points: 54321, level: 6, mission: { index: 20, complete: true } });
       const after = SV.neonProgress(edited);
@@ -27,7 +27,7 @@ let bad = 0; const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if
       const reset = SV.neonProgress(SV.neonProgressSet(edited, { mission: { index: 20, complete: false } }));
       ok(reset.missions[20].count === 15 && !reset.missions[20].complete && reset.points === 54321, 'Neon mission reset does not change the balance');
       save.pages.delete(0xD8A000);
-      ok(SV.paraCheck(save, 7).errors.some(e => e.code === 'saveNoSettings'), 'Neon restore requires all rotating settings pages');
+      ok(SV.paraCheck(save, 8).errors.some(e => e.code === 'saveNoSettings'), 'Neon restore requires all rotating settings pages');
       const asset = name => new Uint8Array(fs.readFileSync(path.join(__dirname, '..', name)));
       const emb = { feld: asset('feld/feld.bin'), stub: asset('feld/stub_feld_tpl.bin') };
       const bag = F.feldApply(b, { bag: true, neonTama: true }, [], emb, E);
@@ -48,7 +48,7 @@ let bad = 0; const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if
       const stripped = E.appsClear(F.feldStrip(out, emb, E), apps);
       ok(Buffer.from(stripped).equals(Buffer.from(b)), 'removing the Programs menu restores the original ROM byte for byte');
       const slotsImg = F.feldApply(b, { fields: true }, [], emb, E);
-      const slots = F.saveSlots(slotsImg, emb.stub), [saveStart, saveEnd] = SV.region(7);
+      const slots = F.saveSlots(slotsImg, emb.stub), [saveStart, saveEnd] = SV.region(8);
       const [slotStart, slotEnd] = F.neonSlotRange();
       ok(slots?.saves && slots.live === 0 && slots.list.length === 3 &&
         C.openRom(slotsImg).limit === slotStart && slotEnd === 0xD85000 &&
@@ -57,7 +57,7 @@ let bad = 0; const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if
       ok(Buffer.from(slotsImg.subarray(saveStart, saveEnd)).equals(Buffer.from(b.subarray(saveStart, saveEnd))) &&
         Buffer.from(F.feldStrip(slotsImg, emb, E)).equals(Buffer.from(b)), 'Neon switch installer preserves the active save and can remove its boot hook');
       F.slotPlace(slotsImg, slots.f, 1, F.slotBuild(edited.pages, 1, saveStart, saveEnd), new Set());
-      const cleared = SV.paraClear(slotsImg, 7);
+      const cleared = SV.paraClear(slotsImg, 8);
       ok(cleared.subarray(saveStart, saveEnd).every(byte => byte === 255) &&
         Buffer.from(cleared.subarray(0, saveStart)).equals(Buffer.from(slotsImg.subarray(0, saveStart))) &&
         Buffer.from(cleared.subarray(saveEnd)).equals(Buffer.from(slotsImg.subarray(saveEnd))),
@@ -65,10 +65,10 @@ let bad = 0; const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if
       const carried = F.feldSlots(slotsImg, emb.stub);
       const renewed = F.feldApply(F.feldStrip(slotsImg, emb, E), { fields: true }, carried, emb, E);
       const existing = F.feldSlots(renewed, emb.stub);
-      const slotPages = SV.paraFromImage(new Uint8Array(0x1000000).fill(255), 7);
+      const slotPages = SV.paraFromImage(new Uint8Array(0x1000000).fill(255), 8);
       for (const [a, p] of F.slotPages(existing[0])) slotPages.set(a, p);
       ok(existing[0].index === 1 && existing.neonActive === 0 &&
-        SV.neonProgress({ edition: 7, pages: slotPages }).points === 54321, 'rebuilding preserves a stored Neon save and the active slot number');
+        SV.neonProgress({ edition: 8, pages: slotPages }).points === 54321, 'rebuilding preserves a stored Neon save and the active slot number');
       const journal = new DataView(renewed.buffer, slotStart, 24), magic = 0x4A575350;
       [magic, ~magic, slotStart, ~slotStart, 0, ~0].forEach((v, i) => journal.setUint32(4 * i, v, true));
       let blocked = false;

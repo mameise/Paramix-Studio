@@ -673,6 +673,11 @@ OVL_RO static const EmuCare CARE[] = {
   { 0x024BD18Au, 0x8201u, 0x8208u, 0x8214u, 0x8250u, 4, 20, 19, 0x0F CARE_SK(0x0C) },   /* iD L v054 (15th) */
   { 0x024C14F6u, 0x8201u, 0x8208u, 0x8214u, 0x8250u, 4, 20, 19, 0x0F CARE_SK(0x0C) },   /* iD L v055 (Princess Spacy) */
   { 0x024FDFE6u, 0x12ACu, 0x12B4u, 0x12C0u, 0x12FAu, 4, 4, 4, 0x0F },     /* P's */
+#ifdef EMU_CARE_PS13
+  /* 1.7.6: P's of 2013-01-06 (User: "v2"), its block 4 bytes higher (compared with the 2012 one, same save: 511 of 512
+   * bytes around it equal with +4, hunger 2, ring 17, points and medals the same) */
+  { 0x024FE1FEu, 0x12B0u, 0x12B8u, 0x12C4u, 0x12FEu, 4, 4, 4, 0x0F },     /* P's 2013 */
+#endif
   { 0x024F6256u, 0x11A1u, 0x11A8u, 0x11B4u, 0x11E2u, 6, 0, 0, 0 },        /* 4U+ */
   { 0x024C680Au, 0x12A9u, 0x12B0u, 0x12BCu, 0x12EAu, 6, 0, 0, 0 },        /* 4U v001 */
 };

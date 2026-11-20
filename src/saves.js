@@ -38,15 +38,15 @@ const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 
 function w32(b, o, v) { b[o] = v & 255; b[o + 1] = (v >>> 8) & 255; b[o + 2] = (v >>> 16) & 255; b[o + 3] = (v >>> 24) & 255; }
 
 /** Edition 5/6 (Tropical, Glacier) keep their ID page lower. */
-function idPage(edition) { return edition === 7 ? 0xD85000 : edition === 5 || edition === 6 ? 0xD29000 : 0xD49000; }
+function idPage(edition) { return edition === 8 ? 0xD85000 : edition >= 5 && edition <= 7 ? 0xD29000 : 0xD49000; }
 function region(edition) { return [idPage(edition) + PAGE, REGION_END]; }
 function paraClear(rom, edition) {
-  if (rom.length !== 0x1000000 || !Number.isInteger(edition) || edition < 1 || edition > 7)
+  if (rom.length !== 0x1000000 || !Number.isInteger(edition) || edition < 1 || edition > 8)
     throw new Error('expected a Paradise ROM with a known save layout');
   const [start, end] = region(edition);
   return new Uint8Array(rom).fill(0xFF, start, end);
 }
-function family(edition) { return edition === 7 ? 'neon' : edition === 5 || edition === 6 ? 'gen3' : edition === 4 ? 'jade' : 'gen1'; }
+function family(edition) { return edition === 8 ? 'neon' : edition >= 5 && edition <= 7 ? 'gen3' : edition === 4 ? 'jade' : 'gen1'; }
 
 /* Settings block: CRC-16/ARC over bytes 4..4095 at 0, its inverse at 2. */
 function crc16arc(d, from, to) {
@@ -139,7 +139,15 @@ function paraDecode(b) {
     pages.set(a, b.slice(o, o + n)); o += n;
   }
   let edition = 0;
-  if (o + 16 <= b.length && u32(b, o) === TRAILER) edition = u32(b, o + 4);
+  if (o + 16 <= b.length && u32(b, o) === TRAILER) {
+    edition = u32(b, o + 4);
+    const start = u32(b, o + 8), end = u32(b, o + 12);
+    // The fork formerly exported Neon as 7. Its recorded region distinguishes
+    // these backups from 1.7.6 Tropical/Glacier backups using that number.
+    if (edition === 7 && start === region(8)[0]) edition = 8;
+    if (edition && (edition > 8 || start !== region(edition)[0] || end !== REGION_END))
+      throw new Error('unknown Paradise save layout');
+  }
   return { stamp, counter, alarm, status, regs, pages, edition };
 }
 /**
@@ -148,20 +156,29 @@ function paraDecode(b) {
  */
 function paraCheck(save, edition) {
   const errors = [], warnings = [], [a, b] = region(edition), pages = new Map();
-  if (save.edition && save.edition !== edition) errors.push({ code: 'saveOtherEd', p: { s: save.edition, d: edition } });
+  // 1.7.6 SAVE_FAMILY: the field switch changes the ID (Land/Water/Sky, Tropical/Glacier and their Forest/Sky): a save
+  // of the same firmware fits, before a save from Tropical was refused on the device once it had switched to Glacier
+  if (save.edition && family(save.edition) !== family(edition)) errors.push({ code: 'saveOtherEd', p: { s: save.edition, d: edition } });
   let outside = 0;
   for (const [p, d] of save.pages) {
     if (p < a || p >= b || d.length !== PAGE) { outside++; continue; }
     pages.set(p, d);
   }
   if (outside) warnings.push({ code: 'saveOutside', p: { n: outside } });
-  const neon = edition === 7, settings = neon ? NEON_SETTINGS : [SET_A, SET_B];
+  const neon = edition === 8, settings = neon ? NEON_SETTINGS : [SET_A, SET_B];
   const set = neon ? neonSettings(pages)?.page : settings.map(a => pages.get(a)).find(p => p && settingsOk(p));
   // Restoring only some ring pages can leave a newer copy of the previous
   // settings on the device. A snapshot must include the whole ring.
   if (!set || (neon && !settings.every(a => pages.has(a)))) errors.push({ code: 'saveNoSettings' });
-  // +0x0C is a calendar value on Neon; it cannot identify the edition.
-  else if (!neon && (u16(set, 12) === 0x016D) !== (family(edition) === 'gen3')) errors.push({ code: 'saveFamily' });
+  else if (!save.edition && !neon) {
+    // The word at +0x0C advances with the clock. Prefer the start of a whole
+    // backup, with the old heuristic only for partial saves without metadata.
+    const [gen3Start] = region(5), [olderStart] = region(1);
+    const first = [...save.pages.keys()].reduce((min, at) => Math.min(min, at), Infinity);
+    const gen3 = first === gen3Start || (first !== olderStart && u16(set, 12) === 0x016D);
+    if (first === region(8)[0] || gen3 !== (family(edition) === 'gen3'))
+      errors.push({ code: 'saveFamily' });
+  }
   let complete = true;
   for (let p = a; p < b; p += PAGE) if (!pages.has(p)) { complete = false; break; }
   if (!complete) warnings.push({ code: 'saveIncomplete' });
@@ -174,7 +191,7 @@ function paraClock(save, now = Math.floor(Date.now() / 1000)) {
 }
 
 function neonProgress(save) {
-  if (save.edition && save.edition !== 7) return null;
+  if (save.edition && save.edition !== 8) return null;
   if (!NEON_SETTINGS.every(address => save.pages.get(address)?.length === PAGE)) return null;
   const current = neonSettings(save.pages);
   if (!current) return null;
@@ -241,7 +258,8 @@ function neonProgressSet(save, changes) {
   const progress = neonProgress(save);
   if (!progress) throw new Error('the Neon settings ring is missing or damaged');
   const current = neonSettings(save.pages);
-  const page = new Uint8Array(current.page);
+  const page = new Uint8Array(current.page), pages = new Map(save.pages);
+  if (changes.id) changePetIdentity(save, pages, page, PET.neon.tama, NEON_SETTINGS, changes);
   if (changes.points !== undefined) {
     const points = changes.points;
     if (!Number.isInteger(points) || points < 0 || points > 99999) throw new Error('Tamapoints must be between 0 and 99999');
@@ -264,19 +282,25 @@ function neonProgressSet(save, changes) {
   if (current.generation === 0xFFFFFFFF) throw new Error('the Neon settings generation cannot be advanced');
   w32(page, NEON_GENERATION, current.generation + 1);
   sealSettings(page);
-  const pages = new Map(save.pages);
   pages.set(NEON_SETTINGS[(current.index + 1) % NEON_SETTINGS.length], page);
-  return { ...save, edition: 7, pages };
+  return { ...save, edition: 8, pages };
 }
 
 // ---------------------------------------------------------------- change a Paradise save (1.6.8)
 // The pet in the settings block: +4/+6 character, +0x10 sickness, +0x18 bits 2..4 stage, +0x1C hunger 0..6,
 // +0x1D happiness 0..20. Planet level: low nibble = level, high nibble = level already celebrated.
-const PET = { gen1: { tama: 0x104, level: 0x7C }, jade: { tama: 0x108, level: 0x7C }, gen3: { tama: 0x114, level: 0x88 } };
-function paraSettings(save) { for (const a of [SET_A, SET_B]) { const p = save.pages.get(a); if (p && p.length === PAGE && settingsOk(p)) return p; } return null; }
+const PET = { gen1: { tama: 0x104, level: 0x7C }, jade: { tama: 0x108, level: 0x7C }, gen3: { tama: 0x114, level: 0x88 }, neon: { tama: 0x114, level: 0x88 } };
+function paraSettings(save, edition) {
+  if (family(edition) === 'neon') return neonSettings(save.pages)?.page || null;
+  for (const a of [SET_A, SET_B]) {
+    const p = save.pages.get(a);
+    if (p && p.length === PAGE && settingsOk(p)) return p;
+  }
+  return null;
+}
 /** What the save says about the pet: { level, id, stage, hunger, happy, sick } or null. */
 function paraPet(save, edition) {
-  const p = paraSettings(save), o = PET[family(edition)]; if (!p || !o) return null;
+  const p = paraSettings(save, edition), o = PET[family(edition)]; if (!p || !o) return null;
   const t = o.tama;
   return { level: p[o.level] & 15, id: u16(p, t + 4), stage: (p[t + 0x18] >> 2) & 7, hunger: p[t + 0x1C], happy: p[t + 0x1D], sick: p[t + 0x10] };
 }
@@ -285,31 +309,43 @@ function paraPet(save, edition) {
  * into the settings block and into the pet's own file (pages with the old character in the header).
  */
 const TAMA_ANY = true;
+// Update the settings and the active Tama's own file together.
+function changePetIdentity(save, pages, p, t, sets, ch) {
+  const old = u16(p, t + 4);
+  p[t + 4] = ch.id & 255; p[t + 5] = ch.id >> 8; p[t + 6] = ch.id & 255; p[t + 7] = ch.id >> 8;
+  if (ch.stage) p[t + 0x18] = (p[t + 0x18] & ~0x1C) | ((ch.stage & 7) << 2);
+  let found = 0;
+  if (old && old !== ch.id) for (const [a, d] of save.pages) {
+    if (sets.includes(a) || d.length !== PAGE) continue;
+    // 1.7.2 TAMA_ANY: a bred Tama's file was not found (GitHub): small number at +8, character at +0x0C or +0x0E
+    if (TAMA_ANY ? (u32(d, 8) === 0 || u32(d, 8) > 255 || (u16(d, 14) !== old && u16(d, 12) !== old)) : (u32(d, 8) !== 1 || u16(d, 14) !== old)) continue;
+    const n = d.slice(); found++;
+    if (!TAMA_ANY || u16(n, 14) === old) { n[14] = ch.id & 255; n[15] = ch.id >> 8; }
+    if (u16(n, 12) === old) { n[12] = ch.id & 255; n[13] = ch.id >> 8; }
+    if (u16(n, 0x10A) === old) { n[0x10A] = ch.id & 255; n[0x10B] = ch.id >> 8; }
+    pages.set(a, n);
+  }
+  if (TAMA_ANY && old && old !== ch.id && !found) throw new Error('the Tama\'s own file is not in the save, the Tama would not change');
+}
+
 function paraPetSet(save, edition, ch) {
-  const p0 = paraSettings(save), o = PET[family(edition)];
+  const neon = family(edition) === 'neon', ring = neon ? neonSettings(save.pages) : null;
+  const p0 = neon ? ring?.page : paraSettings(save, edition), o = PET[family(edition)];
+  const sets = neon ? NEON_SETTINGS : [SET_A, SET_B];
   if (!p0 || !o) throw new Error('the save has no settings block');
   const t = o.tama, p = p0.slice(), pages = new Map(save.pages);
-  const old = u16(p, t + 4);
   if (ch.level !== undefined) { const v = Math.max(0, Math.min(10, ch.level | 0)), now = p[o.level] & 15; p[o.level] = v > now ? (p[o.level] & 0xF0) | v : (v << 4) | v; }
-  if (ch.id) {
-    p[t + 4] = ch.id & 255; p[t + 5] = ch.id >> 8; p[t + 6] = ch.id & 255; p[t + 7] = ch.id >> 8;
-    if (ch.stage) p[t + 0x18] = (p[t + 0x18] & ~0x1C) | ((ch.stage & 7) << 2);
-    let found = 0;
-    if (old && old !== ch.id) for (const [a, d] of save.pages) {
-      if (a === SET_A || a === SET_B || d.length !== PAGE) continue;
-      // 1.7.2 TAMA_ANY: a bred Tama's file was not found (GitHub): small number at +8, character at +0x0C or +0x0E
-      if (TAMA_ANY ? (u32(d, 8) === 0 || u32(d, 8) > 255 || (u16(d, 14) !== old && u16(d, 12) !== old)) : (u32(d, 8) !== 1 || u16(d, 14) !== old)) continue;
-      const n = d.slice(); found++;
-      if (!TAMA_ANY || u16(n, 14) === old) { n[14] = ch.id & 255; n[15] = ch.id >> 8; }
-      if (u16(n, 12) === old) { n[12] = ch.id & 255; n[13] = ch.id >> 8; }
-      if (u16(n, 0x10A) === old) { n[0x10A] = ch.id & 255; n[0x10B] = ch.id >> 8; }
-      pages.set(a, n);
-    }
-    if (TAMA_ANY && old && old !== ch.id && !found) throw new Error('the Tama\'s own file is not in the save, the Tama would not change');
-  }
+  if (ch.id) changePetIdentity(save, pages, p, t, sets, ch);
   if (ch.care) { p[t + 0x1C] = 6; p[t + 0x1D] = 20; p[t + 0x10] = 0; }
-  sealSettings(p);
-  pages.set(SET_A, p); pages.set(SET_B, p.slice());
+  if (neon) {
+    if (ring.generation === 0xFFFFFFFF) throw new Error('Neon settings generation exhausted');
+    w32(p, NEON_GENERATION, ring.generation + 1);
+    sealSettings(p);
+    pages.set(NEON_SETTINGS[(ring.index + 1) % NEON_SETTINGS.length], p);
+  } else {
+    sealSettings(p);
+    pages.set(SET_A, p); pages.set(SET_B, p.slice());
+  }
   return Object.assign({}, save, { pages });
 }
 
